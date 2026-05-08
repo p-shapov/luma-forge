@@ -9,7 +9,7 @@ use crate::{
         },
         provider_setup::GpuCloudProviderId as DomainGpuCloudProviderId,
     },
-    provider_setup::GpuCloudProviderId,
+    shared_contracts::provider_contracts::GpuCloudProviderId,
     workspace::workspace_contracts::{
         EndpointProfile, PlacementPlan, ProvisioningProfile, WorkflowCatalog, Workspace,
         WorkspaceCatalog,

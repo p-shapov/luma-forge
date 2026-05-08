@@ -9,8 +9,8 @@ use crate::{
     domain::provider_setup::{
         GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey, ProviderIdentity,
     },
-    provider_setup::GpuCloudProviderId,
-    secrets::SecretStore,
+    secrets::{SecretStore, SecretStoreError},
+    shared_contracts::provider_contracts::GpuCloudProviderId,
 };
 
 use super::*;
@@ -48,9 +48,9 @@ impl SecretStore for MemorySecretStore {
     fn read_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
-    ) -> Result<Option<ProviderApiKey>, ProviderSetupError> {
+    ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
         if self.fail_read {
-            return Err(ProviderSetupError::SecureKeyringUnavailable);
+            return Err(SecretStoreError::SecureKeyringUnavailable);
         }
 
         self.key
@@ -59,16 +59,16 @@ impl SecretStore for MemorySecretStore {
             .clone()
             .map(ProviderApiKey::new)
             .transpose()
-            .map_err(|_| ProviderSetupError::InvalidProviderApiKey)
+            .map_err(|_| SecretStoreError::InvalidStoredProviderApiKey)
     }
 
     fn replace_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
         api_key: &ProviderApiKey,
-    ) -> Result<(), ProviderSetupError> {
+    ) -> Result<(), SecretStoreError> {
         if self.fail_replace {
-            return Err(ProviderSetupError::SecureKeyringUnavailable);
+            return Err(SecretStoreError::SecureKeyringUnavailable);
         }
 
         *self.key.lock().expect("memory store lock") = Some(api_key.expose_secret().to_string());
@@ -78,9 +78,9 @@ impl SecretStore for MemorySecretStore {
     fn delete_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
-    ) -> Result<(), ProviderSetupError> {
+    ) -> Result<(), SecretStoreError> {
         if self.fail_delete {
-            return Err(ProviderSetupError::SecureKeyringUnavailable);
+            return Err(SecretStoreError::SecureKeyringUnavailable);
         }
 
         *self.key.lock().expect("memory store lock") = None;

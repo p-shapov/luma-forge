@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::secrets::SecretStoreError;
+
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ProviderSetupError {
     #[error("provider setup is incomplete")]
@@ -14,4 +16,13 @@ pub enum ProviderSetupError {
     ProviderIdentityUnavailable,
     #[error("secure keyring unavailable")]
     SecureKeyringUnavailable,
+}
+
+impl From<SecretStoreError> for ProviderSetupError {
+    fn from(error: SecretStoreError) -> Self {
+        match error {
+            SecretStoreError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
+            SecretStoreError::InvalidStoredProviderApiKey => Self::InvalidProviderApiKey,
+        }
+    }
 }

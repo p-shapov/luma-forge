@@ -3,7 +3,7 @@ use std::{future::Future, path::Path, pin::Pin};
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 
 use crate::{
-    provider_setup::GpuCloudProviderId,
+    shared_contracts::provider_contracts::GpuCloudProviderId,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
         workspace_contracts::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},

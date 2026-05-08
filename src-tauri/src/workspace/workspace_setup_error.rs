@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::provider_setup::ProviderSetupError;
+use crate::secrets::SecretStoreError;
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum WorkspaceSetupError {
@@ -26,15 +26,11 @@ pub enum WorkspaceSetupError {
     InvalidRequest,
 }
 
-impl From<ProviderSetupError> for WorkspaceSetupError {
-    fn from(error: ProviderSetupError) -> Self {
+impl From<SecretStoreError> for WorkspaceSetupError {
+    fn from(error: SecretStoreError) -> Self {
         match error {
-            ProviderSetupError::ProviderSetupIncomplete => Self::ProviderSetupIncomplete,
-            ProviderSetupError::InvalidProviderApiKey => Self::InvalidProviderApiKey,
-            ProviderSetupError::ProviderApiUnavailable
-            | ProviderSetupError::ProviderIdentityUnavailable => Self::ProviderApiUnavailable,
-            ProviderSetupError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
-            ProviderSetupError::ProviderSetupAlreadyExists => Self::InvalidRequest,
+            SecretStoreError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
+            SecretStoreError::InvalidStoredProviderApiKey => Self::InvalidProviderApiKey,
         }
     }
 }

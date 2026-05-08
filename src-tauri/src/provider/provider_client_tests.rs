@@ -4,8 +4,7 @@ use crate::{
         provider_client_error::ProviderClientError,
         provider_client_registry::ProviderClientRegistry, runpod::RunPodClient,
     },
-    provider_setup::ProviderSetupError,
-    secrets::SecretStore,
+    secrets::{SecretStore, SecretStoreError},
     workspace::{
         workspace_setup_error::WorkspaceSetupError,
         workspace_setup_service::ProviderInventoryGateway,
@@ -21,7 +20,7 @@ impl SecretStore for EmptySecretStore {
     fn read_api_key(
         &self,
         _provider_id: &GpuCloudProviderId,
-    ) -> Result<Option<ProviderApiKey>, ProviderSetupError> {
+    ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
         Ok(None)
     }
 
@@ -29,11 +28,11 @@ impl SecretStore for EmptySecretStore {
         &self,
         _provider_id: &GpuCloudProviderId,
         _api_key: &ProviderApiKey,
-    ) -> Result<(), ProviderSetupError> {
+    ) -> Result<(), SecretStoreError> {
         unimplemented!("provider registry tests do not write secrets")
     }
 
-    fn delete_api_key(&self, _provider_id: &GpuCloudProviderId) -> Result<(), ProviderSetupError> {
+    fn delete_api_key(&self, _provider_id: &GpuCloudProviderId) -> Result<(), SecretStoreError> {
         unimplemented!("provider registry tests do not delete secrets")
     }
 }

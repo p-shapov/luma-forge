@@ -20,7 +20,7 @@ use crate::{
         },
     },
     provider::runpod::{RunPodEndpointProfileConfig, RunPodProvisioningProfileConfig},
-    provider_setup::GpuCloudProviderId,
+    shared_contracts::provider_contracts::GpuCloudProviderId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

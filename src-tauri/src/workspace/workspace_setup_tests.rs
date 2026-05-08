@@ -10,9 +10,8 @@ use crate::{
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
     },
-    provider_setup::GpuCloudProviderId,
-    provider_setup::ProviderSetupError,
-    secrets::SecretStore,
+    secrets::{SecretStore, SecretStoreError},
+    shared_contracts::provider_contracts::GpuCloudProviderId,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
         workspace_contracts::{
@@ -48,28 +47,28 @@ impl SecretStore for MemorySecretStore {
     fn read_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
-    ) -> Result<Option<ProviderApiKey>, ProviderSetupError> {
+    ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
         self.key
             .lock()
             .expect("secret lock")
             .clone()
             .map(ProviderApiKey::new)
             .transpose()
-            .map_err(|_| ProviderSetupError::InvalidProviderApiKey)
+            .map_err(|_| SecretStoreError::InvalidStoredProviderApiKey)
     }
 
     fn replace_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
         _api_key: &ProviderApiKey,
-    ) -> Result<(), ProviderSetupError> {
+    ) -> Result<(), SecretStoreError> {
         unimplemented!("workspace setup tests do not replace secrets")
     }
 
     fn delete_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
-    ) -> Result<(), ProviderSetupError> {
+    ) -> Result<(), SecretStoreError> {
         unimplemented!("workspace setup tests do not delete secrets")
     }
 }
