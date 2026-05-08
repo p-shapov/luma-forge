@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::{
     domain::{provider_inventory::ProviderInventory, provider_setup::ProviderApiKey},
     provider::{
@@ -12,6 +14,8 @@ use crate::{
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
+const RUNPOD_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const RUNPOD_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const IDENTITY_QUERY: &str = r#"
 query LumaForgeProviderIdentity {
   myself {
@@ -48,14 +52,31 @@ pub struct RunPodClient {
 
 impl Default for RunPodClient {
     fn default() -> Self {
-        Self {
-            http: reqwest::Client::new(),
-            endpoint: RUNPOD_GRAPHQL_ENDPOINT.to_string(),
-        }
+        Self::new(
+            RUNPOD_GRAPHQL_ENDPOINT.to_string(),
+            RUNPOD_CONNECT_TIMEOUT,
+            RUNPOD_REQUEST_TIMEOUT,
+        )
     }
 }
 
 impl RunPodClient {
+    fn new(endpoint: String, connect_timeout: Duration, request_timeout: Duration) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .connect_timeout(connect_timeout)
+                .timeout(request_timeout)
+                .build()
+                .expect("RunPod HTTP client should build"),
+            endpoint,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_for_test(endpoint: String, request_timeout: Duration) -> Self {
+        Self::new(endpoint, request_timeout, request_timeout)
+    }
+
     pub async fn validate_identity(
         &self,
         api_key: &ProviderApiKey,

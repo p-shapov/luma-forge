@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use serde_json::json;
 
 use crate::{
@@ -5,7 +7,7 @@ use crate::{
     provider::{
         provider_client_error::ProviderClientError,
         runpod::{
-            runpod_client::provider_error_from_inventory_status,
+            runpod_client::{provider_error_from_inventory_status, RunPodClient},
             runpod_contracts::{GraphQlResponse, RunPodIdentityData, RunPodInventoryData},
             runpod_mapper::{identity_from_graphql_response, inventory_from_graphql_response},
         },
@@ -117,6 +119,38 @@ fn maps_auth_graphql_errors_to_invalid_key() {
     .expect_err("auth errors should fail");
 
     assert_eq!(error, ProviderClientError::Unauthorized);
+}
+
+#[tokio::test]
+async fn identity_request_timeout_maps_to_api_unavailable() {
+    let client = RunPodClient::new_for_test(
+        "http://192.0.2.1/graphql".to_string(),
+        Duration::from_millis(50),
+    );
+    let api_key = ProviderApiKey::new("rp_123_secret".to_string()).expect("valid api key");
+
+    let error = tokio::time::timeout(Duration::from_secs(2), client.validate_identity(&api_key))
+        .await
+        .expect("request should be bounded")
+        .expect_err("transport failure should fail identity validation");
+
+    assert_eq!(error, ProviderClientError::ApiUnavailable);
+}
+
+#[tokio::test]
+async fn inventory_request_timeout_maps_to_api_unavailable() {
+    let client = RunPodClient::new_for_test(
+        "http://192.0.2.1/graphql".to_string(),
+        Duration::from_millis(50),
+    );
+    let api_key = ProviderApiKey::new("rp_123_secret".to_string()).expect("valid api key");
+
+    let error = tokio::time::timeout(Duration::from_secs(2), client.fetch_inventory(&api_key))
+        .await
+        .expect("request should be bounded")
+        .expect_err("transport failure should fail inventory fetch");
+
+    assert_eq!(error, ProviderClientError::ApiUnavailable);
 }
 
 #[test]

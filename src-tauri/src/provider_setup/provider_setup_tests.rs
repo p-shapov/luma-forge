@@ -91,13 +91,19 @@ impl SecretStore for MemorySecretStore {
 #[derive(Debug, Clone)]
 struct FakeProviderGateway {
     responses: HashMap<String, Result<ProviderIdentity, ProviderSetupError>>,
+    validation_count: Arc<Mutex<usize>>,
 }
 
 impl FakeProviderGateway {
     fn with_response(key: &str, response: Result<ProviderIdentity, ProviderSetupError>) -> Self {
         Self {
             responses: HashMap::from([(key.to_string(), response)]),
+            validation_count: Arc::new(Mutex::new(0)),
         }
+    }
+
+    fn validation_count(&self) -> usize {
+        *self.validation_count.lock().expect("validation count lock")
     }
 }
 
@@ -109,6 +115,8 @@ impl ProviderIdentityGateway for FakeProviderGateway {
     ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>
     {
         Box::pin(async move {
+            *self.validation_count.lock().expect("validation count lock") += 1;
+
             self.responses
                 .get(api_key.expose_secret())
                 .cloned()
@@ -227,6 +235,30 @@ async fn setup_stores_new_key_after_validation() {
         "new"
     );
     assert_eq!(store.stored_key(), Some("new-key".to_string()));
+}
+
+#[tokio::test]
+async fn setup_does_not_revalidate_after_storing_key() {
+    let store = MemorySecretStore::empty();
+    let providers = FakeProviderGateway::with_response("new-key", Ok(identity("new")));
+    let service = ProviderSetupService::new(store.clone(), providers.clone());
+
+    let response = service
+        .setup(SetupGpuCloudProviderRequest {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            provider_api_key: "new-key".to_string(),
+        })
+        .await
+        .expect("valid setup should succeed");
+
+    assert_eq!(
+        response
+            .gpu_cloud_provider_setup
+            .provider_api_key_fingerprint,
+        "new"
+    );
+    assert_eq!(store.stored_key(), Some("new-key".to_string()));
+    assert_eq!(providers.validation_count(), 1);
 }
 
 #[tokio::test]

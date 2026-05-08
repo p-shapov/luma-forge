@@ -69,14 +69,13 @@ where
         let api_key = ProviderApiKey::new(request.provider_api_key)
             .map_err(|_| ProviderSetupError::InvalidProviderApiKey)?;
 
-        self.setup_from_key(&provider_id, &api_key).await?;
+        let identity = self
+            .providers
+            .validate_identity(&provider_id, &api_key)
+            .await?;
         self.secrets.replace_api_key(&provider_id, &api_key)?;
 
-        let stored_key = self
-            .secrets
-            .read_api_key(&provider_id)?
-            .ok_or(ProviderSetupError::ProviderSetupIncomplete)?;
-        let setup = self.setup_from_key(&provider_id, &stored_key).await?;
+        let setup = Self::setup_from_identity(provider_id, identity);
 
         Ok(SetupGpuCloudProviderResponse {
             gpu_cloud_provider_setup: setup,
@@ -109,12 +108,19 @@ where
             .validate_identity(provider_id, api_key)
             .await?;
 
-        Ok(DomainGpuCloudProviderSetup {
-            gpu_cloud_provider_id: *provider_id,
+        Ok(Self::setup_from_identity(*provider_id, identity))
+    }
+
+    fn setup_from_identity(
+        provider_id: DomainGpuCloudProviderId,
+        identity: ProviderIdentity,
+    ) -> GpuCloudProviderSetup {
+        DomainGpuCloudProviderSetup {
+            gpu_cloud_provider_id: provider_id,
             provider_user_email: identity.provider_user_email,
             provider_api_key_fingerprint: identity.provider_api_key_fingerprint,
         }
-        .into())
+        .into()
     }
 }
 
