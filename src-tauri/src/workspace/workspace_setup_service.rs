@@ -1,162 +1,36 @@
 use std::{future::Future, pin::Pin};
 
-use serde::{Deserialize, Serialize};
-use specta::Type;
-use thiserror::Error;
-
 use crate::{
-    bundled::{
-        bundled_catalog::CatalogReader,
-        bundled_contracts::{EndpointProfile, ProvisioningProfile},
-    },
+    bundled::bundled_catalog_contracts::{EndpointProfile, ProvisioningProfile},
     domain::{
         provider_inventory::ProviderInventory, provider_setup::GpuCloudProviderId,
         workflow::WorkflowCatalog, workspace::WorkspaceLifecycleState,
     },
-    provider_setup::{NativeCommandError, NativeCommandErrorCode, ProviderSetupError},
     secrets::SecretStore,
     workspace::{
-        workspace_catalog::WorkspaceCatalogRepository,
-        workspace_contracts::{PlacementPlan, Workspace, WorkspaceCatalog},
+        workspace_catalog_repository::WorkspaceCatalogRepository,
+        workspace_contracts::{PlacementPlan, Workspace},
+        workspace_setup_contracts::{
+            CreateWorkspaceRequest, CreateWorkspaceResponse, GetEndpointProfilesResponse,
+            GetProviderInventoryRequest, GetProviderInventoryResponse,
+            GetProvisioningProfilesResponse, GetWorkflowCatalogResponse,
+            GetWorkspaceCatalogResponse,
+        },
+        workspace_setup_error::WorkspaceSetupError,
     },
 };
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetWorkflowCatalogResponse {
-    pub workflow_catalog: WorkflowCatalog,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetProvisioningProfilesResponse {
-    pub provisioning_profiles: Vec<ProvisioningProfile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetEndpointProfilesResponse {
-    pub endpoint_profiles: Vec<EndpointProfile>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetProviderInventoryRequest {
-    pub gpu_cloud_provider_id: GpuCloudProviderId,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetProviderInventoryResponse {
-    pub provider_inventory: ProviderInventory,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetWorkspaceCatalogResponse {
-    pub workspace_catalog: WorkspaceCatalog,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct CreateWorkspaceRequest {
-    pub workspace_id: String,
-    pub name: String,
-    pub gpu_cloud_provider_id: GpuCloudProviderId,
-    pub placement_plan: PlacementPlan,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct CreateWorkspaceResponse {
-    pub workspace: Workspace,
-}
-
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
-pub enum WorkspaceSetupError {
-    #[error("provider setup is incomplete")]
-    ProviderSetupIncomplete,
-    #[error("provider api unavailable")]
-    ProviderApiUnavailable,
-    #[error("secure keyring unavailable")]
-    SecureKeyringUnavailable,
-    #[error("workflow catalog unavailable")]
-    WorkflowCatalogUnavailable,
-    #[error("workspace catalog unavailable")]
-    WorkspaceCatalogUnavailable,
-    #[error("local storage unavailable")]
-    LocalStorageUnavailable,
-    #[error("invalid placement plan")]
-    InvalidPlacementPlan,
-    #[error("workspace already exists")]
-    WorkspaceAlreadyExists,
-    #[error("invalid request")]
-    InvalidRequest,
-}
-
-impl WorkspaceSetupError {
-    pub fn code(&self) -> NativeCommandErrorCode {
-        match self {
-            Self::ProviderSetupIncomplete => NativeCommandErrorCode::ProviderSetupIncomplete,
-            Self::ProviderApiUnavailable => NativeCommandErrorCode::ProviderApiUnavailable,
-            Self::SecureKeyringUnavailable => NativeCommandErrorCode::SecureKeyringUnavailable,
-            Self::WorkflowCatalogUnavailable => NativeCommandErrorCode::WorkflowCatalogUnavailable,
-            Self::WorkspaceCatalogUnavailable => {
-                NativeCommandErrorCode::WorkspaceCatalogUnavailable
-            }
-            Self::LocalStorageUnavailable => NativeCommandErrorCode::LocalStorageUnavailable,
-            Self::InvalidPlacementPlan => NativeCommandErrorCode::InvalidPlacementPlan,
-            Self::WorkspaceAlreadyExists => NativeCommandErrorCode::WorkspaceAlreadyExists,
-            Self::InvalidRequest => NativeCommandErrorCode::InvalidRequest,
-        }
-    }
-
-    pub fn retryable(&self) -> bool {
-        matches!(
-            self,
-            Self::ProviderApiUnavailable
-                | Self::SecureKeyringUnavailable
-                | Self::WorkspaceCatalogUnavailable
-                | Self::LocalStorageUnavailable
-        )
-    }
-
-    pub fn ui_message(&self) -> &'static str {
-        match self {
-            Self::ProviderSetupIncomplete => "GPU cloud provider setup is incomplete.",
-            Self::ProviderApiUnavailable => "Provider API is unavailable.",
-            Self::SecureKeyringUnavailable => "Secure keyring is unavailable.",
-            Self::WorkflowCatalogUnavailable => "Workflow catalog is unavailable.",
-            Self::WorkspaceCatalogUnavailable => "Workspace catalog is unavailable.",
-            Self::LocalStorageUnavailable => "Local storage is unavailable.",
-            Self::InvalidPlacementPlan => "Placement plan is invalid.",
-            Self::WorkspaceAlreadyExists => "Workspace already exists.",
-            Self::InvalidRequest => "Request is invalid.",
-        }
-    }
-}
-
-impl From<WorkspaceSetupError> for NativeCommandError {
-    fn from(error: WorkspaceSetupError) -> Self {
-        Self {
-            code: error.code(),
-            message: error.ui_message().to_string(),
-            retryable: error.retryable(),
-        }
-    }
-}
-
-impl From<ProviderSetupError> for WorkspaceSetupError {
-    fn from(error: ProviderSetupError) -> Self {
-        match error {
-            ProviderSetupError::ProviderSetupIncomplete => Self::ProviderSetupIncomplete,
-            ProviderSetupError::ProviderApiUnavailable
-            | ProviderSetupError::InvalidProviderApiKey
-            | ProviderSetupError::ProviderIdentityUnavailable => Self::ProviderApiUnavailable,
-            ProviderSetupError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
-            ProviderSetupError::ProviderSetupAlreadyExists => Self::InvalidRequest,
-        }
-    }
-}
 
 pub trait ProviderInventoryGateway: Send + Sync {
     fn fetch_inventory<'a>(
         &'a self,
         provider_id: &'a GpuCloudProviderId,
-        api_key: &'a crate::domain::provider_setup::ProviderApiKey,
     ) -> Pin<Box<dyn Future<Output = Result<ProviderInventory, WorkspaceSetupError>> + Send + 'a>>;
+}
+
+pub trait WorkspaceSetupCatalogReader: Send + Sync {
+    fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError>;
+    fn provisioning_profiles(&self) -> Result<Vec<ProvisioningProfile>, WorkspaceSetupError>;
+    fn endpoint_profiles(&self) -> Result<Vec<EndpointProfile>, WorkspaceSetupError>;
 }
 
 pub struct WorkspaceSetupService<C, S, P, W> {
@@ -179,7 +53,7 @@ impl<C, S, P, W> WorkspaceSetupService<C, S, P, W> {
 
 impl<C, S, P, W> WorkspaceSetupService<C, S, P, W>
 where
-    C: CatalogReader,
+    C: WorkspaceSetupCatalogReader,
     S: SecretStore,
     P: ProviderInventoryGateway,
     W: WorkspaceCatalogRepository,
@@ -211,14 +85,7 @@ where
         request: GetProviderInventoryRequest,
     ) -> Result<GetProviderInventoryResponse, WorkspaceSetupError> {
         let provider_id = request.gpu_cloud_provider_id;
-        let api_key = self
-            .secrets
-            .read_api_key(&provider_id)?
-            .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
-        let provider_inventory = self
-            .providers
-            .fetch_inventory(&provider_id, &api_key)
-            .await?;
+        let provider_inventory = self.providers.fetch_inventory(&provider_id).await?;
 
         Ok(GetProviderInventoryResponse { provider_inventory })
     }

@@ -27,8 +27,14 @@ pub struct KeyringSecretStore;
 
 impl KeyringSecretStore {
     fn entry(provider_id: &GpuCloudProviderId) -> Result<Entry, ProviderSetupError> {
-        Entry::new(KEYRING_SERVICE, provider_id.keyring_account())
+        Entry::new(KEYRING_SERVICE, keyring_account(provider_id))
             .map_err(|_| ProviderSetupError::SecureKeyringUnavailable)
+    }
+}
+
+fn keyring_account(provider_id: &GpuCloudProviderId) -> &'static str {
+    match provider_id {
+        GpuCloudProviderId::Runpod => "runpod",
     }
 }
 
@@ -38,7 +44,9 @@ impl SecretStore for KeyringSecretStore {
         provider_id: &GpuCloudProviderId,
     ) -> Result<Option<ProviderApiKey>, ProviderSetupError> {
         match Self::entry(provider_id)?.get_password() {
-            Ok(api_key) => ProviderApiKey::new(api_key).map(Some),
+            Ok(api_key) => ProviderApiKey::new(api_key)
+                .map(Some)
+                .map_err(|_| ProviderSetupError::InvalidProviderApiKey),
             Err(KeyringError::NoEntry) => Ok(None),
             Err(_) => Err(ProviderSetupError::SecureKeyringUnavailable),
         }

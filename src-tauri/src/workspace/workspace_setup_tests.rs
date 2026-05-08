@@ -6,8 +6,7 @@ use std::{
 
 use crate::{
     bundled::{
-        bundled_catalog::{BundledCatalogReader, CatalogReader},
-        bundled_contracts::EndpointProfile,
+        bundled_catalog_contracts::EndpointProfile, bundled_catalog_reader::BundledCatalogReader,
     },
     domain::{
         provider_inventory::ProviderInventory,
@@ -18,8 +17,9 @@ use crate::{
     provider_setup::ProviderSetupError,
     secrets::SecretStore,
     workspace::{
-        workspace_catalog::WorkspaceCatalogRepository,
+        workspace_catalog_repository::WorkspaceCatalogRepository,
         workspace_contracts::{PlacementPlan, Workspace, WorkspaceCatalog},
+        workspace_setup_contracts::{CreateWorkspaceRequest, GetProviderInventoryRequest},
     },
 };
 
@@ -55,6 +55,7 @@ impl SecretStore for MemorySecretStore {
             .clone()
             .map(ProviderApiKey::new)
             .transpose()
+            .map_err(|_| ProviderSetupError::InvalidProviderApiKey)
     }
 
     fn replace_api_key(
@@ -73,16 +74,19 @@ impl SecretStore for MemorySecretStore {
 #[derive(Debug, Clone, Default)]
 struct MemoryProvider {
     fail: bool,
+    setup_missing: bool,
 }
 
 impl ProviderInventoryGateway for MemoryProvider {
     fn fetch_inventory<'a>(
         &'a self,
         provider_id: &'a GpuCloudProviderId,
-        _api_key: &'a ProviderApiKey,
     ) -> Pin<Box<dyn Future<Output = Result<ProviderInventory, WorkspaceSetupError>> + Send + 'a>>
     {
         Box::pin(async move {
+            if self.setup_missing {
+                return Err(WorkspaceSetupError::ProviderSetupIncomplete);
+            }
             if self.fail {
                 return Err(WorkspaceSetupError::ProviderApiUnavailable);
             }
@@ -216,8 +220,13 @@ fn returns_catalogs() {
 
 #[tokio::test]
 async fn rejects_inventory_when_setup_is_missing() {
-    let service = service(
+    let service = WorkspaceSetupService::new(
+        BundledCatalogReader,
         MemorySecretStore::empty(),
+        MemoryProvider {
+            setup_missing: true,
+            ..Default::default()
+        },
         MemoryWorkspaceCatalog::default(),
     );
 
@@ -236,7 +245,10 @@ async fn maps_provider_inventory_failure() {
     let service = WorkspaceSetupService::new(
         BundledCatalogReader,
         MemorySecretStore::with_key("rp_123_secret"),
-        MemoryProvider { fail: true },
+        MemoryProvider {
+            fail: true,
+            ..Default::default()
+        },
         MemoryWorkspaceCatalog::default(),
     );
 

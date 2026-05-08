@@ -2,20 +2,10 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::provider_setup::ProviderSetupError;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum GpuCloudProviderId {
     Runpod,
-}
-
-impl GpuCloudProviderId {
-    pub fn keyring_account(&self) -> &'static str {
-        match self {
-            Self::Runpod => "runpod",
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -28,6 +18,9 @@ pub struct GpuCloudProviderSetup {
 #[derive(Clone)]
 pub struct ProviderApiKey(SecretString);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderApiKeyError;
+
 impl std::fmt::Debug for ProviderApiKey {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("ProviderApiKey([REDACTED])")
@@ -35,9 +28,9 @@ impl std::fmt::Debug for ProviderApiKey {
 }
 
 impl ProviderApiKey {
-    pub fn new(value: String) -> Result<Self, ProviderSetupError> {
+    pub fn new(value: String) -> Result<Self, ProviderApiKeyError> {
         if value.trim().is_empty() {
-            return Err(ProviderSetupError::InvalidProviderApiKey);
+            return Err(ProviderApiKeyError);
         }
 
         Ok(Self(SecretString::from(value)))

@@ -1,4 +1,6 @@
-use crate::workspace::workspace_setup::workspace_setup_tests::sample_workspace;
+use crate::workspace::workspace_setup_service::workspace_setup_tests::sample_workspace;
+
+use sqlx::Row;
 
 use super::*;
 
@@ -25,6 +27,31 @@ async fn inserts_and_rereads_workspace() {
     assert_eq!(
         catalog.list_workspaces().await.expect("list").workspaces,
         vec![workspace]
+    );
+}
+
+#[tokio::test]
+async fn stores_provider_id_column_from_workspace() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    let row =
+        sqlx::query("SELECT gpu_cloud_provider_id, workspace_json FROM workspaces WHERE id = ?")
+            .bind(&workspace.id)
+            .fetch_one(&catalog.pool)
+            .await
+            .expect("provider id row");
+    let provider_id: String = row.try_get("gpu_cloud_provider_id").expect("provider id");
+    let workspace_json: String = row.try_get("workspace_json").expect("workspace json");
+    let stored_workspace: Workspace =
+        serde_json::from_str(&workspace_json).expect("workspace json should decode");
+
+    assert_eq!(provider_id, "runpod");
+    assert_eq!(
+        stored_workspace.gpu_cloud_provider_id,
+        workspace.gpu_cloud_provider_id
     );
 }
 

@@ -3,46 +3,17 @@ use std::{future::Future, path::Path, pin::Pin};
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 
 use crate::{
-    domain::workspace::WorkspaceLifecycleState,
+    domain::{provider_setup::GpuCloudProviderId, workspace::WorkspaceLifecycleState},
     workspace::{
+        workspace_catalog_repository::WorkspaceCatalogRepository,
         workspace_contracts::{Workspace, WorkspaceCatalog},
-        workspace_setup::WorkspaceSetupError,
+        workspace_setup_error::WorkspaceSetupError,
     },
 };
-
-pub trait WorkspaceCatalogRepository: Send + Sync {
-    fn list_workspaces<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>;
-
-    fn insert_workspace<'a>(
-        &'a self,
-        workspace: &'a Workspace,
-    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>>;
-}
 
 #[derive(Debug, Clone)]
 pub struct SqliteWorkspaceCatalog {
     pool: SqlitePool,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UnavailableWorkspaceCatalog;
-
-impl WorkspaceCatalogRepository for UnavailableWorkspaceCatalog {
-    fn list_workspaces<'a>(
-        &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>
-    {
-        Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
-    }
-
-    fn insert_workspace<'a>(
-        &'a self,
-        _workspace: &'a Workspace,
-    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
-        Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
-    }
 }
 
 impl SqliteWorkspaceCatalog {
@@ -188,7 +159,9 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             )
             .bind(&workspace.id)
             .bind(&workspace.name)
-            .bind("runpod")
+            .bind(gpu_cloud_provider_id_value(
+                &workspace.gpu_cloud_provider_id,
+            ))
             .bind(lifecycle_state)
             .bind(&workspace.placement_plan.selected_workflow_preset.id)
             .bind(&now)
@@ -208,6 +181,12 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 .await?
                 .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)
         })
+    }
+}
+
+fn gpu_cloud_provider_id_value(provider_id: &GpuCloudProviderId) -> &'static str {
+    match provider_id {
+        GpuCloudProviderId::Runpod => "runpod",
     }
 }
 

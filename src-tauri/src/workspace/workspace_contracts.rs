@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    bundled::bundled_contracts::{
+    bundled::bundled_catalog_contracts::{
         EndpointProfile, ProvisioningProfile, RunPodEndpointProfileConfig,
         RunPodProvisioningProfileConfig,
     },
