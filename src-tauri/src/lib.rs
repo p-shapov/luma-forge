@@ -1,8 +1,10 @@
+mod bundled;
 mod commands;
 mod domain;
 mod provider;
 mod provider_setup;
 mod secrets;
+mod workspace;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

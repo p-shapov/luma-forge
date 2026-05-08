@@ -1,0 +1,32 @@
+[
+  {
+    "gpu_cloud_provider_id": "runpod",
+    "id": "runpod-comfyui-t2i-endpoint-v1",
+    "version": "1.0.0",
+    "name": "RunPod ComfyUI Text to Image Endpoint",
+    "workflow_execution_type": "t2i",
+    "endpoint_worker_runtime": {
+      "endpoint_worker_version": "1.0.0",
+      "docker_image": {
+        "docker_image_ref": "ghcr.io/luma-forge/endpoint-worker:1.0.0",
+        "docker_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "http_port": 8188,
+      "health_path": "/health",
+      "invoke_path": "/prompt"
+    },
+    "gpu_cloud_provider_config": {
+      "endpoint_template_id": null,
+      "container_disk_bytes": 21474836480,
+      "volume_mount_path": "/workspace",
+      "env": {},
+      "scaling": {
+        "min_workers": 0,
+        "max_workers": 1,
+        "idle_timeout_seconds": 300,
+        "scaler_type": "queue_delay",
+        "scaler_value": 4
+      }
+    }
+  }
+]

@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::provider_setup::{ProviderApiKey, ProviderIdentity},
+    domain::{
+        provider_inventory::{Datacenter, GpuOption, ProviderInventory},
+        provider_setup::{GpuCloudProviderId, ProviderApiKey, ProviderIdentity},
+    },
     provider_setup::ProviderSetupError,
+    workspace::workspace_setup::WorkspaceSetupError,
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
@@ -13,6 +17,22 @@ query LumaForgeProviderIdentity {
     apiKeys {
       id
       isActive
+    }
+  }
+}
+"#;
+const INVENTORY_QUERY: &str = r#"
+query LumaForgeProviderInventory {
+  dataCenters {
+    id
+    name
+    gpuAvailability {
+      stockStatus
+      gpuType {
+        id
+        displayName
+        memoryInGb
+      }
     }
   }
 }
@@ -64,6 +84,33 @@ impl RunPodClient {
 
         identity_from_graphql_response(api_key, payload)
     }
+
+    pub async fn fetch_inventory(
+        &self,
+        api_key: &ProviderApiKey,
+    ) -> Result<ProviderInventory, WorkspaceSetupError> {
+        let response = self
+            .http
+            .post(&self.endpoint)
+            .bearer_auth(api_key.expose_secret())
+            .json(&GraphQlRequest {
+                query: INVENTORY_QUERY,
+            })
+            .send()
+            .await
+            .map_err(|_| WorkspaceSetupError::ProviderApiUnavailable)?;
+
+        if !response.status().is_success() {
+            return Err(WorkspaceSetupError::ProviderApiUnavailable);
+        }
+
+        let payload = response
+            .json::<GraphQlResponse<RunPodInventoryData>>()
+            .await
+            .map_err(|_| WorkspaceSetupError::ProviderApiUnavailable)?;
+
+        inventory_from_graphql_response(payload)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -99,6 +146,37 @@ struct RunPodApiKey {
     id: Option<String>,
     #[serde(rename = "isActive")]
     is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunPodInventoryData {
+    #[serde(rename = "dataCenters")]
+    data_centers: Option<Vec<RunPodInventoryDatacenter>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunPodInventoryDatacenter {
+    id: Option<String>,
+    name: Option<String>,
+    #[serde(rename = "gpuAvailability")]
+    gpu_availability: Option<Vec<RunPodGpuAvailability>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunPodGpuAvailability {
+    #[serde(rename = "stockStatus")]
+    stock_status: Option<String>,
+    #[serde(rename = "gpuType")]
+    gpu_type: Option<RunPodGpuType>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunPodGpuType {
+    id: Option<String>,
+    #[serde(rename = "displayName")]
+    display_name: Option<String>,
+    #[serde(rename = "memoryInGb")]
+    memory_in_gb: Option<u64>,
 }
 
 fn identity_from_graphql_response(
@@ -172,6 +250,77 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> ProviderSetupError {
     } else {
         ProviderSetupError::ProviderApiUnavailable
     }
+}
+
+fn inventory_from_graphql_response(
+    payload: GraphQlResponse<RunPodInventoryData>,
+) -> Result<ProviderInventory, WorkspaceSetupError> {
+    if payload.errors.is_some_and(|errors| !errors.is_empty()) {
+        return Err(WorkspaceSetupError::ProviderApiUnavailable);
+    }
+
+    let data_centers = payload
+        .data
+        .and_then(|data| data.data_centers)
+        .ok_or(WorkspaceSetupError::ProviderApiUnavailable)?;
+
+    let mut datacenters = Vec::new();
+    for data_center in data_centers {
+        let id = data_center
+            .id
+            .filter(|id| !id.is_empty())
+            .ok_or(WorkspaceSetupError::ProviderApiUnavailable)?;
+        let name = data_center.name.unwrap_or_else(|| id.clone());
+        let gpu_options = data_center
+            .gpu_availability
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(gpu_option_from_availability)
+            .collect();
+
+        datacenters.push(Datacenter {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            id,
+            name,
+            gpu_options,
+        });
+    }
+
+    let fetched_at = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| WorkspaceSetupError::ProviderApiUnavailable)?;
+
+    Ok(ProviderInventory {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        fetched_at,
+        max_persistent_storage_volume_size_bytes: None,
+        datacenters,
+    })
+}
+
+fn gpu_option_from_availability(availability: RunPodGpuAvailability) -> Option<GpuOption> {
+    let gpu_type = availability.gpu_type?;
+    let id = gpu_type.id?;
+    if id.is_empty() {
+        return None;
+    }
+
+    let name = gpu_type.display_name.unwrap_or_else(|| id.clone());
+    let vram_bytes = gpu_type.memory_in_gb.unwrap_or_default() * 1024 * 1024 * 1024;
+    let availability_score = match availability.stock_status.as_deref() {
+        Some("High") | Some("HIGH") | Some("Available") | Some("AVAILABLE") => 100,
+        Some("Medium") | Some("MEDIUM") => 60,
+        Some("Low") | Some("LOW") => 25,
+        _ => 0,
+    };
+
+    Some(GpuOption {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        id,
+        name,
+        vram_bytes,
+        availability_score,
+    })
 }
 
 #[cfg(test)]
@@ -285,5 +434,42 @@ mod tests {
         .expect_err("auth errors should fail");
 
         assert_eq!(error, ProviderSetupError::InvalidProviderApiKey);
+    }
+
+    #[test]
+    fn parses_inventory_response() {
+        let response: GraphQlResponse<RunPodInventoryData> = serde_json::from_value(json!({
+            "data": {
+                "dataCenters": [
+                    {
+                        "id": "EU-RO-1",
+                        "name": "EU RO 1",
+                        "gpuAvailability": [
+                            {
+                                "stockStatus": "High",
+                                "gpuType": {
+                                    "id": "NVIDIA RTX 4090",
+                                    "displayName": "RTX 4090",
+                                    "memoryInGb": 24
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        }))
+        .expect("inventory should parse");
+
+        let inventory = inventory_from_graphql_response(response).expect("inventory should map");
+
+        assert_eq!(inventory.datacenters.len(), 1);
+        assert_eq!(
+            inventory.datacenters[0].gpu_options[0].vram_bytes,
+            24 * 1024 * 1024 * 1024
+        );
+        assert_eq!(
+            inventory.datacenters[0].gpu_options[0].availability_score,
+            100
+        );
     }
 }

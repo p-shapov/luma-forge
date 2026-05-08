@@ -1,0 +1,33 @@
+{
+  "id": "luma-forge-workflows",
+  "version": "2026.05.08",
+  "workflow_presets": [
+    {
+      "id": "comfyui-t2i-basic",
+      "version": "1.0.0",
+      "name": "ComfyUI Text to Image Basic",
+      "workflow_execution_type": "t2i",
+      "required_base_volume_size_bytes": 85899345920,
+      "required_comfyui_source": {
+        "source_type": "git",
+        "repository_url": "https://github.com/comfyanonymous/ComfyUI.git",
+        "revision": "master"
+      },
+      "required_model_assets": [
+        {
+          "id": "sdxl-base-1-0",
+          "name": "SDXL Base 1.0",
+          "model_asset_kind": "checkpoint",
+          "file_size_bytes": 6938040256,
+          "download_source": {
+            "source_type": "huggingface",
+            "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
+            "file_path": "sd_xl_base_1.0.safetensors",
+            "revision": "main"
+          }
+        }
+      ],
+      "required_custom_nodes": []
+    }
+  ]
+}
