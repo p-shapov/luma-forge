@@ -1,12 +1,5 @@
 //! Tauri command boundary exposed to the React client.
 
-#[macro_use]
-mod provider_setup;
-
-use provider_setup::{
-    delete_gpu_cloud_provider_setup, get_gpu_cloud_provider_setup, setup_gpu_cloud_provider,
-    sync_gpu_cloud_provider_setup,
-};
 use tauri_specta::{collect_commands, Builder};
 
 #[cfg(any(debug_assertions, test))]
@@ -15,11 +8,18 @@ mod bindings;
 #[cfg(any(debug_assertions, test))]
 pub(crate) use bindings::export_typescript_bindings;
 
+#[tauri::command]
+#[specta::specta]
+fn greet(name: &str) -> String {
+    format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn bye(name: &str) -> String {
+    format!("Bye, {}!", name)
+}
+
 pub(crate) fn builder() -> Builder<tauri::Wry> {
-    Builder::new().commands(collect_commands![
-        get_gpu_cloud_provider_setup,
-        setup_gpu_cloud_provider,
-        sync_gpu_cloud_provider_setup,
-        delete_gpu_cloud_provider_setup
-    ])
+    Builder::new().commands(collect_commands![greet, bye])
 }
