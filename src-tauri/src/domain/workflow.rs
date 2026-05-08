@@ -29,6 +29,12 @@ pub struct ModelAsset {
     pub model_asset_kind: ModelAssetKind,
     pub file_size_bytes: u64,
     pub download_source: ModelAssetSource,
+    pub install: ModelAssetInstall,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelAssetInstall {
+    pub comfyui_relative_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

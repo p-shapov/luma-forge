@@ -105,6 +105,12 @@ pub struct ModelAsset {
     pub model_asset_kind: ModelAssetKind,
     pub file_size_bytes: u64,
     pub download_source: ModelAssetSource,
+    pub install: ModelAssetInstall,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct ModelAssetInstall {
+    pub comfyui_relative_path: String,
 }
 
 impl From<&ModelAsset> for DomainModelAsset {
@@ -115,6 +121,9 @@ impl From<&ModelAsset> for DomainModelAsset {
             model_asset_kind: (&asset.model_asset_kind).into(),
             file_size_bytes: asset.file_size_bytes,
             download_source: (&asset.download_source).into(),
+            install: crate::domain::workflow::ModelAssetInstall {
+                comfyui_relative_path: asset.install.comfyui_relative_path.clone(),
+            },
         }
     }
 }

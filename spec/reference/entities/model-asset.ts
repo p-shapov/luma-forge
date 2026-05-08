@@ -21,10 +21,15 @@ export type HuggingFaceModelAssetSource = {
 export type ModelAssetSource =
   | HuggingFaceModelAssetSource;
 
+export type ModelAssetInstall = {
+  comfyui_relative_path: string;
+}
+
 export type ModelAsset = {
   id: string;
   name: string;
   model_asset_kind: ModelAssetKind;
   file_size_bytes: number;
   download_source: ModelAssetSource;
+  install: ModelAssetInstall;
 }

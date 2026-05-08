@@ -24,6 +24,9 @@
             "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
             "file_path": "sd_xl_base_1.0.safetensors",
             "revision": "main"
+          },
+          "install": {
+            "comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"
           }
         }
       ],

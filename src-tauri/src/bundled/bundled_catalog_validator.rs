@@ -22,6 +22,16 @@ pub(super) fn validate_workflow_catalog(
         {
             return Err(BundledCatalogError::ValidationFailed);
         }
+
+        for asset in &preset.required_model_assets {
+            if is_blank(&asset.id)
+                || is_blank(&asset.name)
+                || asset.file_size_bytes == 0
+                || !is_safe_relative_path(&asset.install.comfyui_relative_path)
+            {
+                return Err(BundledCatalogError::ValidationFailed);
+            }
+        }
     }
 
     Ok(())
@@ -109,4 +119,15 @@ pub(super) fn validate_endpoint_profiles(
 
 fn is_blank(value: &str) -> bool {
     value.trim().is_empty()
+}
+
+fn is_safe_relative_path(value: &str) -> bool {
+    let value = value.trim();
+    if value.is_empty() || value.starts_with('/') || value.starts_with('\\') {
+        return false;
+    }
+
+    value
+        .split(['/', '\\'])
+        .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }

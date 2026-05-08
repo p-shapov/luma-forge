@@ -127,6 +127,11 @@ export type ModelAsset = {
 	model_asset_kind: ModelAssetKind,
 	file_size_bytes: number,
 	download_source: ModelAssetSource,
+	install: ModelAssetInstall,
+};
+
+export type ModelAssetInstall = {
+	comfyui_relative_path: string,
 };
 
 export type ModelAssetKind = "checkpoint" | "diffusion_model" | "vae" | "text_encoder" | "clip" | "clip_vision" | "lora" | "controlnet" | "upscaler" | "embedding" | "other";
