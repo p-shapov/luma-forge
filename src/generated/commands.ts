@@ -4,7 +4,60 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	greet: (name: string) => __TAURI_INVOKE<string>("greet", { name }),
-	bye: (name: string) => __TAURI_INVOKE<string>("bye", { name }),
+	getGpuCloudProviderSetup: (request: GetGpuCloudProviderSetupRequest) => typedError<GetGpuCloudProviderSetupResponse, NativeCommandError>(__TAURI_INVOKE("get_gpu_cloud_provider_setup", { request })),
+	setupGpuCloudProvider: (request: SetupGpuCloudProviderRequest) => typedError<SetupGpuCloudProviderResponse, NativeCommandError>(__TAURI_INVOKE("setup_gpu_cloud_provider", { request })),
+	deleteGpuCloudProviderSetup: (request: DeleteGpuCloudProviderSetupRequest) => typedError<DeleteGpuCloudProviderSetupResponse, NativeCommandError>(__TAURI_INVOKE("delete_gpu_cloud_provider_setup", { request })),
 };
+
+/* Types */
+export type DeleteGpuCloudProviderSetupRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+};
+
+export type DeleteGpuCloudProviderSetupResponse = {
+	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
+};
+
+export type GetGpuCloudProviderSetupRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+};
+
+export type GetGpuCloudProviderSetupResponse = {
+	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
+};
+
+export type GpuCloudProviderId = "runpod";
+
+export type GpuCloudProviderSetup = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_user_email: string,
+	provider_api_key_fingerprint: string,
+};
+
+export type NativeCommandError = {
+	code: NativeCommandErrorCode,
+	message: string,
+	retryable: boolean,
+};
+
+export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
+
+export type SetupGpuCloudProviderRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_api_key: string,
+};
+
+export type SetupGpuCloudProviderResponse = {
+	gpu_cloud_provider_setup: GpuCloudProviderSetup,
+};
+
+/* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
 
