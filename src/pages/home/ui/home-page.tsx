@@ -1,4 +1,4 @@
-import { Button } from '@shared/components/ui/button'
+import { Button } from "@shared/components/ui/button";
 
 export function HomePage() {
   return (
@@ -20,5 +20,5 @@ export function HomePage() {
         </div>
       </section>
     </main>
-  )
+  );
 }
