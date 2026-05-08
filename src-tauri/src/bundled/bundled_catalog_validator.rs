@@ -1,11 +1,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    bundled::{
-        bundled_catalog_contracts::{EndpointProfile, ProvisioningProfile},
-        bundled_catalog_error::BundledCatalogError,
-    },
-    domain::workflow::WorkflowCatalog,
+    bundled::bundled_catalog_error::BundledCatalogError,
+    workspace::workspace_contracts::{EndpointProfile, ProvisioningProfile, WorkflowCatalog},
 };
 
 pub(super) fn validate_workflow_catalog(

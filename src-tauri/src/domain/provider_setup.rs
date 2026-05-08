@@ -1,14 +1,11 @@
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
-use specta::Type;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GpuCloudProviderId {
     Runpod,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone)]
 pub struct GpuCloudProviderSetup {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_user_email: String,

@@ -6,7 +6,10 @@ use std::{
 };
 
 use crate::{
-    domain::provider_setup::{GpuCloudProviderId, ProviderApiKey, ProviderIdentity},
+    domain::provider_setup::{
+        GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey, ProviderIdentity,
+    },
+    provider_setup::GpuCloudProviderId,
     secrets::SecretStore,
 };
 
@@ -44,7 +47,7 @@ impl MemorySecretStore {
 impl SecretStore for MemorySecretStore {
     fn read_api_key(
         &self,
-        _provider_id: &GpuCloudProviderId,
+        _provider_id: &DomainGpuCloudProviderId,
     ) -> Result<Option<ProviderApiKey>, ProviderSetupError> {
         if self.fail_read {
             return Err(ProviderSetupError::SecureKeyringUnavailable);
@@ -61,7 +64,7 @@ impl SecretStore for MemorySecretStore {
 
     fn replace_api_key(
         &self,
-        _provider_id: &GpuCloudProviderId,
+        _provider_id: &DomainGpuCloudProviderId,
         api_key: &ProviderApiKey,
     ) -> Result<(), ProviderSetupError> {
         if self.fail_replace {
@@ -72,7 +75,10 @@ impl SecretStore for MemorySecretStore {
         Ok(())
     }
 
-    fn delete_api_key(&self, _provider_id: &GpuCloudProviderId) -> Result<(), ProviderSetupError> {
+    fn delete_api_key(
+        &self,
+        _provider_id: &DomainGpuCloudProviderId,
+    ) -> Result<(), ProviderSetupError> {
         if self.fail_delete {
             return Err(ProviderSetupError::SecureKeyringUnavailable);
         }
@@ -98,7 +104,7 @@ impl FakeProviderGateway {
 impl ProviderIdentityGateway for FakeProviderGateway {
     fn validate_identity<'a>(
         &'a self,
-        _provider_id: &'a GpuCloudProviderId,
+        _provider_id: &'a DomainGpuCloudProviderId,
         api_key: &'a ProviderApiKey,
     ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>
     {

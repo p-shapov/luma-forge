@@ -3,10 +3,10 @@ use std::{future::Future, path::Path, pin::Pin};
 use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
 
 use crate::{
-    domain::{provider_setup::GpuCloudProviderId, workspace::WorkspaceLifecycleState},
+    provider_setup::GpuCloudProviderId,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_contracts::{Workspace, WorkspaceCatalog},
+        workspace_contracts::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
         workspace_setup_error::WorkspaceSetupError,
     },
 };

@@ -81,6 +81,13 @@ The Native Layer SHALL expose a command that returns placement inventory for an 
 - **THEN** the Native Layer SHALL reject the request with `provider_setup_incomplete`
 - **AND** the Native Layer MUST reject before calling the Provider
 
+#### Scenario: Provider API Key is invalid or revoked
+
+- **WHEN** the Client requests provider inventory and the Provider rejects the stored Provider API Key as unauthorized or forbidden
+- **THEN** the Native Layer SHALL reject the request with `invalid_provider_api_key`
+- **AND** the Native Layer MUST NOT report the failure as retryable
+- **AND** the Native Layer MUST NOT mutate the Workspace Catalog
+
 #### Scenario: Provider inventory lookup fails
 
 - **WHEN** the Provider inventory request fails due to timeout, transport error, unavailable Provider API, or unreadable provider response

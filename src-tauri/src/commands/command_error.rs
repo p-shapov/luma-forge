@@ -98,6 +98,7 @@ fn workspace_setup_error_code(error: &WorkspaceSetupError) -> NativeCommandError
         WorkspaceSetupError::ProviderSetupIncomplete => {
             NativeCommandErrorCode::ProviderSetupIncomplete
         }
+        WorkspaceSetupError::InvalidProviderApiKey => NativeCommandErrorCode::InvalidProviderApiKey,
         WorkspaceSetupError::ProviderApiUnavailable => {
             NativeCommandErrorCode::ProviderApiUnavailable
         }
@@ -134,6 +135,7 @@ fn workspace_setup_error_retryable(error: &WorkspaceSetupError) -> bool {
 fn workspace_setup_error_message(error: &WorkspaceSetupError) -> &'static str {
     match error {
         WorkspaceSetupError::ProviderSetupIncomplete => "GPU cloud provider setup is incomplete.",
+        WorkspaceSetupError::InvalidProviderApiKey => "Provider API key is invalid.",
         WorkspaceSetupError::ProviderApiUnavailable => "Provider API is unavailable.",
         WorkspaceSetupError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
         WorkspaceSetupError::WorkflowCatalogUnavailable => "Workflow catalog is unavailable.",
@@ -173,5 +175,18 @@ mod tests {
         assert_eq!(error.message, "Provider API is unavailable.");
         assert!(!error.message.contains("rp_"));
         assert!(error.retryable);
+    }
+
+    #[test]
+    fn workspace_invalid_provider_key_mapping_is_not_retryable() {
+        let error = NativeCommandError::from(WorkspaceSetupError::InvalidProviderApiKey);
+
+        assert!(matches!(
+            error.code,
+            NativeCommandErrorCode::InvalidProviderApiKey
+        ));
+        assert_eq!(error.message, "Provider API key is invalid.");
+        assert!(!error.message.contains("rp_"));
+        assert!(!error.retryable);
     }
 }

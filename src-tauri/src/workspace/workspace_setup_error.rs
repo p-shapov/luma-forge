@@ -6,6 +6,8 @@ use crate::provider_setup::ProviderSetupError;
 pub enum WorkspaceSetupError {
     #[error("provider setup is incomplete")]
     ProviderSetupIncomplete,
+    #[error("invalid provider api key")]
+    InvalidProviderApiKey,
     #[error("provider api unavailable")]
     ProviderApiUnavailable,
     #[error("secure keyring unavailable")]
@@ -28,8 +30,8 @@ impl From<ProviderSetupError> for WorkspaceSetupError {
     fn from(error: ProviderSetupError) -> Self {
         match error {
             ProviderSetupError::ProviderSetupIncomplete => Self::ProviderSetupIncomplete,
+            ProviderSetupError::InvalidProviderApiKey => Self::InvalidProviderApiKey,
             ProviderSetupError::ProviderApiUnavailable
-            | ProviderSetupError::InvalidProviderApiKey
             | ProviderSetupError::ProviderIdentityUnavailable => Self::ProviderApiUnavailable,
             ProviderSetupError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
             ProviderSetupError::ProviderSetupAlreadyExists => Self::InvalidRequest,

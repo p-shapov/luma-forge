@@ -5,6 +5,7 @@ use crate::{
     provider::{
         provider_client_error::ProviderClientError,
         runpod::{
+            runpod_client::provider_error_from_inventory_status,
             runpod_contracts::{GraphQlResponse, RunPodIdentityData, RunPodInventoryData},
             runpod_mapper::{identity_from_graphql_response, inventory_from_graphql_response},
         },
@@ -153,4 +154,30 @@ fn parses_inventory_response() {
         inventory.datacenters[0].gpu_options[0].availability_score,
         100
     );
+}
+
+#[test]
+fn maps_inventory_auth_status_to_unauthorized() {
+    assert_eq!(
+        provider_error_from_inventory_status(reqwest::StatusCode::UNAUTHORIZED),
+        Some(ProviderClientError::Unauthorized)
+    );
+    assert_eq!(
+        provider_error_from_inventory_status(reqwest::StatusCode::FORBIDDEN),
+        Some(ProviderClientError::Unauthorized)
+    );
+}
+
+#[test]
+fn maps_inventory_auth_graphql_errors_to_unauthorized() {
+    let response: GraphQlResponse<RunPodInventoryData> = serde_json::from_value(json!({
+        "errors": [
+            { "message": "Forbidden" }
+        ]
+    }))
+    .expect("response should parse");
+
+    let error = inventory_from_graphql_response(response).expect_err("auth error should fail");
+
+    assert_eq!(error, ProviderClientError::Unauthorized);
 }

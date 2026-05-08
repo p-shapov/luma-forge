@@ -88,8 +88,8 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> ProviderClientError {
 pub(super) fn inventory_from_graphql_response(
     payload: GraphQlResponse<RunPodInventoryData>,
 ) -> Result<ProviderInventory, ProviderClientError> {
-    if payload.errors.is_some_and(|errors| !errors.is_empty()) {
-        return Err(ProviderClientError::ApiUnavailable);
+    if let Some(errors) = payload.errors.filter(|errors| !errors.is_empty()) {
+        return Err(classify_graphql_errors(&errors));
     }
 
     let data_centers = payload

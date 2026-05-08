@@ -1,12 +1,11 @@
 use crate::{
     bundled::{
-        bundled_catalog_contracts::{EndpointProfile, ProvisioningProfile},
         bundled_catalog_error::BundledCatalogError,
         bundled_catalog_validator::{
             validate_endpoint_profiles, validate_provisioning_profiles, validate_workflow_catalog,
         },
     },
-    domain::workflow::WorkflowCatalog,
+    workspace::workspace_contracts::{EndpointProfile, ProvisioningProfile, WorkflowCatalog},
 };
 
 pub(super) fn parse_workflow_catalog(value: &str) -> Result<WorkflowCatalog, BundledCatalogError> {

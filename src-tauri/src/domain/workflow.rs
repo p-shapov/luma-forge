@@ -1,8 +1,4 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelAssetKind {
     Checkpoint,
     DiffusionModel,
@@ -17,8 +13,7 @@ pub enum ModelAssetKind {
     Other,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "source_type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelAssetSource {
     Huggingface {
         repository_id: String,
@@ -27,7 +22,7 @@ pub enum ModelAssetSource {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelAsset {
     pub id: String,
     pub name: String,
@@ -36,8 +31,7 @@ pub struct ModelAsset {
     pub download_source: ModelAssetSource,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "source_type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomNodeGitSource {
     Git {
         repository_url: String,
@@ -45,13 +39,13 @@ pub enum CustomNodeGitSource {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomNodeInstall {
     pub comfyui_custom_nodes_relative_path: String,
     pub python_requirements_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomNode {
     pub id: String,
     pub name: String,
@@ -59,14 +53,12 @@ pub struct CustomNode {
     pub install: CustomNodeInstall,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkflowExecutionType {
     T2i,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "source_type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ComfyUiRuntimeSource {
     Git {
         repository_url: String,
@@ -74,7 +66,7 @@ pub enum ComfyUiRuntimeSource {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkflowPreset {
     pub id: String,
     pub version: String,
@@ -86,7 +78,8 @@ pub struct WorkflowPreset {
     pub required_custom_nodes: Vec<CustomNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct WorkflowCatalog {
     pub id: String,
     pub version: String,

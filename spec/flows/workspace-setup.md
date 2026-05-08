@@ -8,8 +8,8 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 
 - Reads the Workflow Catalog and exposes selectable Workflow Presets to Client (React).
 - Uses the selected Workflow Preset to derive the required base Persistent Storage Volume size and Endpoint Profile.
-- Uses the selected GPU Cloud Provider and live provider inventory to configure one Placement Plan.
-- Validates provider setup, Workflow Preset existence, Placement Plan compatibility, Provisioning Profile availability, and Endpoint Profile availability before persisting Workspace metadata.
+- Uses the selected GPU Cloud Provider and live provider inventory to help the Client configure one Placement Plan.
+- Validates provider setup, Workflow Preset existence, Placement Plan completeness, Workflow Preset compatibility, Provisioning Profile availability, and Endpoint Profile availability before persisting Workspace metadata.
 - Persists one Workspace Catalog entry with a client-generated stable Workspace UUID and lifecycle state `Draft`.
 
 ## Non-goals
@@ -20,7 +20,8 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 ## Invariants
 
 - Workflow Preset selection and Placement Plan configuration in Client (React) are temporary and non-authoritative until Workspace metadata is persisted by Native Layer (Rust / Tauri).
-- Native Layer (Rust / Tauri) performs authoritative validation before creating Workspace metadata.
+- Native Layer (Rust / Tauri) performs authoritative setup, catalog, and Placement Plan shape validation before creating Workspace metadata.
+- Workspace Setup does not re-check selected data center or GPU membership against live provider inventory at creation time; later provider-owned flows reject unavailable or invalid placement values before mutating Provider Resources.
 - A successfully created Workspace must be marked as `Draft`.
 
 ## Actors
@@ -87,7 +88,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 10. Client (React) -> Client (React)
     Validates temporary setup state:
     - data center is selected
-    - GPU is selected and belongs to the selected data center
+    - GPU is selected and belongs to the selected data center according to the latest placement options observed by the Client
     - Workflow Preset is selected
     - Endpoint and Provisioning Profiles are selected
     - optional additional Persistent Storage Volume size is non-negative
@@ -115,7 +116,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
     - Workspace identifier is present and is a valid UUID
     - provider setup is still complete
     - required Provider API Key is still present in secure keyring
-    - configured Placement Plan is complete and valid
+    - configured Placement Plan is complete and catalog-compatible
     Result: Native Layer rejects stale or invalid requests before persisting Workspace metadata.
 
 14. Native Layer (Rust / Tauri) -> Workspace Catalog
@@ -164,19 +165,19 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
   - Mutation guarantee: no Workspace Catalog mutation.
   - Client behavior: shows network error and allows retry.
 - Invalid Placement Plan configuration
-  - Native behavior: rejects Workspace creation before persistence.
+  - Native behavior: rejects Workspace creation before persistence when the plan is incomplete, references stale catalog objects, uses incompatible Workflow Preset / Provisioning Profile / Endpoint Profile combinations, or requests insufficient Persistent Storage Volume size.
   - Mutation guarantee: no Workspace Catalog mutation.
   - Client behavior: clears or marks temporary Placement Plan invalid and requires reselection.
 - Duplicate request with the same Workspace UUID
-  - Native behavior: handled as defined in Idempotency.
+  - Native behavior: rejects Workspace creation as a duplicate.
   - Mutation guarantee: at most one Workspace Catalog entry per Workspace UUID.
-  - Client behavior: treats returned Workspace as success.
+  - Client behavior: treats the duplicate as a failed create attempt and refreshes the Workspace Catalog when recovery is needed.
 
 ## Idempotency
 
 Workflow Preset listing and placement-option lookup are read-only with respect to the Workspace Catalog and Provider Resources. They are safe to retry, but each retry may observe changed provider inventory.
 
-Workspace metadata creation uses the client-generated Workspace UUID passed in the creation request as the stable local idempotency key. If Native Layer (Rust / Tauri) observes a duplicate request with the same Workspace UUID and a complete Workspace Catalog entry already exists, it returns that record as success.
+Workspace metadata creation uses the client-generated Workspace UUID as a uniqueness key, not as a success-returning idempotency key. If Native Layer (Rust / Tauri) observes a duplicate request with the same Workspace UUID, it rejects the request with a duplicate Workspace error and leaves the existing Workspace Catalog entry unchanged.
 
 ## Cleanup / Rollback
 

@@ -90,9 +90,10 @@ fn provider_setup_error_from_client_error(error: ProviderClientError) -> Provide
 
 fn workspace_setup_error_from_client_error(error: ProviderClientError) -> WorkspaceSetupError {
     match error {
-        ProviderClientError::Unauthorized
-        | ProviderClientError::ApiUnavailable
-        | ProviderClientError::IdentityUnavailable => WorkspaceSetupError::ProviderApiUnavailable,
+        ProviderClientError::Unauthorized => WorkspaceSetupError::InvalidProviderApiKey,
+        ProviderClientError::ApiUnavailable | ProviderClientError::IdentityUnavailable => {
+            WorkspaceSetupError::ProviderApiUnavailable
+        }
     }
 }
 

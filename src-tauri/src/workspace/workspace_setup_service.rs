@@ -1,15 +1,14 @@
 use std::{future::Future, pin::Pin};
 
 use crate::{
-    bundled::bundled_catalog_contracts::{EndpointProfile, ProvisioningProfile},
-    domain::{
-        provider_inventory::ProviderInventory, provider_setup::GpuCloudProviderId,
-        workflow::WorkflowCatalog, workspace::WorkspaceLifecycleState,
-    },
+    domain::{provider_inventory::ProviderInventory, provider_setup::GpuCloudProviderId},
     secrets::SecretStore,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_contracts::{PlacementPlan, Workspace},
+        workspace_contracts::{
+            EndpointProfile, PlacementPlan, ProvisioningProfile, WorkflowCatalog, Workspace,
+            WorkspaceLifecycleState,
+        },
         workspace_setup_contracts::{
             CreateWorkspaceRequest, CreateWorkspaceResponse, GetEndpointProfilesResponse,
             GetProviderInventoryRequest, GetProviderInventoryResponse,
@@ -84,10 +83,12 @@ where
         &self,
         request: GetProviderInventoryRequest,
     ) -> Result<GetProviderInventoryResponse, WorkspaceSetupError> {
-        let provider_id = request.gpu_cloud_provider_id;
+        let provider_id = request.gpu_cloud_provider_id.into();
         let provider_inventory = self.providers.fetch_inventory(&provider_id).await?;
 
-        Ok(GetProviderInventoryResponse { provider_inventory })
+        Ok(GetProviderInventoryResponse {
+            provider_inventory: provider_inventory.into(),
+        })
     }
 
     pub async fn get_workspace_catalog(
@@ -109,15 +110,16 @@ where
             return Err(WorkspaceSetupError::InvalidRequest);
         }
 
+        let provider_id = request.domain_provider_id();
         self.secrets
-            .read_api_key(&request.gpu_cloud_provider_id)?
+            .read_api_key(&provider_id)?
             .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
 
         let workflow_catalog = self.catalogs.workflow_catalog()?;
         let provisioning_profiles = self.catalogs.provisioning_profiles()?;
         let endpoint_profiles = self.catalogs.endpoint_profiles()?;
         validate_placement_plan(
-            request.gpu_cloud_provider_id,
+            provider_id,
             &request.placement_plan,
             &workflow_catalog,
             &provisioning_profiles,
@@ -155,6 +157,7 @@ fn validate_placement_plan(
         return Err(WorkspaceSetupError::InvalidPlacementPlan);
     }
     let domain_placement_plan = placement_plan.to_domain();
+    let selected_workflow_preset = domain_placement_plan.selected_workflow_preset;
 
     let preset = workflow_catalog
         .workflow_presets
@@ -183,7 +186,8 @@ fn validate_placement_plan(
     let endpoint_profile_core = &domain_placement_plan.selected_endpoint_profile;
     if endpoint_profile != &placement_plan.selected_endpoint_profile
         || endpoint_profile_core.gpu_cloud_provider_id != provider_id
-        || endpoint_profile_core.workflow_execution_type != preset.workflow_execution_type
+        || endpoint_profile_core.workflow_execution_type
+            != selected_workflow_preset.workflow_execution_type
     {
         return Err(WorkspaceSetupError::InvalidPlacementPlan);
     }

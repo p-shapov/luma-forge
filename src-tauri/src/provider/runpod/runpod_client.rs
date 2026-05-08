@@ -102,8 +102,8 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
 
-        if !response.status().is_success() {
-            return Err(ProviderClientError::ApiUnavailable);
+        if let Some(error) = provider_error_from_inventory_status(response.status()) {
+            return Err(error);
         }
 
         let payload = response
@@ -112,5 +112,17 @@ impl RunPodClient {
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
 
         inventory_from_graphql_response(payload)
+    }
+}
+
+pub(super) fn provider_error_from_inventory_status(
+    status: reqwest::StatusCode,
+) -> Option<ProviderClientError> {
+    if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+        Some(ProviderClientError::Unauthorized)
+    } else if !status.is_success() {
+        Some(ProviderClientError::ApiUnavailable)
+    } else {
+        None
     }
 }

@@ -1,10 +1,8 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
+#![allow(dead_code)]
 
 use super::provider_setup::GpuCloudProviderId;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceLifecycleState {
     Draft,
     Provisioning,
@@ -12,8 +10,7 @@ pub enum WorkspaceLifecycleState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderResourceStatus {
     Creating,
     Running,
@@ -23,7 +20,7 @@ pub enum ProviderResourceStatus {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PersistentStorageVolumeSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -33,7 +30,7 @@ pub struct PersistentStorageVolumeSnapshot {
     pub mount_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvisioningPodSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -44,7 +41,7 @@ pub struct ProvisioningPodSnapshot {
     pub provisioner_status_url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerlessEndpointSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,

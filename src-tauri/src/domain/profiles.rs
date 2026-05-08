@@ -1,6 +1,3 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
-
 use super::{
     provider_setup::GpuCloudProviderId, shared::DockerImage, workflow::WorkflowExecutionType,
 };
@@ -26,20 +23,19 @@ pub struct EndpointProfile<C> {
     pub gpu_cloud_provider_config: C,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisioningComputeType {
     Pod,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvisioningStatusEndpoint {
     pub port: u16,
     pub protocol: String,
     pub status_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvisionerWorkerRuntime {
     pub provisioner_version: String,
     pub docker_image: DockerImage,
@@ -49,7 +45,7 @@ pub struct ProvisionerWorkerRuntime {
     pub status_endpoint: ProvisioningStatusEndpoint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EndpointWorkerRuntime {
     pub endpoint_worker_version: String,
     pub docker_image: DockerImage,

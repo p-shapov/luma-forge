@@ -1,10 +1,9 @@
 use crate::{
-    bundled::bundled_catalog_contracts::{EndpointProfile, ProvisioningProfile},
     bundled::bundled_catalog_parser::{
         parse_endpoint_profiles, parse_provisioning_profiles, parse_workflow_catalog,
     },
-    domain::workflow::WorkflowCatalog,
     workspace::{
+        workspace_contracts::{EndpointProfile, ProvisioningProfile, WorkflowCatalog},
         workspace_setup_error::WorkspaceSetupError,
         workspace_setup_service::WorkspaceSetupCatalogReader,
     },

@@ -5,20 +5,20 @@ use std::{
 };
 
 use crate::{
-    bundled::{
-        bundled_catalog_contracts::EndpointProfile, bundled_catalog_reader::BundledCatalogReader,
-    },
+    bundled::bundled_catalog_reader::BundledCatalogReader,
     domain::{
         provider_inventory::ProviderInventory,
-        provider_setup::{GpuCloudProviderId, ProviderApiKey},
-        workflow::WorkflowExecutionType,
-        workspace::WorkspaceLifecycleState,
+        provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
     },
+    provider_setup::GpuCloudProviderId,
     provider_setup::ProviderSetupError,
     secrets::SecretStore,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_contracts::{PlacementPlan, Workspace, WorkspaceCatalog},
+        workspace_contracts::{
+            EndpointProfile, PlacementPlan, WorkflowExecutionType, Workspace, WorkspaceCatalog,
+            WorkspaceLifecycleState,
+        },
         workspace_setup_contracts::{CreateWorkspaceRequest, GetProviderInventoryRequest},
     },
 };
@@ -47,7 +47,7 @@ impl MemorySecretStore {
 impl SecretStore for MemorySecretStore {
     fn read_api_key(
         &self,
-        _provider_id: &GpuCloudProviderId,
+        _provider_id: &DomainGpuCloudProviderId,
     ) -> Result<Option<ProviderApiKey>, ProviderSetupError> {
         self.key
             .lock()
@@ -60,13 +60,16 @@ impl SecretStore for MemorySecretStore {
 
     fn replace_api_key(
         &self,
-        _provider_id: &GpuCloudProviderId,
+        _provider_id: &DomainGpuCloudProviderId,
         _api_key: &ProviderApiKey,
     ) -> Result<(), ProviderSetupError> {
         unimplemented!("workspace setup tests do not replace secrets")
     }
 
-    fn delete_api_key(&self, _provider_id: &GpuCloudProviderId) -> Result<(), ProviderSetupError> {
+    fn delete_api_key(
+        &self,
+        _provider_id: &DomainGpuCloudProviderId,
+    ) -> Result<(), ProviderSetupError> {
         unimplemented!("workspace setup tests do not delete secrets")
     }
 }
@@ -80,7 +83,7 @@ struct MemoryProvider {
 impl ProviderInventoryGateway for MemoryProvider {
     fn fetch_inventory<'a>(
         &'a self,
-        provider_id: &'a GpuCloudProviderId,
+        provider_id: &'a DomainGpuCloudProviderId,
     ) -> Pin<Box<dyn Future<Output = Result<ProviderInventory, WorkspaceSetupError>> + Send + 'a>>
     {
         Box::pin(async move {

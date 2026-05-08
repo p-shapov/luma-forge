@@ -2,14 +2,15 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::provider_setup::{
-        GpuCloudProviderId, GpuCloudProviderSetup, ProviderApiKey, ProviderIdentity,
+        GpuCloudProviderId as DomainGpuCloudProviderId,
+        GpuCloudProviderSetup as DomainGpuCloudProviderSetup, ProviderApiKey, ProviderIdentity,
     },
     secrets::SecretStore,
 };
 
 use super::provider_setup_contracts::{
     DeleteGpuCloudProviderSetupRequest, DeleteGpuCloudProviderSetupResponse,
-    GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse,
+    GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse, GpuCloudProviderSetup,
     SetupGpuCloudProviderRequest, SetupGpuCloudProviderResponse,
 };
 use super::provider_setup_error::ProviderSetupError;
@@ -17,7 +18,7 @@ use super::provider_setup_error::ProviderSetupError;
 pub trait ProviderIdentityGateway: Send + Sync {
     fn validate_identity<'a>(
         &'a self,
-        provider_id: &'a GpuCloudProviderId,
+        provider_id: &'a DomainGpuCloudProviderId,
         api_key: &'a ProviderApiKey,
     ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>;
 }
@@ -42,7 +43,7 @@ where
         &self,
         request: GetGpuCloudProviderSetupRequest,
     ) -> Result<GetGpuCloudProviderSetupResponse, ProviderSetupError> {
-        let provider_id = request.gpu_cloud_provider_id;
+        let provider_id = request.gpu_cloud_provider_id.into();
         let Some(api_key) = self.secrets.read_api_key(&provider_id)? else {
             return Ok(GetGpuCloudProviderSetupResponse {
                 gpu_cloud_provider_setup: None,
@@ -60,7 +61,7 @@ where
         &self,
         request: SetupGpuCloudProviderRequest,
     ) -> Result<SetupGpuCloudProviderResponse, ProviderSetupError> {
-        let provider_id = request.gpu_cloud_provider_id;
+        let provider_id = request.gpu_cloud_provider_id.into();
         if self.secrets.read_api_key(&provider_id)?.is_some() {
             return Err(ProviderSetupError::ProviderSetupAlreadyExists);
         }
@@ -86,7 +87,7 @@ where
         &self,
         request: DeleteGpuCloudProviderSetupRequest,
     ) -> Result<DeleteGpuCloudProviderSetupResponse, ProviderSetupError> {
-        let provider_id = request.gpu_cloud_provider_id;
+        let provider_id = request.gpu_cloud_provider_id.into();
         if self.secrets.read_api_key(&provider_id)?.is_none() {
             return Err(ProviderSetupError::ProviderSetupIncomplete);
         }
@@ -100,7 +101,7 @@ where
 
     async fn setup_from_key(
         &self,
-        provider_id: &GpuCloudProviderId,
+        provider_id: &DomainGpuCloudProviderId,
         api_key: &ProviderApiKey,
     ) -> Result<GpuCloudProviderSetup, ProviderSetupError> {
         let identity = self
@@ -108,11 +109,12 @@ where
             .validate_identity(provider_id, api_key)
             .await?;
 
-        Ok(GpuCloudProviderSetup {
+        Ok(DomainGpuCloudProviderSetup {
             gpu_cloud_provider_id: *provider_id,
             provider_user_email: identity.provider_user_email,
             provider_api_key_fingerprint: identity.provider_api_key_fingerprint,
-        })
+        }
+        .into())
     }
 }
 

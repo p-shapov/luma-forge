@@ -4,7 +4,7 @@ mod provider_setup_service;
 
 pub use provider_setup_contracts::{
     DeleteGpuCloudProviderSetupRequest, DeleteGpuCloudProviderSetupResponse,
-    GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse,
+    GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse, GpuCloudProviderId,
     SetupGpuCloudProviderRequest, SetupGpuCloudProviderResponse,
 };
 pub use provider_setup_error::ProviderSetupError;

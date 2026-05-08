@@ -1,6 +1,9 @@
 use crate::{
     domain::provider_setup::{GpuCloudProviderId, ProviderApiKey},
-    provider::{provider_client_registry::ProviderClientRegistry, runpod::RunPodClient},
+    provider::{
+        provider_client_error::ProviderClientError,
+        provider_client_registry::ProviderClientRegistry, runpod::RunPodClient,
+    },
     provider_setup::ProviderSetupError,
     secrets::SecretStore,
     workspace::{
@@ -8,6 +11,8 @@ use crate::{
         workspace_setup_service::ProviderInventoryGateway,
     },
 };
+
+use super::workspace_setup_error_from_client_error;
 
 #[derive(Debug, Clone, Default)]
 struct EmptySecretStore;
@@ -43,4 +48,12 @@ async fn inventory_reads_api_key_from_secret_store() {
         .expect_err("missing key should fail before provider call");
 
     assert_eq!(error, WorkspaceSetupError::ProviderSetupIncomplete);
+}
+
+#[test]
+fn inventory_auth_failure_maps_to_invalid_provider_key() {
+    assert_eq!(
+        workspace_setup_error_from_client_error(ProviderClientError::Unauthorized),
+        WorkspaceSetupError::InvalidProviderApiKey
+    );
 }

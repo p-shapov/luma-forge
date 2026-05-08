@@ -1,9 +1,6 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
-
 use super::provider_setup::GpuCloudProviderId;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GpuOption {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -12,7 +9,7 @@ pub struct GpuOption {
     pub availability_score: u8,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Datacenter {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -20,7 +17,7 @@ pub struct Datacenter {
     pub gpu_options: Vec<GpuOption>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderInventory {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub fetched_at: String,
