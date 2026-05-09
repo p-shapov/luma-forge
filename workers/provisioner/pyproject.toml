@@ -1,0 +1,13 @@
+[project]
+name = "luma-forge-provisioner-worker"
+version = "1.0.0"
+description = "Container-side Provisioner Worker for preparing LumaForge ComfyUI workspaces"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = []
+
+[tool.luma_forge_provisioner]
+http_port = 8000
+default_workspace_mount_path = "/workspace"

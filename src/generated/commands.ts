@@ -4,7 +4,292 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	greet: (name: string) => __TAURI_INVOKE<string>("greet", { name }),
-	bye: (name: string) => __TAURI_INVOKE<string>("bye", { name }),
+	getGpuCloudProviderSetup: (request: GetGpuCloudProviderSetupRequest) => typedError<GetGpuCloudProviderSetupResponse, NativeCommandError>(__TAURI_INVOKE("get_gpu_cloud_provider_setup", { request })),
+	setupGpuCloudProvider: (request: SetupGpuCloudProviderRequest) => typedError<SetupGpuCloudProviderResponse, NativeCommandError>(__TAURI_INVOKE("setup_gpu_cloud_provider", { request })),
+	deleteGpuCloudProviderSetup: (request: DeleteGpuCloudProviderSetupRequest) => typedError<DeleteGpuCloudProviderSetupResponse, NativeCommandError>(__TAURI_INVOKE("delete_gpu_cloud_provider_setup", { request })),
+	getWorkflowCatalog: () => typedError<GetWorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
+	getProvisioningProfiles: () => typedError<GetProvisioningProfilesResponse, NativeCommandError>(__TAURI_INVOKE("get_provisioning_profiles")),
+	getEndpointProfiles: () => typedError<GetEndpointProfilesResponse, NativeCommandError>(__TAURI_INVOKE("get_endpoint_profiles")),
+	getProviderInventory: (request: GetProviderInventoryRequest) => typedError<GetProviderInventoryResponse, NativeCommandError>(__TAURI_INVOKE("get_provider_inventory", { request })),
+	getWorkspaceCatalog: () => typedError<GetWorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
+	createWorkspace: (request: CreateWorkspaceRequest) => typedError<CreateWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_workspace", { request })),
 };
+
+/* Types */
+export type ComfyUiRuntimeSource = { source_type: "git"; repository_url: string; revision: string };
+
+export type CreateWorkspaceRequest = {
+	workspace_id: string,
+	name: string,
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	placement_plan: PlacementPlan,
+};
+
+export type CreateWorkspaceResponse = {
+	workspace: Workspace,
+};
+
+export type CustomNode = {
+	id: string,
+	name: string,
+	git_source: CustomNodeGitSource,
+	install: CustomNodeInstall,
+};
+
+export type CustomNodeGitSource = { source_type: "git"; repository_url: string; revision: string };
+
+export type CustomNodeInstall = {
+	comfyui_custom_nodes_relative_path: string,
+	python_requirements_path: string,
+};
+
+export type Datacenter = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	id: string,
+	name: string,
+	gpu_options: GpuOption[],
+};
+
+export type DeleteGpuCloudProviderSetupRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+};
+
+export type DeleteGpuCloudProviderSetupResponse = {
+	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
+};
+
+export type DockerImage = {
+	docker_image_ref: string,
+	docker_image_digest: string,
+};
+
+export type EndpointProfile = { gpu_cloud_provider_id: "runpod"; id: string; version: string; name: string; workflow_execution_type: WorkflowExecutionType; endpoint_worker_runtime: EndpointWorkerRuntime; gpu_cloud_provider_config: RunPodEndpointProfileConfig };
+
+export type EndpointWorkerRuntime = {
+	endpoint_worker_version: string,
+	docker_image: DockerImage,
+	http_port: number,
+	health_path: string,
+	invoke_path: string,
+};
+
+export type GetEndpointProfilesResponse = {
+	endpoint_profiles: EndpointProfile[],
+};
+
+export type GetGpuCloudProviderSetupRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+};
+
+export type GetGpuCloudProviderSetupResponse = {
+	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
+};
+
+export type GetProviderInventoryRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+};
+
+export type GetProviderInventoryResponse = {
+	provider_inventory: ProviderInventory,
+};
+
+export type GetProvisioningProfilesResponse = {
+	provisioning_profiles: ProvisioningProfile[],
+};
+
+export type GetWorkflowCatalogResponse = {
+	workflow_catalog: WorkflowCatalog,
+};
+
+export type GetWorkspaceCatalogResponse = {
+	workspace_catalog: WorkspaceCatalog,
+};
+
+export type GpuCloudProviderId = "runpod";
+
+export type GpuCloudProviderSetup = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_user_email: string,
+	provider_api_key_fingerprint: string,
+};
+
+export type GpuOption = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	id: string,
+	name: string,
+	vram_bytes: number,
+	availability_score: number,
+};
+
+export type ModelAsset = {
+	id: string,
+	name: string,
+	model_asset_kind: ModelAssetKind,
+	file_size_bytes: number,
+	download_source: ModelAssetSource,
+	install: ModelAssetInstall,
+};
+
+export type ModelAssetInstall = {
+	comfyui_relative_path: string,
+};
+
+export type ModelAssetKind = "checkpoint" | "diffusion_model" | "vae" | "text_encoder" | "clip" | "clip_vision" | "lora" | "controlnet" | "upscaler" | "embedding" | "other";
+
+export type ModelAssetSource = { source_type: "huggingface"; repository_id: string; file_path: string; revision: string };
+
+export type NativeCommandError = {
+	code: NativeCommandErrorCode,
+	message: string,
+	retryable: boolean,
+};
+
+export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
+
+export type PersistentStorageVolumeSnapshot = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_resource_id: string,
+	datacenter_id: string,
+	provider_resource_status: ProviderResourceStatus,
+	provisioned_size_bytes: number,
+	mount_path: string,
+};
+
+export type PlacementPlan = {
+	selected_datacenter_id: string,
+	selected_gpu_id: string,
+	persistent_storage_volume_size_bytes: number,
+	selected_workflow_preset: WorkflowPreset,
+	selected_provisioning_profile: ProvisioningProfile,
+	selected_endpoint_profile: EndpointProfile,
+};
+
+export type ProviderInventory = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	fetched_at: string,
+	max_persistent_storage_volume_size_bytes: number | null,
+	datacenters: Datacenter[],
+};
+
+export type ProviderResourceStatus = "creating" | "running" | "ready" | "terminated" | "failed" | "unknown";
+
+export type ProvisionerWorkerRuntime = {
+	provisioner_version: string,
+	docker_image: DockerImage,
+	volume_mount_path: string,
+	container_disk_bytes: number,
+	compute_type: ProvisioningComputeType,
+	status_endpoint: ProvisioningStatusEndpoint,
+};
+
+export type ProvisioningComputeType = "pod";
+
+export type ProvisioningPodSnapshot = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_resource_id: string,
+	datacenter_id: string,
+	provider_resource_status: ProviderResourceStatus,
+	selected_gpu_id: string,
+	provisioning_profile_id: string,
+	provisioner_status_url: string,
+};
+
+export type ProvisioningProfile = { gpu_cloud_provider_id: "runpod"; id: string; version: string; name: string; provisioner_worker_runtime: ProvisionerWorkerRuntime; gpu_cloud_provider_config: RunPodProvisioningProfileConfig };
+
+export type ProvisioningStatusEndpoint = {
+	port: number,
+	protocol: string,
+	status_path: string,
+};
+
+export type RunPodEndpointProfileConfig = {
+	endpoint_template_id: string | null,
+	container_disk_bytes: number,
+	volume_mount_path: string,
+	env: { [key in string]: string } | null,
+	scaling: RunPodServerlessScalingConfig,
+};
+
+export type RunPodProvisioningProfileConfig = {
+	cloud_type: string | null,
+	pod_template_id: string | null,
+	network_volume_mount_path: string,
+	expose_http_ports: number[],
+	env: { [key in string]: string } | null,
+};
+
+export type RunPodServerlessScalingConfig = {
+	min_workers: number,
+	max_workers: number,
+	idle_timeout_seconds: number,
+	scaler_type: string | null,
+	scaler_value: number | null,
+};
+
+export type ServerlessEndpointSnapshot = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_resource_id: string,
+	datacenter_id: string,
+	provider_resource_status: ProviderResourceStatus,
+	selected_gpu_id: string,
+	endpoint_profile_id: string,
+	endpoint_invoke_url: string,
+};
+
+export type SetupGpuCloudProviderRequest = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	provider_api_key: string,
+};
+
+export type SetupGpuCloudProviderResponse = {
+	gpu_cloud_provider_setup: GpuCloudProviderSetup,
+};
+
+export type WorkflowCatalog = {
+	id: string,
+	version: string,
+	workflow_presets: WorkflowPreset[],
+};
+
+export type WorkflowExecutionType = "t2i";
+
+export type WorkflowPreset = {
+	id: string,
+	version: string,
+	name: string,
+	workflow_execution_type: WorkflowExecutionType,
+	required_base_volume_size_bytes: number,
+	required_comfyui_source: ComfyUiRuntimeSource,
+	required_model_assets: ModelAsset[],
+	required_custom_nodes: CustomNode[],
+};
+
+export type Workspace = {
+	gpu_cloud_provider_id: GpuCloudProviderId,
+	id: string,
+	name: string,
+	lifecycle_state: WorkspaceLifecycleState,
+	placement_plan: PlacementPlan,
+	persistent_storage_volume_snapshot: PersistentStorageVolumeSnapshot | null,
+	active_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
+	serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null,
+	last_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
+	environment_prepared_at: string | null,
+};
+
+export type WorkspaceCatalog = {
+	workspaces: Workspace[],
+};
+
+export type WorkspaceLifecycleState = "draft" | "provisioning" | "ready" | "failed";
+
+/* Tauri Specta runtime */
+async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
+    try {
+        return { status: "ok", data: await result };
+    } catch (e) {
+        if (e instanceof Error) throw e;
+        return { status: "error", error: e as any };
+    }
+}
 

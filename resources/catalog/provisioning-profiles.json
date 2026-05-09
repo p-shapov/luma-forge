@@ -1,0 +1,30 @@
+[
+  {
+    "gpu_cloud_provider_id": "runpod",
+    "id": "runpod-comfyui-provisioner-v1",
+    "version": "1.0.0",
+    "name": "RunPod ComfyUI Provisioner",
+    "provisioner_worker_runtime": {
+      "provisioner_version": "1.0.0",
+      "docker_image": {
+        "docker_image_ref": "ghcr.io/luma-forge/provisioner:1.0.0",
+        "docker_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "volume_mount_path": "/workspace",
+      "container_disk_bytes": 21474836480,
+      "compute_type": "pod",
+      "status_endpoint": {
+        "port": 8000,
+        "protocol": "http",
+        "status_path": "/status"
+      }
+    },
+    "gpu_cloud_provider_config": {
+      "cloud_type": "secure",
+      "pod_template_id": null,
+      "network_volume_mount_path": "/workspace",
+      "expose_http_ports": [8000],
+      "env": {}
+    }
+  }
+]

@@ -7,7 +7,7 @@ The Placement Plan is configured for selected GPU Cloud Provider and Workflow Pr
 Placement Plan may include:
 
 - selected data center or geo for GPU Cloud Provider
-- selected GPU available in that data center
+- selected GPU reported as available in that data center when placement options were fetched
 - selected Workflow Preset
 - selected Endpoint Profile
 - selected Provisioning Profile
@@ -25,6 +25,7 @@ The Placement Plan is used by the provisioning flow to create Provider Resources
 - The minimum required Persistent Storage Volume size is explicitly declared by the selected Workflow Preset.
 - The requested Persistent Storage Volume size is the final size used for provisioning.
 - The Client may calculate the requested Persistent Storage Volume size from the preset-declared minimum plus user-selected additional size before submitting Workspace Setup.
+- Workspace Setup stores selected data center and GPU identifiers as requested placement values. Provider-owned flows validate whether those values are still available before creating or mutating Provider Resources.
 - The Placement Plan is not a Provider Resource.
 
 ## See Also
