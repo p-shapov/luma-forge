@@ -1,4 +1,4 @@
-mod bundled;
+mod bundled_catalog;
 mod commands;
 mod domain;
 mod provider;

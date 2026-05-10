@@ -1,5 +1,5 @@
-mod secret_error;
-mod secret_store;
+mod error;
+mod store;
 
-pub use secret_error::SecretStoreError;
-pub use secret_store::{KeyringSecretStore, SecretStore};
+pub use error::SecretStoreError;
+pub use store::{KeyringSecretStore, SecretStore};

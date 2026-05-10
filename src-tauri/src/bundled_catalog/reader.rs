@@ -1,15 +1,12 @@
 use crate::{
-    bundled::bundled_catalog_parser::{
+    bundled_catalog::parser::{
         parse_endpoint_profiles, parse_provisioning_profiles, parse_workflow_catalog,
     },
     domain::{
         profiles::{EndpointProfile, ProvisioningProfile},
         workflow::WorkflowCatalog,
     },
-    workspace_setup::{
-        workspace_setup_error::WorkspaceSetupError,
-        workspace_setup_service::WorkspaceSetupCatalogReader,
-    },
+    workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupCatalogReader},
 };
 
 const WORKFLOW_CATALOG_JSON: &str =

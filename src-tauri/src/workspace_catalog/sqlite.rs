@@ -11,8 +11,8 @@ use crate::{
         workspace::validator as workspace_validator,
         workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
-    workspace_catalog::workspace_catalog_repository::WorkspaceCatalogRepository,
-    workspace_setup::workspace_setup_error::WorkspaceSetupError,
+    workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_setup::error::WorkspaceSetupError,
 };
 
 #[derive(Debug, Clone)]
@@ -274,5 +274,5 @@ fn is_unique_constraint(error: &sqlx::Error) -> bool {
 }
 
 #[cfg(test)]
-#[path = "workspace_catalog_tests.rs"]
-mod workspace_catalog_tests;
+#[path = "tests.rs"]
+mod tests;

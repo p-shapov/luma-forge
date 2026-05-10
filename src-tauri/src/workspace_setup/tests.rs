@@ -9,7 +9,7 @@ use std::{
 };
 
 use crate::{
-    bundled::bundled_catalog_reader::BundledCatalogReader,
+    bundled_catalog::reader::BundledCatalogReader,
     domain::{
         placement::PlacementPlan,
         profiles::EndpointProfile,
@@ -20,8 +20,8 @@ use crate::{
     },
     provider_setup::ProviderSetupCoordinator,
     secrets::{SecretStore, SecretStoreError},
-    workspace_catalog::workspace_catalog_repository::WorkspaceCatalogRepository,
-    workspace_setup::workspace_setup_contracts::CreateWorkspaceInput,
+    workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_setup::contracts::CreateWorkspaceInput,
 };
 
 use super::*;

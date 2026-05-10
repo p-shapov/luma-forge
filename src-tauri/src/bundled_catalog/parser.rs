@@ -1,5 +1,5 @@
 use crate::{
-    bundled::bundled_catalog_error::BundledCatalogError,
+    bundled_catalog::error::BundledCatalogError,
     domain::{
         profiles::validator::{validate_endpoint_profiles, validate_provisioning_profiles},
         profiles::{EndpointProfile, ProvisioningProfile},

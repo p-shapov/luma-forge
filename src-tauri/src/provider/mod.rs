@@ -1,5 +1,5 @@
-mod provider_client_error;
-mod provider_client_registry;
+mod error;
+mod registry;
 pub mod runpod;
 
-pub use provider_client_registry::ProviderClientRegistry;
+pub use registry::ProviderClientRegistry;

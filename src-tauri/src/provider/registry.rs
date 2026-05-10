@@ -5,13 +5,10 @@ use crate::{
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId, ProviderApiKey, ProviderIdentity},
     },
-    provider::{provider_client_error::ProviderClientError, runpod::RunPodClient},
+    provider::{error::ProviderClientError, runpod::RunPodClient},
     provider_setup::{ProviderIdentityGateway, ProviderSetupError},
     secrets::{KeyringSecretStore, SecretStore},
-    workspace_setup::{
-        workspace_setup_error::WorkspaceSetupError,
-        workspace_setup_service::ProviderInventoryGateway,
-    },
+    workspace_setup::{error::WorkspaceSetupError, ProviderInventoryGateway},
 };
 
 #[derive(Debug, Clone)]
@@ -74,7 +71,7 @@ where
                     .runpod
                     .fetch_inventory(&api_key)
                     .await
-                    .map_err(workspace_setup_error_from_client_error),
+                    .map_err(error_from_client_error),
             }
         })
     }
@@ -88,7 +85,7 @@ fn provider_setup_error_from_client_error(error: ProviderClientError) -> Provide
     }
 }
 
-fn workspace_setup_error_from_client_error(error: ProviderClientError) -> WorkspaceSetupError {
+fn error_from_client_error(error: ProviderClientError) -> WorkspaceSetupError {
     match error {
         ProviderClientError::Unauthorized => WorkspaceSetupError::InvalidProviderApiKey,
         ProviderClientError::ApiUnavailable | ProviderClientError::IdentityUnavailable => {
@@ -98,5 +95,5 @@ fn workspace_setup_error_from_client_error(error: ProviderClientError) -> Worksp
 }
 
 #[cfg(test)]
-#[path = "provider_client_tests.rs"]
-mod provider_client_tests;
+#[path = "tests.rs"]
+mod tests;

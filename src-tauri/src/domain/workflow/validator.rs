@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    validation_error::{DomainValidationError, DomainValidationResult},
-    validation_support::{is_blank, is_safe_relative_path},
+    error::{DomainValidationError, DomainValidationResult},
+    validation::{is_blank, is_safe_relative_path},
 };
 
 use super::{ComfyUiRuntimeSource, CustomNodeGitSource, ModelAssetSource, WorkflowCatalog};

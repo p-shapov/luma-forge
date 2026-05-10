@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    validation_error::{DomainValidationError, DomainValidationResult},
-    validation_support::{
+    error::{DomainValidationError, DomainValidationResult},
+    validation::{
         is_blank, is_safe_absolute_posix_path, is_valid_docker_image_ref, is_valid_environment,
         is_valid_http_path, is_valid_optional_enum, is_valid_optional_non_blank,
     },

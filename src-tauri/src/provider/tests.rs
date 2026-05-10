@@ -1,17 +1,11 @@
 use crate::{
     domain::provider_setup::{GpuCloudProviderId, ProviderApiKey},
-    provider::{
-        provider_client_error::ProviderClientError,
-        provider_client_registry::ProviderClientRegistry, runpod::RunPodClient,
-    },
+    provider::{error::ProviderClientError, runpod::RunPodClient, ProviderClientRegistry},
     secrets::{SecretStore, SecretStoreError},
-    workspace_setup::{
-        workspace_setup_error::WorkspaceSetupError,
-        workspace_setup_service::ProviderInventoryGateway,
-    },
+    workspace_setup::{error::WorkspaceSetupError, ProviderInventoryGateway},
 };
 
-use super::workspace_setup_error_from_client_error;
+use super::error_from_client_error;
 
 #[derive(Debug, Clone, Default)]
 struct EmptySecretStore;
@@ -59,7 +53,7 @@ async fn inventory_reads_api_key_from_secret_store() {
 #[test]
 fn inventory_auth_failure_maps_to_invalid_provider_key() {
     assert_eq!(
-        workspace_setup_error_from_client_error(ProviderClientError::Unauthorized),
+        error_from_client_error(ProviderClientError::Unauthorized),
         WorkspaceSetupError::InvalidProviderApiKey
     );
 }

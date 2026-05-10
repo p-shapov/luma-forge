@@ -4,8 +4,8 @@ use crate::{
         provider_setup::{GpuCloudProviderId, ProviderApiKey, ProviderIdentity},
     },
     provider::{
-        provider_client_error::ProviderClientError,
-        runpod::runpod_contracts::{
+        error::ProviderClientError,
+        runpod::contracts::{
             GraphQlError, GraphQlResponse, RunPodApiKey, RunPodGpuAvailability, RunPodIdentityData,
             RunPodInventoryData,
         },

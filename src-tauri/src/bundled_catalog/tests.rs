@@ -1,10 +1,10 @@
-use crate::workspace_setup::workspace_setup_service::WorkspaceSetupCatalogReader;
+use crate::workspace_setup::WorkspaceSetupCatalogReader;
 use serde_json::{json, Value};
 
 use super::{
-    bundled_catalog_error::BundledCatalogError, bundled_catalog_parser::parse_endpoint_profiles,
-    bundled_catalog_parser::parse_provisioning_profiles,
-    bundled_catalog_parser::parse_workflow_catalog, bundled_catalog_reader::BundledCatalogReader,
+    error::BundledCatalogError, parser::parse_endpoint_profiles,
+    parser::parse_provisioning_profiles, parser::parse_workflow_catalog,
+    reader::BundledCatalogReader,
 };
 
 #[test]

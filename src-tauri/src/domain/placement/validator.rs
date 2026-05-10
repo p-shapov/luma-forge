@@ -1,8 +1,8 @@
 use crate::domain::{
+    error::{DomainValidationError, DomainValidationResult},
     profiles::{EndpointProfile, ProvisioningProfile},
     provider_setup::GpuCloudProviderId,
-    validation_error::{DomainValidationError, DomainValidationResult},
-    validation_support::is_blank,
+    validation::is_blank,
     workflow::WorkflowCatalog,
 };
 

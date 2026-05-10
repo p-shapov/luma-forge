@@ -4,7 +4,7 @@ use crate::{
         provider_setup::GpuCloudProviderId as DomainGpuCloudProviderId,
         workspace as domain_workspace,
     },
-    workspace_setup::workspace_setup_contracts::CreateWorkspaceInput,
+    workspace_setup::contracts::CreateWorkspaceInput,
 };
 
 use super::*;

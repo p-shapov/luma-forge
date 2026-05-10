@@ -4,16 +4,14 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    commands::provider_contracts::GpuCloudProviderId,
+    commands::contracts::GpuCloudProviderId,
     domain::{
         placement as domain_placement, profiles as domain_profiles,
         provider_inventory as domain_inventory, workflow as domain_workflow,
         workspace as domain_workspace,
     },
     provider::runpod,
-    workspace_setup::{
-        workspace_setup_contracts::CreateWorkspaceInput, workspace_setup_error::WorkspaceSetupError,
-    },
+    workspace_setup::{contracts::CreateWorkspaceInput, error::WorkspaceSetupError},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1099,5 +1097,5 @@ impl From<domain_workspace::Workspace> for CreateWorkspaceResponse {
 }
 
 #[cfg(test)]
-#[path = "workspace_command_contract_tests.rs"]
-mod workspace_command_contract_tests;
+#[path = "tests.rs"]
+mod tests;

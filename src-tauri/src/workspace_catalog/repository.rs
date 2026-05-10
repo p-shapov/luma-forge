@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::workspace::{Workspace, WorkspaceCatalog},
-    workspace_setup::workspace_setup_error::WorkspaceSetupError,
+    workspace_setup::error::WorkspaceSetupError,
 };
 
 pub trait WorkspaceCatalogRepository: Send + Sync {

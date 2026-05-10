@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::{
-    provider_setup::ProviderSetupError, workspace_setup::workspace_setup_error::WorkspaceSetupError,
-};
+use crate::{provider_setup::ProviderSetupError, workspace_setup::error::WorkspaceSetupError};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
@@ -44,9 +42,9 @@ impl From<ProviderSetupError> for NativeCommandError {
 impl From<WorkspaceSetupError> for NativeCommandError {
     fn from(error: WorkspaceSetupError) -> Self {
         Self {
-            code: workspace_setup_error_code(&error),
-            message: workspace_setup_error_message(&error).to_string(),
-            retryable: workspace_setup_error_retryable(&error),
+            code: error_code(&error),
+            message: error_message(&error).to_string(),
+            retryable: error_retryable(&error),
         }
     }
 }
@@ -100,7 +98,7 @@ fn provider_setup_error_message(error: &ProviderSetupError) -> &'static str {
     }
 }
 
-fn workspace_setup_error_code(error: &WorkspaceSetupError) -> NativeCommandErrorCode {
+fn error_code(error: &WorkspaceSetupError) -> NativeCommandErrorCode {
     match error {
         WorkspaceSetupError::ProviderSetupIncomplete => {
             NativeCommandErrorCode::ProviderSetupIncomplete
@@ -129,7 +127,7 @@ fn workspace_setup_error_code(error: &WorkspaceSetupError) -> NativeCommandError
     }
 }
 
-fn workspace_setup_error_retryable(error: &WorkspaceSetupError) -> bool {
+fn error_retryable(error: &WorkspaceSetupError) -> bool {
     matches!(
         error,
         WorkspaceSetupError::ProviderApiUnavailable
@@ -139,7 +137,7 @@ fn workspace_setup_error_retryable(error: &WorkspaceSetupError) -> bool {
     )
 }
 
-fn workspace_setup_error_message(error: &WorkspaceSetupError) -> &'static str {
+fn error_message(error: &WorkspaceSetupError) -> &'static str {
     match error {
         WorkspaceSetupError::ProviderSetupIncomplete => "GPU cloud provider setup is incomplete.",
         WorkspaceSetupError::InvalidProviderApiKey => "Provider API key is invalid.",
@@ -188,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_setup_error_mapping_is_ui_safe() {
+    fn error_mapping_is_ui_safe() {
         let error = NativeCommandError::from(WorkspaceSetupError::ProviderApiUnavailable);
 
         assert!(matches!(

@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use crate::domain::{
+    error::{DomainValidationError, DomainValidationResult},
     provider_setup::GpuCloudProviderId,
-    validation_error::{DomainValidationError, DomainValidationResult},
-    validation_support::{is_blank, is_safe_absolute_posix_path},
+    validation::{is_blank, is_safe_absolute_posix_path},
 };
 
 use super::{

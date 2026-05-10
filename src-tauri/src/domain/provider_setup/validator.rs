@@ -1,6 +1,6 @@
 use crate::domain::{
-    validation_error::{DomainValidationError, DomainValidationResult},
-    validation_support::is_blank,
+    error::{DomainValidationError, DomainValidationResult},
+    validation::is_blank,
 };
 
 use super::{GpuCloudProviderSetup, ProviderIdentity};

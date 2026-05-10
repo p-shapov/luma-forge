@@ -5,11 +5,11 @@ use serde_json::json;
 use crate::{
     domain::provider_setup::{ProviderApiKey, ProviderIdentity},
     provider::{
-        provider_client_error::ProviderClientError,
+        error::ProviderClientError,
         runpod::{
-            runpod_client::{provider_error_from_inventory_status, RunPodClient},
-            runpod_contracts::{GraphQlResponse, RunPodIdentityData, RunPodInventoryData},
-            runpod_mapper::{identity_from_graphql_response, inventory_from_graphql_response},
+            contracts::{GraphQlResponse, RunPodIdentityData, RunPodInventoryData},
+            mapper::{identity_from_graphql_response, inventory_from_graphql_response},
+            provider_error_from_inventory_status, RunPodClient,
         },
     },
 };

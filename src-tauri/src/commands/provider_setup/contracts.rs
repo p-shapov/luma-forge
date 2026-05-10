@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    commands::provider_contracts::GpuCloudProviderId,
-    domain::provider_setup as domain_provider_setup,
+    commands::contracts::GpuCloudProviderId, domain::provider_setup as domain_provider_setup,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -67,5 +66,5 @@ pub struct DeleteGpuCloudProviderSetupResponse {
 }
 
 #[cfg(test)]
-#[path = "provider_setup_command_contract_tests.rs"]
-mod provider_setup_command_contract_tests;
+#[path = "tests.rs"]
+mod tests;
