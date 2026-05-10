@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from helpers import BlockingProvisioner, ImmediateProvisioner, ServerFixture, start_payload
+from provisioner_worker.config import WorkerConfig
+from provisioner_worker.errors import GitCheckoutError
 
 
 class ApiTests(unittest.TestCase):
@@ -96,6 +98,81 @@ class ApiTests(unittest.TestCase):
             workspace_mount_path=Path(allowed),
         ) as server:
             status, payload = server.request("POST", "/start", start_payload(Path(other)))
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "invalid_request")
+
+    def test_failed_job_reports_specific_error_code(self):
+        class FailingProvisioner(ImmediateProvisioner):
+            def prepare(self, request, progress, cancel_event):
+                raise GitCheckoutError("Git checkout failed.")
+
+        with tempfile.TemporaryDirectory() as directory, ServerFixture(
+            FailingProvisioner(),
+            workspace_mount_path=Path(directory),
+        ) as server:
+            server.request("POST", "/start", start_payload(Path(directory)))
+            for _ in range(50):
+                _, payload = server.request("GET", "/status")
+                if payload["status"] == "failed":
+                    break
+                time.sleep(0.02)
+
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "git_checkout_failed")
+        self.assertEqual(payload["error"]["message"], "Git checkout failed.")
+
+    def test_authorized_request_is_accepted_when_token_is_configured(self):
+        with ServerFixture(
+            ImmediateProvisioner(),
+            config=WorkerConfig(bearer_token="secret"),
+        ) as server:
+            status, payload = server.request("GET", "/status", headers={"Authorization": "Bearer secret"})
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "idle")
+
+    def test_unauthorized_request_is_rejected_when_token_is_configured(self):
+        with ServerFixture(
+            ImmediateProvisioner(),
+            config=WorkerConfig(bearer_token="secret"),
+        ) as server:
+            status, payload = server.request("GET", "/status", headers={"Authorization": "Bearer wrong"})
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["code"], "unauthorized")
+        self.assertNotIn("secret", payload["message"])
+
+    def test_authorization_can_be_disabled(self):
+        with ServerFixture(
+            ImmediateProvisioner(),
+            config=WorkerConfig(bearer_token=None),
+        ) as server:
+            status, payload = server.request("GET", "/status")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["status"], "idle")
+
+    def test_rejects_oversized_request_before_parsing_json(self):
+        with ServerFixture(
+            ImmediateProvisioner(),
+            config=WorkerConfig(max_request_bytes=2),
+        ) as server:
+            status, payload = server.request("POST", "/start", {"bad": "json"})
+
+        self.assertEqual(status, 413)
+        self.assertEqual(payload["code"], "request_too_large")
+
+    def test_rejects_malformed_content_length(self):
+        with ServerFixture(ImmediateProvisioner()) as server:
+            status, payload = server.raw_request(
+                b"POST /start HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: nope\r\n"
+                b"\r\n"
+                b"{}",
+            )
 
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "invalid_request")

@@ -13,8 +13,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
 
-ENV PYTHONPATH=/app/src
+RUN python -m pip install --no-cache-dir .
 
 EXPOSE 8000
 CMD ["python", "-m", "provisioner_worker"]
-

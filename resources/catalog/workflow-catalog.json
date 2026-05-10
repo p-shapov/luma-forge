@@ -11,19 +11,18 @@
       "required_comfyui_source": {
         "source_type": "git",
         "repository_url": "https://github.com/comfyanonymous/ComfyUI.git",
-        "revision": "master"
+        "revision": "aa9d2fc713664e9ffe37763f4c9240c0c3eda667"
       },
       "required_model_assets": [
         {
           "id": "sdxl-base-1-0",
           "name": "SDXL Base 1.0",
           "model_asset_kind": "checkpoint",
-          "file_size_bytes": 6938040256,
           "download_source": {
             "source_type": "huggingface",
             "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
             "file_path": "sd_xl_base_1.0.safetensors",
-            "revision": "main"
+            "revision": "462165984030d82259a11f4367a4eed129e94a7b"
           },
           "install": {
             "comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"

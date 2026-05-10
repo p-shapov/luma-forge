@@ -7,6 +7,8 @@ use super::{
     reader::BundledCatalogReader,
 };
 
+const COMMIT_REVISION: &str = "0123456789abcdef0123456789abcdef01234567";
+
 #[test]
 fn reads_bundled_catalogs() {
     let reader = BundledCatalogReader;
@@ -51,15 +53,14 @@ fn rejects_workflow_catalog_with_missing_model_asset_install_path() {
               "required_comfyui_source": {
                 "source_type": "git",
                 "repository_url": "https://example.test/comfyui.git",
-                "revision": "main"
+                "revision": "0123456789abcdef0123456789abcdef01234567"
               },
               "required_model_assets": [
                 {
-                  "id": "asset",
-                  "name": "Asset",
-                  "model_asset_kind": "checkpoint",
-                  "file_size_bytes": 1,
-                  "download_source": {
+	                  "id": "asset",
+	                  "name": "Asset",
+	                  "model_asset_kind": "checkpoint",
+	                  "download_source": {
                     "source_type": "huggingface",
                     "repository_id": "owner/model",
                     "file_path": "model.safetensors",
@@ -95,15 +96,14 @@ fn rejects_workflow_catalog_with_unsafe_model_asset_install_path() {
               "required_comfyui_source": {
                 "source_type": "git",
                 "repository_url": "https://example.test/comfyui.git",
-                "revision": "main"
+                "revision": "0123456789abcdef0123456789abcdef01234567"
               },
               "required_model_assets": [
                 {
-                  "id": "asset",
-                  "name": "Asset",
-                  "model_asset_kind": "checkpoint",
-                  "file_size_bytes": 1,
-                  "download_source": {
+	                  "id": "asset",
+	                  "name": "Asset",
+	                  "model_asset_kind": "checkpoint",
+	                  "download_source": {
                     "source_type": "huggingface",
                     "repository_id": "owner/model",
                     "file_path": "model.safetensors",
@@ -144,7 +144,7 @@ fn validates_workflow_catalog_source_and_custom_node_surface_fields() {
             "git_source": {
                 "source_type": "git",
                 "repository_url": "https://example.test/node.git",
-                "revision": "main"
+                "revision": COMMIT_REVISION
             },
             "install": {
                 "comfyui_custom_nodes_relative_path": "custom_nodes/node"
@@ -155,7 +155,6 @@ fn validates_workflow_catalog_source_and_custom_node_surface_fields() {
     valid["workflow_presets"][0]["required_custom_nodes"][0]["install"]
         ["python_requirements_path"] = json!("requirements.txt");
     parse_workflow_catalog(&valid.to_string()).expect("safe requirements path should pass");
-
     let invalid_cases = [
         (
             "non-url comfyui repository",
@@ -166,6 +165,16 @@ fn validates_workflow_catalog_source_and_custom_node_surface_fields() {
             "blank comfyui revision",
             "/workflow_presets/0/required_comfyui_source/revision",
             json!(" "),
+        ),
+        (
+            "mutable comfyui revision",
+            "/workflow_presets/0/required_comfyui_source/revision",
+            json!("main"),
+        ),
+        (
+            "short comfyui revision",
+            "/workflow_presets/0/required_comfyui_source/revision",
+            json!("0123456"),
         ),
         (
             "malformed huggingface repository id",
@@ -206,6 +215,11 @@ fn validates_workflow_catalog_source_and_custom_node_surface_fields() {
             "blank custom node repository",
             "/workflow_presets/0/required_custom_nodes/0/git_source/repository_url",
             json!(""),
+        ),
+        (
+            "mutable custom node revision",
+            "/workflow_presets/0/required_custom_nodes/0/git_source/revision",
+            json!("main"),
         ),
     ];
 
@@ -368,14 +382,13 @@ fn valid_workflow_catalog() -> Value {
                 "required_comfyui_source": {
                     "source_type": "git",
                     "repository_url": "https://example.test/comfyui.git",
-                    "revision": "main"
+                    "revision": COMMIT_REVISION
                 },
                 "required_model_assets": [
                     {
                         "id": "asset",
                         "name": "Asset",
                         "model_asset_kind": "checkpoint",
-                        "file_size_bytes": 1,
                         "download_source": {
                             "source_type": "huggingface",
                             "repository_id": "owner/model",
