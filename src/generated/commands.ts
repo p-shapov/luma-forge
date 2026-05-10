@@ -136,9 +136,12 @@ export type NativeCommandError = {
 	code: NativeCommandErrorCode,
 	message: string,
 	retryable: boolean,
+	field: string | null,
+	reason: string | null,
+	recovery_action: string | null,
 };
 
-export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
+export type NativeCommandErrorCode = "provider_setup_incomplete" | "provider_setup_not_found" | "provider_setup_already_exists" | "provider_api_key_required" | "provider_api_key_unauthorized" | "stored_provider_api_key_invalid" | "provider_api_unavailable" | "provider_response_invalid" | "provider_inventory_invalid" | "provider_identity_response_invalid" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "workflow_catalog_unavailable" | "provisioning_profiles_unavailable" | "endpoint_profiles_unavailable" | "workspace_catalog_unavailable" | "workspace_catalog_storage_unavailable" | "workspace_catalog_migration_failed" | "workspace_catalog_query_failed" | "workspace_catalog_corrupt" | "workspace_catalog_schema_mismatch" | "placement_provider_mismatch" | "placement_datacenter_required" | "placement_gpu_required" | "workflow_preset_stale" | "provisioning_profile_stale" | "endpoint_profile_stale" | "endpoint_profile_incompatible" | "storage_size_below_preset_minimum" | "workspace_already_exists" | "invalid_workspace_id" | "workspace_name_required" | "invalid_workspace_metadata";
 
 export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,

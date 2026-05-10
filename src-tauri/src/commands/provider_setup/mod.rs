@@ -35,7 +35,7 @@ pub(crate) async fn setup_gpu_cloud_provider(
 ) -> CommandResult<SetupGpuCloudProviderResponse> {
     let provider_id = request.gpu_cloud_provider_id;
     let api_key = ProviderApiKey::new(request.provider_api_key)
-        .map_err(|_| provider_setup::ProviderSetupError::InvalidProviderApiKey)?;
+        .map_err(|_| provider_setup::ProviderSetupError::ProviderApiKeyRequired)?;
     let _guard = app_state
         .provider_setup_coordinator()
         .lock(&provider_id)

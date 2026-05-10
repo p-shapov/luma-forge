@@ -23,14 +23,14 @@ pub(super) fn identity_from_graphql_response(
     let myself = payload
         .data
         .and_then(|data| data.myself)
-        .ok_or(ProviderClientError::IdentityUnavailable)?;
+        .ok_or(ProviderClientError::ResponseInvalid)?;
     let provider_user_email = myself
         .email
         .filter(|email| !email.is_empty())
-        .ok_or(ProviderClientError::IdentityUnavailable)?;
+        .ok_or(ProviderClientError::ResponseInvalid)?;
     let api_keys = myself
         .api_keys
-        .ok_or(ProviderClientError::IdentityUnavailable)?;
+        .ok_or(ProviderClientError::ResponseInvalid)?;
     let matched_api_key = match_api_key(api_key.expose_secret(), &api_keys)?;
 
     if matched_api_key.is_active != Some(true) {
@@ -42,7 +42,7 @@ pub(super) fn identity_from_graphql_response(
         provider_api_key_fingerprint: matched_api_key
             .id
             .clone()
-            .ok_or(ProviderClientError::IdentityUnavailable)?,
+            .ok_or(ProviderClientError::ResponseInvalid)?,
     })
 }
 
@@ -61,10 +61,10 @@ fn match_api_key<'a>(
         .take(2);
 
     let Some(first) = matches.next() else {
-        return Err(ProviderClientError::IdentityUnavailable);
+        return Err(ProviderClientError::ResponseInvalid);
     };
     if matches.next().is_some() {
-        return Err(ProviderClientError::IdentityUnavailable);
+        return Err(ProviderClientError::ResponseInvalid);
     }
 
     Ok(first)
@@ -95,14 +95,14 @@ pub(super) fn inventory_from_graphql_response(
     let data_centers = payload
         .data
         .and_then(|data| data.data_centers)
-        .ok_or(ProviderClientError::ApiUnavailable)?;
+        .ok_or(ProviderClientError::ResponseInvalid)?;
 
     let mut datacenters = Vec::new();
     for data_center in data_centers {
         let id = data_center
             .id
             .filter(|id| !id.is_empty())
-            .ok_or(ProviderClientError::ApiUnavailable)?;
+            .ok_or(ProviderClientError::ResponseInvalid)?;
         let name = data_center.name.unwrap_or_else(|| id.clone());
         let gpu_options = data_center
             .gpu_availability
@@ -121,7 +121,7 @@ pub(super) fn inventory_from_graphql_response(
 
     let fetched_at = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|_| ProviderClientError::ApiUnavailable)?;
+        .map_err(|_| ProviderClientError::ResponseInvalid)?;
 
     Ok(ProviderInventory {
         gpu_cloud_provider_id: GpuCloudProviderId::Runpod,

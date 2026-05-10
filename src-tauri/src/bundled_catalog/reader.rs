@@ -27,11 +27,11 @@ impl WorkspaceSetupCatalogReader for BundledCatalogReader {
 
     fn provisioning_profiles(&self) -> Result<Vec<ProvisioningProfile>, WorkspaceSetupError> {
         parse_provisioning_profiles(PROVISIONING_PROFILES_JSON)
-            .map_err(|_| WorkspaceSetupError::WorkflowCatalogUnavailable)
+            .map_err(|_| WorkspaceSetupError::ProvisioningProfilesUnavailable)
     }
 
     fn endpoint_profiles(&self) -> Result<Vec<EndpointProfile>, WorkspaceSetupError> {
         parse_endpoint_profiles(ENDPOINT_PROFILES_JSON)
-            .map_err(|_| WorkspaceSetupError::WorkflowCatalogUnavailable)
+            .map_err(|_| WorkspaceSetupError::EndpointProfilesUnavailable)
     }
 }

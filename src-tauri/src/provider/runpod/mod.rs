@@ -105,7 +105,7 @@ impl RunPodClient {
         let payload = response
             .json::<GraphQlResponse<RunPodIdentityData>>()
             .await
-            .map_err(|_| ProviderClientError::IdentityUnavailable)?;
+            .map_err(|_| ProviderClientError::ResponseInvalid)?;
 
         identity_from_graphql_response(api_key, payload)
     }
@@ -132,7 +132,7 @@ impl RunPodClient {
         let payload = response
             .json::<GraphQlResponse<RunPodInventoryData>>()
             .await
-            .map_err(|_| ProviderClientError::ApiUnavailable)?;
+            .map_err(|_| ProviderClientError::ResponseInvalid)?;
 
         inventory_from_graphql_response(payload)
     }

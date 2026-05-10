@@ -28,7 +28,7 @@ pub(super) async fn migrate(
     )
     .fetch_all(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     for row in rows {
         if decode_workspace_row(&row).is_ok() {
@@ -38,33 +38,33 @@ pub(super) async fn migrate(
         let id = workspace_id_for_diagnostics(&row);
         let workspace_json: String = row.try_get("workspace_json").map_err(|_| {
             log_migration_failure(id.as_deref(), "missing_workspace_json");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
         let value = serde_json::from_str(&workspace_json).map_err(|_| {
             log_migration_failure(id.as_deref(), "malformed_workspace_json");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
 
         let migrated = migrate_legacy_workspace_value(value, migration_source).map_err(|_| {
             log_migration_failure(id.as_deref(), "legacy_workspace_migration_failed");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
         let workspace: Workspace = serde_json::from_value(migrated).map_err(|_| {
             log_migration_failure(id.as_deref(), "migrated_workspace_decode_failed");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
         workspace_validator::validate_workspace(&workspace).map_err(|_| {
             log_migration_failure(id.as_deref(), "migrated_workspace_validation_failed");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
         validate_workspace_row(&row, &workspace).map_err(|_| {
             log_migration_failure(id.as_deref(), "migrated_workspace_row_mismatch");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
 
         let migrated_json = serde_json::to_string(&workspace).map_err(|_| {
             log_migration_failure(id.as_deref(), "migrated_workspace_encode_failed");
-            WorkspaceSetupError::WorkspaceCatalogUnavailable
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         })?;
 
         sqlx::query("UPDATE workspaces SET workspace_json = ? WHERE id = ?")
@@ -72,7 +72,7 @@ pub(super) async fn migrate(
             .bind(&workspace.id)
             .execute(&mut **transaction)
             .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
     }
 
     Ok(())
@@ -85,12 +85,12 @@ fn migrate_legacy_workspace_value(
     let provider_id = value
         .get("gpu_cloud_provider_id")
         .and_then(serde_json::Value::as_str)
-        .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)?
+        .ok_or(WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?
         .to_string();
     let placement_plan = value
         .get_mut("placement_plan")
         .and_then(serde_json::Value::as_object_mut)
-        .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .ok_or(WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
     placement_plan.insert(
         "gpu_cloud_provider_id".to_string(),
         serde_json::Value::String(provider_id),
@@ -106,32 +106,32 @@ fn migrate_legacy_workspace_value(
         .workflow_presets
         .iter()
         .find(|preset| preset.id == workflow_preset_id)
-        .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .ok_or(WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
     let provisioning_profile = migration_source
         .provisioning_profiles
         .iter()
         .find(|profile| profile.id() == provisioning_profile_id)
-        .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .ok_or(WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
     let endpoint_profile = migration_source
         .endpoint_profiles
         .iter()
         .find(|profile| profile.id() == endpoint_profile_id)
-        .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .ok_or(WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     placement_plan.insert(
         "selected_workflow_preset".to_string(),
         serde_json::to_value(workflow_preset)
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?,
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?,
     );
     placement_plan.insert(
         "selected_provisioning_profile".to_string(),
         serde_json::to_value(provisioning_profile)
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?,
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?,
     );
     placement_plan.insert(
         "selected_endpoint_profile".to_string(),
         serde_json::to_value(endpoint_profile)
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?,
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?,
     );
 
     Ok(value)
@@ -146,7 +146,7 @@ fn selected_object_id(
         .and_then(|value| value.get("id"))
         .and_then(serde_json::Value::as_str)
         .map(ToOwned::to_owned)
-        .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)
+        .ok_or(WorkspaceSetupError::WorkspaceCatalogMigrationFailed)
 }
 
 fn workspace_id_for_diagnostics(row: &sqlx::sqlite::SqliteRow) -> Option<String> {

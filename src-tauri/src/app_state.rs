@@ -137,7 +137,7 @@ impl WorkspaceCatalogSource {
                 .path()
                 .app_data_dir()
                 .map(|data_dir| data_dir.join("workspace-catalog.sqlite"))
-                .map_err(|_| WorkspaceSetupError::LocalStorageUnavailable),
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable),
             #[cfg(test)]
             Self::CatalogPath(path) => Ok(path.clone()),
         }
@@ -176,7 +176,10 @@ mod tests {
             Err(error) => error,
         };
 
-        assert_eq!(error, WorkspaceSetupError::LocalStorageUnavailable);
+        assert_eq!(
+            error,
+            WorkspaceSetupError::WorkspaceCatalogStorageUnavailable
+        );
 
         fs::remove_file(blocked_parent).ok();
         fs::remove_dir(base).ok();

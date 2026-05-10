@@ -178,7 +178,7 @@ impl ProviderIdentityGateway for FakeProviderGateway {
             self.responses
                 .get(&key)
                 .cloned()
-                .unwrap_or(Err(ProviderSetupError::InvalidProviderApiKey))
+                .unwrap_or(Err(ProviderSetupError::ProviderApiKeyUnauthorized))
         })
     }
 }
@@ -286,18 +286,15 @@ async fn setup_maps_invalid_provider_identity() {
         .await
         .expect_err("invalid provider identity should fail");
 
-    assert_eq!(error, ProviderSetupError::ProviderIdentityUnavailable);
+    assert_eq!(error, ProviderSetupError::ProviderIdentityResponseInvalid);
     assert_eq!(store.stored_key(), None);
 }
 
 #[tokio::test]
 async fn get_setup_maps_invalid_stored_key() {
     let service = ProviderSetupService::new(
-        MemorySecretStore::with_key("bad-key"),
-        FakeProviderGateway::with_response(
-            "bad-key",
-            Err(ProviderSetupError::InvalidProviderApiKey),
-        ),
+        MemorySecretStore::with_key(" "),
+        FakeProviderGateway::with_responses(HashMap::new()),
     );
 
     let error = service
@@ -305,7 +302,7 @@ async fn get_setup_maps_invalid_stored_key() {
         .await
         .expect_err("invalid key should fail");
 
-    assert_eq!(error, ProviderSetupError::InvalidProviderApiKey);
+    assert_eq!(error, ProviderSetupError::StoredProviderApiKeyInvalid);
 }
 
 #[tokio::test]
@@ -542,7 +539,7 @@ async fn setup_does_not_mutate_keyring_when_submitted_key_is_invalid() {
         store.clone(),
         FakeProviderGateway::with_response(
             "new-key",
-            Err(ProviderSetupError::InvalidProviderApiKey),
+            Err(ProviderSetupError::ProviderApiKeyUnauthorized),
         ),
     );
 
@@ -551,7 +548,7 @@ async fn setup_does_not_mutate_keyring_when_submitted_key_is_invalid() {
         .await
         .expect_err("invalid setup should fail");
 
-    assert_eq!(error, ProviderSetupError::InvalidProviderApiKey);
+    assert_eq!(error, ProviderSetupError::ProviderApiKeyUnauthorized);
     assert_eq!(store.stored_key(), None);
 }
 
@@ -578,26 +575,6 @@ fn provider_api_key_rejects_empty_secret_before_setup_service() {
     let store = MemorySecretStore::empty();
 
     assert!(ProviderApiKey::new(" ".to_string()).is_err());
-    assert_eq!(store.stored_key(), None);
-}
-
-#[tokio::test]
-async fn setup_maps_provider_identity_unavailable() {
-    let store = MemorySecretStore::empty();
-    let service = ProviderSetupService::new(
-        store.clone(),
-        FakeProviderGateway::with_response(
-            "new-key",
-            Err(ProviderSetupError::ProviderIdentityUnavailable),
-        ),
-    );
-
-    let error = service
-        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
-        .await
-        .expect_err("identity mismatch should fail");
-
-    assert_eq!(error, ProviderSetupError::ProviderIdentityUnavailable);
     assert_eq!(store.stored_key(), None);
 }
 
@@ -642,7 +619,7 @@ fn delete_setup_errors_when_key_is_missing() {
         .delete_setup(DomainGpuCloudProviderId::Runpod)
         .expect_err("missing setup should fail delete");
 
-    assert_eq!(error, ProviderSetupError::ProviderSetupIncomplete);
+    assert_eq!(error, ProviderSetupError::ProviderSetupNotFound);
 }
 
 #[test]

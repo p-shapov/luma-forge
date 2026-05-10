@@ -51,9 +51,9 @@ async fn inventory_reads_api_key_from_secret_store() {
 }
 
 #[test]
-fn inventory_auth_failure_maps_to_invalid_provider_key() {
+fn inventory_auth_failure_maps_to_provider_key_unauthorized() {
     assert_eq!(
         error_from_client_error(ProviderClientError::Unauthorized),
-        WorkspaceSetupError::InvalidProviderApiKey
+        WorkspaceSetupError::ProviderApiKeyUnauthorized
     );
 }

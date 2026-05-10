@@ -42,6 +42,10 @@ import { Separator } from "@shared/components/ui/separator";
 import { Slider } from "@shared/components/ui/slider";
 import { useMemo, useState } from "react";
 import { commands } from "@/generated/commands";
+import {
+  isNativeCommandError,
+  presentNativeCommandError,
+} from "@/shared/lib/native-command-error-presenter";
 
 const GIB = 1024 ** 3;
 const MIN_STORAGE_SIZE_GB = 1;
@@ -78,7 +82,6 @@ export function HomePage() {
   const [endpointProfiles, setEndpointProfiles] = useState<EndpointProfile[]>([]);
   const [providerInventory, setProviderInventory] = useState<ProviderInventory | null>(null);
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null);
-  const [workspaceId, setWorkspaceId] = useState("default-workspace");
   const [workspaceName, setWorkspaceName] = useState("Default workspace");
   const [storageSizeGb, setStorageSizeGb] = useState(20);
   const [workflowPresetId, setWorkflowPresetId] = useState("");
@@ -111,8 +114,7 @@ export function HomePage() {
   const selectedStorageSizeGb = Math.min(storageSizeGb, maxStorageSizeGb);
 
   const canCreateWorkspace = Boolean(
-    workspaceId.trim().length > 0
-    && workspaceName.trim().length > 0
+    workspaceName.trim().length > 0
     && selectedWorkflowPreset !== undefined
     && selectedProvisioningProfile !== undefined
     && selectedEndpointProfile !== undefined
@@ -121,9 +123,14 @@ export function HomePage() {
     && selectedStorageSizeGb >= MIN_STORAGE_SIZE_GB,
   );
 
-  const latestPayload = useMemo(() => logEntries[0]?.payload ?? {
+  const latestEntry = logEntries[0];
+  const latestPayload = useMemo(() => latestEntry?.payload ?? {
     message: "Run a command to see the native response.",
-  }, [logEntries]);
+  }, [latestEntry]);
+  const latestErrorPresentation = latestEntry?.status === "error"
+    && isNativeCommandError(latestEntry.payload)
+    ? presentNativeCommandError(latestEntry.payload)
+    : null;
 
   async function runCommand<T>(
     label: string,
@@ -244,7 +251,7 @@ export function HomePage() {
     void runCommand(
       "createWorkspace",
       async () => commands.createWorkspace({
-        workspace_id: workspaceId.trim(),
+        workspace_id: crypto.randomUUID(),
         name: workspaceName.trim(),
         gpu_cloud_provider_id: "runpod",
         placement_plan: {
@@ -376,15 +383,6 @@ export function HomePage() {
               <CardContent>
                 <FieldGroup>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <Field>
-                      <FieldLabel htmlFor="workspace-id">Workspace ID</FieldLabel>
-                      <Input
-                        id="workspace-id"
-                        value={workspaceId}
-                        disabled={pendingCommand !== null}
-                        onChange={event => setWorkspaceId(event.target.value)}
-                      />
-                    </Field>
                     <Field>
                       <FieldLabel htmlFor="workspace-name">Workspace name</FieldLabel>
                       <Input
@@ -554,8 +552,38 @@ export function HomePage() {
                   {pendingCommand !== null ? `Running ${pendingCommand}` : "Native command output"}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <pre className="max-h-[440px] overflow-auto rounded-2xl bg-muted p-4 text-xs leading-5 text-muted-foreground">
+              <CardContent className="flex flex-col gap-4">
+                {latestErrorPresentation !== null && (
+                  <div className="flex flex-col gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-col gap-1">
+                        <p className="text-sm font-medium text-destructive">
+                          {latestErrorPresentation.title}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {latestErrorPresentation.description}
+                        </p>
+                      </div>
+                      {latestErrorPresentation.retryable && (
+                        <Badge variant="outline">retryable</Badge>
+                      )}
+                    </div>
+                    {latestErrorPresentation.recoveryHint !== null && (
+                      <p className="text-sm text-foreground">
+                        {latestErrorPresentation.recoveryHint}
+                      </p>
+                    )}
+                    <dl className="grid gap-2 text-xs text-muted-foreground">
+                      {latestErrorPresentation.details.map(detail => (
+                        <div key={detail.label} className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                          <dt>{detail.label}</dt>
+                          <dd className="break-words font-mono">{detail.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+                <pre className="max-h-[440px] overflow-auto rounded-md bg-muted p-4 text-xs leading-5 text-muted-foreground">
                   {formatJson(latestPayload)}
                 </pre>
               </CardContent>
@@ -570,17 +598,34 @@ export function HomePage() {
                 {logEntries.length === 0 && (
                   <p className="text-sm text-muted-foreground">No commands have been run yet.</p>
                 )}
-                {logEntries.map((entry, index) => (
-                  <div key={entry.id} className="flex flex-col gap-3">
-                    {index > 0 && <Separator />}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="truncate text-sm font-medium">{entry.label}</span>
-                      <Badge variant={entry.status === "ok" ? "secondary" : "destructive"}>
-                        {entry.status}
-                      </Badge>
+                {logEntries.map((entry, index) => {
+                  const errorPresentation = entry.status === "error"
+                    && isNativeCommandError(entry.payload)
+                    ? presentNativeCommandError(entry.payload)
+                    : null;
+
+                  return (
+                    <div key={entry.id} className="flex flex-col gap-3">
+                      {index > 0 && <Separator />}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate text-sm font-medium">{entry.label}</span>
+                        <Badge variant={entry.status === "ok" ? "secondary" : "destructive"}>
+                          {entry.status}
+                        </Badge>
+                      </div>
+                      {errorPresentation !== null && (
+                        <div className="flex flex-col gap-1">
+                          <p className="text-sm font-medium text-destructive">
+                            {errorPresentation.title}
+                          </p>
+                          <p className="line-clamp-2 text-xs text-muted-foreground">
+                            {errorPresentation.recoveryHint ?? errorPresentation.description}
+                          </p>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           </aside>

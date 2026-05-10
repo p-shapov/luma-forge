@@ -35,7 +35,7 @@ impl SqliteWorkspaceCatalog {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|_| WorkspaceSetupError::LocalStorageUnavailable)?;
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         }
 
         let url = format!("sqlite://{}?mode=rwc", path.display());
@@ -43,7 +43,7 @@ impl SqliteWorkspaceCatalog {
             .max_connections(5)
             .connect(&url)
             .await
-            .map_err(|_| WorkspaceSetupError::LocalStorageUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
         catalog.migrate(&migration_source).await?;
         Ok(catalog)
@@ -55,7 +55,7 @@ impl SqliteWorkspaceCatalog {
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
-            .map_err(|_| WorkspaceSetupError::LocalStorageUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
         catalog.migrate(&test_migration_source()).await?;
         Ok(catalog)
@@ -69,14 +69,14 @@ impl SqliteWorkspaceCatalog {
             .pool
             .begin()
             .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
         migrations::run(&mut transaction, migration_source).await?;
 
         transaction
             .commit()
             .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
         Ok(())
     }
@@ -98,7 +98,7 @@ impl SqliteWorkspaceCatalog {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
         else {
             return Ok(None);
         };
@@ -128,7 +128,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             )
             .fetch_all(&self.pool)
             .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
             let mut workspaces = Vec::with_capacity(rows.len());
             for row in rows {
@@ -137,7 +137,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
 
             let catalog = WorkspaceCatalog { workspaces };
             workspace_validator::validate_workspace_catalog(&catalog)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
 
             Ok(catalog)
         })
@@ -149,16 +149,16 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
     ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
         Box::pin(async move {
             workspace_validator::validate_workspace(workspace)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
             if self.find_workspace(&workspace.id).await?.is_some() {
                 return Err(WorkspaceSetupError::WorkspaceAlreadyExists);
             }
 
             let now = time::OffsetDateTime::now_utc()
                 .format(&time::format_description::well_known::Rfc3339)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
             let workspace_json = serde_json::to_string(workspace)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
             let lifecycle_state = lifecycle_state_value(&workspace.lifecycle_state);
 
             sqlx::query(
@@ -191,13 +191,13 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 if is_unique_constraint(&error) {
                     WorkspaceSetupError::WorkspaceAlreadyExists
                 } else {
-                    WorkspaceSetupError::WorkspaceCatalogUnavailable
+                    WorkspaceSetupError::WorkspaceCatalogQueryFailed
                 }
             })?;
 
             self.find_workspace(&workspace.id)
                 .await?
-                .ok_or(WorkspaceSetupError::WorkspaceCatalogUnavailable)
+                .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
         })
     }
 }
@@ -220,12 +220,12 @@ fn lifecycle_state_value(lifecycle_state: &WorkspaceLifecycleState) -> &'static 
 pub(super) fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupError> {
     let workspace_json: String = row
         .try_get("workspace_json")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
     let workspace: Workspace = serde_json::from_str(&workspace_json)
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
 
     workspace_validator::validate_workspace(&workspace)
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
     validate_workspace_row(row, &workspace)?;
 
     Ok(workspace)
@@ -237,19 +237,19 @@ pub(super) fn validate_workspace_row(
 ) -> Result<(), WorkspaceSetupError> {
     let id: String = row
         .try_get("id")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
     let name: String = row
         .try_get("name")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
     let gpu_cloud_provider_id: String = row
         .try_get("gpu_cloud_provider_id")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
     let lifecycle_state: String = row
         .try_get("lifecycle_state")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
     let workflow_preset_id: String = row
         .try_get("workflow_preset_id")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
 
     if id != workspace.id
         || name != workspace.name
@@ -257,7 +257,7 @@ pub(super) fn validate_workspace_row(
         || lifecycle_state != lifecycle_state_value(&workspace.lifecycle_state)
         || workflow_preset_id != workspace.placement_plan.selected_workflow_preset().id
     {
-        return Err(WorkspaceSetupError::WorkspaceCatalogUnavailable);
+        return Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
     }
 
     Ok(())

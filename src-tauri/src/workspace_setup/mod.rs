@@ -78,7 +78,7 @@ where
     ) -> Result<ProviderInventory, WorkspaceSetupError> {
         let provider_inventory = self.providers.fetch_inventory(&provider_id).await?;
         provider_inventory_validator::validate_provider_inventory(provider_id, &provider_inventory)
-            .map_err(|_| WorkspaceSetupError::ProviderApiUnavailable)?;
+            .map_err(|_| WorkspaceSetupError::ProviderInventoryInvalid)?;
         Ok(provider_inventory)
     }
 
@@ -91,10 +91,10 @@ where
         request: CreateWorkspaceInput,
     ) -> Result<Workspace, WorkspaceSetupError> {
         let workspace_id = uuid::Uuid::parse_str(&request.workspace_id)
-            .map_err(|_| WorkspaceSetupError::InvalidRequest)?;
+            .map_err(|_| WorkspaceSetupError::InvalidWorkspaceId)?;
         let name = request.name.trim();
         if name.is_empty() {
-            return Err(WorkspaceSetupError::InvalidRequest);
+            return Err(WorkspaceSetupError::WorkspaceNameRequired);
         }
 
         let provider_id = request.gpu_cloud_provider_id;
@@ -112,7 +112,7 @@ where
             &provisioning_profiles,
             &endpoint_profiles,
         )
-        .map_err(|_| WorkspaceSetupError::InvalidPlacementPlan)?;
+        .map_err(WorkspaceSetupError::from)?;
 
         let workspace = Workspace::new_draft(
             provider_id,
@@ -120,7 +120,7 @@ where
             name.to_string(),
             request.placement_plan,
         )
-        .map_err(|_| WorkspaceSetupError::InvalidRequest)?;
+        .map_err(|_| WorkspaceSetupError::InvalidWorkspaceMetadata)?;
 
         let workspace = self.workspace_catalog.insert_workspace(&workspace).await?;
         Ok(workspace)

@@ -1,36 +1,92 @@
 use thiserror::Error;
 
+use crate::domain::placement::validator::PlacementValidationError;
 use crate::secrets::SecretStoreError;
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum WorkspaceSetupError {
     #[error("provider setup is incomplete")]
     ProviderSetupIncomplete,
-    #[error("invalid provider api key")]
-    InvalidProviderApiKey,
+    #[error("provider api key unauthorized")]
+    ProviderApiKeyUnauthorized,
+    #[error("stored provider api key invalid")]
+    StoredProviderApiKeyInvalid,
     #[error("provider api unavailable")]
     ProviderApiUnavailable,
+    #[error("provider response invalid")]
+    ProviderResponseInvalid,
+    #[error("provider inventory invalid")]
+    ProviderInventoryInvalid,
     #[error("secure keyring unavailable")]
     SecureKeyringUnavailable,
     #[error("workflow catalog unavailable")]
     WorkflowCatalogUnavailable,
+    #[error("provisioning profiles unavailable")]
+    ProvisioningProfilesUnavailable,
+    #[error("endpoint profiles unavailable")]
+    EndpointProfilesUnavailable,
     #[error("workspace catalog unavailable")]
     WorkspaceCatalogUnavailable,
-    #[error("local storage unavailable")]
-    LocalStorageUnavailable,
-    #[error("invalid placement plan")]
-    InvalidPlacementPlan,
+    #[error("workspace catalog storage unavailable")]
+    WorkspaceCatalogStorageUnavailable,
+    #[error("workspace catalog migration failed")]
+    WorkspaceCatalogMigrationFailed,
+    #[error("workspace catalog query failed")]
+    WorkspaceCatalogQueryFailed,
+    #[error("workspace catalog corrupt")]
+    WorkspaceCatalogCorrupt,
+    #[error("workspace catalog schema mismatch")]
+    WorkspaceCatalogSchemaMismatch,
+    #[error("placement provider mismatch")]
+    PlacementProviderMismatch,
+    #[error("placement datacenter required")]
+    PlacementDatacenterRequired,
+    #[error("placement gpu required")]
+    PlacementGpuRequired,
+    #[error("workflow preset stale")]
+    WorkflowPresetStale,
+    #[error("provisioning profile stale")]
+    ProvisioningProfileStale,
+    #[error("endpoint profile stale")]
+    EndpointProfileStale,
+    #[error("endpoint profile incompatible")]
+    EndpointProfileIncompatible,
+    #[error("storage size below preset minimum")]
+    StorageSizeBelowPresetMinimum,
     #[error("workspace already exists")]
     WorkspaceAlreadyExists,
-    #[error("invalid request")]
-    InvalidRequest,
+    #[error("invalid workspace id")]
+    InvalidWorkspaceId,
+    #[error("workspace name required")]
+    WorkspaceNameRequired,
+    #[error("invalid workspace metadata")]
+    InvalidWorkspaceMetadata,
 }
 
 impl From<SecretStoreError> for WorkspaceSetupError {
     fn from(error: SecretStoreError) -> Self {
         match error {
             SecretStoreError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
-            SecretStoreError::InvalidStoredProviderApiKey => Self::InvalidProviderApiKey,
+            SecretStoreError::InvalidStoredProviderApiKey => Self::StoredProviderApiKeyInvalid,
+        }
+    }
+}
+
+impl From<PlacementValidationError> for WorkspaceSetupError {
+    fn from(error: PlacementValidationError) -> Self {
+        match error {
+            PlacementValidationError::ProviderMismatch => Self::PlacementProviderMismatch,
+            PlacementValidationError::DatacenterRequired => Self::PlacementDatacenterRequired,
+            PlacementValidationError::GpuRequired => Self::PlacementGpuRequired,
+            PlacementValidationError::WorkflowPresetStale => Self::WorkflowPresetStale,
+            PlacementValidationError::ProvisioningProfileStale => Self::ProvisioningProfileStale,
+            PlacementValidationError::EndpointProfileStale => Self::EndpointProfileStale,
+            PlacementValidationError::EndpointProfileIncompatible => {
+                Self::EndpointProfileIncompatible
+            }
+            PlacementValidationError::StorageSizeBelowPresetMinimum => {
+                Self::StorageSizeBelowPresetMinimum
+            }
         }
     }
 }

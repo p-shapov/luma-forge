@@ -44,7 +44,7 @@ pub(super) async fn run(
     create_schema(transaction).await?;
     let version = persistence_version(transaction).await?;
     if version > CURRENT_PERSISTENCE_VERSION {
-        return Err(WorkspaceSetupError::WorkspaceCatalogUnavailable);
+        return Err(WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     }
     if version < CURRENT_PERSISTENCE_VERSION {
         v0001_legacy_workspace_json::migrate(transaction, migration_source).await?;
@@ -71,21 +71,21 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
     )
     .execute(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_workspaces_lifecycle_state ON workspaces(lifecycle_state)",
     )
     .execute(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_workspaces_workflow_preset_id ON workspaces(workflow_preset_id)",
     )
     .execute(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     sqlx::query(
         r#"
@@ -97,7 +97,7 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
     )
     .execute(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     Ok(())
 }
@@ -115,16 +115,16 @@ async fn persistence_version(
     .bind(PERSISTENCE_VERSION_KEY)
     .fetch_optional(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?
     .map(|row| row.try_get("value"))
     .transpose()
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     value
         .as_deref()
         .unwrap_or("0")
         .parse()
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)
 }
 
 async fn set_persistence_version(
@@ -142,7 +142,7 @@ async fn set_persistence_version(
     .bind(version.to_string())
     .execute(&mut **transaction)
     .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
     Ok(())
 }

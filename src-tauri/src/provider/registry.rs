@@ -79,18 +79,17 @@ where
 
 fn provider_setup_error_from_client_error(error: ProviderClientError) -> ProviderSetupError {
     match error {
-        ProviderClientError::Unauthorized => ProviderSetupError::InvalidProviderApiKey,
+        ProviderClientError::Unauthorized => ProviderSetupError::ProviderApiKeyUnauthorized,
         ProviderClientError::ApiUnavailable => ProviderSetupError::ProviderApiUnavailable,
-        ProviderClientError::IdentityUnavailable => ProviderSetupError::ProviderIdentityUnavailable,
+        ProviderClientError::ResponseInvalid => ProviderSetupError::ProviderIdentityResponseInvalid,
     }
 }
 
 fn error_from_client_error(error: ProviderClientError) -> WorkspaceSetupError {
     match error {
-        ProviderClientError::Unauthorized => WorkspaceSetupError::InvalidProviderApiKey,
-        ProviderClientError::ApiUnavailable | ProviderClientError::IdentityUnavailable => {
-            WorkspaceSetupError::ProviderApiUnavailable
-        }
+        ProviderClientError::Unauthorized => WorkspaceSetupError::ProviderApiKeyUnauthorized,
+        ProviderClientError::ApiUnavailable => WorkspaceSetupError::ProviderApiUnavailable,
+        ProviderClientError::ResponseInvalid => WorkspaceSetupError::ProviderResponseInvalid,
     }
 }
 

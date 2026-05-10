@@ -6,6 +6,6 @@ pub enum ProviderClientError {
     Unauthorized,
     #[error("provider api unavailable")]
     ApiUnavailable,
-    #[error("provider identity unavailable")]
-    IdentityUnavailable,
+    #[error("provider response invalid")]
+    ResponseInvalid,
 }

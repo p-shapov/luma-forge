@@ -76,7 +76,7 @@ async fn rejects_future_persistence_version() {
         .await
         .expect_err("future version should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
 
     std::fs::remove_file(path).ok();
 }
@@ -94,7 +94,7 @@ async fn rejects_provider_id_column_mismatch() {
         .await
         .expect_err("provider id mismatch should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
 }
 
 #[tokio::test]
@@ -110,7 +110,7 @@ async fn rejects_id_column_mismatch() {
         .await
         .expect_err("id mismatch should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
 }
 
 #[tokio::test]
@@ -126,7 +126,7 @@ async fn rejects_name_column_mismatch() {
         .await
         .expect_err("name mismatch should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
 }
 
 #[tokio::test]
@@ -142,7 +142,7 @@ async fn rejects_lifecycle_state_column_mismatch() {
         .await
         .expect_err("lifecycle state mismatch should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
 }
 
 #[tokio::test]
@@ -158,7 +158,7 @@ async fn rejects_workflow_preset_id_column_mismatch() {
         .await
         .expect_err("workflow preset id mismatch should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
 }
 
 #[tokio::test]
@@ -237,7 +237,7 @@ async fn maps_decode_failure() {
         .await
         .expect_err("bad json should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogCorrupt);
 }
 
 #[tokio::test]
@@ -267,7 +267,7 @@ async fn rejects_invalid_workspace_payload() {
         .await
         .expect_err("invalid workspace payload should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogCorrupt);
 }
 
 #[tokio::test]
@@ -311,7 +311,7 @@ async fn failed_legacy_migration_does_not_record_version() {
         .await
         .expect_err("catalog migration should fail");
 
-    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     assert!(!metadata_table_exists(&path).await);
 
     std::fs::remove_file(path).ok();

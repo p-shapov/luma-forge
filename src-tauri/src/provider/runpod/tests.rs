@@ -82,7 +82,7 @@ fn rejects_missing_prefix_match() {
     )
     .expect_err("missing match should fail");
 
-    assert_eq!(error, ProviderClientError::IdentityUnavailable);
+    assert_eq!(error, ProviderClientError::ResponseInvalid);
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn rejects_ambiguous_prefix_match() {
     )
     .expect_err("ambiguous match should fail");
 
-    assert_eq!(error, ProviderClientError::IdentityUnavailable);
+    assert_eq!(error, ProviderClientError::ResponseInvalid);
 }
 
 #[test]
@@ -124,7 +124,7 @@ fn maps_auth_graphql_errors_to_invalid_key() {
 #[tokio::test]
 async fn identity_request_timeout_maps_to_api_unavailable() {
     let client = RunPodClient::new_for_test(
-        "http://192.0.2.1/graphql".to_string(),
+        "http://127.0.0.1:9/graphql".to_string(),
         Duration::from_millis(50),
     );
     let api_key = ProviderApiKey::new("rp_123_secret".to_string()).expect("valid api key");

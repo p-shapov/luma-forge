@@ -12,10 +12,9 @@ use crate::{
     bundled_catalog::reader::BundledCatalogReader,
     domain::{
         placement::PlacementPlan,
-        profiles::EndpointProfile,
+        profiles::{EndpointProfile, ProvisioningProfile},
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
-        workflow::WorkflowExecutionType,
         workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
     provider_setup::ProviderSetupCoordinator,
@@ -327,7 +326,7 @@ async fn maps_provider_inventory_failure() {
 }
 
 #[tokio::test]
-async fn maps_invalid_provider_inventory_to_provider_unavailable() {
+async fn maps_invalid_provider_inventory_to_provider_inventory_invalid() {
     let service = WorkspaceSetupService::new(
         BundledCatalogReader,
         MemorySecretStore::with_key("rp_123_secret"),
@@ -348,7 +347,7 @@ async fn maps_invalid_provider_inventory_to_provider_unavailable() {
         .await
         .expect_err("invalid provider inventory should fail");
 
-    assert_eq!(error, WorkspaceSetupError::ProviderApiUnavailable);
+    assert_eq!(error, WorkspaceSetupError::ProviderInventoryInvalid);
 }
 
 #[tokio::test]
@@ -373,6 +372,66 @@ async fn creates_draft_workspace() {
     assert!(response.persistent_storage_volume_snapshot.is_none());
     assert!(response.active_provisioning_pod_snapshot.is_none());
     assert!(response.serverless_endpoint_snapshot.is_none());
+}
+
+#[tokio::test]
+async fn rejects_invalid_workspace_id() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "not-a-uuid".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan: sample_placement_plan(),
+        })
+        .await
+        .expect_err("invalid workspace id should fail");
+
+    assert_eq!(error, WorkspaceSetupError::InvalidWorkspaceId);
+}
+
+#[tokio::test]
+async fn rejects_missing_workspace_name() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: " ".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan: sample_placement_plan(),
+        })
+        .await
+        .expect_err("missing workspace name should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceNameRequired);
+}
+
+#[tokio::test]
+async fn rejects_invalid_stored_provider_key_during_workspace_creation() {
+    let service = service(
+        MemorySecretStore::with_key(" "),
+        MemoryWorkspaceCatalog::default(),
+    );
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan: sample_placement_plan(),
+        })
+        .await
+        .expect_err("invalid stored provider key should fail");
+
+    assert_eq!(error, WorkspaceSetupError::StoredProviderApiKeyInvalid);
 }
 
 #[tokio::test]
@@ -465,7 +524,58 @@ async fn rejects_duplicate_workspace_id() {
 }
 
 #[tokio::test]
-async fn rejects_stale_catalog_object() {
+async fn rejects_missing_datacenter_selection() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+    let mut placement_plan = sample_placement_plan();
+    let PlacementPlan::Runpod {
+        selected_datacenter_id,
+        ..
+    } = &mut placement_plan;
+    selected_datacenter_id.clear();
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan,
+        })
+        .await
+        .expect_err("missing datacenter should fail");
+
+    assert_eq!(error, WorkspaceSetupError::PlacementDatacenterRequired);
+}
+
+#[tokio::test]
+async fn rejects_missing_gpu_selection() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+    let mut placement_plan = sample_placement_plan();
+    let PlacementPlan::Runpod {
+        selected_gpu_id, ..
+    } = &mut placement_plan;
+    selected_gpu_id.clear();
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan,
+        })
+        .await
+        .expect_err("missing GPU should fail");
+
+    assert_eq!(error, WorkspaceSetupError::PlacementGpuRequired);
+}
+
+#[tokio::test]
+async fn rejects_stale_workflow_preset() {
     let service = service(
         MemorySecretStore::with_key("rp_123_secret"),
         MemoryWorkspaceCatalog::default(),
@@ -487,7 +597,61 @@ async fn rejects_stale_catalog_object() {
         .await
         .expect_err("stale preset should fail");
 
-    assert_eq!(error, WorkspaceSetupError::InvalidPlacementPlan);
+    assert_eq!(error, WorkspaceSetupError::WorkflowPresetStale);
+}
+
+#[tokio::test]
+async fn rejects_stale_provisioning_profile() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+    let mut placement_plan = sample_placement_plan();
+    let PlacementPlan::Runpod {
+        selected_provisioning_profile,
+        ..
+    } = &mut placement_plan;
+    let ProvisioningProfile::Runpod { name, .. } = selected_provisioning_profile;
+    *name = "Changed".to_string();
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan,
+        })
+        .await
+        .expect_err("stale provisioning profile should fail");
+
+    assert_eq!(error, WorkspaceSetupError::ProvisioningProfileStale);
+}
+
+#[tokio::test]
+async fn rejects_stale_endpoint_profile() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+    let mut placement_plan = sample_placement_plan();
+    let PlacementPlan::Runpod {
+        selected_endpoint_profile,
+        ..
+    } = &mut placement_plan;
+    let EndpointProfile::Runpod { name, .. } = selected_endpoint_profile;
+    *name = "Changed".to_string();
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan,
+        })
+        .await
+        .expect_err("stale endpoint profile should fail");
+
+    assert_eq!(error, WorkspaceSetupError::EndpointProfileStale);
 }
 
 #[tokio::test]
@@ -513,26 +677,20 @@ async fn rejects_insufficient_storage() {
         .await
         .expect_err("small storage should fail");
 
-    assert_eq!(error, WorkspaceSetupError::InvalidPlacementPlan);
+    assert_eq!(error, WorkspaceSetupError::StorageSizeBelowPresetMinimum);
 }
 
 #[tokio::test]
-async fn rejects_incompatible_endpoint_profile() {
+async fn rejects_unknown_workflow_preset() {
     let service = service(
         MemorySecretStore::with_key("rp_123_secret"),
         MemoryWorkspaceCatalog::default(),
     );
     let mut placement_plan = sample_placement_plan();
     let PlacementPlan::Runpod {
-        selected_endpoint_profile,
         selected_workflow_preset,
         ..
     } = &mut placement_plan;
-    let EndpointProfile::Runpod {
-        workflow_execution_type,
-        ..
-    } = selected_endpoint_profile;
-    *workflow_execution_type = WorkflowExecutionType::T2i;
     selected_workflow_preset.id = "unknown".to_string();
 
     let error = service
@@ -543,9 +701,9 @@ async fn rejects_incompatible_endpoint_profile() {
             placement_plan,
         })
         .await
-        .expect_err("incompatible request should fail");
+        .expect_err("unknown workflow preset should fail");
 
-    assert_eq!(error, WorkspaceSetupError::InvalidPlacementPlan);
+    assert_eq!(error, WorkspaceSetupError::WorkflowPresetStale);
 }
 
 #[tokio::test]

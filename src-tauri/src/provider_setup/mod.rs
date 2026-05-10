@@ -78,7 +78,7 @@ where
         provider_id: DomainGpuCloudProviderId,
     ) -> Result<(), ProviderSetupError> {
         if !self.secrets.has_api_key_entry(&provider_id)? {
-            return Err(ProviderSetupError::ProviderSetupIncomplete);
+            return Err(ProviderSetupError::ProviderSetupNotFound);
         }
 
         self.secrets.delete_api_key(&provider_id)?;
@@ -119,10 +119,10 @@ where
             .validate_identity(provider_id, api_key)
             .await?;
         provider_setup::validator::validate_provider_identity(&identity)
-            .map_err(|_| ProviderSetupError::ProviderIdentityUnavailable)?;
+            .map_err(|_| ProviderSetupError::ProviderIdentityResponseInvalid)?;
         let setup = Self::setup_from_identity(*provider_id, identity);
         provider_setup::validator::validate_gpu_cloud_provider_setup(&setup)
-            .map_err(|_| ProviderSetupError::ProviderIdentityUnavailable)?;
+            .map_err(|_| ProviderSetupError::ProviderIdentityResponseInvalid)?;
 
         Ok(setup)
     }
