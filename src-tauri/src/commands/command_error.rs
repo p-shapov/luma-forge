@@ -15,6 +15,7 @@ pub enum NativeCommandErrorCode {
     ProviderApiUnavailable,
     ProviderIdentityUnavailable,
     SecureKeyringUnavailable,
+    ProviderSetupRecoveryRequired,
     LocalStorageUnavailable,
     WorkflowCatalogUnavailable,
     WorkspaceCatalogUnavailable,
@@ -68,6 +69,9 @@ fn provider_setup_error_code(error: &ProviderSetupError) -> NativeCommandErrorCo
         ProviderSetupError::SecureKeyringUnavailable => {
             NativeCommandErrorCode::SecureKeyringUnavailable
         }
+        ProviderSetupError::ProviderSetupRecoveryRequired => {
+            NativeCommandErrorCode::ProviderSetupRecoveryRequired
+        }
     }
 }
 
@@ -90,6 +94,9 @@ fn provider_setup_error_message(error: &ProviderSetupError) -> &'static str {
             "Provider identity could not be verified."
         }
         ProviderSetupError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
+        ProviderSetupError::ProviderSetupRecoveryRequired => {
+            "GPU cloud provider setup requires local recovery."
+        }
     }
 }
 
@@ -160,6 +167,22 @@ mod tests {
             NativeCommandErrorCode::InvalidProviderApiKey
         ));
         assert_eq!(error.message, "Provider API key is invalid.");
+        assert!(!error.message.contains("rp_"));
+        assert!(!error.retryable);
+    }
+
+    #[test]
+    fn provider_setup_recovery_required_mapping_is_ui_safe_and_not_retryable() {
+        let error = NativeCommandError::from(ProviderSetupError::ProviderSetupRecoveryRequired);
+
+        assert!(matches!(
+            error.code,
+            NativeCommandErrorCode::ProviderSetupRecoveryRequired
+        ));
+        assert_eq!(
+            error.message,
+            "GPU cloud provider setup requires local recovery."
+        );
         assert!(!error.message.contains("rp_"));
         assert!(!error.retryable);
     }

@@ -409,6 +409,49 @@ async fn setup_maps_stored_key_re_read_failure() {
         .expect_err("re-read failure should fail setup");
 
     assert_eq!(error, ProviderSetupError::SecureKeyringUnavailable);
+    assert_eq!(store.stored_key(), None);
+}
+
+#[tokio::test]
+async fn setup_rolls_back_stored_key_validation_failure() {
+    let mut store = MemorySecretStore::empty();
+    store.replace_key_override = Some("stored-key".to_string());
+    let service = ProviderSetupService::new(
+        store.clone(),
+        FakeProviderGateway::with_responses(HashMap::from([
+            ("new-key".to_string(), Ok(identity("submitted"))),
+            (
+                "stored-key".to_string(),
+                Err(ProviderSetupError::ProviderApiUnavailable),
+            ),
+        ])),
+    );
+
+    let error = service
+        .setup(setup_request("new-key"))
+        .await
+        .expect_err("stored-key validation failure should fail setup");
+
+    assert_eq!(error, ProviderSetupError::ProviderApiUnavailable);
+    assert_eq!(store.stored_key(), None);
+}
+
+#[tokio::test]
+async fn setup_maps_failed_finalization_rollback_to_recovery_required() {
+    let mut store = MemorySecretStore::empty();
+    store.fail_read_when_key_present = true;
+    store.fail_delete = true;
+    let service = ProviderSetupService::new(
+        store.clone(),
+        FakeProviderGateway::with_response("new-key", Ok(identity("new"))),
+    );
+
+    let error = service
+        .setup(setup_request("new-key"))
+        .await
+        .expect_err("rollback failure should require recovery");
+
+    assert_eq!(error, ProviderSetupError::ProviderSetupRecoveryRequired);
     assert_eq!(store.stored_key(), Some("new-key".to_string()));
 }
 

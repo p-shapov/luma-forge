@@ -19,6 +19,18 @@ The Native Layer SHALL keep command-safe error response DTOs owned by the Tauri 
 - **THEN** the exposed error SHALL contain only a UI-safe code, UI-safe message, and retryability flag
 - **AND** the exposed error MUST NOT include provider secrets or provider transport details
 
+### Requirement: Provider setup recovery-required errors are explicit
+
+The Native command boundary SHALL expose a UI-safe provider setup recovery-required error when a failed setup attempt may have left partial local setup state that could not be rolled back.
+
+#### Scenario: Provider setup rollback fails
+
+- **WHEN** Provider Setup reports that setup finalization failed after writing a Provider API Key and rollback deletion also failed
+- **THEN** the Tauri command handler SHALL map the failure to `provider_setup_recovery_required`
+- **AND** the generated command error SHALL include only a UI-safe code, UI-safe message, and retryability flag
+- **AND** the generated command error MUST NOT include the submitted Provider API Key, stored Provider API Key, provider transport details, or keyring diagnostics
+- **AND** the generated command error SHALL mark retrying the same setup command as not retryable
+
 ### Requirement: Provider clients are use-case independent
 
 Provider client implementations SHALL return provider-local results and errors instead of depending on setup, workspace setup, provisioning, or cleanup use-case error types.
@@ -203,4 +215,3 @@ The boundary refactor SHALL preserve current GPU Cloud Provider Setup and Worksp
 
 - **WHEN** existing Workspace Setup tests run after the refactor
 - **THEN** they SHALL continue to pass without changing the user-visible workspace setup semantics
-

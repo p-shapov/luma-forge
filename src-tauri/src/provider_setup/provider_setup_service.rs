@@ -74,11 +74,10 @@ where
             .await?;
         self.secrets.replace_api_key(&provider_id, &api_key)?;
 
-        let stored_api_key = self
-            .secrets
-            .read_api_key(&provider_id)?
-            .ok_or(ProviderSetupError::SecureKeyringUnavailable)?;
-        let setup = self.setup_from_key(&provider_id, &stored_api_key).await?;
+        let setup = match self.finalize_setup_from_stored_key(&provider_id).await {
+            Ok(setup) => setup,
+            Err(error) => return Err(self.rollback_failed_setup(&provider_id, error)),
+        };
 
         Ok(SetupGpuCloudProviderResponse {
             gpu_cloud_provider_setup: setup,
@@ -99,6 +98,29 @@ where
         Ok(DeleteGpuCloudProviderSetupResponse {
             gpu_cloud_provider_setup: None,
         })
+    }
+
+    async fn finalize_setup_from_stored_key(
+        &self,
+        provider_id: &DomainGpuCloudProviderId,
+    ) -> Result<GpuCloudProviderSetup, ProviderSetupError> {
+        let stored_api_key = self
+            .secrets
+            .read_api_key(provider_id)?
+            .ok_or(ProviderSetupError::SecureKeyringUnavailable)?;
+
+        self.setup_from_key(provider_id, &stored_api_key).await
+    }
+
+    fn rollback_failed_setup(
+        &self,
+        provider_id: &DomainGpuCloudProviderId,
+        finalization_error: ProviderSetupError,
+    ) -> ProviderSetupError {
+        match self.secrets.delete_api_key(provider_id) {
+            Ok(()) => finalization_error,
+            Err(_) => ProviderSetupError::ProviderSetupRecoveryRequired,
+        }
     }
 
     async fn setup_from_key(

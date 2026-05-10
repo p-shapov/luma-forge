@@ -139,7 +139,7 @@ export type NativeCommandError = {
 	retryable: boolean,
 };
 
-export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
+export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
 
 export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,

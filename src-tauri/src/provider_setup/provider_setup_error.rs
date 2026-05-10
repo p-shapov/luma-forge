@@ -16,6 +16,8 @@ pub enum ProviderSetupError {
     ProviderIdentityUnavailable,
     #[error("secure keyring unavailable")]
     SecureKeyringUnavailable,
+    #[error("provider setup recovery required")]
+    ProviderSetupRecoveryRequired,
 }
 
 impl From<SecretStoreError> for ProviderSetupError {

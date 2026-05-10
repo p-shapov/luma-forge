@@ -66,6 +66,29 @@ The Native Layer SHALL expose a command to create GPU Cloud Provider setup by va
 - **THEN** the Native Layer SHALL reject the request with `secure_keyring_unavailable`
 - **AND** the Native Layer MUST NOT report setup success unless the key can be re-read and validated
 
+#### Scenario: Stored key re-read fails after setup write and rollback succeeds
+
+- **WHEN** no previous key is stored, the submitted key validates successfully, the key is written, and the Native Layer cannot re-read the stored key
+- **AND** the Native Layer successfully deletes the newly written keyring entry
+- **THEN** the Native Layer SHALL reject the request with `secure_keyring_unavailable`
+- **AND** the Native Layer MUST NOT leave a provider keyring entry from the failed setup attempt
+- **AND** a later setup retry MUST NOT be rejected because of the failed setup attempt
+
+#### Scenario: Stored key validation fails after setup write and rollback succeeds
+
+- **WHEN** no previous key is stored, the submitted key validates successfully, the key is written and re-read, and RunPod identity validation for the stored key fails
+- **AND** the Native Layer successfully deletes the newly written keyring entry
+- **THEN** the Native Layer SHALL reject the request with the stored-key validation error
+- **AND** the Native Layer MUST NOT leave a provider keyring entry from the failed setup attempt
+- **AND** a later setup retry MUST NOT be rejected because of the failed setup attempt
+
+#### Scenario: Setup finalization fails and rollback fails
+
+- **WHEN** no previous key is stored, the submitted key validates successfully, the key is written, setup finalization fails, and deleting the newly written keyring entry fails
+- **THEN** the Native Layer SHALL reject the request with `provider_setup_recovery_required`
+- **AND** the Native Layer MUST NOT report setup success
+- **AND** the Native Layer MUST NOT expose the submitted or stored Provider API Key in the error response
+
 ### Requirement: Delete local GPU Cloud Provider setup
 
 The Native Layer SHALL expose a command to delete the local GPU Cloud Provider setup for an explicit `gpu_cloud_provider_id`.
