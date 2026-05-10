@@ -90,7 +90,7 @@ where
         request: DeleteGpuCloudProviderSetupRequest,
     ) -> Result<DeleteGpuCloudProviderSetupResponse, ProviderSetupError> {
         let provider_id = request.gpu_cloud_provider_id.into();
-        if self.secrets.read_api_key(&provider_id)?.is_none() {
+        if !self.secrets.has_api_key_entry(&provider_id)? {
             return Err(ProviderSetupError::ProviderSetupIncomplete);
         }
 

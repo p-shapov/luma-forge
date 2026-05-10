@@ -17,6 +17,13 @@ use super::workspace_setup_error_from_client_error;
 struct EmptySecretStore;
 
 impl SecretStore for EmptySecretStore {
+    fn has_api_key_entry(
+        &self,
+        _provider_id: &GpuCloudProviderId,
+    ) -> Result<bool, SecretStoreError> {
+        Ok(false)
+    }
+
     fn read_api_key(
         &self,
         _provider_id: &GpuCloudProviderId,

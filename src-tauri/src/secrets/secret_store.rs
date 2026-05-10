@@ -7,6 +7,9 @@ use super::SecretStoreError;
 const KEYRING_SERVICE: &str = "com.pavelshapov.luma-forge.gpu-cloud-provider";
 
 pub trait SecretStore: Send + Sync {
+    fn has_api_key_entry(&self, provider_id: &GpuCloudProviderId)
+        -> Result<bool, SecretStoreError>;
+
     fn read_api_key(
         &self,
         provider_id: &GpuCloudProviderId,
@@ -38,6 +41,17 @@ fn keyring_account(provider_id: &GpuCloudProviderId) -> &'static str {
 }
 
 impl SecretStore for KeyringSecretStore {
+    fn has_api_key_entry(
+        &self,
+        provider_id: &GpuCloudProviderId,
+    ) -> Result<bool, SecretStoreError> {
+        match Self::entry(provider_id)?.get_password() {
+            Ok(_) => Ok(true),
+            Err(KeyringError::NoEntry) => Ok(false),
+            Err(_) => Err(SecretStoreError::SecureKeyringUnavailable),
+        }
+    }
+
     fn read_api_key(
         &self,
         provider_id: &GpuCloudProviderId,

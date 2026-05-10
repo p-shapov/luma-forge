@@ -59,6 +59,13 @@ impl MemorySecretStore {
 }
 
 impl SecretStore for MemorySecretStore {
+    fn has_api_key_entry(
+        &self,
+        _provider_id: &DomainGpuCloudProviderId,
+    ) -> Result<bool, SecretStoreError> {
+        Ok(self.key.lock().expect("secret lock").is_some())
+    }
+
     fn read_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,

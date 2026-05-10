@@ -51,6 +51,22 @@ impl MemorySecretStore {
 }
 
 impl SecretStore for MemorySecretStore {
+    fn has_api_key_entry(
+        &self,
+        _provider_id: &DomainGpuCloudProviderId,
+    ) -> Result<bool, SecretStoreError> {
+        if self.fail_read {
+            return Err(SecretStoreError::SecureKeyringUnavailable);
+        }
+
+        let key = self.key.lock().expect("memory store lock").clone();
+        if self.fail_read_when_key_present && key.is_some() {
+            return Err(SecretStoreError::SecureKeyringUnavailable);
+        }
+
+        Ok(key.is_some())
+    }
+
     fn read_api_key(
         &self,
         _provider_id: &DomainGpuCloudProviderId,
@@ -597,6 +613,24 @@ fn delete_setup_removes_existing_key() {
 }
 
 #[test]
+fn delete_setup_removes_corrupt_stored_key() {
+    let store = MemorySecretStore::with_key("");
+    let service = ProviderSetupService::new(
+        store.clone(),
+        FakeProviderGateway::with_response("unused", Ok(identity("unused"))),
+    );
+
+    let response = service
+        .delete_setup(DeleteGpuCloudProviderSetupRequest {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        })
+        .expect("delete should recover corrupt local setup");
+
+    assert!(response.gpu_cloud_provider_setup.is_none());
+    assert_eq!(store.stored_key(), None);
+}
+
+#[test]
 fn delete_setup_errors_when_key_is_missing() {
     let service = ProviderSetupService::new(
         MemorySecretStore::empty(),
@@ -610,6 +644,24 @@ fn delete_setup_errors_when_key_is_missing() {
         .expect_err("missing setup should fail delete");
 
     assert_eq!(error, ProviderSetupError::ProviderSetupIncomplete);
+}
+
+#[test]
+fn delete_setup_maps_keyring_entry_lookup_failure() {
+    let mut store = MemorySecretStore::with_key("stored-key");
+    store.fail_read = true;
+    let service = ProviderSetupService::new(
+        store,
+        FakeProviderGateway::with_response("stored-key", Ok(identity("stored"))),
+    );
+
+    let error = service
+        .delete_setup(DeleteGpuCloudProviderSetupRequest {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        })
+        .expect_err("entry lookup failure should fail delete");
+
+    assert_eq!(error, ProviderSetupError::SecureKeyringUnavailable);
 }
 
 #[test]
