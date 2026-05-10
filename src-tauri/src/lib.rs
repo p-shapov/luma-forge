@@ -1,3 +1,4 @@
+mod app_state;
 mod bundled_catalog;
 mod commands;
 mod domain;
@@ -7,6 +8,8 @@ mod secrets;
 mod workspace_catalog;
 mod workspace_setup;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = commands::builder();
@@ -15,10 +18,10 @@ pub fn run() {
     commands::export_typescript_bindings(&builder);
 
     tauri::Builder::default()
-        .manage(provider_setup::ProviderSetupCoordinator::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
+            app.manage(app_state::NativeAppState::new(app.handle().clone()));
             builder.mount_events(app);
 
             Ok(())
