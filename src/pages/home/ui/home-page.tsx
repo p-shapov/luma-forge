@@ -83,7 +83,7 @@ export function HomePage() {
   const [providerInventory, setProviderInventory] = useState<ProviderInventory | null>(null);
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Default workspace");
-  const [storageSizeGb, setStorageSizeGb] = useState(20);
+  const [additionalStorageSizeGb, setAdditionalStorageSizeGb] = useState(0);
   const [workflowPresetId, setWorkflowPresetId] = useState("");
   const [provisioningProfileId, setProvisioningProfileId] = useState("");
   const [endpointProfileId, setEndpointProfileId] = useState("");
@@ -104,14 +104,20 @@ export function HomePage() {
     ?? datacenters[0];
   const selectedGpu = selectedDatacenter?.gpu_options.find(({ id }) => id === gpuId)
     ?? selectedDatacenter?.gpu_options[0];
-  const maxStorageSizeGb = providerInventory?.max_persistent_storage_volume_size_bytes !== null
+  const maxTotalStorageSizeGb = providerInventory?.max_persistent_storage_volume_size_bytes !== null
     && providerInventory?.max_persistent_storage_volume_size_bytes !== undefined
     ? Math.max(
         MIN_STORAGE_SIZE_GB,
         Math.floor(providerInventory.max_persistent_storage_volume_size_bytes / GIB),
       )
     : DEFAULT_MAX_STORAGE_SIZE_GB;
-  const selectedStorageSizeGb = Math.min(storageSizeGb, maxStorageSizeGb);
+  const requiredBaseStorageSizeBytes = selectedWorkflowPreset?.required_base_volume_size_bytes ?? 0;
+  const requiredBaseStorageSizeGb = Math.ceil(requiredBaseStorageSizeBytes / GIB);
+  const maxAdditionalStorageSizeGb = Math.max(0, maxTotalStorageSizeGb - requiredBaseStorageSizeGb);
+  const selectedAdditionalStorageSizeGb = Math.min(additionalStorageSizeGb, maxAdditionalStorageSizeGb);
+  const requestedStorageSizeBytes = requiredBaseStorageSizeBytes
+    + Math.round(selectedAdditionalStorageSizeGb * GIB);
+  const requestedStorageSizeGb = Math.ceil(requestedStorageSizeBytes / GIB);
 
   const canCreateWorkspace = Boolean(
     workspaceName.trim().length > 0
@@ -120,7 +126,9 @@ export function HomePage() {
     && selectedEndpointProfile !== undefined
     && selectedDatacenter !== undefined
     && selectedGpu !== undefined
-    && selectedStorageSizeGb >= MIN_STORAGE_SIZE_GB,
+    && selectedAdditionalStorageSizeGb >= 0
+    && requestedStorageSizeBytes >= requiredBaseStorageSizeBytes
+    && requestedStorageSizeGb <= maxTotalStorageSizeGb,
   );
 
   const latestEntry = logEntries[0];
@@ -258,7 +266,7 @@ export function HomePage() {
           gpu_cloud_provider_id: "runpod",
           selected_datacenter_id: selectedDatacenter.id,
           selected_gpu_id: selectedGpu.id,
-          persistent_storage_volume_size_bytes: Math.round(selectedStorageSizeGb * GIB),
+          persistent_storage_volume_size_bytes: requestedStorageSizeBytes,
           selected_workflow_preset: selectedWorkflowPreset,
           selected_provisioning_profile: selectedProvisioningProfile,
           selected_endpoint_profile: selectedEndpointProfile,
@@ -450,43 +458,53 @@ export function HomePage() {
                       </NativeSelect>
                     </Field>
                     <Field>
-                      <FieldLabel htmlFor="storage-size">Storage size, GiB</FieldLabel>
+                      <FieldLabel htmlFor="storage-size">Additional storage, GiB</FieldLabel>
                       <div className="flex items-center gap-3">
                         <Slider
                           id="storage-size"
-                          min={MIN_STORAGE_SIZE_GB}
-                          max={maxStorageSizeGb}
+                          min={0}
+                          max={maxAdditionalStorageSizeGb}
                           step={1}
-                          value={[selectedStorageSizeGb]}
+                          value={[selectedAdditionalStorageSizeGb]}
                           disabled={pendingCommand !== null}
                           onValueChange={([value]) => {
-                            setStorageSizeGb(value ?? MIN_STORAGE_SIZE_GB);
+                            setAdditionalStorageSizeGb(value ?? 0);
                           }}
                         />
                         <Input
                           className="w-20"
                           type="number"
-                          min={MIN_STORAGE_SIZE_GB}
-                          max={maxStorageSizeGb}
-                          value={selectedStorageSizeGb}
+                          min={0}
+                          max={maxAdditionalStorageSizeGb}
+                          value={selectedAdditionalStorageSizeGb}
                           disabled={pendingCommand !== null}
-                          aria-label="Storage size in GiB"
+                          aria-label="Additional storage size in GiB"
                           onChange={(event) => {
                             const nextValue = Number(event.target.value);
 
                             if (!Number.isNaN(nextValue)) {
-                              setStorageSizeGb(Math.min(
-                                maxStorageSizeGb,
-                                Math.max(MIN_STORAGE_SIZE_GB, nextValue),
+                              setAdditionalStorageSizeGb(Math.min(
+                                maxAdditionalStorageSizeGb,
+                                Math.max(0, nextValue),
                               ));
                             }
                           }}
                         />
                       </div>
                       <FieldDescription>
-                        {MIN_STORAGE_SIZE_GB}
+                        Required base:
+                        {" "}
+                        {requiredBaseStorageSizeGb}
+                        {" "}
+                        GiB. Requested total:
+                        {" "}
+                        {requestedStorageSizeGb}
+                        {" "}
+                        GiB. Additional range:
+                        {" "}
+                        0
                         -
-                        {maxStorageSizeGb}
+                        {maxAdditionalStorageSizeGb}
                         {" "}
                         GiB
                       </FieldDescription>
