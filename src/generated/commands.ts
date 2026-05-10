@@ -40,7 +40,7 @@ export type CustomNodeGitSource = { source_type: "git"; repository_url: string; 
 
 export type CustomNodeInstall = {
 	comfyui_custom_nodes_relative_path: string,
-	python_requirements_path: string,
+	python_requirements_path: string | null,
 };
 
 export type Datacenter = {
@@ -58,16 +58,11 @@ export type DeleteGpuCloudProviderSetupResponse = {
 	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
 };
 
-export type DockerImage = {
-	docker_image_ref: string,
-	docker_image_digest: string,
-};
-
 export type EndpointProfile = { gpu_cloud_provider_id: "runpod"; id: string; version: string; name: string; workflow_execution_type: WorkflowExecutionType; endpoint_worker_runtime: EndpointWorkerRuntime; gpu_cloud_provider_config: RunPodEndpointProfileConfig };
 
 export type EndpointWorkerRuntime = {
 	endpoint_worker_version: string,
-	docker_image: DockerImage,
+	docker_image_ref: string,
 	http_port: number,
 	health_path: string,
 	invoke_path: string,
@@ -175,7 +170,7 @@ export type ProviderResourceStatus = "creating" | "running" | "ready" | "termina
 
 export type ProvisionerWorkerRuntime = {
 	provisioner_version: string,
-	docker_image: DockerImage,
+	docker_image_ref: string,
 	volume_mount_path: string,
 	container_disk_bytes: number,
 	compute_type: ProvisioningComputeType,

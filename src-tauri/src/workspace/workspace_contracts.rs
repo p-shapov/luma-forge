@@ -24,21 +24,6 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub struct DockerImage {
-    pub docker_image_ref: String,
-    pub docker_image_digest: String,
-}
-
-impl From<&DockerImage> for crate::domain::shared::DockerImage {
-    fn from(image: &DockerImage) -> Self {
-        Self {
-            docker_image_ref: image.docker_image_ref.clone(),
-            docker_image_digest: image.docker_image_digest.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelAssetKind {
     Checkpoint,
@@ -154,7 +139,7 @@ impl From<&CustomNodeGitSource> for DomainCustomNodeGitSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct CustomNodeInstall {
     pub comfyui_custom_nodes_relative_path: String,
-    pub python_requirements_path: String,
+    pub python_requirements_path: Option<String>,
 }
 
 impl From<&CustomNodeInstall> for DomainCustomNodeInstall {
@@ -298,7 +283,7 @@ impl From<&ProvisioningStatusEndpoint> for crate::domain::profiles::Provisioning
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct ProvisionerWorkerRuntime {
     pub provisioner_version: String,
-    pub docker_image: DockerImage,
+    pub docker_image_ref: String,
     pub volume_mount_path: String,
     pub container_disk_bytes: u64,
     pub compute_type: ProvisioningComputeType,
@@ -309,7 +294,7 @@ impl From<&ProvisionerWorkerRuntime> for DomainProvisionerWorkerRuntime {
     fn from(runtime: &ProvisionerWorkerRuntime) -> Self {
         Self {
             provisioner_version: runtime.provisioner_version.clone(),
-            docker_image: (&runtime.docker_image).into(),
+            docker_image_ref: runtime.docker_image_ref.clone(),
             volume_mount_path: runtime.volume_mount_path.clone(),
             container_disk_bytes: runtime.container_disk_bytes,
             compute_type: (&runtime.compute_type).into(),
@@ -321,7 +306,7 @@ impl From<&ProvisionerWorkerRuntime> for DomainProvisionerWorkerRuntime {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct EndpointWorkerRuntime {
     pub endpoint_worker_version: String,
-    pub docker_image: DockerImage,
+    pub docker_image_ref: String,
     pub http_port: u16,
     pub health_path: String,
     pub invoke_path: String,
@@ -331,7 +316,7 @@ impl From<&EndpointWorkerRuntime> for crate::domain::profiles::EndpointWorkerRun
     fn from(runtime: &EndpointWorkerRuntime) -> Self {
         Self {
             endpoint_worker_version: runtime.endpoint_worker_version.clone(),
-            docker_image: (&runtime.docker_image).into(),
+            docker_image_ref: runtime.docker_image_ref.clone(),
             http_port: runtime.http_port,
             health_path: runtime.health_path.clone(),
             invoke_path: runtime.invoke_path.clone(),

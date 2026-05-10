@@ -6,7 +6,7 @@ export type CustomNodeGitSource = {
 
 export type CustomNodeInstall = {
   comfyui_custom_nodes_relative_path: string;
-  python_requirements_path: string;
+  python_requirements_path: string | null;
 }
 
 export type CustomNode = {

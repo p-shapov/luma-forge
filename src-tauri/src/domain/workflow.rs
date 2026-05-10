@@ -48,7 +48,7 @@ pub enum CustomNodeGitSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomNodeInstall {
     pub comfyui_custom_nodes_relative_path: String,
-    pub python_requirements_path: String,
+    pub python_requirements_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

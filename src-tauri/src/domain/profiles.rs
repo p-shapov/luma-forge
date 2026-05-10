@@ -1,6 +1,4 @@
-use super::{
-    provider_setup::GpuCloudProviderId, shared::DockerImage, workflow::WorkflowExecutionType,
-};
+use super::{provider_setup::GpuCloudProviderId, workflow::WorkflowExecutionType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvisioningProfile<C> {
@@ -38,7 +36,7 @@ pub struct ProvisioningStatusEndpoint {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProvisionerWorkerRuntime {
     pub provisioner_version: String,
-    pub docker_image: DockerImage,
+    pub docker_image_ref: String,
     pub volume_mount_path: String,
     pub container_disk_bytes: u64,
     pub compute_type: ProvisioningComputeType,
@@ -48,7 +46,7 @@ pub struct ProvisionerWorkerRuntime {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EndpointWorkerRuntime {
     pub endpoint_worker_version: String,
-    pub docker_image: DockerImage,
+    pub docker_image_ref: String,
     pub http_port: u16,
     pub health_path: String,
     pub invoke_path: String,
