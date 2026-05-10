@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use specta::Type;
 
 use crate::{
     domain::{
@@ -16,32 +15,32 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetWorkflowCatalogResponse {
     pub workflow_catalog: WorkflowCatalog,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetProvisioningProfilesResponse {
     pub provisioning_profiles: Vec<ProvisioningProfile>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetEndpointProfilesResponse {
     pub endpoint_profiles: Vec<EndpointProfile>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetProviderInventoryRequest {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetProviderInventoryResponse {
     pub provider_inventory: ProviderInventory,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GpuOption {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -62,7 +61,7 @@ impl From<DomainGpuOption> for GpuOption {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Datacenter {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -81,7 +80,7 @@ impl From<DomainDatacenter> for Datacenter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderInventory {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub fetched_at: String,
@@ -101,12 +100,12 @@ impl From<DomainProviderInventory> for ProviderInventory {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetWorkspaceCatalogResponse {
     pub workspace_catalog: WorkspaceCatalog,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWorkspaceRequest {
     pub workspace_id: String,
     pub name: String,
@@ -120,7 +119,7 @@ impl CreateWorkspaceRequest {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateWorkspaceResponse {
     pub workspace: Workspace,
 }

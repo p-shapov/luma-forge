@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use specta::Type;
 
 use crate::{
     domain::{
@@ -23,7 +22,7 @@ use crate::{
     shared_contracts::provider_contracts::GpuCloudProviderId,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelAssetKind {
     Checkpoint,
@@ -57,7 +56,7 @@ impl From<&ModelAssetKind> for DomainModelAssetKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]
 pub enum ModelAssetSource {
     Huggingface {
@@ -83,7 +82,7 @@ impl From<&ModelAssetSource> for DomainModelAssetSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelAsset {
     pub id: String,
     pub name: String,
@@ -93,7 +92,7 @@ pub struct ModelAsset {
     pub install: ModelAssetInstall,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelAssetInstall {
     pub comfyui_relative_path: String,
 }
@@ -113,7 +112,7 @@ impl From<&ModelAsset> for DomainModelAsset {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]
 pub enum CustomNodeGitSource {
     Git {
@@ -136,7 +135,7 @@ impl From<&CustomNodeGitSource> for DomainCustomNodeGitSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CustomNodeInstall {
     pub comfyui_custom_nodes_relative_path: String,
     pub python_requirements_path: Option<String>,
@@ -151,7 +150,7 @@ impl From<&CustomNodeInstall> for DomainCustomNodeInstall {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CustomNode {
     pub id: String,
     pub name: String,
@@ -170,7 +169,7 @@ impl From<&CustomNode> for DomainCustomNode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowExecutionType {
     T2i,
@@ -184,7 +183,7 @@ impl From<&WorkflowExecutionType> for DomainWorkflowExecutionType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]
 pub enum ComfyUiRuntimeSource {
     Git {
@@ -207,7 +206,7 @@ impl From<&ComfyUiRuntimeSource> for DomainComfyUiRuntimeSource {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowPreset {
     pub id: String,
     pub version: String,
@@ -242,14 +241,14 @@ impl From<&WorkflowPreset> for DomainWorkflowPreset {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowCatalog {
     pub id: String,
     pub version: String,
     pub workflow_presets: Vec<WorkflowPreset>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProvisioningComputeType {
     Pod,
@@ -263,7 +262,7 @@ impl From<&ProvisioningComputeType> for crate::domain::profiles::ProvisioningCom
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProvisioningStatusEndpoint {
     pub port: u16,
     pub protocol: String,
@@ -280,7 +279,7 @@ impl From<&ProvisioningStatusEndpoint> for crate::domain::profiles::Provisioning
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProvisionerWorkerRuntime {
     pub provisioner_version: String,
     pub docker_image_ref: String,
@@ -303,7 +302,7 @@ impl From<&ProvisionerWorkerRuntime> for DomainProvisionerWorkerRuntime {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointWorkerRuntime {
     pub endpoint_worker_version: String,
     pub docker_image_ref: String,
@@ -324,7 +323,7 @@ impl From<&EndpointWorkerRuntime> for crate::domain::profiles::EndpointWorkerRun
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
 pub enum ProvisioningProfile {
     Runpod {
@@ -363,7 +362,7 @@ impl ProvisioningProfile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
 pub enum EndpointProfile {
     Runpod {
@@ -405,7 +404,7 @@ impl EndpointProfile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlacementPlan {
     pub selected_datacenter_id: String,
     pub selected_gpu_id: String,
@@ -433,7 +432,7 @@ impl PlacementPlan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceLifecycleState {
     Draft,
@@ -442,7 +441,7 @@ pub enum WorkspaceLifecycleState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderResourceStatus {
     Creating,
@@ -453,7 +452,7 @@ pub enum ProviderResourceStatus {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistentStorageVolumeSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -463,7 +462,7 @@ pub struct PersistentStorageVolumeSnapshot {
     pub mount_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProvisioningPodSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -474,7 +473,7 @@ pub struct ProvisioningPodSnapshot {
     pub provisioner_status_url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerlessEndpointSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -485,7 +484,7 @@ pub struct ServerlessEndpointSnapshot {
     pub endpoint_invoke_url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -499,7 +498,7 @@ pub struct Workspace {
     pub environment_prepared_at: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceCatalog {
     pub workspaces: Vec<Workspace>,
 }

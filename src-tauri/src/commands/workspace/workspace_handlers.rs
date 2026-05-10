@@ -7,18 +7,17 @@ use crate::{
     workspace::{
         workspace_catalog_repository::UnavailableWorkspaceCatalog,
         workspace_catalog_sqlite::SqliteWorkspaceCatalog,
-        workspace_setup_contracts::{
-            CreateWorkspaceRequest, CreateWorkspaceResponse, GetEndpointProfilesResponse,
-            GetProviderInventoryRequest, GetProviderInventoryResponse,
-            GetProvisioningProfilesResponse, GetWorkflowCatalogResponse,
-            GetWorkspaceCatalogResponse,
-        },
-        workspace_setup_error::WorkspaceSetupError,
-        workspace_setup_service::WorkspaceSetupService,
+        workspace_setup_contracts as application_contracts,
+        workspace_setup_error::WorkspaceSetupError, workspace_setup_service::WorkspaceSetupService,
     },
 };
 use tauri::{AppHandle, Manager, State};
 
+use super::workspace_command_contracts::{
+    CreateWorkspaceRequest, CreateWorkspaceResponse, GetEndpointProfilesResponse,
+    GetProviderInventoryRequest, GetProviderInventoryResponse, GetProvisioningProfilesResponse,
+    GetWorkflowCatalogResponse, GetWorkspaceCatalogResponse,
+};
 use crate::commands::CommandResult;
 
 fn workspace_setup_read_service() -> WorkspaceSetupService<
@@ -52,6 +51,7 @@ async fn sqlite_workspace_catalog(
 pub(crate) fn get_workflow_catalog() -> CommandResult<GetWorkflowCatalogResponse> {
     workspace_setup_read_service()
         .get_workflow_catalog()
+        .map(Into::into)
         .map_err(Into::into)
 }
 
@@ -60,6 +60,7 @@ pub(crate) fn get_workflow_catalog() -> CommandResult<GetWorkflowCatalogResponse
 pub(crate) fn get_provisioning_profiles() -> CommandResult<GetProvisioningProfilesResponse> {
     workspace_setup_read_service()
         .get_provisioning_profiles()
+        .map(Into::into)
         .map_err(Into::into)
 }
 
@@ -68,6 +69,7 @@ pub(crate) fn get_provisioning_profiles() -> CommandResult<GetProvisioningProfil
 pub(crate) fn get_endpoint_profiles() -> CommandResult<GetEndpointProfilesResponse> {
     workspace_setup_read_service()
         .get_endpoint_profiles()
+        .map(Into::into)
         .map_err(Into::into)
 }
 
@@ -76,9 +78,12 @@ pub(crate) fn get_endpoint_profiles() -> CommandResult<GetEndpointProfilesRespon
 pub(crate) async fn get_provider_inventory(
     request: GetProviderInventoryRequest,
 ) -> CommandResult<GetProviderInventoryResponse> {
+    let request: application_contracts::GetProviderInventoryRequest =
+        request.try_into().map_err(NativeCommandError::from)?;
     workspace_setup_read_service()
         .get_provider_inventory(request)
         .await
+        .map(Into::into)
         .map_err(Into::into)
 }
 
@@ -96,6 +101,7 @@ pub(crate) async fn get_workspace_catalog(
     )
     .get_workspace_catalog()
     .await
+    .map(Into::into)
     .map_err(Into::into)
 }
 
@@ -106,6 +112,8 @@ pub(crate) async fn create_workspace(
     request: CreateWorkspaceRequest,
     provider_setup_coordinator: State<'_, ProviderSetupCoordinator>,
 ) -> CommandResult<CreateWorkspaceResponse> {
+    let request: application_contracts::CreateWorkspaceRequest =
+        request.try_into().map_err(NativeCommandError::from)?;
     let provider_id = request.domain_provider_id();
     let _guard = provider_setup_coordinator.lock(&provider_id).await;
 
@@ -118,5 +126,6 @@ pub(crate) async fn create_workspace(
     )
     .create_workspace(request)
     .await
+    .map(Into::into)
     .map_err(Into::into)
 }

@@ -5,6 +5,7 @@ use command_error::NativeCommandError;
 mod command_bindings;
 mod command_builder;
 mod command_error;
+mod provider_contracts;
 mod provider_setup;
 mod workspace;
 

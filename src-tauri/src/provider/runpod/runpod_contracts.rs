@@ -1,11 +1,10 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use specta::Type;
 
 pub type EnvironmentVariables = BTreeMap<String, String>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunPodProvisioningProfileConfig {
     pub cloud_type: Option<String>,
     pub pod_template_id: Option<String>,
@@ -14,7 +13,7 @@ pub struct RunPodProvisioningProfileConfig {
     pub env: Option<EnvironmentVariables>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunPodServerlessScalingConfig {
     pub min_workers: u32,
     pub max_workers: u32,
@@ -23,7 +22,7 @@ pub struct RunPodServerlessScalingConfig {
     pub scaler_value: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunPodEndpointProfileConfig {
     pub endpoint_template_id: Option<String>,
     pub container_disk_bytes: u64,

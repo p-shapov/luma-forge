@@ -5,6 +5,7 @@ mod runpod_mapper;
 pub use runpod_client::RunPodClient;
 pub use runpod_contracts::{
     EnvironmentVariables, RunPodEndpointProfileConfig, RunPodProvisioningProfileConfig,
+    RunPodServerlessScalingConfig,
 };
 
 #[cfg(test)]

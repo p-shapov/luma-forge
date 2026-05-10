@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use specta::Type;
 
 use crate::domain::provider_setup::GpuCloudProviderId as DomainGpuCloudProviderId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GpuCloudProviderId {
     Runpod,

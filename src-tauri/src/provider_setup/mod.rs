@@ -5,7 +5,7 @@ mod provider_setup_service;
 
 pub use provider_setup_contracts::{
     DeleteGpuCloudProviderSetupRequest, DeleteGpuCloudProviderSetupResponse,
-    GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse,
+    GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse, GpuCloudProviderSetup,
     SetupGpuCloudProviderRequest, SetupGpuCloudProviderResponse,
 };
 pub use provider_setup_coordinator::ProviderSetupCoordinator;
