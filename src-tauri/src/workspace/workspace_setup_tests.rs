@@ -1,7 +1,11 @@
 use std::{
     future::Future,
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
 };
 
 use crate::{
@@ -10,6 +14,7 @@ use crate::{
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
     },
+    provider_setup::ProviderSetupCoordinator,
     secrets::{SecretStore, SecretStoreError},
     shared_contracts::provider_contracts::GpuCloudProviderId,
     workspace::{
@@ -18,7 +23,9 @@ use crate::{
             EndpointProfile, PlacementPlan, WorkflowExecutionType, Workspace, WorkspaceCatalog,
             WorkspaceLifecycleState,
         },
-        workspace_setup_contracts::{CreateWorkspaceRequest, GetProviderInventoryRequest},
+        workspace_setup_contracts::{
+            CreateWorkspaceRequest, CreateWorkspaceResponse, GetProviderInventoryRequest,
+        },
     },
 };
 
@@ -40,6 +47,14 @@ impl MemorySecretStore {
         Self {
             key: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn clear_key(&self) {
+        *self.key.lock().expect("secret lock") = None;
+    }
+
+    fn stored_key(&self) -> Option<String> {
+        self.key.lock().expect("secret lock").clone()
     }
 }
 
@@ -106,6 +121,8 @@ impl ProviderInventoryGateway for MemoryProvider {
 struct MemoryWorkspaceCatalog {
     workspaces: Arc<Mutex<Vec<Workspace>>>,
     fail_insert: bool,
+    insert_delay: Option<Duration>,
+    insert_started: Arc<AtomicBool>,
 }
 
 impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
@@ -128,6 +145,10 @@ impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
             if self.fail_insert {
                 return Err(WorkspaceSetupError::WorkspaceCatalogUnavailable);
             }
+            self.insert_started.store(true, Ordering::SeqCst);
+            if let Some(delay) = self.insert_delay {
+                tokio::time::sleep(delay).await;
+            }
             let mut workspaces = self.workspaces.lock().expect("catalog lock");
             if workspaces
                 .iter()
@@ -138,6 +159,16 @@ impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
             workspaces.push(workspace.clone());
             Ok(workspace.clone())
         })
+    }
+}
+
+impl MemoryWorkspaceCatalog {
+    fn workspace_count(&self) -> usize {
+        self.workspaces.lock().expect("catalog lock").len()
+    }
+
+    fn insert_started(&self) -> bool {
+        self.insert_started.load(Ordering::SeqCst)
     }
 }
 
@@ -193,6 +224,41 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
         last_provisioning_pod_snapshot: None,
         environment_prepared_at: None,
     }
+}
+
+fn create_workspace_request(id: &str) -> CreateWorkspaceRequest {
+    CreateWorkspaceRequest {
+        workspace_id: id.to_string(),
+        name: "Workspace".to_string(),
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        placement_plan: sample_placement_plan(),
+    }
+}
+
+async fn create_workspace_with_gate(
+    coordinator: Arc<ProviderSetupCoordinator>,
+    service: WorkspaceSetupService<
+        BundledCatalogReader,
+        MemorySecretStore,
+        MemoryProvider,
+        MemoryWorkspaceCatalog,
+    >,
+    request: CreateWorkspaceRequest,
+) -> Result<CreateWorkspaceResponse, WorkspaceSetupError> {
+    let provider_id = request.domain_provider_id();
+    let _guard = coordinator.lock(&provider_id).await;
+    service.create_workspace(request).await
+}
+
+async fn wait_for_insert_started(catalog: &MemoryWorkspaceCatalog) {
+    for _ in 0..50 {
+        if catalog.insert_started() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+
+    panic!("expected workspace insert to start");
 }
 
 #[test]
@@ -295,6 +361,69 @@ async fn creates_draft_workspace() {
         .active_provisioning_pod_snapshot
         .is_none());
     assert!(response.workspace.serverless_endpoint_snapshot.is_none());
+}
+
+#[tokio::test]
+async fn workspace_creation_waits_for_provider_setup_deletion() {
+    let secrets = MemorySecretStore::with_key("rp_123_secret");
+    let catalog = MemoryWorkspaceCatalog::default();
+    let coordinator = Arc::new(ProviderSetupCoordinator::default());
+    let provider_id = DomainGpuCloudProviderId::Runpod;
+    let delete_guard = coordinator.lock(&provider_id).await;
+
+    let create = tokio::spawn(create_workspace_with_gate(
+        coordinator.clone(),
+        service(secrets.clone(), catalog.clone()),
+        create_workspace_request("018f6a40-0000-7000-8000-000000000001"),
+    ));
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    secrets.clear_key();
+    drop(delete_guard);
+
+    let error = create
+        .await
+        .expect("create task should join")
+        .expect_err("workspace creation should see deleted setup");
+
+    assert_eq!(error, WorkspaceSetupError::ProviderSetupIncomplete);
+    assert_eq!(catalog.workspace_count(), 0);
+    assert_eq!(secrets.stored_key(), None);
+}
+
+#[tokio::test]
+async fn provider_setup_deletion_waits_for_workspace_creation_persistence() {
+    let secrets = MemorySecretStore::with_key("rp_123_secret");
+    let catalog = MemoryWorkspaceCatalog {
+        insert_delay: Some(Duration::from_millis(50)),
+        ..Default::default()
+    };
+    let coordinator = Arc::new(ProviderSetupCoordinator::default());
+
+    let create = tokio::spawn(create_workspace_with_gate(
+        coordinator.clone(),
+        service(secrets.clone(), catalog.clone()),
+        create_workspace_request("018f6a40-0000-7000-8000-000000000001"),
+    ));
+    wait_for_insert_started(&catalog).await;
+
+    let delete = tokio::spawn({
+        let coordinator = coordinator.clone();
+        let secrets = secrets.clone();
+        async move {
+            let provider_id = DomainGpuCloudProviderId::Runpod;
+            let _guard = coordinator.lock(&provider_id).await;
+            secrets.clear_key();
+        }
+    });
+
+    create
+        .await
+        .expect("create task should join")
+        .expect("workspace creation should finish before deletion");
+    delete.await.expect("delete task should join");
+
+    assert_eq!(catalog.workspace_count(), 1);
+    assert_eq!(secrets.stored_key(), None);
 }
 
 #[tokio::test]
@@ -401,6 +530,7 @@ async fn maps_persistence_failure() {
         MemoryWorkspaceCatalog {
             workspaces: Arc::default(),
             fail_insert: true,
+            ..Default::default()
         },
     );
 

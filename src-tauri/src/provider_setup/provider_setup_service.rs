@@ -69,13 +69,16 @@ where
         let api_key = ProviderApiKey::new(request.provider_api_key)
             .map_err(|_| ProviderSetupError::InvalidProviderApiKey)?;
 
-        let identity = self
-            .providers
+        self.providers
             .validate_identity(&provider_id, &api_key)
             .await?;
         self.secrets.replace_api_key(&provider_id, &api_key)?;
 
-        let setup = Self::setup_from_identity(provider_id, identity);
+        let stored_api_key = self
+            .secrets
+            .read_api_key(&provider_id)?
+            .ok_or(ProviderSetupError::SecureKeyringUnavailable)?;
+        let setup = self.setup_from_key(&provider_id, &stored_api_key).await?;
 
         Ok(SetupGpuCloudProviderResponse {
             gpu_cloud_provider_setup: setup,

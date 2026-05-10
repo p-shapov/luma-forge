@@ -2,6 +2,7 @@ use crate::{
     bundled::bundled_catalog_reader::BundledCatalogReader,
     commands::command_error::NativeCommandError,
     provider::ProviderClientRegistry,
+    provider_setup::ProviderSetupCoordinator,
     secrets::KeyringSecretStore,
     workspace::{
         workspace_catalog_repository::UnavailableWorkspaceCatalog,
@@ -16,7 +17,7 @@ use crate::{
         workspace_setup_service::WorkspaceSetupService,
     },
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
 use crate::commands::CommandResult;
 
@@ -103,7 +104,11 @@ pub(crate) async fn get_workspace_catalog(
 pub(crate) async fn create_workspace(
     app: AppHandle,
     request: CreateWorkspaceRequest,
+    provider_setup_coordinator: State<'_, ProviderSetupCoordinator>,
 ) -> CommandResult<CreateWorkspaceResponse> {
+    let provider_id = request.domain_provider_id();
+    let _guard = provider_setup_coordinator.lock(&provider_id).await;
+
     let workspace_catalog = sqlite_workspace_catalog(&app).await?;
     WorkspaceSetupService::new(
         BundledCatalogReader,

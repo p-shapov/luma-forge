@@ -15,6 +15,7 @@ pub fn run() {
     commands::export_typescript_bindings(&builder);
 
     tauri::Builder::default()
+        .manage(provider_setup::ProviderSetupCoordinator::default())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
