@@ -2,11 +2,10 @@ mod runpod_client;
 mod runpod_contracts;
 mod runpod_mapper;
 
-pub use runpod_client::RunPodClient;
-pub use runpod_contracts::{
-    EnvironmentVariables, RunPodEndpointProfileConfig, RunPodProvisioningProfileConfig,
-    RunPodServerlessScalingConfig,
+pub use crate::domain::profiles::{
+    RunPodEndpointProfileConfig, RunPodProvisioningProfileConfig, RunPodServerlessScalingConfig,
 };
+pub use runpod_client::RunPodClient;
 
 #[cfg(test)]
 #[path = "runpod_tests.rs"]

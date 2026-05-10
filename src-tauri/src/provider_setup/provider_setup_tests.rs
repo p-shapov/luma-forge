@@ -12,7 +12,6 @@ use crate::{
     },
     provider_setup::ProviderSetupCoordinator,
     secrets::{SecretStore, SecretStoreError},
-    shared_contracts::provider_contracts::GpuCloudProviderId,
 };
 
 use super::*;
@@ -191,11 +190,15 @@ fn identity(fingerprint: &str) -> ProviderIdentity {
     }
 }
 
-fn setup_request(provider_api_key: &str) -> SetupGpuCloudProviderRequest {
-    SetupGpuCloudProviderRequest {
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        provider_api_key: provider_api_key.to_string(),
+fn invalid_identity() -> ProviderIdentity {
+    ProviderIdentity {
+        provider_user_email: " ".to_string(),
+        provider_api_key_fingerprint: "rp_123".to_string(),
     }
+}
+
+fn api_key(value: &str) -> ProviderApiKey {
+    ProviderApiKey::new(value.to_string()).expect("test key should be valid")
 }
 
 async fn setup_with_coordinator(
@@ -203,11 +206,11 @@ async fn setup_with_coordinator(
     store: MemorySecretStore,
     providers: FakeProviderGateway,
     provider_api_key: &str,
-) -> Result<SetupGpuCloudProviderResponse, ProviderSetupError> {
+) -> Result<crate::domain::provider_setup::GpuCloudProviderSetup, ProviderSetupError> {
     let provider_id = DomainGpuCloudProviderId::Runpod;
     let _guard = coordinator.lock(&provider_id).await;
     ProviderSetupService::new(store, providers)
-        .setup(setup_request(provider_api_key))
+        .setup(provider_id, api_key(provider_api_key))
         .await
 }
 
@@ -215,12 +218,10 @@ async fn delete_with_coordinator(
     coordinator: Arc<ProviderSetupCoordinator>,
     store: MemorySecretStore,
     providers: FakeProviderGateway,
-) -> Result<DeleteGpuCloudProviderSetupResponse, ProviderSetupError> {
+) -> Result<(), ProviderSetupError> {
     let provider_id = DomainGpuCloudProviderId::Runpod;
     let _guard = coordinator.lock(&provider_id).await;
-    ProviderSetupService::new(store, providers).delete_setup(DeleteGpuCloudProviderSetupRequest {
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-    })
+    ProviderSetupService::new(store, providers).delete_setup(DomainGpuCloudProviderId::Runpod)
 }
 
 async fn wait_for_validation_count(providers: &FakeProviderGateway, expected: usize) {
@@ -245,13 +246,11 @@ async fn get_setup_returns_null_when_key_is_missing() {
     );
 
     let response = service
-        .get_setup(GetGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .get_setup(DomainGpuCloudProviderId::Runpod)
         .await
         .expect("get setup should succeed");
 
-    assert!(response.gpu_cloud_provider_setup.is_none());
+    assert!(response.is_none());
 }
 
 #[tokio::test]
@@ -262,19 +261,33 @@ async fn get_setup_returns_live_status_for_valid_stored_key() {
     );
 
     let response = service
-        .get_setup(GetGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .get_setup(DomainGpuCloudProviderId::Runpod)
         .await
         .expect("get setup should succeed");
 
     assert_eq!(
         response
-            .gpu_cloud_provider_setup
             .expect("setup should exist")
             .provider_api_key_fingerprint,
         "rp_123"
     );
+}
+
+#[tokio::test]
+async fn setup_maps_invalid_provider_identity() {
+    let store = MemorySecretStore::empty();
+    let service = ProviderSetupService::new(
+        store.clone(),
+        FakeProviderGateway::with_response("rp_123_secret", Ok(invalid_identity())),
+    );
+
+    let error = service
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_123_secret"))
+        .await
+        .expect_err("invalid provider identity should fail");
+
+    assert_eq!(error, ProviderSetupError::ProviderIdentityUnavailable);
+    assert_eq!(store.stored_key(), None);
 }
 
 #[tokio::test]
@@ -288,9 +301,7 @@ async fn get_setup_maps_invalid_stored_key() {
     );
 
     let error = service
-        .get_setup(GetGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .get_setup(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("invalid key should fail");
 
@@ -308,9 +319,7 @@ async fn get_setup_maps_provider_api_unavailable() {
     );
 
     let error = service
-        .get_setup(GetGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .get_setup(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("provider outage should fail");
 
@@ -326,19 +335,11 @@ async fn setup_stores_new_key_after_validation() {
     );
 
     let response = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: "new-key".to_string(),
-        })
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect("valid setup should succeed");
 
-    assert_eq!(
-        response
-            .gpu_cloud_provider_setup
-            .provider_api_key_fingerprint,
-        "new"
-    );
+    assert_eq!(response.provider_api_key_fingerprint, "new");
     assert_eq!(store.stored_key(), Some("new-key".to_string()));
 }
 
@@ -349,19 +350,11 @@ async fn setup_revalidates_stored_key_after_writing() {
     let service = ProviderSetupService::new(store.clone(), providers.clone());
 
     let response = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: "new-key".to_string(),
-        })
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect("valid setup should succeed");
 
-    assert_eq!(
-        response
-            .gpu_cloud_provider_setup
-            .provider_api_key_fingerprint,
-        "new"
-    );
+    assert_eq!(response.provider_api_key_fingerprint, "new");
     assert_eq!(store.stored_key(), Some("new-key".to_string()));
     assert_eq!(providers.validation_count(), 2);
 }
@@ -377,16 +370,11 @@ async fn setup_returns_status_from_re_read_stored_key() {
     let service = ProviderSetupService::new(store.clone(), providers.clone());
 
     let response = service
-        .setup(setup_request("new-key"))
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect("valid setup should succeed");
 
-    assert_eq!(
-        response
-            .gpu_cloud_provider_setup
-            .provider_api_key_fingerprint,
-        "stored"
-    );
+    assert_eq!(response.provider_api_key_fingerprint, "stored");
     assert_eq!(store.stored_key(), Some("stored-key".to_string()));
     assert_eq!(
         providers.validation_keys(),
@@ -404,7 +392,7 @@ async fn setup_maps_stored_key_re_read_failure() {
     );
 
     let error = service
-        .setup(setup_request("new-key"))
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("re-read failure should fail setup");
 
@@ -428,7 +416,7 @@ async fn setup_rolls_back_stored_key_validation_failure() {
     );
 
     let error = service
-        .setup(setup_request("new-key"))
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("stored-key validation failure should fail setup");
 
@@ -447,7 +435,7 @@ async fn setup_maps_failed_finalization_rollback_to_recovery_required() {
     );
 
     let error = service
-        .setup(setup_request("new-key"))
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("rollback failure should require recovery");
 
@@ -464,10 +452,7 @@ async fn setup_rejects_existing_setup_before_validating_submitted_key() {
     );
 
     let error = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: " ".to_string(),
-        })
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("repeated setup should fail");
 
@@ -562,10 +547,7 @@ async fn setup_does_not_mutate_keyring_when_submitted_key_is_invalid() {
     );
 
     let error = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: "new-key".to_string(),
-        })
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("invalid setup should fail");
 
@@ -583,10 +565,7 @@ async fn setup_maps_keyring_write_failure() {
     );
 
     let error = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: "new-key".to_string(),
-        })
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("write failure should fail");
 
@@ -594,23 +573,11 @@ async fn setup_maps_keyring_write_failure() {
     assert_eq!(store.stored_key(), None);
 }
 
-#[tokio::test]
-async fn setup_rejects_empty_key_without_mutation() {
+#[test]
+fn provider_api_key_rejects_empty_secret_before_setup_service() {
     let store = MemorySecretStore::empty();
-    let service = ProviderSetupService::new(
-        store.clone(),
-        FakeProviderGateway::with_response("unused", Ok(identity("unused"))),
-    );
 
-    let error = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: " ".to_string(),
-        })
-        .await
-        .expect_err("empty key should fail");
-
-    assert_eq!(error, ProviderSetupError::InvalidProviderApiKey);
+    assert!(ProviderApiKey::new(" ".to_string()).is_err());
     assert_eq!(store.stored_key(), None);
 }
 
@@ -626,10 +593,7 @@ async fn setup_maps_provider_identity_unavailable() {
     );
 
     let error = service
-        .setup(SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_api_key: "new-key".to_string(),
-        })
+        .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
         .await
         .expect_err("identity mismatch should fail");
 
@@ -645,13 +609,10 @@ fn delete_setup_removes_existing_key() {
         FakeProviderGateway::with_response("stored-key", Ok(identity("stored"))),
     );
 
-    let response = service
-        .delete_setup(DeleteGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+    service
+        .delete_setup(DomainGpuCloudProviderId::Runpod)
         .expect("delete should succeed");
 
-    assert!(response.gpu_cloud_provider_setup.is_none());
     assert_eq!(store.stored_key(), None);
 }
 
@@ -663,13 +624,10 @@ fn delete_setup_removes_corrupt_stored_key() {
         FakeProviderGateway::with_response("unused", Ok(identity("unused"))),
     );
 
-    let response = service
-        .delete_setup(DeleteGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+    service
+        .delete_setup(DomainGpuCloudProviderId::Runpod)
         .expect("delete should recover corrupt local setup");
 
-    assert!(response.gpu_cloud_provider_setup.is_none());
     assert_eq!(store.stored_key(), None);
 }
 
@@ -681,9 +639,7 @@ fn delete_setup_errors_when_key_is_missing() {
     );
 
     let error = service
-        .delete_setup(DeleteGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .delete_setup(DomainGpuCloudProviderId::Runpod)
         .expect_err("missing setup should fail delete");
 
     assert_eq!(error, ProviderSetupError::ProviderSetupIncomplete);
@@ -699,9 +655,7 @@ fn delete_setup_maps_keyring_entry_lookup_failure() {
     );
 
     let error = service
-        .delete_setup(DeleteGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .delete_setup(DomainGpuCloudProviderId::Runpod)
         .expect_err("entry lookup failure should fail delete");
 
     assert_eq!(error, ProviderSetupError::SecureKeyringUnavailable);
@@ -717,9 +671,7 @@ fn delete_setup_maps_keyring_failure() {
     );
 
     let error = service
-        .delete_setup(DeleteGpuCloudProviderSetupRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .delete_setup(DomainGpuCloudProviderId::Runpod)
         .expect_err("delete failure should fail");
 
     assert_eq!(error, ProviderSetupError::SecureKeyringUnavailable);

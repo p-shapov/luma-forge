@@ -6,10 +6,13 @@ use sqlx::{
 };
 
 use crate::{
-    shared_contracts::provider_contracts::GpuCloudProviderId,
+    domain::{
+        provider_setup::GpuCloudProviderId,
+        workspace::validator as workspace_validator,
+        workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
+    },
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_contracts::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
         workspace_setup_error::WorkspaceSetupError,
     },
 };
@@ -140,7 +143,11 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 workspaces.push(decode_workspace_row(&row)?);
             }
 
-            Ok(WorkspaceCatalog { workspaces })
+            let catalog = WorkspaceCatalog { workspaces };
+            workspace_validator::validate_workspace_catalog(&catalog)
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+            Ok(catalog)
         })
     }
 
@@ -149,6 +156,8 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
         workspace: &'a Workspace,
     ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
         Box::pin(async move {
+            workspace_validator::validate_workspace(workspace)
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
             if self.find_workspace(&workspace.id).await?.is_some() {
                 return Err(WorkspaceSetupError::WorkspaceAlreadyExists);
             }
@@ -180,7 +189,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 &workspace.gpu_cloud_provider_id,
             ))
             .bind(lifecycle_state)
-            .bind(&workspace.placement_plan.selected_workflow_preset.id)
+            .bind(&workspace.placement_plan.selected_workflow_preset().id)
             .bind(&now)
             .bind(&now)
             .bind(workspace_json)
@@ -223,6 +232,8 @@ fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupErro
     let workspace: Workspace = serde_json::from_str(&workspace_json)
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
 
+    workspace_validator::validate_workspace(&workspace)
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
     validate_workspace_row(row, &workspace)?;
 
     Ok(workspace)
@@ -252,7 +263,7 @@ fn validate_workspace_row(
         || name != workspace.name
         || gpu_cloud_provider_id != gpu_cloud_provider_id_value(&workspace.gpu_cloud_provider_id)
         || lifecycle_state != lifecycle_state_value(&workspace.lifecycle_state)
-        || workflow_preset_id != workspace.placement_plan.selected_workflow_preset.id
+        || workflow_preset_id != workspace.placement_plan.selected_workflow_preset().id
     {
         return Err(WorkspaceSetupError::WorkspaceCatalogUnavailable);
     }

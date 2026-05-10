@@ -1,5 +1,6 @@
 use crate::workspace::workspace_setup_service::workspace_setup_tests::sample_workspace;
 
+use serde_json::json;
 use sqlx::Row;
 
 use super::*;
@@ -185,6 +186,36 @@ async fn maps_decode_failure() {
         .list_workspaces()
         .await
         .expect_err("bad json should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+#[tokio::test]
+async fn rejects_invalid_workspace_payload() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    let mut payload = serde_json::to_value(&workspace).expect("workspace json value");
+    payload["persistent_storage_volume_snapshot"] = json!({
+        "gpu_cloud_provider_id": "runpod",
+        "provider_resource_id": "volume-1",
+        "datacenter_id": "EU-RO-1",
+        "provider_resource_status": "ready",
+        "provisioned_size_bytes": 1,
+        "mount_path": "/workspace"
+    });
+    sqlx::query("UPDATE workspaces SET workspace_json = ? WHERE id = ?")
+        .bind(payload.to_string())
+        .bind(&workspace.id)
+        .execute(&catalog.pool)
+        .await
+        .expect("update workspace payload");
+
+    let error = catalog
+        .list_workspaces()
+        .await
+        .expect_err("invalid workspace payload should fail");
 
     assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
 }

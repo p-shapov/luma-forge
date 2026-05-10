@@ -1,11 +1,15 @@
 use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub mod validator;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum GpuCloudProviderId {
     Runpod,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuCloudProviderSetup {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_user_email: String,
@@ -38,7 +42,7 @@ impl ProviderApiKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderIdentity {
     pub provider_user_email: String,
     pub provider_api_key_fingerprint: String,

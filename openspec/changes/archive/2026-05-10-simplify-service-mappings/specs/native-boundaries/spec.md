@@ -1,92 +1,4 @@
-# native-boundaries Specification
-
-## Purpose
-TBD - created by archiving change refactor-native-boundaries. Update Purpose after archive.
-## Requirements
-### Requirement: Command boundary owns generated command errors
-
-The Native Layer SHALL keep command-safe error response DTOs owned by the Tauri command boundary, not by a specific application use case.
-
-#### Scenario: Use-case error is returned from a command
-
-- **WHEN** a native application service returns a use-case error
-- **THEN** the Tauri command handler SHALL map that error into a UI-safe command error response
-- **AND** the application service MUST NOT own the shared generated command error DTO
-
-#### Scenario: Command error is exposed to React
-
-- **WHEN** generated command bindings expose an error shape to React
-- **THEN** the exposed error SHALL contain only a UI-safe code, UI-safe message, and retryability flag
-- **AND** the exposed error MUST NOT include provider secrets or provider transport details
-
-### Requirement: Provider setup recovery-required errors are explicit
-
-The Native command boundary SHALL expose a UI-safe provider setup recovery-required error when a failed setup attempt may have left partial local setup state that could not be rolled back.
-
-#### Scenario: Provider setup rollback fails
-
-- **WHEN** Provider Setup reports that setup finalization failed after writing a Provider API Key and rollback deletion also failed
-- **THEN** the Tauri command handler SHALL map the failure to `provider_setup_recovery_required`
-- **AND** the generated command error SHALL include only a UI-safe code, UI-safe message, and retryability flag
-- **AND** the generated command error MUST NOT include the submitted Provider API Key, stored Provider API Key, provider transport details, or keyring diagnostics
-- **AND** the generated command error SHALL mark retrying the same setup command as not retryable
-
-### Requirement: Provider clients are use-case independent
-
-Provider client implementations SHALL return provider-local results and errors instead of depending on setup, workspace setup, provisioning, or cleanup use-case error types.
-
-#### Scenario: RunPod identity validation fails
-
-- **WHEN** the RunPod client observes an identity transport, authorization, or response parsing failure
-- **THEN** the RunPod client SHALL return a provider-local error
-- **AND** the RunPod client MUST NOT return `ProviderSetupError`
-
-#### Scenario: RunPod inventory lookup fails
-
-- **WHEN** the RunPod client observes an inventory transport, authorization, or response parsing failure
-- **THEN** the RunPod client SHALL return a provider-local error
-- **AND** the RunPod client MUST NOT return `WorkspaceSetupError`
-
-### Requirement: Provider registry maps provider errors to use-case errors
-
-The provider registry SHALL adapt provider-local client errors into the use-case error type required by each gateway trait implementation.
-
-#### Scenario: Provider setup validates identity
-
-- **WHEN** Provider Setup asks the provider registry to validate identity
-- **THEN** the provider registry SHALL call the provider client
-- **AND** the provider registry SHALL map provider-local failures into `ProviderSetupError`
-
-#### Scenario: Workspace Setup reads inventory
-
-- **WHEN** Workspace Setup asks the provider registry to fetch provider inventory
-- **THEN** the provider registry SHALL call the provider client
-- **AND** the provider registry SHALL map provider-local failures into `WorkspaceSetupError`
-
-### Requirement: Secret storage errors are use-case independent
-
-Secret storage abstractions SHALL return secret-storage-owned errors instead of depending on Provider Setup, Workspace Setup, Provisioning, or Cleanup use-case error types.
-
-#### Scenario: Provider Setup reads or writes secrets
-
-- **WHEN** Provider Setup reads, replaces, or deletes a Provider API Key through the secret store
-- **THEN** the secret store SHALL return secret-storage-owned failures
-- **AND** Provider Setup SHALL map those failures into `ProviderSetupError`
-- **AND** the secret store MUST NOT return `ProviderSetupError`
-
-#### Scenario: Workspace Setup reads secrets
-
-- **WHEN** Workspace Setup reads a Provider API Key through the secret store
-- **THEN** the secret store SHALL return secret-storage-owned failures
-- **AND** Workspace Setup SHALL map those failures into `WorkspaceSetupError`
-- **AND** Workspace Setup MUST NOT convert from `ProviderSetupError` solely to handle secret store failures
-
-#### Scenario: Stored Provider API Key is unreadable as a secret value
-
-- **WHEN** the secure keyring contains a Provider API Key value that cannot be parsed as a valid Provider API Key
-- **THEN** the secret store SHALL report a secret-storage-owned invalid stored key failure
-- **AND** use-case mappings SHALL preserve the current UI-safe `invalid_provider_api_key` command behavior
-- **AND** no command response, error, log, or diagnostic may include the stored secret value
+## MODIFIED Requirements
 
 ### Requirement: Command DTOs own generated binding concerns
 
@@ -119,28 +31,6 @@ The Native Layer SHALL keep generated frontend binding derives on command-facing
 - **THEN** the generated Workspace Setup request and response DTOs SHALL be owned by the command boundary
 - **AND** Workspace Setup domain models and services MUST NOT derive `specta::Type`
 - **AND** Workspace Setup command names, serialized payload fields, and UI-safe error semantics SHALL remain compatible with the existing command contract
-
-### Requirement: Shared provider command DTOs are not owned by Provider Setup
-
-Generated command DTOs that are shared by multiple native flows SHALL be owned by a neutral native contract module instead of a specific application use-case module.
-
-#### Scenario: Provider id command DTO is used by multiple flows
-
-- **WHEN** Provider Setup, Workspace Setup, workspace persistence, or tests need the command-facing `GpuCloudProviderId`
-- **THEN** they SHALL import it from a neutral shared contract module
-- **AND** they MUST NOT import it from the Provider Setup module unless they are Provider Setup internals
-
-#### Scenario: Provider id command DTO maps to domain
-
-- **WHEN** a command-facing `GpuCloudProviderId` enters native application logic
-- **THEN** it SHALL continue to map explicitly to the domain `GpuCloudProviderId`
-- **AND** the domain provider id MUST NOT derive generated binding traits solely to satisfy command DTO needs
-
-#### Scenario: Generated frontend bindings are exported
-
-- **WHEN** generated TypeScript command bindings are exported after moving the shared provider DTO
-- **THEN** `GpuCloudProviderId` SHALL remain a UI-safe generated type with the same supported v1 value, `runpod`
-- **AND** command request and response payload semantics SHALL remain compatible with existing Provider Setup and Workspace Setup behavior
 
 ### Requirement: Provider-specific profile config is provider-discriminated domain data
 
@@ -204,28 +94,6 @@ Workspace catalog persistence SHALL serialize and deserialize domain Workspace r
 - **THEN** the Workspace Catalog SHALL reject the read as unavailable
 - **AND** the inconsistent Workspace MUST NOT be returned as authoritative durable state
 
-### Requirement: Domain modules do not use broad unused-code suppressions
-
-Native domain modules MUST NOT use broad `#[allow(dead_code)]` or `#![allow(dead_code)]` workarounds. Domain types, functions, and modules SHALL either participate in live application behavior, represent spec-defined near-term domain vocabulary with a targeted explanatory `#[allow(dead_code)]`, or be removed until live behavior requires them.
-
-#### Scenario: Domain code is introduced
-
-- **WHEN** a native domain type, function, or module is added
-- **THEN** it SHALL be used by live native application behavior or tests that exercise live behavior
-- **AND** the implementation MUST NOT suppress unused-code warnings with broad `dead_code` allowances
-
-#### Scenario: Domain code is no longer used
-
-- **WHEN** a native domain type, function, or module is no longer used by live native application behavior
-- **THEN** it SHALL be removed or reconnected to the behavior that owns its invariant
-- **AND** it MUST NOT remain in the domain as speculative placeholder code behind a broad `dead_code` allowance
-
-#### Scenario: Spec-defined lifecycle vocabulary is ahead of implementation
-
-- **WHEN** a native domain enum variant is part of an accepted flow specification but the implementation that constructs it has not landed yet
-- **THEN** the enum MAY use a targeted `#[allow(dead_code)]`
-- **AND** the allowance MUST have an adjacent comment naming the upcoming flow or behavior that will construct the currently unused vocabulary
-
 ### Requirement: Workspace lifecycle is domain-authored
 
 Workspace lifecycle state construction and transition rules SHALL be owned by domain code. Application services MAY orchestrate prerequisites, persistence, provider calls, and command mapping, but they MUST NOT hand-author lifecycle-bearing Workspace records when a domain constructor or transition exists for that behavior.
@@ -241,6 +109,8 @@ Workspace lifecycle state construction and transition rules SHALL be owned by do
 - **WHEN** domain-authored Workspace state is persisted or returned through a command
 - **THEN** the Native Layer SHALL serialize the domain Workspace directly for native persistence or map it explicitly into the command DTO for generated frontend output
 - **AND** generated command payload compatibility SHALL remain owned by the command boundary
+
+## ADDED Requirements
 
 ### Requirement: Application services use domain-native contracts
 
@@ -275,33 +145,3 @@ Native domain invariants SHALL be validated by domain-owned validators grouped b
 - **THEN** placement-specific invariants SHALL be checked through a domain-owned placement validator
 - **AND** profile-specific invariants SHALL be checked through a domain-owned profile validator
 - **AND** Workspace Setup services MUST NOT depend on bundled catalog validator modules for reusable domain rules
-
-### Requirement: Module layout reflects native ownership boundaries
-
-Native-layer modules SHALL be organized so that file and directory boundaries match ownership responsibilities.
-
-#### Scenario: Workspace native code is organized
-
-- **WHEN** workspace setup, workspace catalog, workspace contracts, and their tests are present
-- **THEN** they SHALL live under the workspace module directory
-- **AND** workspace test files SHALL be separate from implementation files
-
-#### Scenario: Provider setup code is split
-
-- **WHEN** provider setup code is split into multiple files
-- **THEN** command contracts, application service orchestration, error mapping, and tests SHALL be separated by responsibility
-- **AND** the split MUST NOT move provider-specific HTTP or GraphQL implementation details into provider setup
-
-### Requirement: Existing setup behavior is preserved
-
-The boundary refactor SHALL preserve current GPU Cloud Provider Setup and Workspace Setup behavior.
-
-#### Scenario: GPU Cloud Provider Setup command behavior is exercised
-
-- **WHEN** existing GPU Cloud Provider Setup tests run after the refactor
-- **THEN** they SHALL continue to pass without changing the user-visible setup semantics
-
-#### Scenario: Workspace Setup command behavior is exercised
-
-- **WHEN** existing Workspace Setup tests run after the refactor
-- **THEN** they SHALL continue to pass without changing the user-visible workspace setup semantics

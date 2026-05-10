@@ -1,6 +1,9 @@
 use super::provider_setup::GpuCloudProviderId;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub mod validator;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GpuOption {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -9,7 +12,7 @@ pub struct GpuOption {
     pub availability_score: u8,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Datacenter {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -17,7 +20,7 @@ pub struct Datacenter {
     pub gpu_options: Vec<GpuOption>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderInventory {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub fetched_at: String,

@@ -1,6 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 use super::{placement::PlacementPlan, provider_setup::GpuCloudProviderId};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub mod validator;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 // Workspace Provisioning will construct the non-Draft variants when lifecycle
 // transitions land; keep the domain vocabulary aligned with the flow specs.
 #[allow(dead_code)]
@@ -11,7 +16,8 @@ pub enum WorkspaceLifecycleState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 // Workspace Provisioning will construct these statuses when Provider Resource
 // snapshots are updated from provider observations.
 #[allow(dead_code)]
@@ -24,7 +30,7 @@ pub enum ProviderResourceStatus {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistentStorageVolumeSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -34,7 +40,7 @@ pub struct PersistentStorageVolumeSnapshot {
     pub mount_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProvisioningPodSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -45,7 +51,7 @@ pub struct ProvisioningPodSnapshot {
     pub provisioner_status_url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerlessEndpointSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
@@ -56,13 +62,13 @@ pub struct ServerlessEndpointSnapshot {
     pub endpoint_invoke_url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Workspace<ProvisioningProfile, EndpointProfile> {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Workspace {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
     pub name: String,
     pub lifecycle_state: WorkspaceLifecycleState,
-    pub placement_plan: PlacementPlan<ProvisioningProfile, EndpointProfile>,
+    pub placement_plan: PlacementPlan,
     pub persistent_storage_volume_snapshot: Option<PersistentStorageVolumeSnapshot>,
     pub active_provisioning_pod_snapshot: Option<ProvisioningPodSnapshot>,
     pub serverless_endpoint_snapshot: Option<ServerlessEndpointSnapshot>,
@@ -73,14 +79,17 @@ pub struct Workspace<ProvisioningProfile, EndpointProfile> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceValidationError;
 
-impl<ProvisioningProfile, EndpointProfile> Workspace<ProvisioningProfile, EndpointProfile> {
+impl Workspace {
     pub fn new_draft(
         gpu_cloud_provider_id: GpuCloudProviderId,
         id: String,
         name: String,
-        placement_plan: PlacementPlan<ProvisioningProfile, EndpointProfile>,
+        placement_plan: PlacementPlan,
     ) -> Result<Self, WorkspaceValidationError> {
-        if id.trim().is_empty() || name.trim().is_empty() {
+        if id.trim().is_empty()
+            || name.trim().is_empty()
+            || placement_plan.gpu_cloud_provider_id() != gpu_cloud_provider_id
+        {
             return Err(WorkspaceValidationError);
         }
 
@@ -99,6 +108,10 @@ impl<ProvisioningProfile, EndpointProfile> Workspace<ProvisioningProfile, Endpoi
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCatalog {
+    pub workspaces: Vec<Workspace>,
+}
+
 #[cfg(test)]
-#[path = "workspace_tests.rs"]
-mod workspace_tests;
+mod tests;

@@ -7,7 +7,7 @@ use crate::{
     workspace::{
         workspace_catalog_repository::UnavailableWorkspaceCatalog,
         workspace_catalog_sqlite::SqliteWorkspaceCatalog,
-        workspace_setup_contracts as application_contracts,
+        workspace_setup_contracts::CreateWorkspaceInput,
         workspace_setup_error::WorkspaceSetupError, workspace_setup_service::WorkspaceSetupService,
     },
 };
@@ -78,10 +78,9 @@ pub(crate) fn get_endpoint_profiles() -> CommandResult<GetEndpointProfilesRespon
 pub(crate) async fn get_provider_inventory(
     request: GetProviderInventoryRequest,
 ) -> CommandResult<GetProviderInventoryResponse> {
-    let request: application_contracts::GetProviderInventoryRequest =
-        request.try_into().map_err(NativeCommandError::from)?;
+    let provider_id = request.gpu_cloud_provider_id.into();
     workspace_setup_read_service()
-        .get_provider_inventory(request)
+        .get_provider_inventory(provider_id)
         .await
         .map(Into::into)
         .map_err(Into::into)
@@ -112,9 +111,8 @@ pub(crate) async fn create_workspace(
     request: CreateWorkspaceRequest,
     provider_setup_coordinator: State<'_, ProviderSetupCoordinator>,
 ) -> CommandResult<CreateWorkspaceResponse> {
-    let request: application_contracts::CreateWorkspaceRequest =
-        request.try_into().map_err(NativeCommandError::from)?;
-    let provider_id = request.domain_provider_id();
+    let request: CreateWorkspaceInput = request.try_into().map_err(NativeCommandError::from)?;
+    let provider_id = request.gpu_cloud_provider_id;
     let _guard = provider_setup_coordinator.lock(&provider_id).await;
 
     let workspace_catalog = sqlite_workspace_catalog(&app).await?;

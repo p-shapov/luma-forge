@@ -5,11 +5,14 @@ use specta::Type;
 
 use crate::{
     commands::provider_contracts::GpuCloudProviderId,
+    domain::{
+        placement as domain_placement, profiles as domain_profiles,
+        provider_inventory as domain_inventory, workflow as domain_workflow,
+        workspace as domain_workspace,
+    },
     provider::runpod,
     workspace::{
-        workspace_contracts as application_workspace_contracts,
-        workspace_setup_contracts as application_setup_contracts,
-        workspace_setup_error::WorkspaceSetupError,
+        workspace_setup_contracts::CreateWorkspaceInput, workspace_setup_error::WorkspaceSetupError,
     },
 };
 
@@ -29,7 +32,7 @@ pub enum ModelAssetKind {
     Other,
 }
 
-impl From<ModelAssetKind> for application_workspace_contracts::ModelAssetKind {
+impl From<ModelAssetKind> for domain_workflow::ModelAssetKind {
     fn from(kind: ModelAssetKind) -> Self {
         match kind {
             ModelAssetKind::Checkpoint => Self::Checkpoint,
@@ -47,20 +50,20 @@ impl From<ModelAssetKind> for application_workspace_contracts::ModelAssetKind {
     }
 }
 
-impl From<application_workspace_contracts::ModelAssetKind> for ModelAssetKind {
-    fn from(kind: application_workspace_contracts::ModelAssetKind) -> Self {
+impl From<domain_workflow::ModelAssetKind> for ModelAssetKind {
+    fn from(kind: domain_workflow::ModelAssetKind) -> Self {
         match kind {
-            application_workspace_contracts::ModelAssetKind::Checkpoint => Self::Checkpoint,
-            application_workspace_contracts::ModelAssetKind::DiffusionModel => Self::DiffusionModel,
-            application_workspace_contracts::ModelAssetKind::Vae => Self::Vae,
-            application_workspace_contracts::ModelAssetKind::TextEncoder => Self::TextEncoder,
-            application_workspace_contracts::ModelAssetKind::Clip => Self::Clip,
-            application_workspace_contracts::ModelAssetKind::ClipVision => Self::ClipVision,
-            application_workspace_contracts::ModelAssetKind::Lora => Self::Lora,
-            application_workspace_contracts::ModelAssetKind::Controlnet => Self::Controlnet,
-            application_workspace_contracts::ModelAssetKind::Upscaler => Self::Upscaler,
-            application_workspace_contracts::ModelAssetKind::Embedding => Self::Embedding,
-            application_workspace_contracts::ModelAssetKind::Other => Self::Other,
+            domain_workflow::ModelAssetKind::Checkpoint => Self::Checkpoint,
+            domain_workflow::ModelAssetKind::DiffusionModel => Self::DiffusionModel,
+            domain_workflow::ModelAssetKind::Vae => Self::Vae,
+            domain_workflow::ModelAssetKind::TextEncoder => Self::TextEncoder,
+            domain_workflow::ModelAssetKind::Clip => Self::Clip,
+            domain_workflow::ModelAssetKind::ClipVision => Self::ClipVision,
+            domain_workflow::ModelAssetKind::Lora => Self::Lora,
+            domain_workflow::ModelAssetKind::Controlnet => Self::Controlnet,
+            domain_workflow::ModelAssetKind::Upscaler => Self::Upscaler,
+            domain_workflow::ModelAssetKind::Embedding => Self::Embedding,
+            domain_workflow::ModelAssetKind::Other => Self::Other,
         }
     }
 }
@@ -75,7 +78,7 @@ pub enum ModelAssetSource {
     },
 }
 
-impl From<ModelAssetSource> for application_workspace_contracts::ModelAssetSource {
+impl From<ModelAssetSource> for domain_workflow::ModelAssetSource {
     fn from(source: ModelAssetSource) -> Self {
         match source {
             ModelAssetSource::Huggingface {
@@ -91,10 +94,10 @@ impl From<ModelAssetSource> for application_workspace_contracts::ModelAssetSourc
     }
 }
 
-impl From<application_workspace_contracts::ModelAssetSource> for ModelAssetSource {
-    fn from(source: application_workspace_contracts::ModelAssetSource) -> Self {
+impl From<domain_workflow::ModelAssetSource> for ModelAssetSource {
+    fn from(source: domain_workflow::ModelAssetSource) -> Self {
         match source {
-            application_workspace_contracts::ModelAssetSource::Huggingface {
+            domain_workflow::ModelAssetSource::Huggingface {
                 repository_id,
                 file_path,
                 revision,
@@ -117,7 +120,7 @@ pub struct ModelAsset {
     pub install: ModelAssetInstall,
 }
 
-impl From<ModelAsset> for application_workspace_contracts::ModelAsset {
+impl From<ModelAsset> for domain_workflow::ModelAsset {
     fn from(asset: ModelAsset) -> Self {
         Self {
             id: asset.id,
@@ -130,8 +133,8 @@ impl From<ModelAsset> for application_workspace_contracts::ModelAsset {
     }
 }
 
-impl From<application_workspace_contracts::ModelAsset> for ModelAsset {
-    fn from(asset: application_workspace_contracts::ModelAsset) -> Self {
+impl From<domain_workflow::ModelAsset> for ModelAsset {
+    fn from(asset: domain_workflow::ModelAsset) -> Self {
         Self {
             id: asset.id,
             name: asset.name,
@@ -148,7 +151,7 @@ pub struct ModelAssetInstall {
     pub comfyui_relative_path: String,
 }
 
-impl From<ModelAssetInstall> for application_workspace_contracts::ModelAssetInstall {
+impl From<ModelAssetInstall> for domain_workflow::ModelAssetInstall {
     fn from(install: ModelAssetInstall) -> Self {
         Self {
             comfyui_relative_path: install.comfyui_relative_path,
@@ -156,8 +159,8 @@ impl From<ModelAssetInstall> for application_workspace_contracts::ModelAssetInst
     }
 }
 
-impl From<application_workspace_contracts::ModelAssetInstall> for ModelAssetInstall {
-    fn from(install: application_workspace_contracts::ModelAssetInstall) -> Self {
+impl From<domain_workflow::ModelAssetInstall> for ModelAssetInstall {
+    fn from(install: domain_workflow::ModelAssetInstall) -> Self {
         Self {
             comfyui_relative_path: install.comfyui_relative_path,
         }
@@ -173,7 +176,7 @@ pub enum CustomNodeGitSource {
     },
 }
 
-impl From<CustomNodeGitSource> for application_workspace_contracts::CustomNodeGitSource {
+impl From<CustomNodeGitSource> for domain_workflow::CustomNodeGitSource {
     fn from(source: CustomNodeGitSource) -> Self {
         match source {
             CustomNodeGitSource::Git {
@@ -187,10 +190,10 @@ impl From<CustomNodeGitSource> for application_workspace_contracts::CustomNodeGi
     }
 }
 
-impl From<application_workspace_contracts::CustomNodeGitSource> for CustomNodeGitSource {
-    fn from(source: application_workspace_contracts::CustomNodeGitSource) -> Self {
+impl From<domain_workflow::CustomNodeGitSource> for CustomNodeGitSource {
+    fn from(source: domain_workflow::CustomNodeGitSource) -> Self {
         match source {
-            application_workspace_contracts::CustomNodeGitSource::Git {
+            domain_workflow::CustomNodeGitSource::Git {
                 repository_url,
                 revision,
             } => Self::Git {
@@ -207,7 +210,7 @@ pub struct CustomNodeInstall {
     pub python_requirements_path: Option<String>,
 }
 
-impl From<CustomNodeInstall> for application_workspace_contracts::CustomNodeInstall {
+impl From<CustomNodeInstall> for domain_workflow::CustomNodeInstall {
     fn from(install: CustomNodeInstall) -> Self {
         Self {
             comfyui_custom_nodes_relative_path: install.comfyui_custom_nodes_relative_path,
@@ -216,8 +219,8 @@ impl From<CustomNodeInstall> for application_workspace_contracts::CustomNodeInst
     }
 }
 
-impl From<application_workspace_contracts::CustomNodeInstall> for CustomNodeInstall {
-    fn from(install: application_workspace_contracts::CustomNodeInstall) -> Self {
+impl From<domain_workflow::CustomNodeInstall> for CustomNodeInstall {
+    fn from(install: domain_workflow::CustomNodeInstall) -> Self {
         Self {
             comfyui_custom_nodes_relative_path: install.comfyui_custom_nodes_relative_path,
             python_requirements_path: install.python_requirements_path,
@@ -233,7 +236,7 @@ pub struct CustomNode {
     pub install: CustomNodeInstall,
 }
 
-impl From<CustomNode> for application_workspace_contracts::CustomNode {
+impl From<CustomNode> for domain_workflow::CustomNode {
     fn from(node: CustomNode) -> Self {
         Self {
             id: node.id,
@@ -244,8 +247,8 @@ impl From<CustomNode> for application_workspace_contracts::CustomNode {
     }
 }
 
-impl From<application_workspace_contracts::CustomNode> for CustomNode {
-    fn from(node: application_workspace_contracts::CustomNode) -> Self {
+impl From<domain_workflow::CustomNode> for CustomNode {
+    fn from(node: domain_workflow::CustomNode) -> Self {
         Self {
             id: node.id,
             name: node.name,
@@ -261,7 +264,7 @@ pub enum WorkflowExecutionType {
     T2i,
 }
 
-impl From<WorkflowExecutionType> for application_workspace_contracts::WorkflowExecutionType {
+impl From<WorkflowExecutionType> for domain_workflow::WorkflowExecutionType {
     fn from(execution_type: WorkflowExecutionType) -> Self {
         match execution_type {
             WorkflowExecutionType::T2i => Self::T2i,
@@ -269,10 +272,10 @@ impl From<WorkflowExecutionType> for application_workspace_contracts::WorkflowEx
     }
 }
 
-impl From<application_workspace_contracts::WorkflowExecutionType> for WorkflowExecutionType {
-    fn from(execution_type: application_workspace_contracts::WorkflowExecutionType) -> Self {
+impl From<domain_workflow::WorkflowExecutionType> for WorkflowExecutionType {
+    fn from(execution_type: domain_workflow::WorkflowExecutionType) -> Self {
         match execution_type {
-            application_workspace_contracts::WorkflowExecutionType::T2i => Self::T2i,
+            domain_workflow::WorkflowExecutionType::T2i => Self::T2i,
         }
     }
 }
@@ -286,7 +289,7 @@ pub enum ComfyUiRuntimeSource {
     },
 }
 
-impl From<ComfyUiRuntimeSource> for application_workspace_contracts::ComfyUiRuntimeSource {
+impl From<ComfyUiRuntimeSource> for domain_workflow::ComfyUiRuntimeSource {
     fn from(source: ComfyUiRuntimeSource) -> Self {
         match source {
             ComfyUiRuntimeSource::Git {
@@ -300,10 +303,10 @@ impl From<ComfyUiRuntimeSource> for application_workspace_contracts::ComfyUiRunt
     }
 }
 
-impl From<application_workspace_contracts::ComfyUiRuntimeSource> for ComfyUiRuntimeSource {
-    fn from(source: application_workspace_contracts::ComfyUiRuntimeSource) -> Self {
+impl From<domain_workflow::ComfyUiRuntimeSource> for ComfyUiRuntimeSource {
+    fn from(source: domain_workflow::ComfyUiRuntimeSource) -> Self {
         match source {
-            application_workspace_contracts::ComfyUiRuntimeSource::Git {
+            domain_workflow::ComfyUiRuntimeSource::Git {
                 repository_url,
                 revision,
             } => Self::Git {
@@ -326,7 +329,7 @@ pub struct WorkflowPreset {
     pub required_custom_nodes: Vec<CustomNode>,
 }
 
-impl From<WorkflowPreset> for application_workspace_contracts::WorkflowPreset {
+impl From<WorkflowPreset> for domain_workflow::WorkflowPreset {
     fn from(preset: WorkflowPreset) -> Self {
         Self {
             id: preset.id,
@@ -349,8 +352,8 @@ impl From<WorkflowPreset> for application_workspace_contracts::WorkflowPreset {
     }
 }
 
-impl From<application_workspace_contracts::WorkflowPreset> for WorkflowPreset {
-    fn from(preset: application_workspace_contracts::WorkflowPreset) -> Self {
+impl From<domain_workflow::WorkflowPreset> for WorkflowPreset {
+    fn from(preset: domain_workflow::WorkflowPreset) -> Self {
         Self {
             id: preset.id,
             version: preset.version,
@@ -379,8 +382,8 @@ pub struct WorkflowCatalog {
     pub workflow_presets: Vec<WorkflowPreset>,
 }
 
-impl From<application_workspace_contracts::WorkflowCatalog> for WorkflowCatalog {
-    fn from(catalog: application_workspace_contracts::WorkflowCatalog) -> Self {
+impl From<domain_workflow::WorkflowCatalog> for WorkflowCatalog {
+    fn from(catalog: domain_workflow::WorkflowCatalog) -> Self {
         Self {
             id: catalog.id,
             version: catalog.version,
@@ -399,7 +402,7 @@ pub enum ProvisioningComputeType {
     Pod,
 }
 
-impl From<ProvisioningComputeType> for application_workspace_contracts::ProvisioningComputeType {
+impl From<ProvisioningComputeType> for domain_profiles::ProvisioningComputeType {
     fn from(compute_type: ProvisioningComputeType) -> Self {
         match compute_type {
             ProvisioningComputeType::Pod => Self::Pod,
@@ -407,10 +410,10 @@ impl From<ProvisioningComputeType> for application_workspace_contracts::Provisio
     }
 }
 
-impl From<application_workspace_contracts::ProvisioningComputeType> for ProvisioningComputeType {
-    fn from(compute_type: application_workspace_contracts::ProvisioningComputeType) -> Self {
+impl From<domain_profiles::ProvisioningComputeType> for ProvisioningComputeType {
+    fn from(compute_type: domain_profiles::ProvisioningComputeType) -> Self {
         match compute_type {
-            application_workspace_contracts::ProvisioningComputeType::Pod => Self::Pod,
+            domain_profiles::ProvisioningComputeType::Pod => Self::Pod,
         }
     }
 }
@@ -422,9 +425,7 @@ pub struct ProvisioningStatusEndpoint {
     pub status_path: String,
 }
 
-impl From<ProvisioningStatusEndpoint>
-    for application_workspace_contracts::ProvisioningStatusEndpoint
-{
+impl From<ProvisioningStatusEndpoint> for domain_profiles::ProvisioningStatusEndpoint {
     fn from(endpoint: ProvisioningStatusEndpoint) -> Self {
         Self {
             port: endpoint.port,
@@ -434,10 +435,8 @@ impl From<ProvisioningStatusEndpoint>
     }
 }
 
-impl From<application_workspace_contracts::ProvisioningStatusEndpoint>
-    for ProvisioningStatusEndpoint
-{
-    fn from(endpoint: application_workspace_contracts::ProvisioningStatusEndpoint) -> Self {
+impl From<domain_profiles::ProvisioningStatusEndpoint> for ProvisioningStatusEndpoint {
+    fn from(endpoint: domain_profiles::ProvisioningStatusEndpoint) -> Self {
         Self {
             port: endpoint.port,
             protocol: endpoint.protocol,
@@ -456,7 +455,7 @@ pub struct ProvisionerWorkerRuntime {
     pub status_endpoint: ProvisioningStatusEndpoint,
 }
 
-impl From<ProvisionerWorkerRuntime> for application_workspace_contracts::ProvisionerWorkerRuntime {
+impl From<ProvisionerWorkerRuntime> for domain_profiles::ProvisionerWorkerRuntime {
     fn from(runtime: ProvisionerWorkerRuntime) -> Self {
         Self {
             provisioner_version: runtime.provisioner_version,
@@ -469,8 +468,8 @@ impl From<ProvisionerWorkerRuntime> for application_workspace_contracts::Provisi
     }
 }
 
-impl From<application_workspace_contracts::ProvisionerWorkerRuntime> for ProvisionerWorkerRuntime {
-    fn from(runtime: application_workspace_contracts::ProvisionerWorkerRuntime) -> Self {
+impl From<domain_profiles::ProvisionerWorkerRuntime> for ProvisionerWorkerRuntime {
+    fn from(runtime: domain_profiles::ProvisionerWorkerRuntime) -> Self {
         Self {
             provisioner_version: runtime.provisioner_version,
             docker_image_ref: runtime.docker_image_ref,
@@ -491,7 +490,7 @@ pub struct EndpointWorkerRuntime {
     pub invoke_path: String,
 }
 
-impl From<EndpointWorkerRuntime> for application_workspace_contracts::EndpointWorkerRuntime {
+impl From<EndpointWorkerRuntime> for domain_profiles::EndpointWorkerRuntime {
     fn from(runtime: EndpointWorkerRuntime) -> Self {
         Self {
             endpoint_worker_version: runtime.endpoint_worker_version,
@@ -503,8 +502,8 @@ impl From<EndpointWorkerRuntime> for application_workspace_contracts::EndpointWo
     }
 }
 
-impl From<application_workspace_contracts::EndpointWorkerRuntime> for EndpointWorkerRuntime {
-    fn from(runtime: application_workspace_contracts::EndpointWorkerRuntime) -> Self {
+impl From<domain_profiles::EndpointWorkerRuntime> for EndpointWorkerRuntime {
+    fn from(runtime: domain_profiles::EndpointWorkerRuntime) -> Self {
         Self {
             endpoint_worker_version: runtime.endpoint_worker_version,
             docker_image_ref: runtime.docker_image_ref,
@@ -626,7 +625,7 @@ pub enum ProvisioningProfile {
     },
 }
 
-impl From<ProvisioningProfile> for application_workspace_contracts::ProvisioningProfile {
+impl From<ProvisioningProfile> for domain_profiles::ProvisioningProfile {
     fn from(profile: ProvisioningProfile) -> Self {
         match profile {
             ProvisioningProfile::Runpod {
@@ -646,10 +645,10 @@ impl From<ProvisioningProfile> for application_workspace_contracts::Provisioning
     }
 }
 
-impl From<application_workspace_contracts::ProvisioningProfile> for ProvisioningProfile {
-    fn from(profile: application_workspace_contracts::ProvisioningProfile) -> Self {
+impl From<domain_profiles::ProvisioningProfile> for ProvisioningProfile {
+    fn from(profile: domain_profiles::ProvisioningProfile) -> Self {
         match profile {
-            application_workspace_contracts::ProvisioningProfile::Runpod {
+            domain_profiles::ProvisioningProfile::Runpod {
                 id,
                 version,
                 name,
@@ -679,7 +678,7 @@ pub enum EndpointProfile {
     },
 }
 
-impl From<EndpointProfile> for application_workspace_contracts::EndpointProfile {
+impl From<EndpointProfile> for domain_profiles::EndpointProfile {
     fn from(profile: EndpointProfile) -> Self {
         match profile {
             EndpointProfile::Runpod {
@@ -701,10 +700,10 @@ impl From<EndpointProfile> for application_workspace_contracts::EndpointProfile 
     }
 }
 
-impl From<application_workspace_contracts::EndpointProfile> for EndpointProfile {
-    fn from(profile: application_workspace_contracts::EndpointProfile) -> Self {
+impl From<domain_profiles::EndpointProfile> for EndpointProfile {
+    fn from(profile: domain_profiles::EndpointProfile) -> Self {
         match profile {
-            application_workspace_contracts::EndpointProfile::Runpod {
+            domain_profiles::EndpointProfile::Runpod {
                 id,
                 version,
                 name,
@@ -733,9 +732,9 @@ pub struct PlacementPlan {
     pub selected_endpoint_profile: EndpointProfile,
 }
 
-impl From<PlacementPlan> for application_workspace_contracts::PlacementPlan {
+impl From<PlacementPlan> for domain_placement::PlacementPlan {
     fn from(plan: PlacementPlan) -> Self {
-        Self {
+        Self::Runpod {
             selected_datacenter_id: plan.selected_datacenter_id,
             selected_gpu_id: plan.selected_gpu_id,
             persistent_storage_volume_size_bytes: plan.persistent_storage_volume_size_bytes,
@@ -746,15 +745,24 @@ impl From<PlacementPlan> for application_workspace_contracts::PlacementPlan {
     }
 }
 
-impl From<application_workspace_contracts::PlacementPlan> for PlacementPlan {
-    fn from(plan: application_workspace_contracts::PlacementPlan) -> Self {
-        Self {
-            selected_datacenter_id: plan.selected_datacenter_id,
-            selected_gpu_id: plan.selected_gpu_id,
-            persistent_storage_volume_size_bytes: plan.persistent_storage_volume_size_bytes,
-            selected_workflow_preset: plan.selected_workflow_preset.into(),
-            selected_provisioning_profile: plan.selected_provisioning_profile.into(),
-            selected_endpoint_profile: plan.selected_endpoint_profile.into(),
+impl From<domain_placement::PlacementPlan> for PlacementPlan {
+    fn from(plan: domain_placement::PlacementPlan) -> Self {
+        match plan {
+            domain_placement::PlacementPlan::Runpod {
+                selected_datacenter_id,
+                selected_gpu_id,
+                persistent_storage_volume_size_bytes,
+                selected_workflow_preset,
+                selected_provisioning_profile,
+                selected_endpoint_profile,
+            } => Self {
+                selected_datacenter_id,
+                selected_gpu_id,
+                persistent_storage_volume_size_bytes,
+                selected_workflow_preset: selected_workflow_preset.into(),
+                selected_provisioning_profile: selected_provisioning_profile.into(),
+                selected_endpoint_profile: selected_endpoint_profile.into(),
+            },
         }
     }
 }
@@ -768,15 +776,13 @@ pub enum WorkspaceLifecycleState {
     Failed,
 }
 
-impl From<application_workspace_contracts::WorkspaceLifecycleState> for WorkspaceLifecycleState {
-    fn from(state: application_workspace_contracts::WorkspaceLifecycleState) -> Self {
+impl From<domain_workspace::WorkspaceLifecycleState> for WorkspaceLifecycleState {
+    fn from(state: domain_workspace::WorkspaceLifecycleState) -> Self {
         match state {
-            application_workspace_contracts::WorkspaceLifecycleState::Draft => Self::Draft,
-            application_workspace_contracts::WorkspaceLifecycleState::Provisioning => {
-                Self::Provisioning
-            }
-            application_workspace_contracts::WorkspaceLifecycleState::Ready => Self::Ready,
-            application_workspace_contracts::WorkspaceLifecycleState::Failed => Self::Failed,
+            domain_workspace::WorkspaceLifecycleState::Draft => Self::Draft,
+            domain_workspace::WorkspaceLifecycleState::Provisioning => Self::Provisioning,
+            domain_workspace::WorkspaceLifecycleState::Ready => Self::Ready,
+            domain_workspace::WorkspaceLifecycleState::Failed => Self::Failed,
         }
     }
 }
@@ -792,15 +798,15 @@ pub enum ProviderResourceStatus {
     Unknown,
 }
 
-impl From<application_workspace_contracts::ProviderResourceStatus> for ProviderResourceStatus {
-    fn from(status: application_workspace_contracts::ProviderResourceStatus) -> Self {
+impl From<domain_workspace::ProviderResourceStatus> for ProviderResourceStatus {
+    fn from(status: domain_workspace::ProviderResourceStatus) -> Self {
         match status {
-            application_workspace_contracts::ProviderResourceStatus::Creating => Self::Creating,
-            application_workspace_contracts::ProviderResourceStatus::Running => Self::Running,
-            application_workspace_contracts::ProviderResourceStatus::Ready => Self::Ready,
-            application_workspace_contracts::ProviderResourceStatus::Terminated => Self::Terminated,
-            application_workspace_contracts::ProviderResourceStatus::Failed => Self::Failed,
-            application_workspace_contracts::ProviderResourceStatus::Unknown => Self::Unknown,
+            domain_workspace::ProviderResourceStatus::Creating => Self::Creating,
+            domain_workspace::ProviderResourceStatus::Running => Self::Running,
+            domain_workspace::ProviderResourceStatus::Ready => Self::Ready,
+            domain_workspace::ProviderResourceStatus::Terminated => Self::Terminated,
+            domain_workspace::ProviderResourceStatus::Failed => Self::Failed,
+            domain_workspace::ProviderResourceStatus::Unknown => Self::Unknown,
         }
     }
 }
@@ -815,10 +821,8 @@ pub struct PersistentStorageVolumeSnapshot {
     pub mount_path: String,
 }
 
-impl From<application_workspace_contracts::PersistentStorageVolumeSnapshot>
-    for PersistentStorageVolumeSnapshot
-{
-    fn from(snapshot: application_workspace_contracts::PersistentStorageVolumeSnapshot) -> Self {
+impl From<domain_workspace::PersistentStorageVolumeSnapshot> for PersistentStorageVolumeSnapshot {
+    fn from(snapshot: domain_workspace::PersistentStorageVolumeSnapshot) -> Self {
         Self {
             gpu_cloud_provider_id: snapshot.gpu_cloud_provider_id.into(),
             provider_resource_id: snapshot.provider_resource_id,
@@ -841,8 +845,8 @@ pub struct ProvisioningPodSnapshot {
     pub provisioner_status_url: String,
 }
 
-impl From<application_workspace_contracts::ProvisioningPodSnapshot> for ProvisioningPodSnapshot {
-    fn from(snapshot: application_workspace_contracts::ProvisioningPodSnapshot) -> Self {
+impl From<domain_workspace::ProvisioningPodSnapshot> for ProvisioningPodSnapshot {
+    fn from(snapshot: domain_workspace::ProvisioningPodSnapshot) -> Self {
         Self {
             gpu_cloud_provider_id: snapshot.gpu_cloud_provider_id.into(),
             provider_resource_id: snapshot.provider_resource_id,
@@ -866,10 +870,8 @@ pub struct ServerlessEndpointSnapshot {
     pub endpoint_invoke_url: String,
 }
 
-impl From<application_workspace_contracts::ServerlessEndpointSnapshot>
-    for ServerlessEndpointSnapshot
-{
-    fn from(snapshot: application_workspace_contracts::ServerlessEndpointSnapshot) -> Self {
+impl From<domain_workspace::ServerlessEndpointSnapshot> for ServerlessEndpointSnapshot {
+    fn from(snapshot: domain_workspace::ServerlessEndpointSnapshot) -> Self {
         Self {
             gpu_cloud_provider_id: snapshot.gpu_cloud_provider_id.into(),
             provider_resource_id: snapshot.provider_resource_id,
@@ -896,8 +898,8 @@ pub struct Workspace {
     pub environment_prepared_at: Option<String>,
 }
 
-impl From<application_workspace_contracts::Workspace> for Workspace {
-    fn from(workspace: application_workspace_contracts::Workspace) -> Self {
+impl From<domain_workspace::Workspace> for Workspace {
+    fn from(workspace: domain_workspace::Workspace) -> Self {
         Self {
             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id.into(),
             id: workspace.id,
@@ -924,8 +926,8 @@ pub struct WorkspaceCatalog {
     pub workspaces: Vec<Workspace>,
 }
 
-impl From<application_workspace_contracts::WorkspaceCatalog> for WorkspaceCatalog {
-    fn from(catalog: application_workspace_contracts::WorkspaceCatalog) -> Self {
+impl From<domain_workspace::WorkspaceCatalog> for WorkspaceCatalog {
+    fn from(catalog: domain_workspace::WorkspaceCatalog) -> Self {
         Self {
             workspaces: catalog.workspaces.into_iter().map(Into::into).collect(),
         }
@@ -937,10 +939,10 @@ pub struct GetWorkflowCatalogResponse {
     pub workflow_catalog: WorkflowCatalog,
 }
 
-impl From<application_setup_contracts::GetWorkflowCatalogResponse> for GetWorkflowCatalogResponse {
-    fn from(response: application_setup_contracts::GetWorkflowCatalogResponse) -> Self {
+impl From<domain_workflow::WorkflowCatalog> for GetWorkflowCatalogResponse {
+    fn from(response: domain_workflow::WorkflowCatalog) -> Self {
         Self {
-            workflow_catalog: response.workflow_catalog.into(),
+            workflow_catalog: response.into(),
         }
     }
 }
@@ -950,16 +952,10 @@ pub struct GetProvisioningProfilesResponse {
     pub provisioning_profiles: Vec<ProvisioningProfile>,
 }
 
-impl From<application_setup_contracts::GetProvisioningProfilesResponse>
-    for GetProvisioningProfilesResponse
-{
-    fn from(response: application_setup_contracts::GetProvisioningProfilesResponse) -> Self {
+impl From<Vec<domain_profiles::ProvisioningProfile>> for GetProvisioningProfilesResponse {
+    fn from(response: Vec<domain_profiles::ProvisioningProfile>) -> Self {
         Self {
-            provisioning_profiles: response
-                .provisioning_profiles
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            provisioning_profiles: response.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -969,16 +965,10 @@ pub struct GetEndpointProfilesResponse {
     pub endpoint_profiles: Vec<EndpointProfile>,
 }
 
-impl From<application_setup_contracts::GetEndpointProfilesResponse>
-    for GetEndpointProfilesResponse
-{
-    fn from(response: application_setup_contracts::GetEndpointProfilesResponse) -> Self {
+impl From<Vec<domain_profiles::EndpointProfile>> for GetEndpointProfilesResponse {
+    fn from(response: Vec<domain_profiles::EndpointProfile>) -> Self {
         Self {
-            endpoint_profiles: response
-                .endpoint_profiles
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            endpoint_profiles: response.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -986,18 +976,6 @@ impl From<application_setup_contracts::GetEndpointProfilesResponse>
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct GetProviderInventoryRequest {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
-}
-
-impl TryFrom<GetProviderInventoryRequest>
-    for application_setup_contracts::GetProviderInventoryRequest
-{
-    type Error = WorkspaceSetupError;
-
-    fn try_from(request: GetProviderInventoryRequest) -> Result<Self, Self::Error> {
-        Ok(Self {
-            gpu_cloud_provider_id: request.gpu_cloud_provider_id.into(),
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -1009,8 +987,8 @@ pub struct GpuOption {
     pub availability_score: u8,
 }
 
-impl From<application_setup_contracts::GpuOption> for GpuOption {
-    fn from(option: application_setup_contracts::GpuOption) -> Self {
+impl From<domain_inventory::GpuOption> for GpuOption {
+    fn from(option: domain_inventory::GpuOption) -> Self {
         Self {
             gpu_cloud_provider_id: option.gpu_cloud_provider_id.into(),
             id: option.id,
@@ -1029,8 +1007,8 @@ pub struct Datacenter {
     pub gpu_options: Vec<GpuOption>,
 }
 
-impl From<application_setup_contracts::Datacenter> for Datacenter {
-    fn from(datacenter: application_setup_contracts::Datacenter) -> Self {
+impl From<domain_inventory::Datacenter> for Datacenter {
+    fn from(datacenter: domain_inventory::Datacenter) -> Self {
         Self {
             gpu_cloud_provider_id: datacenter.gpu_cloud_provider_id.into(),
             id: datacenter.id,
@@ -1048,8 +1026,8 @@ pub struct ProviderInventory {
     pub datacenters: Vec<Datacenter>,
 }
 
-impl From<application_setup_contracts::ProviderInventory> for ProviderInventory {
-    fn from(inventory: application_setup_contracts::ProviderInventory) -> Self {
+impl From<domain_inventory::ProviderInventory> for ProviderInventory {
+    fn from(inventory: domain_inventory::ProviderInventory) -> Self {
         Self {
             gpu_cloud_provider_id: inventory.gpu_cloud_provider_id.into(),
             fetched_at: inventory.fetched_at,
@@ -1065,12 +1043,10 @@ pub struct GetProviderInventoryResponse {
     pub provider_inventory: ProviderInventory,
 }
 
-impl From<application_setup_contracts::GetProviderInventoryResponse>
-    for GetProviderInventoryResponse
-{
-    fn from(response: application_setup_contracts::GetProviderInventoryResponse) -> Self {
+impl From<domain_inventory::ProviderInventory> for GetProviderInventoryResponse {
+    fn from(response: domain_inventory::ProviderInventory) -> Self {
         Self {
-            provider_inventory: response.provider_inventory.into(),
+            provider_inventory: response.into(),
         }
     }
 }
@@ -1080,12 +1056,10 @@ pub struct GetWorkspaceCatalogResponse {
     pub workspace_catalog: WorkspaceCatalog,
 }
 
-impl From<application_setup_contracts::GetWorkspaceCatalogResponse>
-    for GetWorkspaceCatalogResponse
-{
-    fn from(response: application_setup_contracts::GetWorkspaceCatalogResponse) -> Self {
+impl From<domain_workspace::WorkspaceCatalog> for GetWorkspaceCatalogResponse {
+    fn from(response: domain_workspace::WorkspaceCatalog) -> Self {
         Self {
-            workspace_catalog: response.workspace_catalog.into(),
+            workspace_catalog: response.into(),
         }
     }
 }
@@ -1098,7 +1072,7 @@ pub struct CreateWorkspaceRequest {
     pub placement_plan: PlacementPlan,
 }
 
-impl TryFrom<CreateWorkspaceRequest> for application_setup_contracts::CreateWorkspaceRequest {
+impl TryFrom<CreateWorkspaceRequest> for CreateWorkspaceInput {
     type Error = WorkspaceSetupError;
 
     fn try_from(request: CreateWorkspaceRequest) -> Result<Self, Self::Error> {
@@ -1116,10 +1090,10 @@ pub struct CreateWorkspaceResponse {
     pub workspace: Workspace,
 }
 
-impl From<application_setup_contracts::CreateWorkspaceResponse> for CreateWorkspaceResponse {
-    fn from(response: application_setup_contracts::CreateWorkspaceResponse) -> Self {
+impl From<domain_workspace::Workspace> for CreateWorkspaceResponse {
+    fn from(response: domain_workspace::Workspace) -> Self {
         Self {
-            workspace: response.workspace.into(),
+            workspace: response.into(),
         }
     }
 }

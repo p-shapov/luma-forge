@@ -11,21 +11,18 @@ use std::{
 use crate::{
     bundled::bundled_catalog_reader::BundledCatalogReader,
     domain::{
+        placement::PlacementPlan,
+        profiles::EndpointProfile,
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
+        workflow::WorkflowExecutionType,
+        workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
     provider_setup::ProviderSetupCoordinator,
     secrets::{SecretStore, SecretStoreError},
-    shared_contracts::provider_contracts::GpuCloudProviderId,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_contracts::{
-            EndpointProfile, PlacementPlan, WorkflowExecutionType, Workspace, WorkspaceCatalog,
-            WorkspaceLifecycleState,
-        },
-        workspace_setup_contracts::{
-            CreateWorkspaceRequest, CreateWorkspaceResponse, GetProviderInventoryRequest,
-        },
+        workspace_setup_contracts::CreateWorkspaceInput,
     },
 };
 
@@ -99,6 +96,7 @@ impl SecretStore for MemorySecretStore {
 struct MemoryProvider {
     fail: bool,
     setup_missing: bool,
+    inventory: Option<ProviderInventory>,
 }
 
 impl ProviderInventoryGateway for MemoryProvider {
@@ -114,12 +112,12 @@ impl ProviderInventoryGateway for MemoryProvider {
             if self.fail {
                 return Err(WorkspaceSetupError::ProviderApiUnavailable);
             }
-            Ok(ProviderInventory {
+            Ok(self.inventory.clone().unwrap_or(ProviderInventory {
                 gpu_cloud_provider_id: *provider_id,
                 fetched_at: "2026-05-08T00:00:00Z".to_string(),
                 max_persistent_storage_volume_size_bytes: None,
                 datacenters: vec![],
-            })
+            }))
         })
     }
 }
@@ -198,7 +196,7 @@ fn service(
 
 pub(crate) fn sample_placement_plan() -> PlacementPlan {
     let reader = BundledCatalogReader;
-    PlacementPlan {
+    PlacementPlan::Runpod {
         selected_datacenter_id: "EU-RO-1".to_string(),
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         persistent_storage_volume_size_bytes: 85899345920,
@@ -220,7 +218,7 @@ pub(crate) fn sample_placement_plan() -> PlacementPlan {
 
 pub(crate) fn sample_workspace(id: &str) -> Workspace {
     Workspace {
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
         id: id.to_string(),
         name: "Workspace".to_string(),
         lifecycle_state: WorkspaceLifecycleState::Draft,
@@ -233,11 +231,11 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
     }
 }
 
-fn create_workspace_request(id: &str) -> CreateWorkspaceRequest {
-    CreateWorkspaceRequest {
+fn create_workspace_request(id: &str) -> CreateWorkspaceInput {
+    CreateWorkspaceInput {
         workspace_id: id.to_string(),
         name: "Workspace".to_string(),
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
         placement_plan: sample_placement_plan(),
     }
 }
@@ -250,9 +248,9 @@ async fn create_workspace_with_gate(
         MemoryProvider,
         MemoryWorkspaceCatalog,
     >,
-    request: CreateWorkspaceRequest,
-) -> Result<CreateWorkspaceResponse, WorkspaceSetupError> {
-    let provider_id = request.domain_provider_id();
+    request: CreateWorkspaceInput,
+) -> Result<Workspace, WorkspaceSetupError> {
+    let provider_id = request.gpu_cloud_provider_id;
     let _guard = coordinator.lock(&provider_id).await;
     service.create_workspace(request).await
 }
@@ -278,18 +276,15 @@ fn returns_catalogs() {
     assert!(!service
         .get_workflow_catalog()
         .expect("workflow catalog")
-        .workflow_catalog
         .workflow_presets
         .is_empty());
     assert!(!service
         .get_provisioning_profiles()
         .expect("profiles")
-        .provisioning_profiles
         .is_empty());
     assert!(!service
         .get_endpoint_profiles()
         .expect("profiles")
-        .endpoint_profiles
         .is_empty());
 }
 
@@ -306,9 +301,7 @@ async fn rejects_inventory_when_setup_is_missing() {
     );
 
     let error = service
-        .get_provider_inventory(GetProviderInventoryRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .get_provider_inventory(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("missing key should fail");
 
@@ -328,11 +321,34 @@ async fn maps_provider_inventory_failure() {
     );
 
     let error = service
-        .get_provider_inventory(GetProviderInventoryRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        })
+        .get_provider_inventory(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("provider should fail");
+
+    assert_eq!(error, WorkspaceSetupError::ProviderApiUnavailable);
+}
+
+#[tokio::test]
+async fn maps_invalid_provider_inventory_to_provider_unavailable() {
+    let service = WorkspaceSetupService::new(
+        BundledCatalogReader,
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryProvider {
+            inventory: Some(ProviderInventory {
+                gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+                fetched_at: " ".to_string(),
+                max_persistent_storage_volume_size_bytes: None,
+                datacenters: vec![],
+            }),
+            ..Default::default()
+        },
+        MemoryWorkspaceCatalog::default(),
+    );
+
+    let error = service
+        .get_provider_inventory(DomainGpuCloudProviderId::Runpod)
+        .await
+        .expect_err("invalid provider inventory should fail");
 
     assert_eq!(error, WorkspaceSetupError::ProviderApiUnavailable);
 }
@@ -345,29 +361,20 @@ async fn creates_draft_workspace() {
     );
 
     let response = service
-        .create_workspace(CreateWorkspaceRequest {
+        .create_workspace(CreateWorkspaceInput {
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
             name: " Workspace ".to_string(),
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
             placement_plan: sample_placement_plan(),
         })
         .await
         .expect("workspace should create");
 
-    assert_eq!(response.workspace.name, "Workspace");
-    assert_eq!(
-        response.workspace.lifecycle_state,
-        WorkspaceLifecycleState::Draft
-    );
-    assert!(response
-        .workspace
-        .persistent_storage_volume_snapshot
-        .is_none());
-    assert!(response
-        .workspace
-        .active_provisioning_pod_snapshot
-        .is_none());
-    assert!(response.workspace.serverless_endpoint_snapshot.is_none());
+    assert_eq!(response.name, "Workspace");
+    assert_eq!(response.lifecycle_state, WorkspaceLifecycleState::Draft);
+    assert!(response.persistent_storage_volume_snapshot.is_none());
+    assert!(response.active_provisioning_pod_snapshot.is_none());
+    assert!(response.serverless_endpoint_snapshot.is_none());
 }
 
 #[tokio::test]
@@ -440,10 +447,10 @@ async fn rejects_duplicate_workspace_id() {
         MemorySecretStore::with_key("rp_123_secret"),
         workspace_catalog,
     );
-    let request = CreateWorkspaceRequest {
+    let request = CreateWorkspaceInput {
         workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
         name: "Workspace".to_string(),
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
         placement_plan: sample_placement_plan(),
     };
 
@@ -466,13 +473,17 @@ async fn rejects_stale_catalog_object() {
         MemoryWorkspaceCatalog::default(),
     );
     let mut placement_plan = sample_placement_plan();
-    placement_plan.selected_workflow_preset.name = "Changed".to_string();
+    let PlacementPlan::Runpod {
+        selected_workflow_preset,
+        ..
+    } = &mut placement_plan;
+    selected_workflow_preset.name = "Changed".to_string();
 
     let error = service
-        .create_workspace(CreateWorkspaceRequest {
+        .create_workspace(CreateWorkspaceInput {
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
             name: "Workspace".to_string(),
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
             placement_plan,
         })
         .await
@@ -488,13 +499,17 @@ async fn rejects_insufficient_storage() {
         MemoryWorkspaceCatalog::default(),
     );
     let mut placement_plan = sample_placement_plan();
-    placement_plan.persistent_storage_volume_size_bytes = 1;
+    let PlacementPlan::Runpod {
+        persistent_storage_volume_size_bytes,
+        ..
+    } = &mut placement_plan;
+    *persistent_storage_volume_size_bytes = 1;
 
     let error = service
-        .create_workspace(CreateWorkspaceRequest {
+        .create_workspace(CreateWorkspaceInput {
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
             name: "Workspace".to_string(),
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
             placement_plan,
         })
         .await
@@ -510,18 +525,23 @@ async fn rejects_incompatible_endpoint_profile() {
         MemoryWorkspaceCatalog::default(),
     );
     let mut placement_plan = sample_placement_plan();
+    let PlacementPlan::Runpod {
+        selected_endpoint_profile,
+        selected_workflow_preset,
+        ..
+    } = &mut placement_plan;
     let EndpointProfile::Runpod {
         workflow_execution_type,
         ..
-    } = &mut placement_plan.selected_endpoint_profile;
+    } = selected_endpoint_profile;
     *workflow_execution_type = WorkflowExecutionType::T2i;
-    placement_plan.selected_workflow_preset.id = "unknown".to_string();
+    selected_workflow_preset.id = "unknown".to_string();
 
     let error = service
-        .create_workspace(CreateWorkspaceRequest {
+        .create_workspace(CreateWorkspaceInput {
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
             name: "Workspace".to_string(),
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
             placement_plan,
         })
         .await
@@ -542,10 +562,10 @@ async fn maps_persistence_failure() {
     );
 
     let error = service
-        .create_workspace(CreateWorkspaceRequest {
+        .create_workspace(CreateWorkspaceInput {
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
             name: "Workspace".to_string(),
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
             placement_plan: sample_placement_plan(),
         })
         .await

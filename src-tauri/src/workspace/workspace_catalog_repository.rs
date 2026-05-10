@@ -1,8 +1,8 @@
 use std::{future::Future, pin::Pin};
 
-use crate::workspace::{
-    workspace_contracts::{Workspace, WorkspaceCatalog},
-    workspace_setup_error::WorkspaceSetupError,
+use crate::{
+    domain::workspace::{Workspace, WorkspaceCatalog},
+    workspace::workspace_setup_error::WorkspaceSetupError,
 };
 
 pub trait WorkspaceCatalogRepository: Send + Sync {
