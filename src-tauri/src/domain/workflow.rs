@@ -83,11 +83,3 @@ pub struct WorkflowPreset {
     pub required_model_assets: Vec<ModelAsset>,
     pub required_custom_nodes: Vec<CustomNode>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
-pub struct WorkflowCatalog {
-    pub id: String,
-    pub version: String,
-    pub workflow_presets: Vec<WorkflowPreset>,
-}

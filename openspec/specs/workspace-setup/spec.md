@@ -119,12 +119,16 @@ The Native Layer SHALL expose a command that returns placement inventory for an 
 
 ### Requirement: Create a Draft Workspace
 
-The Native Layer SHALL expose a command that creates one complete Workspace Catalog entry with lifecycle state `draft` from a client-generated Workspace UUID, name, GPU Cloud Provider id, and full selected Placement Plan.
+The Native Layer SHALL expose a command that creates one complete Workspace Catalog entry with lifecycle state `draft` from a client-generated Workspace UUID, name, GPU Cloud Provider id, and full selected Placement Plan. Draft Workspace lifecycle state and empty Provider Resource snapshot state SHALL be authored through the domain Workspace model before the record is mapped to the serializable Workspace Catalog shape.
 
 #### Scenario: Valid Workspace creation request
 
 - **WHEN** the Client submits a valid Workspace UUID, non-empty Workspace name, `runpod`, and a valid Placement Plan
 - **THEN** the Native Layer SHALL validate the local provider key prerequisite, bundled catalog compatibility, profile compatibility, and placement structure before persistence
+- **AND** the Native Layer SHALL construct the Draft Workspace through the domain Workspace model
+- **AND** the domain-authored Workspace SHALL have lifecycle state `draft`
+- **AND** the domain-authored Workspace SHALL have empty Persistent Storage Volume, active Provisioning Pod, Serverless Endpoint, and last Provisioning Pod snapshots
+- **AND** the Native Layer SHALL map the domain-authored Workspace to the serializable Workspace Catalog record
 - **AND** the Native Layer SHALL persist one Workspace Catalog entry in SQLite with lifecycle state `draft`
 - **AND** the Native Layer SHALL re-read the persisted Workspace record from SQLite
 - **AND** the Native Layer SHALL verify that the re-read Workspace record is internally consistent with its indexed SQLite row data

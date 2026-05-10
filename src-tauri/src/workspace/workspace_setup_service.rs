@@ -1,13 +1,15 @@
 use std::{future::Future, pin::Pin};
 
 use crate::{
-    domain::{provider_inventory::ProviderInventory, provider_setup::GpuCloudProviderId},
+    domain::{
+        provider_inventory::ProviderInventory, provider_setup::GpuCloudProviderId,
+        workspace::Workspace as DomainWorkspace,
+    },
     secrets::SecretStore,
     workspace::{
         workspace_catalog_repository::WorkspaceCatalogRepository,
         workspace_contracts::{
             EndpointProfile, PlacementPlan, ProvisioningProfile, WorkflowCatalog, Workspace,
-            WorkspaceLifecycleState,
         },
         workspace_setup_contracts::{
             CreateWorkspaceRequest, CreateWorkspaceResponse, GetEndpointProfilesResponse,
@@ -126,18 +128,14 @@ where
             &endpoint_profiles,
         )?;
 
-        let workspace = Workspace {
-            gpu_cloud_provider_id: request.gpu_cloud_provider_id,
-            id: workspace_id.to_string(),
-            name: name.to_string(),
-            lifecycle_state: WorkspaceLifecycleState::Draft,
-            placement_plan: request.placement_plan,
-            persistent_storage_volume_snapshot: None,
-            active_provisioning_pod_snapshot: None,
-            serverless_endpoint_snapshot: None,
-            last_provisioning_pod_snapshot: None,
-            environment_prepared_at: None,
-        };
+        let workspace: Workspace = DomainWorkspace::new_draft(
+            provider_id,
+            workspace_id.to_string(),
+            name.to_string(),
+            request.placement_plan.to_domain(),
+        )
+        .map_err(|_| WorkspaceSetupError::InvalidRequest)?
+        .into();
 
         let workspace = self.workspace_catalog.insert_workspace(&workspace).await?;
         Ok(CreateWorkspaceResponse { workspace })
