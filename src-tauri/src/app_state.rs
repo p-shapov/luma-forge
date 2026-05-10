@@ -8,8 +8,13 @@ use crate::{
     provider::ProviderClientRegistry,
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
     secrets::KeyringSecretStore,
-    workspace_catalog::{repository::UnavailableWorkspaceCatalog, sqlite::SqliteWorkspaceCatalog},
-    workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupService},
+    workspace_catalog::{
+        repository::UnavailableWorkspaceCatalog,
+        sqlite::{SqliteWorkspaceCatalog, WorkspaceCatalogMigrationSource},
+    },
+    workspace_setup::{
+        error::WorkspaceSetupError, WorkspaceSetupCatalogReader, WorkspaceSetupService,
+    },
 };
 
 pub(crate) type ProductionProviderSetupService =
@@ -79,7 +84,16 @@ impl NativeAppState {
                 self.workspace_catalog_initialization_count
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-                SqliteWorkspaceCatalog::connect(self.workspace_catalog_source.catalog_path()?).await
+                let migration_source = WorkspaceCatalogMigrationSource::new(
+                    self.catalogs.workflow_catalog()?,
+                    self.catalogs.provisioning_profiles()?,
+                    self.catalogs.endpoint_profiles()?,
+                );
+                SqliteWorkspaceCatalog::connect(
+                    self.workspace_catalog_source.catalog_path()?,
+                    migration_source,
+                )
+                .await
             })
             .await
             .cloned()

@@ -1,0 +1,148 @@
+use sqlx::{Row, SqliteTransaction};
+
+use crate::{
+    domain::{
+        profiles::{EndpointProfile, ProvisioningProfile},
+        workflow::WorkflowCatalog,
+    },
+    workspace_setup::error::WorkspaceSetupError,
+};
+
+mod v0001_legacy_workspace_json;
+
+#[cfg(test)]
+pub(crate) mod tests;
+
+pub(crate) const CURRENT_PERSISTENCE_VERSION: i64 = 1;
+pub(crate) const PERSISTENCE_VERSION_KEY: &str = "persistence_version";
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceCatalogMigrationSource {
+    pub(super) workflow_catalog: WorkflowCatalog,
+    pub(super) provisioning_profiles: Vec<ProvisioningProfile>,
+    pub(super) endpoint_profiles: Vec<EndpointProfile>,
+}
+
+impl WorkspaceCatalogMigrationSource {
+    pub fn new(
+        workflow_catalog: WorkflowCatalog,
+        provisioning_profiles: Vec<ProvisioningProfile>,
+        endpoint_profiles: Vec<EndpointProfile>,
+    ) -> Self {
+        Self {
+            workflow_catalog,
+            provisioning_profiles,
+            endpoint_profiles,
+        }
+    }
+}
+
+pub(super) async fn run(
+    transaction: &mut SqliteTransaction<'_>,
+    migration_source: &WorkspaceCatalogMigrationSource,
+) -> Result<(), WorkspaceSetupError> {
+    create_schema(transaction).await?;
+    let version = persistence_version(transaction).await?;
+    if version > CURRENT_PERSISTENCE_VERSION {
+        return Err(WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    }
+    if version < CURRENT_PERSISTENCE_VERSION {
+        v0001_legacy_workspace_json::migrate(transaction, migration_source).await?;
+        set_persistence_version(transaction, CURRENT_PERSISTENCE_VERSION).await?;
+    }
+
+    Ok(())
+}
+
+async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), WorkspaceSetupError> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS workspaces (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            gpu_cloud_provider_id TEXT NOT NULL,
+            lifecycle_state TEXT NOT NULL,
+            workflow_preset_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            workspace_json TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_workspaces_lifecycle_state ON workspaces(lifecycle_state)",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_workspaces_workflow_preset_id ON workspaces(workflow_preset_id)",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS workspace_catalog_metadata (
+            key TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    Ok(())
+}
+
+async fn persistence_version(
+    transaction: &mut SqliteTransaction<'_>,
+) -> Result<i64, WorkspaceSetupError> {
+    let value: Option<String> = sqlx::query(
+        r#"
+        SELECT value
+        FROM workspace_catalog_metadata
+        WHERE key = ?
+        "#,
+    )
+    .bind(PERSISTENCE_VERSION_KEY)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?
+    .map(|row| row.try_get("value"))
+    .transpose()
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    value
+        .as_deref()
+        .unwrap_or("0")
+        .parse()
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)
+}
+
+async fn set_persistence_version(
+    transaction: &mut SqliteTransaction<'_>,
+    version: i64,
+) -> Result<(), WorkspaceSetupError> {
+    sqlx::query(
+        r#"
+        INSERT INTO workspace_catalog_metadata (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        "#,
+    )
+    .bind(PERSISTENCE_VERSION_KEY)
+    .bind(version.to_string())
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    Ok(())
+}

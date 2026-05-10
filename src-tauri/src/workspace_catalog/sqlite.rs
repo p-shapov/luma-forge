@@ -11,17 +11,27 @@ use crate::{
         workspace::validator as workspace_validator,
         workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
-    workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_catalog::{migrations, repository::WorkspaceCatalogRepository},
     workspace_setup::error::WorkspaceSetupError,
 };
+
+pub(crate) use migrations::WorkspaceCatalogMigrationSource;
 
 #[derive(Debug, Clone)]
 pub struct SqliteWorkspaceCatalog {
     pool: SqlitePool,
 }
 
+#[cfg(test)]
+use migrations::{
+    tests::test_migration_source, CURRENT_PERSISTENCE_VERSION, PERSISTENCE_VERSION_KEY,
+};
+
 impl SqliteWorkspaceCatalog {
-    pub async fn connect(path: impl AsRef<Path>) -> Result<Self, WorkspaceSetupError> {
+    pub(crate) async fn connect(
+        path: impl AsRef<Path>,
+        migration_source: WorkspaceCatalogMigrationSource,
+    ) -> Result<Self, WorkspaceSetupError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -35,7 +45,7 @@ impl SqliteWorkspaceCatalog {
             .await
             .map_err(|_| WorkspaceSetupError::LocalStorageUnavailable)?;
         let catalog = Self { pool };
-        catalog.migrate().await?;
+        catalog.migrate(&migration_source).await?;
         Ok(catalog)
     }
 
@@ -47,42 +57,26 @@ impl SqliteWorkspaceCatalog {
             .await
             .map_err(|_| WorkspaceSetupError::LocalStorageUnavailable)?;
         let catalog = Self { pool };
-        catalog.migrate().await?;
+        catalog.migrate(&test_migration_source()).await?;
         Ok(catalog)
     }
 
-    async fn migrate(&self) -> Result<(), WorkspaceSetupError> {
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS workspaces (
-                id TEXT PRIMARY KEY NOT NULL,
-                name TEXT NOT NULL,
-                gpu_cloud_provider_id TEXT NOT NULL,
-                lifecycle_state TEXT NOT NULL,
-                workflow_preset_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                workspace_json TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    async fn migrate(
+        &self,
+        migration_source: &WorkspaceCatalogMigrationSource,
+    ) -> Result<(), WorkspaceSetupError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_workspaces_lifecycle_state ON workspaces(lifecycle_state)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        migrations::run(&mut transaction, migration_source).await?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_workspaces_workflow_preset_id ON workspaces(workflow_preset_id)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
 
         Ok(())
     }
@@ -223,7 +217,7 @@ fn lifecycle_state_value(lifecycle_state: &WorkspaceLifecycleState) -> &'static 
     }
 }
 
-fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupError> {
+pub(super) fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupError> {
     let workspace_json: String = row
         .try_get("workspace_json")
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
@@ -237,7 +231,7 @@ fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupErro
     Ok(workspace)
 }
 
-fn validate_workspace_row(
+pub(super) fn validate_workspace_row(
     row: &SqliteRow,
     workspace: &Workspace,
 ) -> Result<(), WorkspaceSetupError> {
