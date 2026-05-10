@@ -150,14 +150,7 @@ export type PersistentStorageVolumeSnapshot = {
 	mount_path: string,
 };
 
-export type PlacementPlan = {
-	selected_datacenter_id: string,
-	selected_gpu_id: string,
-	persistent_storage_volume_size_bytes: number,
-	selected_workflow_preset: WorkflowPreset,
-	selected_provisioning_profile: ProvisioningProfile,
-	selected_endpoint_profile: EndpointProfile,
-};
+export type PlacementPlan = { gpu_cloud_provider_id: "runpod"; selected_datacenter_id: string; selected_gpu_id: string; persistent_storage_volume_size_bytes: number; selected_workflow_preset: WorkflowPreset; selected_provisioning_profile: ProvisioningProfile; selected_endpoint_profile: EndpointProfile };
 
 export type ProviderInventory = {
 	gpu_cloud_provider_id: GpuCloudProviderId,

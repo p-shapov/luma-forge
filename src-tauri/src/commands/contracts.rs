@@ -3,24 +3,16 @@ use specta::Type;
 
 use crate::domain::provider_setup as domain_provider_setup;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum GpuCloudProviderId {
-    Runpod,
-}
+// Command-boundary metadata only. These remote definitions provide generated
+// binding shapes for domain types without making domain modules depend on Specta.
+#[allow(dead_code)]
+mod remote_types {
+    use super::*;
 
-impl From<GpuCloudProviderId> for domain_provider_setup::GpuCloudProviderId {
-    fn from(provider_id: GpuCloudProviderId) -> Self {
-        match provider_id {
-            GpuCloudProviderId::Runpod => domain_provider_setup::GpuCloudProviderId::Runpod,
-        }
-    }
-}
-
-impl From<domain_provider_setup::GpuCloudProviderId> for GpuCloudProviderId {
-    fn from(provider_id: domain_provider_setup::GpuCloudProviderId) -> Self {
-        match provider_id {
-            domain_provider_setup::GpuCloudProviderId::Runpod => Self::Runpod,
-        }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_provider_setup::GpuCloudProviderId)]
+    #[serde(rename_all = "snake_case")]
+    pub(super) enum GpuCloudProviderId {
+        Runpod,
     }
 }

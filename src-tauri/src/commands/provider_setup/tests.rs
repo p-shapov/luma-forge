@@ -5,14 +5,12 @@ use super::*;
 #[test]
 fn maps_setup_request_provider_id_to_domain() {
     let request = SetupGpuCloudProviderRequest {
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId::Runpod,
         provider_api_key: "rp-key".to_string(),
     };
-    let provider_id: domain_provider_setup::GpuCloudProviderId =
-        request.gpu_cloud_provider_id.into();
 
     assert_eq!(
-        provider_id,
+        request.gpu_cloud_provider_id,
         domain_provider_setup::GpuCloudProviderId::Runpod
     );
 }
@@ -22,7 +20,7 @@ fn setup_request_debug_redacts_provider_api_key() {
     let debug_output = format!(
         "{:?}",
         SetupGpuCloudProviderRequest {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId::Runpod,
             provider_api_key: "rp-secret-key".to_string(),
         }
     );
@@ -38,13 +36,12 @@ fn maps_setup_response_to_command_contract() {
             gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId::Runpod,
             provider_user_email: "user@example.com".to_string(),
             provider_api_key_fingerprint: "rp_123".to_string(),
-        }
-        .into(),
+        },
     };
 
     assert_eq!(
         response.gpu_cloud_provider_setup.gpu_cloud_provider_id,
-        GpuCloudProviderId::Runpod
+        domain_provider_setup::GpuCloudProviderId::Runpod
     );
     assert_eq!(
         response

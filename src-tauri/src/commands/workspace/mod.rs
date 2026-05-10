@@ -55,7 +55,7 @@ pub(crate) async fn get_provider_inventory(
     request: GetProviderInventoryRequest,
     app_state: State<'_, NativeAppState>,
 ) -> CommandResult<GetProviderInventoryResponse> {
-    let provider_id = request.gpu_cloud_provider_id.into();
+    let provider_id = request.gpu_cloud_provider_id;
     app_state
         .workspace_setup_read_service()
         .get_provider_inventory(provider_id)
@@ -85,7 +85,7 @@ pub(crate) async fn create_workspace(
     request: CreateWorkspaceRequest,
     app_state: State<'_, NativeAppState>,
 ) -> CommandResult<CreateWorkspaceResponse> {
-    let request: CreateWorkspaceInput = request.try_into().map_err(NativeCommandError::from)?;
+    let request: CreateWorkspaceInput = request.into();
     let provider_id = request.gpu_cloud_provider_id;
     let _guard = app_state
         .provider_setup_coordinator()
