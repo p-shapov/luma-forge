@@ -41,6 +41,7 @@ import {
 import { Separator } from "@shared/components/ui/separator";
 import { Slider } from "@shared/components/ui/slider";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { commands } from "@/generated/commands";
 import {
   isNativeCommandError,
@@ -62,6 +63,50 @@ interface LogEntry {
   payload: unknown;
 }
 
+const COMMAND_TOAST_COPY = {
+  getGpuCloudProviderSetup: {
+    loading: "Refreshing provider setup...",
+    success: "Provider setup refreshed",
+  },
+  setupGpuCloudProvider: {
+    loading: "Validating provider key...",
+    success: "Provider setup completed",
+  },
+  deleteGpuCloudProviderSetup: {
+    loading: "Deleting provider setup...",
+    success: "Provider setup deleted",
+  },
+  getWorkflowCatalog: {
+    loading: "Loading workflow catalog...",
+    success: "Workflow catalog loaded",
+  },
+  getProvisioningProfiles: {
+    loading: "Loading provisioning profiles...",
+    success: "Provisioning profiles loaded",
+  },
+  getEndpointProfiles: {
+    loading: "Loading endpoint profiles...",
+    success: "Endpoint profiles loaded",
+  },
+  getProviderInventory: {
+    loading: "Loading provider inventory...",
+    success: "Provider inventory loaded",
+  },
+  getWorkspaceCatalog: {
+    loading: "Loading workspace catalog...",
+    success: "Workspace catalog loaded",
+  },
+  createWorkspace: {
+    loading: "Creating workspace...",
+    success: "Workspace created",
+  },
+} satisfies Record<string, {
+  loading: string;
+  success: string;
+}>;
+
+type CommandLabel = keyof typeof COMMAND_TOAST_COPY;
+
 function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
@@ -72,6 +117,29 @@ function errorPayload(error: unknown) {
   }
 
   return { message: "Command failed", error };
+}
+
+function toastErrorPayload(error: unknown) {
+  if (isNativeCommandError(error)) {
+    const presentation = presentNativeCommandError(error);
+
+    return {
+      message: presentation.title,
+      description: presentation.recoveryHint ?? presentation.description,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      message: "Command failed",
+      description: error.message,
+    };
+  }
+
+  return {
+    message: "Command failed",
+    description: "Review the latest response for details.",
+  };
 }
 
 export function HomePage() {
@@ -141,38 +209,56 @@ export function HomePage() {
     : null;
 
   async function runCommand<T>(
-    label: string,
+    label: CommandLabel,
     action: () => Promise<CommandResult<T>>,
     onSuccess?: (data: T) => void,
   ) {
     setPendingCommand(label);
 
-    try {
-      const result = await action();
+    let loggedError = false;
+    const toastCopy = COMMAND_TOAST_COPY[label];
+    const commandPromise = (async () => {
+      try {
+        const result = await action();
 
-      if (result.status === "ok") {
-        onSuccess?.(result.data);
+        if (result.status === "ok") {
+          onSuccess?.(result.data);
+          setLogEntries(entries => [
+            { id: Date.now(), label, status: "ok", payload: result.data },
+            ...entries,
+          ]);
+          return result.data;
+        }
+
+        loggedError = true;
         setLogEntries(entries => [
-          { id: Date.now(), label, status: "ok", payload: result.data },
+          { id: Date.now(), label, status: "error", payload: result.error },
           ...entries,
         ]);
-        return;
+        throw result.error;
       }
+      catch (error) {
+        if (!loggedError) {
+          setLogEntries(entries => [
+            { id: Date.now(), label, status: "error", payload: errorPayload(error) },
+            ...entries,
+          ]);
+        }
 
-      setLogEntries(entries => [
-        { id: Date.now(), label, status: "error", payload: result.error },
-        ...entries,
-      ]);
-    }
-    catch (error) {
-      setLogEntries(entries => [
-        { id: Date.now(), label, status: "error", payload: errorPayload(error) },
-        ...entries,
-      ]);
-    }
-    finally {
-      setPendingCommand(null);
-    }
+        throw error;
+      }
+      finally {
+        setPendingCommand(null);
+      }
+    })();
+
+    toast.promise(commandPromise, {
+      loading: toastCopy.loading,
+      success: toastCopy.success,
+      error: toastErrorPayload,
+    });
+
+    await commandPromise.catch(() => undefined);
   }
 
   function refreshProviderSetup() {
