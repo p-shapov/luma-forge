@@ -124,11 +124,12 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 #### Scenario: Valid Workspace creation request
 
 - **WHEN** the Client submits a valid Workspace UUID, non-empty Workspace name, `runpod`, and a valid Placement Plan
-- **THEN** the Native Layer SHALL validate provider setup, bundled catalog compatibility, profile compatibility, and placement structure before persistence
+- **THEN** the Native Layer SHALL validate the local provider key prerequisite, bundled catalog compatibility, profile compatibility, and placement structure before persistence
 - **AND** the Native Layer SHALL persist one Workspace Catalog entry in SQLite with lifecycle state `draft`
 - **AND** the Native Layer SHALL re-read the persisted Workspace record from SQLite
 - **AND** the Native Layer SHALL verify that the re-read Workspace record is internally consistent with its indexed SQLite row data
 - **AND** the Native Layer SHALL return the re-read Workspace record as authoritative
+- **AND** Workspace creation MUST NOT require a live Provider identity check
 
 #### Scenario: Duplicate Workspace UUID
 
@@ -137,10 +138,17 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 - **AND** the Native Layer MUST NOT mutate the existing Workspace record
 - **AND** the Native Layer MUST NOT create a second Workspace record for the same Workspace UUID
 
-#### Scenario: Provider setup is missing during Workspace creation
+#### Scenario: Provider API Key is missing during Workspace creation
 
 - **WHEN** the Client submits a Workspace creation request and the required local Provider API Key is missing
 - **THEN** the Native Layer SHALL reject the request with `provider_setup_incomplete`
+- **AND** the Native Layer MUST NOT persist a Workspace record
+
+#### Scenario: Provider API Key is unreadable during Workspace creation
+
+- **WHEN** the Client submits a Workspace creation request and the required local Provider API Key cannot be parsed as a secret value
+- **THEN** the Native Layer SHALL reject the request with `invalid_provider_api_key`
+- **AND** the Native Layer MUST NOT call the Provider to validate identity
 - **AND** the Native Layer MUST NOT persist a Workspace record
 
 #### Scenario: Workspace Catalog write fails
@@ -149,22 +157,22 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 - **THEN** the Native Layer SHALL reject the request with `workspace_catalog_unavailable`
 - **AND** the Native Layer MUST NOT report Workspace creation success
 
-### Requirement: Preserve provider setup prerequisite during Workspace creation
+### Requirement: Preserve local provider key prerequisite during Workspace creation
 
-The Native Layer SHALL prevent provider setup deletion from interleaving with Workspace creation for the same GPU Cloud Provider between provider setup validation and Draft Workspace persistence.
+The Native Layer SHALL prevent provider setup deletion from interleaving with Workspace creation for the same GPU Cloud Provider between local Provider API Key validation and Draft Workspace persistence.
 
 #### Scenario: Workspace creation and provider setup deletion are serialized
 
 - **WHEN** Workspace creation for `runpod` starts while provider setup deletion for `runpod` is evaluating or mutating local setup state
-- **THEN** Workspace creation SHALL evaluate provider setup completeness only after the delete operation has finished
+- **THEN** Workspace creation SHALL evaluate local Provider API Key presence only after the delete operation has finished
 - **AND** Workspace creation SHALL reject with `provider_setup_incomplete` if the required local Provider API Key is missing
-- **AND** Workspace creation MUST NOT persist a Workspace record when provider setup is incomplete
+- **AND** Workspace creation MUST NOT persist a Workspace record when the local Provider API Key prerequisite is missing
 
 #### Scenario: Provider setup deletion waits for Workspace creation persistence
 
 - **WHEN** provider setup deletion for `runpod` starts while Workspace creation for `runpod` is validating provider setup and persisting a Draft Workspace
 - **THEN** provider setup deletion SHALL wait until Workspace creation has either persisted and re-read the Workspace record or failed
-- **AND** Workspace creation SHALL persist only after confirming provider setup is complete inside the serialized operation
+- **AND** Workspace creation SHALL persist only after confirming the local Provider API Key prerequisite inside the serialized operation
 
 #### Scenario: Workspace duplicate handling remains database-owned
 
@@ -323,4 +331,3 @@ Bundled catalog validation SHALL validate local contract shape and safety constr
 - **WHEN** the Native Layer validates bundled Workflow Catalogs, Provisioning Profiles, or Endpoint Profiles
 - **THEN** the Native Layer MUST NOT call Docker registries, Git repositories, Hugging Face, RunPod, worker HTTP endpoints, or any external service to validate reachability, existence, authenticity, or current availability
 - **AND** external availability failures SHALL remain the responsibility of later provisioning or provider operations
-
