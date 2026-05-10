@@ -1,4 +1,4 @@
-use crate::workspace::workspace_setup_service::workspace_setup_tests::sample_workspace;
+use crate::workspace_setup::workspace_setup_service::workspace_setup_tests::sample_workspace;
 
 use serde_json::json;
 use sqlx::Row;

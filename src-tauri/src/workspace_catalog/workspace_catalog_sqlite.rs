@@ -11,10 +11,8 @@ use crate::{
         workspace::validator as workspace_validator,
         workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
-    workspace::{
-        workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_setup_error::WorkspaceSetupError,
-    },
+    workspace_catalog::workspace_catalog_repository::WorkspaceCatalogRepository,
+    workspace_setup::workspace_setup_error::WorkspaceSetupError,
 };
 
 #[derive(Debug, Clone)]

@@ -8,7 +8,7 @@ use crate::{
     provider::{provider_client_error::ProviderClientError, runpod::RunPodClient},
     provider_setup::{ProviderIdentityGateway, ProviderSetupError},
     secrets::{KeyringSecretStore, SecretStore},
-    workspace::{
+    workspace_setup::{
         workspace_setup_error::WorkspaceSetupError,
         workspace_setup_service::ProviderInventoryGateway,
     },

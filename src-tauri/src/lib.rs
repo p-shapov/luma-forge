@@ -4,7 +4,8 @@ mod domain;
 mod provider;
 mod provider_setup;
 mod secrets;
-mod workspace;
+mod workspace_catalog;
+mod workspace_setup;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

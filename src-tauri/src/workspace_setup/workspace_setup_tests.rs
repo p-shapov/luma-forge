@@ -20,10 +20,8 @@ use crate::{
     },
     provider_setup::ProviderSetupCoordinator,
     secrets::{SecretStore, SecretStoreError},
-    workspace::{
-        workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_setup_contracts::CreateWorkspaceInput,
-    },
+    workspace_catalog::workspace_catalog_repository::WorkspaceCatalogRepository,
+    workspace_setup::workspace_setup_contracts::CreateWorkspaceInput,
 };
 
 use super::*;

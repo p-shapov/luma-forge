@@ -1,4 +1,4 @@
-use crate::workspace::workspace_setup_service::WorkspaceSetupCatalogReader;
+use crate::workspace_setup::workspace_setup_service::WorkspaceSetupCatalogReader;
 use serde_json::{json, Value};
 
 use super::{

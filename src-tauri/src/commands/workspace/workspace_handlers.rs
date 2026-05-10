@@ -4,9 +4,11 @@ use crate::{
     provider::ProviderClientRegistry,
     provider_setup::ProviderSetupCoordinator,
     secrets::KeyringSecretStore,
-    workspace::{
+    workspace_catalog::{
         workspace_catalog_repository::UnavailableWorkspaceCatalog,
         workspace_catalog_sqlite::SqliteWorkspaceCatalog,
+    },
+    workspace_setup::{
         workspace_setup_contracts::CreateWorkspaceInput,
         workspace_setup_error::WorkspaceSetupError, workspace_setup_service::WorkspaceSetupService,
     },

@@ -6,7 +6,7 @@ use crate::{
         profiles::{EndpointProfile, ProvisioningProfile},
         workflow::WorkflowCatalog,
     },
-    workspace::{
+    workspace_setup::{
         workspace_setup_error::WorkspaceSetupError,
         workspace_setup_service::WorkspaceSetupCatalogReader,
     },

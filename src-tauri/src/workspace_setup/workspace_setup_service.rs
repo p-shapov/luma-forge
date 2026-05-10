@@ -11,10 +11,9 @@ use crate::{
         workspace::{Workspace, WorkspaceCatalog},
     },
     secrets::SecretStore,
-    workspace::{
-        workspace_catalog_repository::WorkspaceCatalogRepository,
-        workspace_setup_contracts::CreateWorkspaceInput,
-        workspace_setup_error::WorkspaceSetupError,
+    workspace_catalog::workspace_catalog_repository::WorkspaceCatalogRepository,
+    workspace_setup::{
+        workspace_setup_contracts::CreateWorkspaceInput, workspace_setup_error::WorkspaceSetupError,
     },
 };
 

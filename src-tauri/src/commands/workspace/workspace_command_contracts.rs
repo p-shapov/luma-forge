@@ -11,7 +11,7 @@ use crate::{
         workspace as domain_workspace,
     },
     provider::runpod,
-    workspace::{
+    workspace_setup::{
         workspace_setup_contracts::CreateWorkspaceInput, workspace_setup_error::WorkspaceSetupError,
     },
 };

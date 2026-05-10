@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    provider_setup::ProviderSetupError, workspace::workspace_setup_error::WorkspaceSetupError,
+    provider_setup::ProviderSetupError, workspace_setup::workspace_setup_error::WorkspaceSetupError,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]

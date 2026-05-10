@@ -5,7 +5,7 @@ use crate::{
         provider_client_registry::ProviderClientRegistry, runpod::RunPodClient,
     },
     secrets::{SecretStore, SecretStoreError},
-    workspace::{
+    workspace_setup::{
         workspace_setup_error::WorkspaceSetupError,
         workspace_setup_service::ProviderInventoryGateway,
     },
