@@ -21,6 +21,7 @@ export default antfu({
     "src-tauri/**",
     "src/generated/**",
     "openspec/**",
+    "workers/**",
   ],
 }, {
   files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],
