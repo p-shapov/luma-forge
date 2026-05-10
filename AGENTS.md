@@ -34,7 +34,7 @@ macOS only
 
 ## Critical Flows
 
-- [GPU Cloud Provider Setup](./spec/flows/gpu-cloud-provider-setup.md): validates one provider key, stores it in the secure keyring, then persists the selected provider. Repeated setup is rejected after a complete setup exists.
+- [GPU Cloud Provider Setup](./spec/flows/gpu-cloud-provider-setup.md): validates one provider key, stores it in the secure keyring, then derives setup status from the stored key and provider identity. Repeated setup is rejected after a complete setup exists.
 - [Workspace Setup](./spec/flows/workspace-setup.md): creates one local `Draft` Workspace Catalog entry from a Workflow Preset and Placement Plan. It does not create Provider Resources.
 - [Workspace Provisioning](./spec/flows/workspace-provisioning.md): provisions one saved `Draft` Workspace into `Ready` by creating Provider Resources, preparing the environment, syncing progress, and preserving cleanup metadata on failure.
 
