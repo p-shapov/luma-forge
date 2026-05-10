@@ -120,7 +120,6 @@ export type ModelAsset = {
 	id: string,
 	name: string,
 	model_asset_kind: ModelAssetKind,
-	file_size_bytes: number,
 	download_source: ModelAssetSource,
 	install: ModelAssetInstall,
 };

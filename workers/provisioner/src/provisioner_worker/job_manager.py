@@ -6,7 +6,7 @@ from threading import Event, Lock, Thread
 from typing import Any
 
 from provisioner_worker import __version__
-from provisioner_worker.errors import ConflictError, PreparationError, ValidationError
+from provisioner_worker.errors import ConflictError, ValidationError, WorkerError
 from provisioner_worker.preparer import Cancelled, Provisioner
 from provisioner_worker.schemas import CancelRequest, StartRequest
 
@@ -101,7 +101,7 @@ class JobManager:
             self._provisioner.prepare(request, self._progress, cancel_event)
         except Cancelled:
             self._terminal("cancelled", "Provisioning job cancelled", None)
-        except PreparationError as error:
+        except WorkerError as error:
             self._terminal("failed", error.message, {"code": error.code, "message": error.message})
         except Exception as error:
             message = "Provisioning job failed"

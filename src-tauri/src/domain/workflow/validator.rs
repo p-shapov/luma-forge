@@ -26,7 +26,6 @@ pub fn validate_workflow_catalog(catalog: &WorkflowCatalog) -> DomainValidationR
         for asset in &preset.required_model_assets {
             if is_blank(&asset.id)
                 || is_blank(&asset.name)
-                || asset.file_size_bytes == 0
                 || !is_valid_model_asset_source(&asset.download_source)
                 || !is_safe_relative_path(&asset.install.comfyui_relative_path)
             {
@@ -58,7 +57,7 @@ fn is_valid_comfyui_source(source: &ComfyUiRuntimeSource) -> bool {
         ComfyUiRuntimeSource::Git {
             repository_url,
             revision,
-        } => is_url_shaped(repository_url) && !is_blank(revision),
+        } => is_url_shaped(repository_url) && is_immutable_git_revision(revision),
     }
 }
 
@@ -67,7 +66,7 @@ fn is_valid_custom_node_source(source: &CustomNodeGitSource) -> bool {
         CustomNodeGitSource::Git {
             repository_url,
             revision,
-        } => is_url_shaped(repository_url) && !is_blank(revision),
+        } => is_url_shaped(repository_url) && is_immutable_git_revision(revision),
     }
 }
 
@@ -111,6 +110,13 @@ fn is_url_shaped(value: &str) -> bool {
         && !rest.is_empty()
         && !rest.chars().any(char::is_whitespace)
         && !rest.starts_with('/')
+}
+
+fn is_immutable_git_revision(value: &str) -> bool {
+    value.len() == 40
+        && value
+            .chars()
+            .all(|character| character.is_ascii_hexdigit() && !character.is_ascii_uppercase())
 }
 
 fn is_huggingface_repository_id(value: &str) -> bool {

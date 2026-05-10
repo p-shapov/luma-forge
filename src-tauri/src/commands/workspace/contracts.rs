@@ -52,7 +52,6 @@ mod remote_types {
         pub id: String,
         pub name: String,
         pub model_asset_kind: domain_workflow::ModelAssetKind,
-        pub file_size_bytes: u64,
         pub download_source: domain_workflow::ModelAssetSource,
         pub install: domain_workflow::ModelAssetInstall,
     }

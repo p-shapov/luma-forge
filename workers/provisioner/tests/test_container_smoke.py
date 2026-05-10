@@ -28,6 +28,10 @@ class ContainerSmokeTests(unittest.TestCase):
                     payload = response.read().decode("utf-8")
                     connection.close()
                     if response.status == 200 and '"status": "idle"' in payload:
+                        subprocess.run(
+                            ["docker", "exec", container, "python", "-c", "import huggingface_hub"],
+                            check=True,
+                        )
                         return
                 except OSError:
                     time.sleep(1)

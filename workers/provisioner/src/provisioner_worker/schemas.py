@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from provisioner_worker.errors import ValidationError
@@ -28,7 +29,6 @@ class ModelAssetInstall:
 class ModelAsset:
     id: str
     name: str
-    file_size_bytes: int
     download_source: HuggingFaceSource
     install: ModelAssetInstall
 
@@ -112,9 +112,12 @@ def _parse_git_source(payload: Any, field: str) -> GitSource:
     source_type = _non_empty_string(data.get("source_type"), f"{field}.source_type")
     if source_type != "git":
         raise ValidationError(f"{field}.source_type must be git")
+    revision = _non_empty_string(data.get("revision"), f"{field}.revision")
+    if not _is_immutable_git_revision(revision):
+        raise ValidationError(f"{field}.revision must be a full immutable commit hash")
     return GitSource(
         repository_url=_non_empty_string(data.get("repository_url"), f"{field}.repository_url"),
-        revision=_non_empty_string(data.get("revision"), f"{field}.revision"),
+        revision=revision,
     )
 
 
@@ -125,7 +128,7 @@ def _parse_huggingface_source(payload: Any, field: str) -> HuggingFaceSource:
         raise ValidationError(f"{field}.source_type must be huggingface")
     return HuggingFaceSource(
         repository_id=_non_empty_string(data.get("repository_id"), f"{field}.repository_id"),
-        file_path=_non_empty_string(data.get("file_path"), f"{field}.file_path"),
+        file_path=safe_relative_path(data.get("file_path"), field_name=f"{field}.file_path").as_posix(),
         revision=_non_empty_string(data.get("revision"), f"{field}.revision"),
     )
 
@@ -133,13 +136,9 @@ def _parse_huggingface_source(payload: Any, field: str) -> HuggingFaceSource:
 def _parse_model_asset(payload: Any, field: str) -> ModelAsset:
     data = _object(payload, field)
     install = _object(data.get("install"), f"{field}.install")
-    file_size_bytes = data.get("file_size_bytes")
-    if not isinstance(file_size_bytes, int) or file_size_bytes < 0:
-        raise ValidationError(f"{field}.file_size_bytes must be a non-negative integer")
     return ModelAsset(
         id=_non_empty_string(data.get("id"), f"{field}.id"),
         name=_non_empty_string(data.get("name"), f"{field}.name"),
-        file_size_bytes=file_size_bytes,
         download_source=_parse_huggingface_source(data.get("download_source"), f"{field}.download_source"),
         install=ModelAssetInstall(
             comfyui_relative_path=safe_relative_path(
@@ -189,3 +188,7 @@ def _non_empty_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or value.strip() == "":
         raise ValidationError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _is_immutable_git_revision(value: str) -> bool:
+    return re.fullmatch(r"[0-9a-f]{40}", value) is not None
