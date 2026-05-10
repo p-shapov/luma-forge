@@ -1,0 +1,15 @@
+use tauri_specta::{collect_commands, Builder};
+
+pub(crate) fn builder() -> Builder<tauri::Wry> {
+    Builder::new().commands(collect_commands![
+        super::provider_setup::get_gpu_cloud_provider_setup,
+        super::provider_setup::setup_gpu_cloud_provider,
+        super::provider_setup::delete_gpu_cloud_provider_setup,
+        super::workspace::get_workflow_catalog,
+        super::workspace::get_provisioning_profiles,
+        super::workspace::get_endpoint_profiles,
+        super::workspace::get_provider_inventory,
+        super::workspace::get_workspace_catalog,
+        super::workspace::create_workspace
+    ])
+}

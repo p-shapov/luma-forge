@@ -1,11 +1,10 @@
-import type { DockerImage } from "../shared/docker-image";
 import type { EnvironmentVariables } from "../shared/environment";
 import type { GpuCloudProviderId } from "./provider-setup";
 import type { WorkflowExecutionType } from "./workflow-preset";
 
 export type EndpointWorkerRuntime = {
   endpoint_worker_version: string;
-  docker_image: DockerImage;
+  docker_image_ref: string;
   http_port: number;
   health_path: string;
   invoke_path: string;

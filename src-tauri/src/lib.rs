@@ -1,11 +1,14 @@
-mod bundled;
+mod app_state;
+mod bundled_catalog;
 mod commands;
 mod domain;
 mod provider;
 mod provider_setup;
 mod secrets;
-mod shared_contracts;
-mod workspace;
+mod workspace_catalog;
+mod workspace_setup;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
+            app.manage(app_state::NativeAppState::new(app.handle().clone()));
             builder.mount_events(app);
 
             Ok(())

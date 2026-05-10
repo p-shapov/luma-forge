@@ -8,7 +8,7 @@ from urllib.parse import quote
 from urllib.request import urlopen
 
 from provisioner_worker.errors import PreparationError
-from provisioner_worker.paths import safe_child_path
+from provisioner_worker.paths import safe_child_path, safe_custom_node_child_path
 from provisioner_worker.schemas import CustomNode, GitSource, ModelAsset, StartRequest
 
 ProgressCallback = Callable[[str, int | None, str | None], None]
@@ -124,7 +124,7 @@ class Provisioner:
         for index, node in enumerate(custom_nodes, start=1):
             self._check_cancelled(cancel_event)
             progress("installing_custom_nodes", 30 + index, f"Installing Custom Node {node.name}")
-            target = safe_child_path(
+            target = safe_custom_node_child_path(
                 comfyui_root,
                 node.install.comfyui_custom_nodes_relative_path.as_posix(),
                 field_name=f"custom_node[{node.id}].install.comfyui_custom_nodes_relative_path",
@@ -166,7 +166,7 @@ class Provisioner:
             raise PreparationError("ComfyUI entrypoint is missing")
 
         for node in request.workflow_preset.required_custom_nodes:
-            target = safe_child_path(
+            target = safe_custom_node_child_path(
                 comfyui_root,
                 node.install.comfyui_custom_nodes_relative_path.as_posix(),
                 field_name=f"custom_node[{node.id}].install.comfyui_custom_nodes_relative_path",

@@ -9,7 +9,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 - Reads the Workflow Catalog and exposes selectable Workflow Presets to Client (React).
 - Uses the selected Workflow Preset to derive the required base Persistent Storage Volume size and Endpoint Profile.
 - Uses the selected GPU Cloud Provider and live provider inventory to help the Client configure one Placement Plan.
-- Validates provider setup, Workflow Preset existence, Placement Plan completeness, Workflow Preset compatibility, Provisioning Profile availability, and Endpoint Profile availability before persisting Workspace metadata.
+- Validates the local provider key prerequisite, Workflow Preset existence, Placement Plan completeness, Workflow Preset compatibility, Provisioning Profile availability, and Endpoint Profile availability before persisting Workspace metadata.
 - Persists one Workspace Catalog entry with a client-generated stable Workspace UUID and lifecycle state `Draft`.
 
 ## Non-goals
@@ -20,8 +20,9 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 ## Invariants
 
 - Workflow Preset selection and Placement Plan configuration in Client (React) are temporary and non-authoritative until Workspace metadata is persisted by Native Layer (Rust / Tauri).
-- Native Layer (Rust / Tauri) performs authoritative setup, catalog, and Placement Plan shape validation before creating Workspace metadata.
+- Native Layer (Rust / Tauri) performs authoritative local provider key, catalog, and Placement Plan shape validation before creating Workspace metadata.
 - Workspace Setup does not re-check selected data center or GPU membership against live provider inventory at creation time; later provider-owned flows reject unavailable or invalid placement values before mutating Provider Resources.
+- Workspace creation does not revalidate provider identity or prove that the stored Provider API Key is still authorized by the Provider; live provider authorization is checked by Provider Inventory and later provider-owned flows.
 - A successfully created Workspace must be marked as `Draft`.
 
 ## Actors
@@ -34,7 +35,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 ## Preconditions
 
 - GPU Cloud Provider Setup has completed and can be used by this Workspace Setup attempt.
-- Native Layer (Rust / Tauri) can read global application configuration, the secure keyring, the Workflow Catalog, Provisioning Profiles, Endpoint Profiles, and the Workspace Catalog.
+- Native Layer (Rust / Tauri) can read provider setup status, the secure keyring, the Workflow Catalog, Provisioning Profiles, Endpoint Profiles, and the Workspace Catalog.
 - The Workflow Catalog contains at least one Workflow Preset supported by the current application build.
 - The Provider can report data centers and GPU availability.
 
@@ -114,8 +115,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 13. Native Layer (Rust / Tauri) -> local application state
     Performs authoritative validation:
     - Workspace identifier is present and is a valid UUID
-    - provider setup is still complete
-    - required Provider API Key is still present in secure keyring
+    - required Provider API Key is still present in secure keyring and can be parsed as a local secret value
     - configured Placement Plan is complete and catalog-compatible
     Result: Native Layer rejects stale or invalid requests before persisting Workspace metadata.
 
@@ -156,9 +156,13 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
   - Native behavior: rejects before Provider lookup or Workspace persistence.
   - Mutation guarantee: no Workspace Catalog mutation.
   - Client behavior: routes user to GPU Cloud Provider Setup or recovery guidance.
-- Missing or invalid Provider API Key
+- Missing or locally unreadable Provider API Key
   - Native behavior: rejects before Workspace persistence.
   - Mutation guarantee: no Workspace Catalog mutation.
+  - Client behavior: routes user to GPU Cloud Provider Setup or recovery guidance.
+- Provider API Key revoked or rejected by Provider
+  - Native behavior: rejects Provider Inventory lookup or later provider-owned flows that need live provider authorization.
+  - Mutation guarantee: Workspace Setup does not create, modify, attach, or delete Provider Resources.
   - Client behavior: routes user to GPU Cloud Provider Setup or recovery guidance.
 - Provider API timeout/network error
   - Native behavior: rejects placement-option lookup as a transient provider failure.

@@ -1,4 +1,3 @@
-import type { DockerImage } from "../shared/docker-image";
 import type { EnvironmentVariables } from "../shared/environment";
 import type { GpuCloudProviderId } from "./provider-setup";
 
@@ -12,7 +11,7 @@ export type ProvisioningStatusEndpoint = {
 
 export type ProvisionerWorkerRuntime = {
   provisioner_version: string;
-  docker_image: DockerImage;
+  docker_image_ref: string;
   volume_mount_path: string;
   container_disk_bytes: number;
   compute_type: ProvisioningComputeType;

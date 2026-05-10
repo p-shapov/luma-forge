@@ -40,7 +40,7 @@ export type CustomNodeGitSource = { source_type: "git"; repository_url: string; 
 
 export type CustomNodeInstall = {
 	comfyui_custom_nodes_relative_path: string,
-	python_requirements_path: string,
+	python_requirements_path: string | null,
 };
 
 export type Datacenter = {
@@ -58,16 +58,11 @@ export type DeleteGpuCloudProviderSetupResponse = {
 	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
 };
 
-export type DockerImage = {
-	docker_image_ref: string,
-	docker_image_digest: string,
-};
-
 export type EndpointProfile = { gpu_cloud_provider_id: "runpod"; id: string; version: string; name: string; workflow_execution_type: WorkflowExecutionType; endpoint_worker_runtime: EndpointWorkerRuntime; gpu_cloud_provider_config: RunPodEndpointProfileConfig };
 
 export type EndpointWorkerRuntime = {
 	endpoint_worker_version: string,
-	docker_image: DockerImage,
+	docker_image_ref: string,
 	http_port: number,
 	health_path: string,
 	invoke_path: string,
@@ -144,7 +139,7 @@ export type NativeCommandError = {
 	retryable: boolean,
 };
 
-export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
+export type NativeCommandErrorCode = "unsupported_provider" | "provider_setup_incomplete" | "provider_setup_already_exists" | "invalid_provider_api_key" | "provider_api_unavailable" | "provider_identity_unavailable" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "local_storage_unavailable" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "invalid_placement_plan" | "workspace_already_exists" | "invalid_request";
 
 export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
@@ -155,14 +150,7 @@ export type PersistentStorageVolumeSnapshot = {
 	mount_path: string,
 };
 
-export type PlacementPlan = {
-	selected_datacenter_id: string,
-	selected_gpu_id: string,
-	persistent_storage_volume_size_bytes: number,
-	selected_workflow_preset: WorkflowPreset,
-	selected_provisioning_profile: ProvisioningProfile,
-	selected_endpoint_profile: EndpointProfile,
-};
+export type PlacementPlan = { gpu_cloud_provider_id: "runpod"; selected_datacenter_id: string; selected_gpu_id: string; persistent_storage_volume_size_bytes: number; selected_workflow_preset: WorkflowPreset; selected_provisioning_profile: ProvisioningProfile; selected_endpoint_profile: EndpointProfile };
 
 export type ProviderInventory = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
@@ -175,7 +163,7 @@ export type ProviderResourceStatus = "creating" | "running" | "ready" | "termina
 
 export type ProvisionerWorkerRuntime = {
 	provisioner_version: string,
-	docker_image: DockerImage,
+	docker_image_ref: string,
 	volume_mount_path: string,
 	container_disk_bytes: number,
 	compute_type: ProvisioningComputeType,

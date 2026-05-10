@@ -7,10 +7,7 @@
     "workflow_execution_type": "t2i",
     "endpoint_worker_runtime": {
       "endpoint_worker_version": "1.0.0",
-      "docker_image": {
-        "docker_image_ref": "ghcr.io/luma-forge/endpoint-worker:1.0.0",
-        "docker_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-      },
+      "docker_image_ref": "ghcr.io/luma-forge/endpoint-worker:1.0.0",
       "http_port": 8188,
       "health_path": "/health",
       "invoke_path": "/prompt"

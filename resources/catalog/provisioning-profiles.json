@@ -6,10 +6,7 @@
     "name": "RunPod ComfyUI Provisioner",
     "provisioner_worker_runtime": {
       "provisioner_version": "1.0.0",
-      "docker_image": {
-        "docker_image_ref": "ghcr.io/luma-forge/provisioner:1.0.0",
-        "docker_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-      },
+      "docker_image_ref": "ghcr.io/luma-forge/provisioner:1.0.0",
       "volume_mount_path": "/workspace",
       "container_disk_bytes": 21474836480,
       "compute_type": "pod",

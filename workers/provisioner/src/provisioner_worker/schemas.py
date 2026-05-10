@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from provisioner_worker.errors import ValidationError
-from provisioner_worker.paths import safe_relative_path
+from provisioner_worker.paths import safe_custom_node_relative_path, safe_relative_path
 
 
 @dataclass(frozen=True)
@@ -159,12 +159,12 @@ def _parse_custom_node(payload: Any, field: str) -> CustomNode:
         name=_non_empty_string(data.get("name"), f"{field}.name"),
         git_source=_parse_git_source(data.get("git_source"), f"{field}.git_source"),
         install=CustomNodeInstall(
-            comfyui_custom_nodes_relative_path=safe_relative_path(
+            comfyui_custom_nodes_relative_path=safe_custom_node_relative_path(
                 install.get("comfyui_custom_nodes_relative_path"),
                 field_name=f"{field}.install.comfyui_custom_nodes_relative_path",
             ),
             python_requirements_path=None
-            if requirements is None or requirements == ""
+            if requirements is None
             else safe_relative_path(
                 requirements,
                 field_name=f"{field}.install.python_requirements_path",
@@ -189,4 +189,3 @@ def _non_empty_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or value.strip() == "":
         raise ValidationError(f"{field} must be a non-empty string")
     return value.strip()
-
