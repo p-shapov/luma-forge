@@ -78,11 +78,12 @@ The Native Layer SHALL expose a command that returns the local SQLite-backed Wor
 
 - **WHEN** the Client requests the Workspace Catalog
 - **THEN** the Native Layer SHALL return all persisted Workspace records known to the local app
+- **AND** the Native Layer SHALL verify that each returned persisted Workspace record is internally consistent with its indexed SQLite row data
 - **AND** the Native Layer SHALL treat the returned Workspace Catalog as authoritative durable state
 
 #### Scenario: Workspace Catalog is unavailable
 
-- **WHEN** the Client requests the Workspace Catalog and SQLite initialization, migration, read, or decoding fails
+- **WHEN** the Client requests the Workspace Catalog and SQLite initialization, migration, read, decoding, or row consistency validation fails
 - **THEN** the Native Layer SHALL reject the request with `workspace_catalog_unavailable`
 - **AND** the Native Layer MUST NOT return partial Workspace Catalog data as authoritative
 
@@ -126,6 +127,7 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 - **THEN** the Native Layer SHALL validate provider setup, bundled catalog compatibility, profile compatibility, and placement structure before persistence
 - **AND** the Native Layer SHALL persist one Workspace Catalog entry in SQLite with lifecycle state `draft`
 - **AND** the Native Layer SHALL re-read the persisted Workspace record from SQLite
+- **AND** the Native Layer SHALL verify that the re-read Workspace record is internally consistent with its indexed SQLite row data
 - **AND** the Native Layer SHALL return the re-read Workspace record as authoritative
 
 #### Scenario: Duplicate Workspace UUID
@@ -143,7 +145,7 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 
 #### Scenario: Workspace Catalog write fails
 
-- **WHEN** the Client submits a valid Workspace creation request but SQLite write, commit, or re-read fails
+- **WHEN** the Client submits a valid Workspace creation request but SQLite write, commit, re-read, or row consistency validation fails
 - **THEN** the Native Layer SHALL reject the request with `workspace_catalog_unavailable`
 - **AND** the Native Layer MUST NOT report Workspace creation success
 

@@ -31,6 +31,86 @@ async fn inserts_and_rereads_workspace() {
 }
 
 #[tokio::test]
+async fn rejects_provider_id_column_mismatch() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    update_workspace_column(&catalog, "gpu_cloud_provider_id", "other-provider").await;
+
+    let error = catalog
+        .list_workspaces()
+        .await
+        .expect_err("provider id mismatch should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+#[tokio::test]
+async fn rejects_id_column_mismatch() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    update_workspace_column(&catalog, "id", "018f6a40-0000-7000-8000-000000000002").await;
+
+    let error = catalog
+        .list_workspaces()
+        .await
+        .expect_err("id mismatch should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+#[tokio::test]
+async fn rejects_name_column_mismatch() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    update_workspace_column(&catalog, "name", "Other workspace").await;
+
+    let error = catalog
+        .list_workspaces()
+        .await
+        .expect_err("name mismatch should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+#[tokio::test]
+async fn rejects_lifecycle_state_column_mismatch() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    update_workspace_column(&catalog, "lifecycle_state", "ready").await;
+
+    let error = catalog
+        .list_workspaces()
+        .await
+        .expect_err("lifecycle state mismatch should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+#[tokio::test]
+async fn rejects_workflow_preset_id_column_mismatch() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    update_workspace_column(&catalog, "workflow_preset_id", "other-preset").await;
+
+    let error = catalog
+        .list_workspaces()
+        .await
+        .expect_err("workflow preset id mismatch should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+#[tokio::test]
 async fn stores_provider_id_column_from_workspace() {
     let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
     let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
@@ -107,4 +187,21 @@ async fn maps_decode_failure() {
         .expect_err("bad json should fail");
 
     assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogUnavailable);
+}
+
+async fn update_workspace_column(catalog: &SqliteWorkspaceCatalog, column: &str, value: &str) {
+    let query = match column {
+        "id" => "UPDATE workspaces SET id = ?",
+        "name" => "UPDATE workspaces SET name = ?",
+        "gpu_cloud_provider_id" => "UPDATE workspaces SET gpu_cloud_provider_id = ?",
+        "lifecycle_state" => "UPDATE workspaces SET lifecycle_state = ?",
+        "workflow_preset_id" => "UPDATE workspaces SET workflow_preset_id = ?",
+        _ => panic!("unsupported workspace column"),
+    };
+
+    sqlx::query(query)
+        .bind(value)
+        .execute(&catalog.pool)
+        .await
+        .expect("update workspace column");
 }

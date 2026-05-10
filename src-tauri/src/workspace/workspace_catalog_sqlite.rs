@@ -1,6 +1,9 @@
 use std::{future::Future, path::Path, pin::Pin};
 
-use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
+use sqlx::{
+    sqlite::{SqlitePoolOptions, SqliteRow},
+    Row, SqlitePool,
+};
 
 use crate::{
     shared_contracts::provider_contracts::GpuCloudProviderId,
@@ -84,21 +87,28 @@ impl SqliteWorkspaceCatalog {
     }
 
     async fn find_workspace(&self, id: &str) -> Result<Option<Workspace>, WorkspaceSetupError> {
-        let Some(row) = sqlx::query("SELECT workspace_json FROM workspaces WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?
+        let Some(row) = sqlx::query(
+            r#"
+            SELECT
+                id,
+                name,
+                gpu_cloud_provider_id,
+                lifecycle_state,
+                workflow_preset_id,
+                workspace_json
+            FROM workspaces
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?
         else {
             return Ok(None);
         };
 
-        let workspace_json: String = row
-            .try_get("workspace_json")
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
-        serde_json::from_str(&workspace_json)
-            .map(Some)
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)
+        decode_workspace_row(&row).map(Some)
     }
 }
 
@@ -108,19 +118,26 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
     ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let rows = sqlx::query("SELECT workspace_json FROM workspaces ORDER BY created_at ASC")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+            let rows = sqlx::query(
+                r#"
+                SELECT
+                    id,
+                    name,
+                    gpu_cloud_provider_id,
+                    lifecycle_state,
+                    workflow_preset_id,
+                    workspace_json
+                FROM workspaces
+                ORDER BY created_at ASC
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
 
             let mut workspaces = Vec::with_capacity(rows.len());
             for row in rows {
-                let workspace_json: String = row
-                    .try_get("workspace_json")
-                    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
-                let workspace = serde_json::from_str(&workspace_json)
-                    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
-                workspaces.push(workspace);
+                workspaces.push(decode_workspace_row(&row)?);
             }
 
             Ok(WorkspaceCatalog { workspaces })
@@ -197,6 +214,50 @@ fn lifecycle_state_value(lifecycle_state: &WorkspaceLifecycleState) -> &'static 
         WorkspaceLifecycleState::Ready => "ready",
         WorkspaceLifecycleState::Failed => "failed",
     }
+}
+
+fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupError> {
+    let workspace_json: String = row
+        .try_get("workspace_json")
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    let workspace: Workspace = serde_json::from_str(&workspace_json)
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    validate_workspace_row(row, &workspace)?;
+
+    Ok(workspace)
+}
+
+fn validate_workspace_row(
+    row: &SqliteRow,
+    workspace: &Workspace,
+) -> Result<(), WorkspaceSetupError> {
+    let id: String = row
+        .try_get("id")
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    let name: String = row
+        .try_get("name")
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    let gpu_cloud_provider_id: String = row
+        .try_get("gpu_cloud_provider_id")
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    let lifecycle_state: String = row
+        .try_get("lifecycle_state")
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+    let workflow_preset_id: String = row
+        .try_get("workflow_preset_id")
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogUnavailable)?;
+
+    if id != workspace.id
+        || name != workspace.name
+        || gpu_cloud_provider_id != gpu_cloud_provider_id_value(&workspace.gpu_cloud_provider_id)
+        || lifecycle_state != lifecycle_state_value(&workspace.lifecycle_state)
+        || workflow_preset_id != workspace.placement_plan.selected_workflow_preset.id
+    {
+        return Err(WorkspaceSetupError::WorkspaceCatalogUnavailable);
+    }
+
+    Ok(())
 }
 
 fn is_unique_constraint(error: &sqlx::Error) -> bool {
