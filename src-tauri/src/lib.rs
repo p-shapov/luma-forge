@@ -17,8 +17,14 @@ pub fn run() {
     #[cfg(debug_assertions)]
     commands::export_typescript_bindings(&builder);
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let mut app_builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    #[cfg(debug_assertions)]
+    {
+        app_builder = app_builder.plugin(tauri_plugin_mcp_bridge::init());
+    }
+
+    app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             app.manage(app_state::NativeAppState::new(app.handle().clone()));
