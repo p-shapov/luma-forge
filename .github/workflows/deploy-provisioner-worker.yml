@@ -1,0 +1,117 @@
+name: Deploy Provisioner Worker
+
+on:
+  push:
+    tags:
+      - "worker-v*"
+      - "provisioner-worker-v*"
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: "Container registry host."
+        required: true
+        default: "ghcr.io"
+      image_name:
+        description: "Image path without registry. Defaults to <owner>/<repo>/provisioner-worker."
+        required: false
+        default: ""
+      channel_tag:
+        description: "Optional mutable channel tag, such as staging."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-provisioner-worker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate, build, and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install worker dependencies
+        working-directory: workers/provisioner
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+
+      - name: Run worker tests
+        working-directory: workers/provisioner
+        run: PYTHONPATH=src python -m unittest discover -s tests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build worker image for validation
+        run: docker build --file workers/provisioner/Dockerfile --tag luma-forge-provisioner-worker:ci workers/provisioner
+
+      - name: Resolve image coordinates
+        id: image
+        env:
+          INPUT_REGISTRY: ${{ inputs.registry }}
+          INPUT_IMAGE_NAME: ${{ inputs.image_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          registry="${INPUT_REGISTRY:-ghcr.io}"
+          image_name="${INPUT_IMAGE_NAME:-${REPOSITORY}/provisioner-worker}"
+          image_name="$(printf '%s' "$image_name" | tr '[:upper:]' '[:lower:]')"
+
+          printf 'registry=%s\n' "$registry" >> "$GITHUB_OUTPUT"
+          printf 'image=%s/%s\n' "$registry" "$image_name" >> "$GITHUB_OUTPUT"
+
+      - name: Validate external registry credentials
+        if: steps.image.outputs.registry != 'ghcr.io'
+        env:
+          REGISTRY_USERNAME: ${{ secrets.WORKER_REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.WORKER_REGISTRY_PASSWORD }}
+        run: |
+          test -n "$REGISTRY_USERNAME"
+          test -n "$REGISTRY_PASSWORD"
+
+      - name: Log in to GHCR
+        if: steps.image.outputs.registry == 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to external registry
+        if: steps.image.outputs.registry != 'ghcr.io'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.image.outputs.registry }}
+          username: ${{ secrets.WORKER_REGISTRY_USERNAME }}
+          password: ${{ secrets.WORKER_REGISTRY_PASSWORD }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.image }}
+          tags: |
+            type=sha,prefix=sha-,format=long
+            type=ref,event=tag
+            type=raw,value=${{ inputs.channel_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.channel_tag != '' }}
+
+      - name: Publish worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: workers/provisioner
+          file: workers/provisioner/Dockerfile
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}

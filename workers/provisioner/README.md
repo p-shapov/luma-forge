@@ -40,6 +40,10 @@ cd workers/provisioner
 LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python -m unittest tests.test_container_smoke
 ```
 
+## Deployment
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub Actions worker image deployment workflow, required registry configuration, produced tags, and rollback process.
+
 ## API
 
 ### `POST /start`
