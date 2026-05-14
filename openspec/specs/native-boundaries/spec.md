@@ -122,8 +122,8 @@ The Native Layer SHALL keep generated frontend binding concerns owned by the Tau
 - **THEN** the generated Workspace Setup request and response wrappers SHALL be owned by the command boundary
 - **AND** Workspace Setup command modules MAY provide command-owned remote generated binding metadata for Workspace Setup domain models
 - **AND** Workspace Setup domain models and services MUST NOT derive `specta::Type`
-- **AND** Workspace Setup command names and UI-safe error semantics SHALL remain compatible with the existing command contract
 - **AND** Workspace Setup command payload shape changes SHALL be reflected in generated TypeScript bindings and the corresponding Workspace Setup specification delta
+- **AND** generated Workspace Setup bindings MUST NOT expose Provisioning Profile or Endpoint Profile command types after profiles are removed
 
 ### Requirement: Shared provider command DTOs are not owned by Provider Setup
 
@@ -147,32 +147,16 @@ Generated command DTOs that are shared by multiple native flows SHALL be owned b
 - **THEN** `GpuCloudProviderId` SHALL remain a UI-safe generated type with the same supported v1 value, `runpod`
 - **AND** command request and response payload semantics SHALL remain compatible with existing Provider Setup and Workspace Setup behavior
 
-### Requirement: Provider-specific profile config is provider-discriminated domain data
-
-Provider-specific profile configuration used by bundled catalogs, placement plans, and workspace snapshots SHALL be modeled as provider-discriminated domain data. Provider-specific HTTP, GraphQL, authentication, transport, and response DTOs SHALL remain owned by provider implementation modules.
-
-#### Scenario: RunPod profile config is parsed from bundled catalogs
-
-- **WHEN** bundled catalog data includes RunPod-specific provisioning or endpoint profile configuration
-- **THEN** the RunPod-specific catalog/profile config structs SHALL be part of the domain-owned profile model
-- **AND** the bundled catalog module SHALL parse and validate domain profile data directly
-- **AND** the bundled catalog module MUST NOT require a parallel workspace application contract model solely for serialization
-
-#### Scenario: Workspace setup validates selected profiles
-
-- **WHEN** Workspace Setup validates selected Provisioning Profile and Endpoint Profile data
-- **THEN** it SHALL validate provider-specific config through provider-discriminated domain profile variants
-- **AND** it MUST NOT map selected profile data through a service-facing workspace contract layer before applying domain validation
-
 ### Requirement: Domain models remain independent from command and provider transport boundaries
 
-Domain models SHALL remain independent from provider-specific HTTP shapes, GraphQL response shapes, command handlers, Tauri runtime APIs, secure-storage implementations, and generated frontend binding requirements. Domain models MAY include provider-discriminated profile and placement variants when those variants represent LumaForge catalog, placement, or workspace state rather than provider transport payloads.
+Domain models SHALL remain independent from provider-specific HTTP shapes, GraphQL response shapes, command handlers, Tauri runtime APIs, secure-storage implementations, runtime environment variable readers, and generated frontend binding requirements. Domain models MAY include provider-discriminated placement variants when those variants represent LumaForge workspace state rather than provider transport payloads.
 
-#### Scenario: Provider-specific profile data is needed
+#### Scenario: Provider-specific placement data is needed
 
-- **WHEN** profile and placement data include RunPod-specific catalog configuration
-- **THEN** the provider-specific catalog configuration SHALL be represented by provider-discriminated domain profile or placement variants
-- **AND** domain profile and placement types MUST NOT depend on provider HTTP or GraphQL response DTOs
+- **WHEN** placement data includes RunPod-specific workspace placement selections
+- **THEN** those selections MAY be represented by provider-discriminated domain placement variants
+- **AND** domain placement types MUST NOT depend on provider HTTP or GraphQL response DTOs
+- **AND** domain placement types MUST NOT contain Provisioning Profile or Endpoint Profile snapshots
 
 #### Scenario: Provider API response is parsed
 

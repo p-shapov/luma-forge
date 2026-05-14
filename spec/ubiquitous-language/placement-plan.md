@@ -9,8 +9,6 @@ Placement Plan may include:
 - selected data center or geo for GPU Cloud Provider
 - selected GPU reported as available in that data center when placement options were fetched
 - selected Workflow Preset
-- selected Endpoint Profile
-- selected Provisioning Profile
 - requested Persistent Storage Volume size
 
 The Placement Plan is used by the provisioning flow to create Provider Resources such as:
@@ -35,6 +33,4 @@ The Placement Plan is used by the provisioning flow to create Provider Resources
 - [Provider Resource](./provider-resource.md)
 - [Persistent Storage Volume](./persistent-storage-volume.md)
 - [Provisioning Pod](./provisioning-pod.md)
-- [Provisioning Profile](./provisioning-profile.md)
-- [Endpoint Profile](./endpoint-profile.md)
 - [Serverless Endpoint](./serverless-endpoint.md)

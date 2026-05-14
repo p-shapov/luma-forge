@@ -1,9 +1,7 @@
 import type {
-  EndpointProfile,
   GpuCloudProviderSetup,
   NativeCommandError,
   ProviderInventory,
-  ProvisioningProfile,
   WorkflowCatalog,
   WorkspaceCatalog,
 } from "@/generated/commands";
@@ -80,14 +78,6 @@ const COMMAND_TOAST_COPY = {
     loading: "Loading workflow catalog...",
     success: "Workflow catalog loaded",
   },
-  getProvisioningProfiles: {
-    loading: "Loading provisioning profiles...",
-    success: "Provisioning profiles loaded",
-  },
-  getEndpointProfiles: {
-    loading: "Loading endpoint profiles...",
-    success: "Endpoint profiles loaded",
-  },
   getProviderInventory: {
     loading: "Loading provider inventory...",
     success: "Provider inventory loaded",
@@ -146,15 +136,11 @@ export function HomePage() {
   const [providerApiKey, setProviderApiKey] = useState("");
   const [providerSetup, setProviderSetup] = useState<GpuCloudProviderSetup | null>(null);
   const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowCatalog | null>(null);
-  const [provisioningProfiles, setProvisioningProfiles] = useState<ProvisioningProfile[]>([]);
-  const [endpointProfiles, setEndpointProfiles] = useState<EndpointProfile[]>([]);
   const [providerInventory, setProviderInventory] = useState<ProviderInventory | null>(null);
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Default workspace");
   const [additionalStorageSizeGb, setAdditionalStorageSizeGb] = useState(0);
   const [workflowPresetId, setWorkflowPresetId] = useState("");
-  const [provisioningProfileId, setProvisioningProfileId] = useState("");
-  const [endpointProfileId, setEndpointProfileId] = useState("");
   const [datacenterId, setDatacenterId] = useState("");
   const [gpuId, setGpuId] = useState("");
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
@@ -164,10 +150,6 @@ export function HomePage() {
   const datacenters = providerInventory?.datacenters ?? [];
   const selectedWorkflowPreset = workflowPresets.find(({ id }) => id === workflowPresetId)
     ?? workflowPresets[0];
-  const selectedProvisioningProfile = provisioningProfiles.find(({ id }) => id === provisioningProfileId)
-    ?? provisioningProfiles[0];
-  const selectedEndpointProfile = endpointProfiles.find(({ id }) => id === endpointProfileId)
-    ?? endpointProfiles[0];
   const selectedDatacenter = datacenters.find(({ id }) => id === datacenterId)
     ?? datacenters[0];
   const selectedGpu = selectedDatacenter?.gpu_options.find(({ id }) => id === gpuId)
@@ -190,8 +172,6 @@ export function HomePage() {
   const canCreateWorkspace = Boolean(
     workspaceName.trim().length > 0
     && selectedWorkflowPreset !== undefined
-    && selectedProvisioningProfile !== undefined
-    && selectedEndpointProfile !== undefined
     && selectedDatacenter !== undefined
     && selectedGpu !== undefined
     && selectedAdditionalStorageSizeGb >= 0
@@ -299,22 +279,6 @@ export function HomePage() {
     );
   }
 
-  function fetchProvisioningProfiles() {
-    void runCommand(
-      "getProvisioningProfiles",
-      async () => commands.getProvisioningProfiles(),
-      ({ provisioning_profiles }) => setProvisioningProfiles(provisioning_profiles),
-    );
-  }
-
-  function fetchEndpointProfiles() {
-    void runCommand(
-      "getEndpointProfiles",
-      async () => commands.getEndpointProfiles(),
-      ({ endpoint_profiles }) => setEndpointProfiles(endpoint_profiles),
-    );
-  }
-
   function fetchProviderInventory() {
     void runCommand(
       "getProviderInventory",
@@ -334,8 +298,6 @@ export function HomePage() {
   function createWorkspace() {
     if (
       selectedWorkflowPreset === undefined
-      || selectedProvisioningProfile === undefined
-      || selectedEndpointProfile === undefined
       || selectedDatacenter === undefined
       || selectedGpu === undefined
     ) {
@@ -354,8 +316,6 @@ export function HomePage() {
           selected_gpu_id: selectedGpu.id,
           persistent_storage_volume_size_bytes: requestedStorageSizeBytes,
           selected_workflow_preset: selectedWorkflowPreset,
-          selected_provisioning_profile: selectedProvisioningProfile,
-          selected_endpoint_profile: selectedEndpointProfile,
         },
       }),
       ({ workspace }) => setWorkspaceCatalog(catalog => ({
@@ -433,21 +393,13 @@ export function HomePage() {
               <CardHeader>
                 <CardTitle>Catalog commands</CardTitle>
                 <CardDescription>
-                  Load native-owned workflow, profile, provider, and workspace state.
+                  Load native-owned workflow, provider, and workspace state.
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-3">
                 <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchWorkflowCatalog}>
                   <HugeiconsIcon icon={DatabaseSyncIcon} strokeWidth={2} data-icon="inline-start" />
                   Workflows
-                </Button>
-                <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchProvisioningProfiles}>
-                  <HugeiconsIcon icon={DatabaseSyncIcon} strokeWidth={2} data-icon="inline-start" />
-                  Provisioning profiles
-                </Button>
-                <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchEndpointProfiles}>
-                  <HugeiconsIcon icon={DatabaseSyncIcon} strokeWidth={2} data-icon="inline-start" />
-                  Endpoint profiles
                 </Button>
                 <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchProviderInventory}>
                   <HugeiconsIcon icon={CloudServerIcon} strokeWidth={2} data-icon="inline-start" />
@@ -464,7 +416,7 @@ export function HomePage() {
               <CardHeader>
                 <CardTitle>Create workspace</CardTitle>
                 <CardDescription>
-                  Uses loaded catalog/profile/inventory objects to build a placement plan.
+                  Uses loaded workflow and inventory objects to build a placement plan.
                 </CardDescription>
                 <CardAction>
                   <Badge variant="secondary">
@@ -502,43 +454,6 @@ export function HomePage() {
                         {workflowPresets.map(preset => (
                           <NativeSelectOption key={preset.id} value={preset.id}>
                             {preset.name}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="provisioning-profile">Provisioning profile</FieldLabel>
-                      <NativeSelect
-                        id="provisioning-profile"
-                        className="w-full"
-                        value={selectedProvisioningProfile?.id ?? ""}
-                        disabled={provisioningProfiles.length === 0 || pendingCommand !== null}
-                        onChange={event => setProvisioningProfileId(event.target.value)}
-                      >
-                        {provisioningProfiles.length === 0 && <NativeSelectOption value="">Load profiles first</NativeSelectOption>}
-                        {provisioningProfiles.map(profile => (
-                          <NativeSelectOption key={profile.id} value={profile.id}>
-                            {profile.name}
-                          </NativeSelectOption>
-                        ))}
-                      </NativeSelect>
-                    </Field>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Field>
-                      <FieldLabel htmlFor="endpoint-profile">Endpoint profile</FieldLabel>
-                      <NativeSelect
-                        id="endpoint-profile"
-                        className="w-full"
-                        value={selectedEndpointProfile?.id ?? ""}
-                        disabled={endpointProfiles.length === 0 || pendingCommand !== null}
-                        onChange={event => setEndpointProfileId(event.target.value)}
-                      >
-                        {endpointProfiles.length === 0 && <NativeSelectOption value="">Load endpoint profiles first</NativeSelectOption>}
-                        {endpointProfiles.map(profile => (
-                          <NativeSelectOption key={profile.id} value={profile.id}>
-                            {profile.name}
                           </NativeSelectOption>
                         ))}
                       </NativeSelect>

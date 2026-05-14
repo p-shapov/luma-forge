@@ -85,7 +85,6 @@ fn validate_provisioning_pod_snapshot(
         || is_blank(&snapshot.provider_resource_id)
         || is_blank(&snapshot.datacenter_id)
         || is_blank(&snapshot.selected_gpu_id)
-        || is_blank(&snapshot.provisioning_profile_id)
         || is_blank(&snapshot.provisioner_status_url)
     {
         return Err(DomainValidationError);
@@ -102,7 +101,6 @@ fn validate_serverless_endpoint_snapshot(
         || is_blank(&snapshot.provider_resource_id)
         || is_blank(&snapshot.datacenter_id)
         || is_blank(&snapshot.selected_gpu_id)
-        || is_blank(&snapshot.endpoint_profile_id)
         || is_blank(&snapshot.endpoint_invoke_url)
     {
         return Err(DomainValidationError);
@@ -115,12 +113,6 @@ fn validate_serverless_endpoint_snapshot(
 mod tests {
     use crate::domain::{
         placement::PlacementPlan,
-        profiles::{
-            EndpointProfile, EndpointWorkerRuntime, ProvisionerWorkerRuntime,
-            ProvisioningComputeType, ProvisioningProfile, ProvisioningStatusEndpoint,
-            RunPodEndpointProfileConfig, RunPodProvisioningProfileConfig,
-            RunPodServerlessScalingConfig,
-        },
         provider_setup::GpuCloudProviderId,
         workflow::{ComfyUiRuntimeSource, WorkflowExecutionType, WorkflowPreset},
         workspace::{ProviderResourceStatus, Workspace, WorkspaceLifecycleState},
@@ -193,56 +185,6 @@ mod tests {
                 },
                 required_model_assets: vec![],
                 required_custom_nodes: vec![],
-            },
-            selected_provisioning_profile: ProvisioningProfile::Runpod {
-                id: "provisioning".to_string(),
-                version: "1.0.0".to_string(),
-                name: "Provisioning".to_string(),
-                provisioner_worker_runtime: ProvisionerWorkerRuntime {
-                    provisioner_version: "1.0.0".to_string(),
-                    docker_image_ref: "ghcr.io/luma-forge/provisioner:1.0.0".to_string(),
-                    volume_mount_path: "/workspace".to_string(),
-                    container_disk_bytes: 1,
-                    compute_type: ProvisioningComputeType::Pod,
-                    status_endpoint: ProvisioningStatusEndpoint {
-                        port: 8000,
-                        protocol: "http".to_string(),
-                        status_path: "/status".to_string(),
-                    },
-                },
-                gpu_cloud_provider_config: RunPodProvisioningProfileConfig {
-                    cloud_type: None,
-                    pod_template_id: None,
-                    network_volume_mount_path: "/workspace".to_string(),
-                    expose_http_ports: vec![8000],
-                    env: None,
-                },
-            },
-            selected_endpoint_profile: EndpointProfile::Runpod {
-                id: "endpoint".to_string(),
-                version: "1.0.0".to_string(),
-                name: "Endpoint".to_string(),
-                workflow_execution_type: WorkflowExecutionType::T2i,
-                endpoint_worker_runtime: EndpointWorkerRuntime {
-                    endpoint_worker_version: "1.0.0".to_string(),
-                    docker_image_ref: "ghcr.io/luma-forge/endpoint:1.0.0".to_string(),
-                    http_port: 8188,
-                    health_path: "/health".to_string(),
-                    invoke_path: "/prompt".to_string(),
-                },
-                gpu_cloud_provider_config: RunPodEndpointProfileConfig {
-                    endpoint_template_id: None,
-                    container_disk_bytes: 1,
-                    volume_mount_path: "/workspace".to_string(),
-                    env: None,
-                    scaling: RunPodServerlessScalingConfig {
-                        min_workers: 0,
-                        max_workers: 1,
-                        idle_timeout_seconds: 60,
-                        scaler_type: None,
-                        scaler_value: None,
-                    },
-                },
             },
         }
     }

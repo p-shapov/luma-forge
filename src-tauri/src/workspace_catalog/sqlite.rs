@@ -15,23 +15,16 @@ use crate::{
     workspace_setup::error::WorkspaceSetupError,
 };
 
-pub(crate) use migrations::WorkspaceCatalogMigrationSource;
-
 #[derive(Debug, Clone)]
 pub struct SqliteWorkspaceCatalog {
     pool: SqlitePool,
 }
 
 #[cfg(test)]
-use migrations::{
-    tests::test_migration_source, CURRENT_PERSISTENCE_VERSION, PERSISTENCE_VERSION_KEY,
-};
+use migrations::{CURRENT_PERSISTENCE_VERSION, PERSISTENCE_VERSION_KEY};
 
 impl SqliteWorkspaceCatalog {
-    pub(crate) async fn connect(
-        path: impl AsRef<Path>,
-        migration_source: WorkspaceCatalogMigrationSource,
-    ) -> Result<Self, WorkspaceSetupError> {
+    pub(crate) async fn connect(path: impl AsRef<Path>) -> Result<Self, WorkspaceSetupError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -45,7 +38,7 @@ impl SqliteWorkspaceCatalog {
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
-        catalog.migrate(&migration_source).await?;
+        catalog.migrate().await?;
         Ok(catalog)
     }
 
@@ -57,21 +50,18 @@ impl SqliteWorkspaceCatalog {
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
-        catalog.migrate(&test_migration_source()).await?;
+        catalog.migrate().await?;
         Ok(catalog)
     }
 
-    async fn migrate(
-        &self,
-        migration_source: &WorkspaceCatalogMigrationSource,
-    ) -> Result<(), WorkspaceSetupError> {
+    async fn migrate(&self) -> Result<(), WorkspaceSetupError> {
         let mut transaction = self
             .pool
             .begin()
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
-        migrations::run(&mut transaction, migration_source).await?;
+        migrations::run(&mut transaction).await?;
 
         transaction
             .commit()

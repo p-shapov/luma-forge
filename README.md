@@ -9,7 +9,7 @@ The main goal of the product is to turn a local workflow choice into a ready-to-
 This roadmap is a living document. It captures the current implementation status and known v1 direction, but unchecked items are not a final execution plan. Further steps after the listed v1 work are not defined yet and should be clarified through specs before implementation.
 
 - [x] **Provider Setup**: native-owned provider setup that validates and stores a provider-scoped API key in the secure keyring, with RunPod as the only v1 provider.
-- [x] **Workspace Setup**: native-owned creation of a local `Draft` Workspace from a bundled Workflow Preset, profiles, and Placement Plan without creating provider resources.
+- [x] **Workspace Setup**: native-owned creation of a local `Draft` Workspace from a bundled Workflow Preset and Placement Plan without creating provider resources.
 - [x] **Provisioner Worker**: container-side worker that prepares the mounted ComfyUI workspace and reports UI-safe provisioning progress.
 - [ ] **Endpoint Worker**: define and implement the runtime contract between the Serverless Endpoint and the prepared ComfyUI environment.
 - [ ] **Workspace Provisioning Flow**: implement the native sync loop that creates provider resources, invokes the Provisioner Worker, creates the Serverless Endpoint, and moves a `Draft` Workspace to `Ready`.
@@ -60,6 +60,17 @@ workers/
 - [Workspace Provisioning](./spec/flows/workspace-provisioning.md): provisions one saved `Draft` Workspace into `Ready` by creating provider resources, preparing the environment, syncing progress, and preserving cleanup metadata on failure.
 
 ## Development
+
+The native build requires worker configuration. Development builds can provide these values through real build environment variables or the project `.env` file:
+
+| Variable                                  | Purpose                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| `LUMA_FORGE_PROVISIONER_WORKER_IMAGE_REF` | Provisioner Worker container image ref.                                 |
+| `LUMA_FORGE_PROVISIONER_WORKER_PORT`      | Provisioner Worker HTTP port exposed by the provisioning pod.           |
+| `LUMA_FORGE_ENDPOINT_WORKER_IMAGE_REF`    | Endpoint Worker container image ref.                                    |
+| `LUMA_FORGE_ENDPOINT_WORKER_PORT`         | Endpoint Worker HTTP port exposed by the serverless endpoint container. |
+
+Missing or blank values fail the native build. Values from the real build environment override `.env`. Changing `.env` requires rebuilding the native app.
 
 | Command                                                                                        | Purpose                                     |
 | ---------------------------------------------------------------------------------------------- | ------------------------------------------- |

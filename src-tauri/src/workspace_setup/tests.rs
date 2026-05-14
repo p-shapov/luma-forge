@@ -12,7 +12,6 @@ use crate::{
     bundled_catalog::reader::BundledCatalogReader,
     domain::{
         placement::PlacementPlan,
-        profiles::{EndpointProfile, ProvisioningProfile},
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
         workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
@@ -202,14 +201,6 @@ pub(crate) fn sample_placement_plan() -> PlacementPlan {
             .expect("workflow catalog")
             .workflow_presets
             .remove(0),
-        selected_provisioning_profile: reader
-            .provisioning_profiles()
-            .expect("provisioning profiles")
-            .remove(0),
-        selected_endpoint_profile: reader
-            .endpoint_profiles()
-            .expect("endpoint profiles")
-            .remove(0),
     }
 }
 
@@ -264,7 +255,7 @@ async fn wait_for_insert_started(catalog: &MemoryWorkspaceCatalog) {
 }
 
 #[test]
-fn returns_catalogs() {
+fn returns_workflow_catalog() {
     let service = service(
         MemorySecretStore::empty(),
         MemoryWorkspaceCatalog::default(),
@@ -274,14 +265,6 @@ fn returns_catalogs() {
         .get_workflow_catalog()
         .expect("workflow catalog")
         .workflow_presets
-        .is_empty());
-    assert!(!service
-        .get_provisioning_profiles()
-        .expect("profiles")
-        .is_empty());
-    assert!(!service
-        .get_endpoint_profiles()
-        .expect("profiles")
         .is_empty());
 }
 
@@ -598,60 +581,6 @@ async fn rejects_stale_workflow_preset() {
         .expect_err("stale preset should fail");
 
     assert_eq!(error, WorkspaceSetupError::WorkflowPresetStale);
-}
-
-#[tokio::test]
-async fn rejects_stale_provisioning_profile() {
-    let service = service(
-        MemorySecretStore::with_key("rp_123_secret"),
-        MemoryWorkspaceCatalog::default(),
-    );
-    let mut placement_plan = sample_placement_plan();
-    let PlacementPlan::Runpod {
-        selected_provisioning_profile,
-        ..
-    } = &mut placement_plan;
-    let ProvisioningProfile::Runpod { name, .. } = selected_provisioning_profile;
-    *name = "Changed".to_string();
-
-    let error = service
-        .create_workspace(CreateWorkspaceInput {
-            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
-            name: "Workspace".to_string(),
-            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
-            placement_plan,
-        })
-        .await
-        .expect_err("stale provisioning profile should fail");
-
-    assert_eq!(error, WorkspaceSetupError::ProvisioningProfileStale);
-}
-
-#[tokio::test]
-async fn rejects_stale_endpoint_profile() {
-    let service = service(
-        MemorySecretStore::with_key("rp_123_secret"),
-        MemoryWorkspaceCatalog::default(),
-    );
-    let mut placement_plan = sample_placement_plan();
-    let PlacementPlan::Runpod {
-        selected_endpoint_profile,
-        ..
-    } = &mut placement_plan;
-    let EndpointProfile::Runpod { name, .. } = selected_endpoint_profile;
-    *name = "Changed".to_string();
-
-    let error = service
-        .create_workspace(CreateWorkspaceInput {
-            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
-            name: "Workspace".to_string(),
-            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
-            placement_plan,
-        })
-        .await
-        .expect_err("stale endpoint profile should fail");
-
-    assert_eq!(error, WorkspaceSetupError::EndpointProfileStale);
 }
 
 #[tokio::test]

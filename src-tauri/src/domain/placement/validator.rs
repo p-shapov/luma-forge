@@ -1,8 +1,5 @@
 use crate::domain::{
-    profiles::{EndpointProfile, ProvisioningProfile},
-    provider_setup::GpuCloudProviderId,
-    validation::is_blank,
-    workflow::WorkflowCatalog,
+    provider_setup::GpuCloudProviderId, validation::is_blank, workflow::WorkflowCatalog,
 };
 
 use super::PlacementPlan;
@@ -13,9 +10,6 @@ pub enum PlacementValidationError {
     DatacenterRequired,
     GpuRequired,
     WorkflowPresetStale,
-    ProvisioningProfileStale,
-    EndpointProfileStale,
-    EndpointProfileIncompatible,
     StorageSizeBelowPresetMinimum,
 }
 
@@ -23,22 +17,15 @@ pub fn validate_placement_plan(
     provider_id: GpuCloudProviderId,
     placement_plan: &PlacementPlan,
     workflow_catalog: &WorkflowCatalog,
-    provisioning_profiles: &[ProvisioningProfile],
-    endpoint_profiles: &[EndpointProfile],
 ) -> Result<(), PlacementValidationError> {
     let PlacementPlan::Runpod {
         selected_datacenter_id,
         selected_gpu_id,
         persistent_storage_volume_size_bytes,
         selected_workflow_preset,
-        selected_provisioning_profile,
-        selected_endpoint_profile,
     } = placement_plan;
 
-    if placement_plan.gpu_cloud_provider_id() != provider_id
-        || selected_provisioning_profile.gpu_cloud_provider_id() != provider_id
-        || selected_endpoint_profile.gpu_cloud_provider_id() != provider_id
-    {
+    if placement_plan.gpu_cloud_provider_id() != provider_id {
         return Err(PlacementValidationError::ProviderMismatch);
     }
     if is_blank(selected_datacenter_id) {
@@ -55,27 +42,6 @@ pub fn validate_placement_plan(
         .ok_or(PlacementValidationError::WorkflowPresetStale)?;
     if preset != selected_workflow_preset {
         return Err(PlacementValidationError::WorkflowPresetStale);
-    }
-
-    let provisioning_profile = provisioning_profiles
-        .iter()
-        .find(|profile| profile.id() == selected_provisioning_profile.id())
-        .ok_or(PlacementValidationError::ProvisioningProfileStale)?;
-    if provisioning_profile != selected_provisioning_profile {
-        return Err(PlacementValidationError::ProvisioningProfileStale);
-    }
-
-    let endpoint_profile = endpoint_profiles
-        .iter()
-        .find(|profile| profile.id() == selected_endpoint_profile.id())
-        .ok_or(PlacementValidationError::EndpointProfileStale)?;
-    if endpoint_profile != selected_endpoint_profile {
-        return Err(PlacementValidationError::EndpointProfileStale);
-    }
-    if endpoint_profile.workflow_execution_type()
-        != selected_workflow_preset.workflow_execution_type
-    {
-        return Err(PlacementValidationError::EndpointProfileIncompatible);
     }
 
     if *persistent_storage_volume_size_bytes < preset.required_base_volume_size_bytes {

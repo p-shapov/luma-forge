@@ -6,7 +6,6 @@ pub mod error;
 use crate::{
     domain::{
         placement::validator as placement_validator,
-        profiles::{EndpointProfile, ProvisioningProfile},
         provider_inventory::validator as provider_inventory_validator,
         provider_inventory::ProviderInventory,
         provider_setup::GpuCloudProviderId,
@@ -29,8 +28,6 @@ pub trait ProviderInventoryGateway: Send + Sync {
 
 pub trait WorkspaceSetupCatalogReader: Send + Sync {
     fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError>;
-    fn provisioning_profiles(&self) -> Result<Vec<ProvisioningProfile>, WorkspaceSetupError>;
-    fn endpoint_profiles(&self) -> Result<Vec<EndpointProfile>, WorkspaceSetupError>;
 }
 
 pub struct WorkspaceSetupService<C, S, P, W> {
@@ -60,16 +57,6 @@ where
 {
     pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError> {
         self.catalogs.workflow_catalog()
-    }
-
-    pub fn get_provisioning_profiles(
-        &self,
-    ) -> Result<Vec<ProvisioningProfile>, WorkspaceSetupError> {
-        self.catalogs.provisioning_profiles()
-    }
-
-    pub fn get_endpoint_profiles(&self) -> Result<Vec<EndpointProfile>, WorkspaceSetupError> {
-        self.catalogs.endpoint_profiles()
     }
 
     pub async fn get_provider_inventory(
@@ -103,14 +90,10 @@ where
             .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
 
         let workflow_catalog = self.catalogs.workflow_catalog()?;
-        let provisioning_profiles = self.catalogs.provisioning_profiles()?;
-        let endpoint_profiles = self.catalogs.endpoint_profiles()?;
         placement_validator::validate_placement_plan(
             provider_id,
             &request.placement_plan,
             &workflow_catalog,
-            &provisioning_profiles,
-            &endpoint_profiles,
         )
         .map_err(WorkspaceSetupError::from)?;
 
