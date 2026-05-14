@@ -1,6 +1,7 @@
 FROM python:3.12-slim AS worker-base
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -9,8 +10,7 @@ RUN apt-get update \
 FROM worker-base AS provisioner
 
 ENV LUMA_FORGE_PROVISIONER_HOST=0.0.0.0 \
-    LUMA_FORGE_PROVISIONER_PORT=8000 \
-    LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace
+    LUMA_FORGE_PROVISIONER_PORT=8000
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
@@ -27,8 +27,7 @@ CMD ["python", "-m", "provisioner_worker"]
 
 FROM worker-base AS runpod-endpoint
 
-ENV LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH=/workspace \
-    LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST=127.0.0.1 \
+ENV LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST=127.0.0.1 \
     LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT=8188
 
 WORKDIR /app

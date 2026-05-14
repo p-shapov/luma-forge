@@ -21,7 +21,13 @@ class EndpointConfig:
     @classmethod
     def from_env(cls) -> "EndpointConfig":
         return cls(
-            workspace_mount_path=Path(_string("LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH", "/workspace")),
+            workspace_mount_path=Path(_string_from(
+                (
+                    "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH",
+                    "LUMA_FORGE_WORKSPACE_MOUNT_PATH",
+                ),
+                "/workspace",
+            )),
             comfyui_host=_string("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST", "127.0.0.1"),
             comfyui_port=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT", 8188),
             comfyui_startup_timeout_seconds=_positive_float(
@@ -61,6 +67,14 @@ def _string(name: str, default: str) -> str:
     if value is None or value.strip() == "":
         return default
     return value.strip()
+
+
+def _string_from(names: tuple[str, ...], default: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None and value.strip() != "":
+            return value.strip()
+    return default
 
 
 def _optional_string(name: str) -> str | None:

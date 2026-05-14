@@ -41,7 +41,8 @@ The endpoint validates `/workspace/.luma-forge/runtime.json` and starts ComfyUI 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH` | `/workspace` | Prepared workspace volume mount path. |
+| `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Shared prepared workspace volume mount path. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH` | unset | Endpoint-specific workspace mount path override. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | ComfyUI host inside the endpoint container. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | ComfyUI HTTP port inside the endpoint container. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `120` | Maximum wait for the local ComfyUI process to become HTTP-ready. |
