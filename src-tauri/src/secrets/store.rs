@@ -4,7 +4,7 @@ use crate::domain::provider_setup::{GpuCloudProviderId, ProviderApiKey};
 
 use super::SecretStoreError;
 
-const KEYRING_SERVICE: &str = "com.pavelshapov.luma-forge.gpu-cloud-provider";
+const GPU_CLOUD_PROVIDER_KEYRING_SCOPE: &str = "gpu-cloud-provider";
 
 pub trait SecretStore: Send + Sync {
     fn has_api_key_entry(&self, provider_id: &GpuCloudProviderId)
@@ -24,12 +24,23 @@ pub trait SecretStore: Send + Sync {
     fn delete_api_key(&self, provider_id: &GpuCloudProviderId) -> Result<(), SecretStoreError>;
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct KeyringSecretStore;
+#[derive(Debug, Clone)]
+pub struct KeyringSecretStore {
+    service_name: String,
+}
 
 impl KeyringSecretStore {
-    fn entry(provider_id: &GpuCloudProviderId) -> Result<Entry, SecretStoreError> {
-        Entry::new(KEYRING_SERVICE, keyring_account(provider_id))
+    pub fn new(app_identifier: impl AsRef<str>) -> Self {
+        Self {
+            service_name: format!(
+                "{}.{GPU_CLOUD_PROVIDER_KEYRING_SCOPE}",
+                app_identifier.as_ref()
+            ),
+        }
+    }
+
+    fn entry(&self, provider_id: &GpuCloudProviderId) -> Result<Entry, SecretStoreError> {
+        Entry::new(&self.service_name, keyring_account(provider_id))
             .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
     }
 }
@@ -45,7 +56,7 @@ impl SecretStore for KeyringSecretStore {
         &self,
         provider_id: &GpuCloudProviderId,
     ) -> Result<bool, SecretStoreError> {
-        match Self::entry(provider_id)?.get_password() {
+        match self.entry(provider_id)?.get_password() {
             Ok(_) => Ok(true),
             Err(KeyringError::NoEntry) => Ok(false),
             Err(_) => Err(SecretStoreError::SecureKeyringUnavailable),
@@ -56,7 +67,7 @@ impl SecretStore for KeyringSecretStore {
         &self,
         provider_id: &GpuCloudProviderId,
     ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
-        match Self::entry(provider_id)?.get_password() {
+        match self.entry(provider_id)?.get_password() {
             Ok(api_key) => ProviderApiKey::new(api_key)
                 .map(Some)
                 .map_err(|_| SecretStoreError::InvalidStoredProviderApiKey),
@@ -70,13 +81,13 @@ impl SecretStore for KeyringSecretStore {
         provider_id: &GpuCloudProviderId,
         api_key: &ProviderApiKey,
     ) -> Result<(), SecretStoreError> {
-        Self::entry(provider_id)?
+        self.entry(provider_id)?
             .set_password(api_key.expose_secret())
             .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
     }
 
     fn delete_api_key(&self, provider_id: &GpuCloudProviderId) -> Result<(), SecretStoreError> {
-        Self::entry(provider_id)?
+        self.entry(provider_id)?
             .delete_credential()
             .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
     }

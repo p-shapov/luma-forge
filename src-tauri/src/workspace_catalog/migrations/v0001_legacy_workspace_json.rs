@@ -154,10 +154,48 @@ fn workspace_id_for_diagnostics(row: &sqlx::sqlite::SqliteRow) -> Option<String>
 }
 
 fn log_migration_failure(workspace_id: Option<&str>, reason: &str) {
-    tracing::warn!(
-        workspace_id,
-        version = CURRENT_PERSISTENCE_VERSION,
-        reason,
-        "workspace catalog migration failed"
+    log::warn!(
+        "workspace_catalog_migration_failed workspace_id={} version={} reason={}",
+        diagnostic_value(workspace_id.unwrap_or("unknown")),
+        CURRENT_PERSISTENCE_VERSION,
+        diagnostic_value(reason)
     );
+}
+
+fn diagnostic_value(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .take(128)
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    if sanitized.is_empty() {
+        "unknown".to_string()
+    } else {
+        sanitized
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_value_sanitizes_untrusted_row_values() {
+        assert_eq!(
+            diagnostic_value("workspace id\nsecret=value"),
+            "workspace_id_secret_value"
+        );
+    }
+
+    #[test]
+    fn diagnostic_value_replaces_empty_values() {
+        assert_eq!(diagnostic_value(""), "unknown");
+    }
 }

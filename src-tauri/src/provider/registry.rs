@@ -23,12 +23,6 @@ impl<S> ProviderClientRegistry<S> {
     }
 }
 
-impl Default for ProviderClientRegistry<KeyringSecretStore> {
-    fn default() -> Self {
-        Self::new(KeyringSecretStore, RunPodClient::default())
-    }
-}
-
 impl<S> ProviderIdentityGateway for ProviderClientRegistry<S>
 where
     S: SecretStore,

@@ -5,7 +5,7 @@ use tokio::sync::OnceCell;
 
 use crate::{
     bundled_catalog::reader::BundledCatalogReader,
-    provider::ProviderClientRegistry,
+    provider::{runpod::RunPodClient, ProviderClientRegistry},
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
     secrets::KeyringSecretStore,
     workspace_catalog::{
@@ -45,7 +45,8 @@ pub(crate) struct NativeAppState {
 
 impl NativeAppState {
     pub(crate) fn new(app: AppHandle) -> Self {
-        Self::from_workspace_catalog_source(WorkspaceCatalogSource::AppDataDir(app))
+        let app_identifier = app.config().identifier.clone();
+        Self::from_workspace_catalog_source(WorkspaceCatalogSource::AppDataDir(app), app_identifier)
     }
 
     pub(crate) fn provider_setup_service(&self) -> ProductionProviderSetupService {
@@ -99,14 +100,20 @@ impl NativeAppState {
             .cloned()
     }
 
-    fn from_workspace_catalog_source(workspace_catalog_source: WorkspaceCatalogSource) -> Self {
+    fn from_workspace_catalog_source(
+        workspace_catalog_source: WorkspaceCatalogSource,
+        app_identifier: impl AsRef<str>,
+    ) -> Self {
+        let secrets = KeyringSecretStore::new(app_identifier);
+        let providers = ProviderClientRegistry::new(secrets.clone(), RunPodClient::default());
+
         Self {
             workspace_catalog_source,
             workspace_catalog: OnceCell::new(),
             provider_setup_coordinator: ProviderSetupCoordinator::default(),
             catalogs: BundledCatalogReader,
-            secrets: KeyringSecretStore,
-            providers: ProviderClientRegistry::default(),
+            secrets,
+            providers,
             #[cfg(test)]
             workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize::new(0),
         }
@@ -114,7 +121,10 @@ impl NativeAppState {
 
     #[cfg(test)]
     fn with_workspace_catalog_path(path: PathBuf) -> Self {
-        Self::from_workspace_catalog_source(WorkspaceCatalogSource::CatalogPath(path))
+        Self::from_workspace_catalog_source(
+            WorkspaceCatalogSource::CatalogPath(path),
+            "test.luma-forge",
+        )
     }
 
     #[cfg(test)]
