@@ -9,7 +9,20 @@ from http.client import HTTPConnection
 class ContainerSmokeTests(unittest.TestCase):
     def test_container_reports_idle_status(self):
         image = "luma-forge-provisioner:smoke"
-        subprocess.run(["docker", "build", "-t", image, "."], check=True)
+        subprocess.run(
+            [
+                "docker",
+                "build",
+                "-t",
+                image,
+                "-f",
+                "../Dockerfile",
+                "--target",
+                "provisioner",
+                "../..",
+            ],
+            check=True,
+        )
         container = subprocess.check_output(
             ["docker", "run", "-d", "-p", "127.0.0.1::8000", image],
             text=True,

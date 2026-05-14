@@ -27,9 +27,9 @@ class GenerationService:
 
     def generate_from_payload(self, payload: Any) -> GenerationResponse:
         request = parse_generation_request(payload, self.config)
-        validate_prepared_environment(self.config)
+        runtime = validate_prepared_environment(self.config)
         if self.process_manager is not None:
-            self.process_manager.ensure_running()
+            self.process_manager.ensure_running(runtime)
         else:
             self.comfyui.assert_available()
         workflow = render_t2i_workflow(self.config, request)

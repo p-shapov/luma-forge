@@ -1,10 +1,4 @@
-# worker-deployment Specification
-
-## Purpose
-
-Defines how LumaForge deploys worker container images from Git through repository automation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Deploy Worker Images from Git
 
@@ -62,19 +56,6 @@ Each worker deployment workflow SHALL publish deterministic image tags that iden
 - **WHEN** a workflow is triggered by a release tag
 - **THEN** it SHALL publish a version tag derived from that Git tag for the selected worker image
 - **AND** it SHALL also publish an immutable commit SHA tag for the selected worker image
-
-### Requirement: Protect registry credentials
-
-The worker deployment workflow SHALL keep registry credentials and deployment secrets in GitHub Actions secrets or built-in GitHub tokens.
-
-#### Scenario: Registry login uses GitHub token context
-- **WHEN** the workflow authenticates to GitHub Container Registry
-- **THEN** it SHALL read authentication from built-in GitHub token context
-- **AND** committed workflow and documentation files MUST NOT contain plaintext registry credentials
-
-#### Scenario: Deployment logs are emitted
-- **WHEN** the workflow runs validation, build, and publish steps
-- **THEN** logs MUST NOT print registry passwords, access tokens, provider API keys, or worker bearer tokens
 
 ### Requirement: Document worker deployment operation
 

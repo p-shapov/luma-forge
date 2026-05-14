@@ -21,7 +21,21 @@ Successful responses return exactly one image as MIME type plus base64 data:
 }
 ```
 
-This worker assumes the workspace volume was already prepared by the Provisioner Worker. It does not clone ComfyUI, download models, install dependencies, or create provider resources. It starts the prepared local ComfyUI process lazily before the first valid generation request, waits for `/system_stats`, and reuses the process for later jobs in the same warm worker.
+This worker assumes the workspace volume was already prepared by the Provisioner Worker. It does not clone ComfyUI, download models, install dependencies, create virtual environments, run pip, or create provider resources. It starts the prepared local ComfyUI process lazily before the first valid generation request, waits for `/system_stats`, and reuses the process for later jobs in the same warm worker.
+
+The prepared workspace must include the volume-local runtime environment:
+
+```text
+/workspace/
+  ComfyUI/
+  .venv/
+  .luma-forge/
+    runtime.json
+    pip-freeze.txt
+    install-report.json
+```
+
+The endpoint validates `/workspace/.luma-forge/runtime.json` and starts ComfyUI through the manifest-declared volume-local interpreter, normally `/workspace/.venv/bin/python`.
 
 ## Configuration
 
@@ -48,5 +62,5 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 ## Container
 
 ```bash
-docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile .
+docker build -t luma-forge-runpod-endpoint-worker -f ../Dockerfile --target runpod-endpoint ../..
 ```

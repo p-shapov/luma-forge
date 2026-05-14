@@ -51,6 +51,10 @@ class EndpointConfig:
     def comfyui_root(self) -> Path:
         return self.workspace_mount_path / "ComfyUI"
 
+    @property
+    def runtime_manifest_path(self) -> Path:
+        return self.workspace_mount_path / ".luma-forge" / "runtime.json"
+
 
 def _string(name: str, default: str) -> str:
     value = os.environ.get(name)

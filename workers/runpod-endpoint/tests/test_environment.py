@@ -3,14 +3,48 @@ from pathlib import Path
 
 from runpod_endpoint_worker.config import EndpointConfig
 from runpod_endpoint_worker.environment import safe_child_path, validate_prepared_environment
-from runpod_endpoint_worker.errors import PreparedEnvironmentError, ValidationError
+from runpod_endpoint_worker.errors import PreparedEnvironmentError, PreparedRuntimeError, ValidationError
 from helpers import WorkerFixture
 
 
 class EnvironmentTests(unittest.TestCase):
     def test_validates_prepared_environment(self):
         with WorkerFixture() as fixture:
-            validate_prepared_environment(fixture.config)
+            runtime = validate_prepared_environment(fixture.config)
+
+            self.assertEqual(runtime.python_path, fixture.venv_python)
+
+    def test_fails_when_runtime_manifest_is_missing(self):
+        with WorkerFixture() as fixture:
+            fixture.config.runtime_manifest_path.unlink()
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_environment_kind_is_invalid(self):
+        with WorkerFixture() as fixture:
+            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
+            fixture.config.runtime_manifest_path.write_text(
+                payload.replace('"volume_venv"', '"container_python"'),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_runtime_manifest_is_not_object(self):
+        with WorkerFixture() as fixture:
+            fixture.config.runtime_manifest_path.write_text("[]", encoding="utf-8")
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_venv_interpreter_is_missing(self):
+        with WorkerFixture() as fixture:
+            fixture.venv_python.unlink()
+
+            with self.assertRaises(PreparedEnvironmentError):
+                validate_prepared_environment(fixture.config)
 
     def test_fails_when_comfyui_entrypoint_is_missing(self):
         with WorkerFixture() as fixture:

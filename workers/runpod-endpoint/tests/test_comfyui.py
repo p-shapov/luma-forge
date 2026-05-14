@@ -1,9 +1,9 @@
 import base64
-import sys
 import unittest
 
 from runpod_endpoint_worker.comfyui import ComfyUiClient, ComfyUiProcessManager, render_t2i_workflow
 from runpod_endpoint_worker.config import EndpointConfig
+from runpod_endpoint_worker.environment import validate_prepared_environment
 from runpod_endpoint_worker.errors import ComfyUiExecutionError, ComfyUiStartupError, ComfyUiTimeoutError, ValidationError
 from runpod_endpoint_worker.schemas import GenerationRequest
 from runpod_endpoint_worker.service import GenerationService
@@ -127,13 +127,14 @@ class ComfyUiTests(unittest.TestCase):
                 sleeper=lambda seconds: None,
             )
 
-            manager.ensure_running()
-            manager.ensure_running()
+            runtime = validate_prepared_environment(fixture.config)
+            manager.ensure_running(runtime)
+            manager.ensure_running(runtime)
             manager.shutdown()
 
         self.assertEqual(len(processes), 1)
         self.assertEqual(processes[0].command, [
-            sys.executable,
+            str(fixture.venv_python),
             "main.py",
             "--listen",
             fixture.config.comfyui_host,
@@ -187,6 +188,7 @@ class ComfyUiTests(unittest.TestCase):
 
         self.assertEqual(response.image.mime_type, "image/png")
         self.assertEqual(manager.ensure_running_calls, 1)
+        self.assertEqual(manager.runtime.python_path, fixture.venv_python)
         self.assertEqual(len(fixture.comfyui.queued_workflows), 1)
 
 
@@ -216,9 +218,11 @@ class FakeProcess:
 class FakeProcessManager:
     def __init__(self):
         self.ensure_running_calls = 0
+        self.runtime = None
 
-    def ensure_running(self):
+    def ensure_running(self, runtime=None):
         self.ensure_running_calls += 1
+        self.runtime = runtime
 
 
 if __name__ == "__main__":

@@ -18,6 +18,10 @@ class PreparedEnvironmentError(EndpointWorkerError):
     code = "prepared_environment_missing"
 
 
+class PreparedRuntimeError(PreparedEnvironmentError):
+    code = "prepared_runtime_invalid"
+
+
 class ComfyUiStartupError(EndpointWorkerError):
     code = "comfyui_startup_failed"
 

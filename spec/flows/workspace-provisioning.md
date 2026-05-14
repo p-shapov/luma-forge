@@ -124,6 +124,7 @@ Sync loop ends when status is `completed`, `failed`, `cancelled`, or `idle`.
 
 - Workspace lifecycle is `Ready`.
 - Required Provider Resources exist and their Workspace snapshots are ready.
+- The prepared runtime volume includes a validated volume-local Python environment and runtime manifest.
 - No active Provisioning Pod remains; retained Provisioning Pod metadata is terminal.
 - Workspace Provisioning Progress has status `completed` and no active phase.
 
@@ -150,7 +151,7 @@ Sync loop ends when status is `completed`, `failed`, `cancelled`, or `idle`.
   - Mutation guarantee: known storage and pod metadata are retained for cleanup.
   - Client behavior: shows failed status and diagnostics when safe to display.
 - Runtime entry point or readiness validation failure
-  - Native behavior: marks Workspace `Failed` when endpoint setup, resource presence validation, or Provider validation fails.
+  - Native behavior: marks Workspace `Failed` when endpoint setup, prepared runtime volume validation, resource presence validation, or Provider validation fails.
   - Mutation guarantee: existing resource snapshots are retained.
   - Client behavior: shows non-ready state and cleanup path.
 - Duplicate or concurrent sync request

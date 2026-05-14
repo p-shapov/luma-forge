@@ -3,7 +3,6 @@ name: Deploy Provisioner Worker
 on:
   push:
     tags:
-      - "worker-v*"
       - "provisioner-worker-v*"
   workflow_dispatch:
 
@@ -17,7 +16,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Validate, build, and publish
+    name: Validate, build, and publish provisioner
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate worker
+      - name: Validate provisioner worker
         working-directory: workers/provisioner
         run: |
           python -m pip install --upgrade pip
@@ -44,26 +43,27 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
-          image="ghcr.io/$(printf '%s' "${REPOSITORY}/provisioner-worker" | tr '[:upper:]' '[:lower:]')"
-          sha_tag="${image}:sha-${SHA}"
-          version_tag=""
+          base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          provisioner_image="${base}/provisioner-worker"
+          provisioner_sha_tag="${provisioner_image}:sha-${SHA}"
+          provisioner_version_tag=""
 
           if [ "$REF_TYPE" = "tag" ]; then
-            version_tag="${image}:${REF_NAME}"
+            provisioner_version_tag="${provisioner_image}:${REF_NAME}"
           fi
 
-          printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
-          printf 'sha_tag=%s\n' "$sha_tag" >> "$GITHUB_OUTPUT"
-          printf 'version_tag=%s\n' "$version_tag" >> "$GITHUB_OUTPUT"
+          printf 'provisioner_image=%s\n' "$provisioner_image" >> "$GITHUB_OUTPUT"
+          printf 'provisioner_sha_tag=%s\n' "$provisioner_sha_tag" >> "$GITHUB_OUTPUT"
+          printf 'provisioner_version_tag=%s\n' "$provisioner_version_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Build worker image for validation
+      - name: Build provisioner image for validation
         env:
-          SHA_TAG: ${{ steps.image.outputs.sha_tag }}
-          VERSION_TAG: ${{ steps.image.outputs.version_tag }}
+          PROVISIONER_SHA_TAG: ${{ steps.image.outputs.provisioner_sha_tag }}
+          PROVISIONER_VERSION_TAG: ${{ steps.image.outputs.provisioner_version_tag }}
         run: |
-          docker build --file workers/provisioner/Dockerfile --tag "$SHA_TAG" workers/provisioner
-          if [ -n "$VERSION_TAG" ]; then
-            docker tag "$SHA_TAG" "$VERSION_TAG"
+          docker build --file workers/Dockerfile --target provisioner --tag "$PROVISIONER_SHA_TAG" .
+          if [ -n "$PROVISIONER_VERSION_TAG" ]; then
+            docker tag "$PROVISIONER_SHA_TAG" "$PROVISIONER_VERSION_TAG"
           fi
 
       - name: Log in to GHCR
@@ -73,12 +73,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Publish worker image
+      - name: Publish provisioner image
         env:
-          SHA_TAG: ${{ steps.image.outputs.sha_tag }}
-          VERSION_TAG: ${{ steps.image.outputs.version_tag }}
+          PROVISIONER_SHA_TAG: ${{ steps.image.outputs.provisioner_sha_tag }}
+          PROVISIONER_VERSION_TAG: ${{ steps.image.outputs.provisioner_version_tag }}
         run: |
-          docker push "$SHA_TAG"
-          if [ -n "$VERSION_TAG" ]; then
-            docker push "$VERSION_TAG"
+          docker push "$PROVISIONER_SHA_TAG"
+          if [ -n "$PROVISIONER_VERSION_TAG" ]; then
+            docker push "$PROVISIONER_VERSION_TAG"
           fi

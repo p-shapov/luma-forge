@@ -1,15 +1,37 @@
+from dataclasses import dataclass
+import json
 from pathlib import Path
 
 from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import PreparedEnvironmentError, ValidationError
+from runpod_endpoint_worker.errors import PreparedEnvironmentError, PreparedRuntimeError, ValidationError
 
 
-def validate_prepared_environment(config: EndpointConfig) -> None:
+ENVIRONMENT_KIND = "volume_venv"
+
+
+@dataclass(frozen=True)
+class PreparedRuntimeManifest:
+    environment_kind: str
+    python_path: Path
+    comfyui_root: Path
+    python_version: str
+    platform: str
+    comfyui_revision: str
+    pip_freeze_path: Path
+    install_report_path: Path
+
+
+def validate_prepared_environment(config: EndpointConfig) -> PreparedRuntimeManifest:
+    manifest = load_runtime_manifest(config)
+    _validate_runtime_manifest(config, manifest)
+
     comfyui_root = config.comfyui_root
     if not comfyui_root.is_dir():
         raise PreparedEnvironmentError("Prepared ComfyUI directory is missing.")
     if not (comfyui_root / "main.py").is_file():
         raise PreparedEnvironmentError("Prepared ComfyUI entrypoint is missing.")
+    if not manifest.python_path.is_file():
+        raise PreparedEnvironmentError("Prepared Python interpreter is missing.")
 
     workflow_path = safe_child_path(comfyui_root, config.workflow_relative_path, "workflow_relative_path")
     if not workflow_path.is_file():
@@ -24,6 +46,33 @@ def validate_prepared_environment(config: EndpointConfig) -> None:
         target = safe_child_path(comfyui_root, path, "required_custom_node_paths")
         if not target.exists():
             raise PreparedEnvironmentError("Required Custom Node path is missing.")
+
+    return manifest
+
+
+def load_runtime_manifest(config: EndpointConfig) -> PreparedRuntimeManifest:
+    try:
+        payload = json.loads(config.runtime_manifest_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise PreparedRuntimeError("Prepared runtime manifest is missing.") from error
+    except json.JSONDecodeError as error:
+        raise PreparedRuntimeError("Prepared runtime manifest is invalid.") from error
+
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("runtime manifest must be an object")
+        return PreparedRuntimeManifest(
+            environment_kind=_required_string(payload, "environment_kind"),
+            python_path=Path(_required_string(payload, "python_path")),
+            comfyui_root=Path(_required_string(payload, "comfyui_root")),
+            python_version=_required_string(payload, "python_version"),
+            platform=_required_string(payload, "platform"),
+            comfyui_revision=_required_string(payload, "comfyui_revision"),
+            pip_freeze_path=Path(_required_string(payload, "pip_freeze_path")),
+            install_report_path=Path(_required_string(payload, "install_report_path")),
+        )
+    except (TypeError, ValueError) as error:
+        raise PreparedRuntimeError("Prepared runtime manifest is invalid.") from error
 
 
 def workflow_path(config: EndpointConfig) -> Path:
@@ -41,3 +90,26 @@ def safe_child_path(root: Path, relative_path: Path, field_name: str) -> Path:
     if target != root_resolved and root_resolved not in target.parents:
         raise ValidationError(f"{field_name} must resolve under ComfyUI root")
     return target
+
+
+def _validate_runtime_manifest(config: EndpointConfig, manifest: PreparedRuntimeManifest) -> None:
+    if manifest.environment_kind != ENVIRONMENT_KIND:
+        raise PreparedRuntimeError("Prepared runtime environment kind is invalid.")
+    if manifest.comfyui_root.resolve(strict=False) != config.comfyui_root.resolve(strict=False):
+        raise PreparedRuntimeError("Prepared runtime ComfyUI path is invalid.")
+    workspace = config.workspace_mount_path.resolve(strict=False)
+    for field_name, path in (
+        ("python_path", manifest.python_path),
+        ("pip_freeze_path", manifest.pip_freeze_path),
+        ("install_report_path", manifest.install_report_path),
+    ):
+        resolved = path.resolve(strict=False)
+        if resolved != workspace and workspace not in resolved.parents:
+            raise PreparedRuntimeError(f"Prepared runtime {field_name} is outside the workspace.")
+
+
+def _required_string(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or value.strip() == "":
+        raise ValueError(f"{key} is required")
+    return value

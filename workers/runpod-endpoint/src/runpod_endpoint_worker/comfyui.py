@@ -6,7 +6,6 @@ import copy
 import json
 from pathlib import Path
 import subprocess
-import sys
 from threading import Lock
 from time import monotonic, sleep
 from typing import Any, Protocol
@@ -14,7 +13,7 @@ from urllib import parse, request
 from urllib.error import URLError
 
 from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.environment import workflow_path
+from runpod_endpoint_worker.environment import PreparedRuntimeManifest, workflow_path
 from runpod_endpoint_worker.errors import (
     ComfyUiExecutionError,
     ComfyUiStartupError,
@@ -117,15 +116,18 @@ class ComfyUiProcessManager:
     _lock: Lock = field(default_factory=Lock, init=False, repr=False)
     _shutdown_registered: bool = field(default=False, init=False, repr=False)
 
-    def ensure_running(self) -> None:
+    def ensure_running(self, runtime: PreparedRuntimeManifest | None = None) -> None:
         with self._lock:
             if self._is_http_ready():
                 return
 
+            if runtime is None:
+                raise ComfyUiStartupError("Prepared runtime manifest is required.")
+
             if self._process is None or self._process.poll() is not None:
                 self._process = self.process_factory(
                     [
-                        sys.executable,
+                        str(runtime.python_path),
                         "main.py",
                         "--listen",
                         self.config.comfyui_host,

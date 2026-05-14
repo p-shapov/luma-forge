@@ -11,7 +11,7 @@ This roadmap is a living document. It captures the current implementation status
 - [x] **Provider Setup**: native-owned provider setup that validates and stores a provider-scoped API key in the secure keyring, with RunPod as the only v1 provider.
 - [x] **Workspace Setup**: native-owned creation of a local `Draft` Workspace from a bundled Workflow Preset and Placement Plan without creating provider resources.
 - [x] **Provisioner Worker**: container-side worker that prepares the mounted ComfyUI workspace and reports UI-safe provisioning progress.
-- [ ] **RunPod Endpoint Worker**: define and implement the RunPod Serverless runtime contract between the Serverless Endpoint and the prepared ComfyUI environment.
+- [x] **RunPod Endpoint Worker**: define and implement the RunPod Serverless runtime contract between the Serverless Endpoint and the prepared ComfyUI environment.
 - [ ] **Workspace Provisioning Flow**: implement the native sync loop that creates provider resources, invokes the Provisioner Worker, creates the Serverless Endpoint, and moves a `Draft` Workspace to `Ready`.
 - [ ] **Onboarding UI**: build the user-facing setup path for provider setup, workspace setup, placement selection, provisioning progress, cancellation, and recovery states.
 - [ ] **Text-to-Image Generator**: build the first generation surface on top of a `Ready` Workspace and the RunPod Endpoint Worker contract. v1 targets the bundled text-to-image workflow rather than arbitrary user-authored ComfyUI workflows.
@@ -72,6 +72,8 @@ The native build requires worker configuration. Development builds can provide t
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT`         | RunPod Endpoint Worker container port.                               |
 
 Missing or blank values fail the native build. Values from the real build environment override `.env`. Changing `.env` requires rebuilding the native app.
+
+Worker images share a provider-neutral Docker base under `workers/Dockerfile`. The Provisioner Worker installs ComfyUI and Custom Node Python dependencies into `/workspace/.venv` on the mounted network volume and records metadata under `/workspace/.luma-forge`. The RunPod Endpoint Worker validates that metadata and starts ComfyUI with `/workspace/.venv/bin/python`.
 
 | Command                                                                                        | Purpose                                     |
 | ---------------------------------------------------------------------------------------------- | ------------------------------------------- |
