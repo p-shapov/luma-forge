@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "luma-forge-runpod-endpoint-worker"
+version = "0.1.0"
+description = "RunPod Endpoint Worker for LumaForge ComfyUI generation"
+requires-python = ">=3.12"
+dependencies = ["runpod>=1,<2"]
+
+[project.optional-dependencies]
+dev = []
+
+[tool.luma_forge_runpod_endpoint]
+default_workspace_mount_path = "/workspace"
+default_comfyui_host = "127.0.0.1"
+default_comfyui_port = 8188
+default_workflow_relative_path = "workflows/t2i.json"
+
+[tool.setuptools.packages.find]
+where = ["src"]

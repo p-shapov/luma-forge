@@ -36,7 +36,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 
 - GPU Cloud Provider Setup has completed and can be used by this Workspace Setup attempt.
 - Native Layer (Rust / Tauri) can read provider setup status, the secure keyring, the Workflow Catalog, and the Workspace Catalog.
-- The native app was built with non-empty standardized worker image refs and ports available through build-time Native configuration.
+- The native app was built with non-empty provider-neutral Provisioner Worker image ref and port plus provider-specific Endpoint Worker image refs and ports available through build-time Native configuration.
 - The Workflow Catalog contains at least one Workflow Preset supported by the current application build.
 - The Provider can report data centers and GPU availability.
 
