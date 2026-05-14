@@ -21,5 +21,4 @@ A Workflow Preset includes:
 
 - [Workflow](./workflow.md)
 - [Custom Nodes](./custom-nodes.md)
-- [Endpoint Profile](./endpoint-profile.md)
 - [Persistent Storage Volume](./persistent-storage-volume.md)

@@ -24,13 +24,11 @@ export type PersistentStorageVolumeSnapshot = ProviderResourceSnapshotBase & {
 export type ProvisioningPodSnapshot = ProviderResourceSnapshotBase & {
   kind: "provisioning_pod";
   selected_gpu_id: string;
-  provisioning_profile_id: string;
   provisioner_status_url: string;
 }
 
 export type ServerlessEndpointSnapshot = ProviderResourceSnapshotBase & {
   kind: "serverless_endpoint";
   selected_gpu_id: string;
-  endpoint_profile_id: string;
   endpoint_invoke_url: string;
 }

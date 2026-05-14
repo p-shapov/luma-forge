@@ -38,8 +38,6 @@ Lifecycle states: `Draft`, `Provisioning`, `Ready`, `Failed`.
 - [Serverless Endpoint](./serverless-endpoint.md)
 - [Persistent Storage Volume](./persistent-storage-volume.md)
 - [Provisioning Pod](./provisioning-pod.md)
-- [Provisioning Profile](./provisioning-profile.md)
-- [Endpoint Profile](./endpoint-profile.md)
 - [Provider Resource](./provider-resource.md)
 - [Workspace Resource Cleanup](./workspace-resource-cleanup.md)
 - [Factory Reset](./factory-reset.md)

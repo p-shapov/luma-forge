@@ -16,6 +16,7 @@ The Provisioner Worker performs provisioning-time work required to prepare the r
 **Invariants:**
 
 - The Provisioner Worker runs inside a Provisioning Pod.
+- The Provisioner Worker image reference is supplied by Native build-time configuration.
 - The Provisioner Worker prepares the remote environment for Workspace.
 - The Provisioner Worker reports provisioning progress, but does not own Provider Resource lifecycle.
 - In v1, models are downloaded from Hugging Face.
@@ -28,4 +29,3 @@ The Provisioner Worker performs provisioning-time work required to prepare the r
 - [Workspace Provisioning Progress](./workspace-provisioning-progress.md)
 - [Provisioning Pod](./provisioning-pod.md)
 - [Custom Nodes](./custom-nodes.md)
-- [Provisioning Profile](./provisioning-profile.md)

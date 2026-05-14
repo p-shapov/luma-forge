@@ -1,13 +1,11 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
     domain::{
-        placement as domain_placement, profiles as domain_profiles,
-        provider_inventory as domain_inventory, provider_setup as domain_provider_setup,
-        workflow as domain_workflow, workspace as domain_workspace,
+        placement as domain_placement, provider_inventory as domain_inventory,
+        provider_setup as domain_provider_setup, workflow as domain_workflow,
+        workspace as domain_workspace,
     },
     workspace_setup::contracts::CreateWorkspaceInput,
 };
@@ -127,99 +125,6 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::ProvisioningComputeType)]
-    #[serde(rename_all = "snake_case")]
-    pub(super) enum ProvisioningComputeType {
-        Pod,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::ProvisioningStatusEndpoint)]
-    pub(super) struct ProvisioningStatusEndpoint {
-        pub port: u16,
-        pub protocol: String,
-        pub status_path: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::ProvisionerWorkerRuntime)]
-    pub(super) struct ProvisionerWorkerRuntime {
-        pub provisioner_version: String,
-        pub docker_image_ref: String,
-        pub volume_mount_path: String,
-        pub container_disk_bytes: u64,
-        pub compute_type: domain_profiles::ProvisioningComputeType,
-        pub status_endpoint: domain_profiles::ProvisioningStatusEndpoint,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::EndpointWorkerRuntime)]
-    pub(super) struct EndpointWorkerRuntime {
-        pub endpoint_worker_version: String,
-        pub docker_image_ref: String,
-        pub http_port: u16,
-        pub health_path: String,
-        pub invoke_path: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::RunPodProvisioningProfileConfig)]
-    pub(super) struct RunPodProvisioningProfileConfig {
-        pub cloud_type: Option<String>,
-        pub pod_template_id: Option<String>,
-        pub network_volume_mount_path: String,
-        pub expose_http_ports: Vec<u16>,
-        pub env: Option<BTreeMap<String, String>>,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::RunPodServerlessScalingConfig)]
-    pub(super) struct RunPodServerlessScalingConfig {
-        pub min_workers: u32,
-        pub max_workers: u32,
-        pub idle_timeout_seconds: u32,
-        pub scaler_type: Option<String>,
-        pub scaler_value: Option<u32>,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::RunPodEndpointProfileConfig)]
-    pub(super) struct RunPodEndpointProfileConfig {
-        pub endpoint_template_id: Option<String>,
-        pub container_disk_bytes: u64,
-        pub volume_mount_path: String,
-        pub env: Option<BTreeMap<String, String>>,
-        pub scaling: domain_profiles::RunPodServerlessScalingConfig,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::ProvisioningProfile)]
-    #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
-    pub(super) enum ProvisioningProfile {
-        Runpod {
-            id: String,
-            version: String,
-            name: String,
-            provisioner_worker_runtime: domain_profiles::ProvisionerWorkerRuntime,
-            gpu_cloud_provider_config: domain_profiles::RunPodProvisioningProfileConfig,
-        },
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_profiles::EndpointProfile)]
-    #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
-    pub(super) enum EndpointProfile {
-        Runpod {
-            id: String,
-            version: String,
-            name: String,
-            workflow_execution_type: domain_workflow::WorkflowExecutionType,
-            endpoint_worker_runtime: domain_profiles::EndpointWorkerRuntime,
-            gpu_cloud_provider_config: domain_profiles::RunPodEndpointProfileConfig,
-        },
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_placement::PlacementPlan)]
     #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
     pub(super) enum PlacementPlan {
@@ -228,8 +133,6 @@ mod remote_types {
             selected_gpu_id: String,
             persistent_storage_volume_size_bytes: u64,
             selected_workflow_preset: domain_workflow::WorkflowPreset,
-            selected_provisioning_profile: domain_profiles::ProvisioningProfile,
-            selected_endpoint_profile: domain_profiles::EndpointProfile,
         },
     }
 
@@ -274,7 +177,6 @@ mod remote_types {
         pub datacenter_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
         pub selected_gpu_id: String,
-        pub provisioning_profile_id: String,
         pub provisioner_status_url: String,
     }
 
@@ -286,7 +188,6 @@ mod remote_types {
         pub datacenter_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
         pub selected_gpu_id: String,
-        pub endpoint_profile_id: String,
         pub endpoint_invoke_url: String,
     }
 
@@ -350,32 +251,6 @@ impl From<domain_workflow::WorkflowCatalog> for GetWorkflowCatalogResponse {
     fn from(response: domain_workflow::WorkflowCatalog) -> Self {
         Self {
             workflow_catalog: response,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetProvisioningProfilesResponse {
-    pub provisioning_profiles: Vec<domain_profiles::ProvisioningProfile>,
-}
-
-impl From<Vec<domain_profiles::ProvisioningProfile>> for GetProvisioningProfilesResponse {
-    fn from(response: Vec<domain_profiles::ProvisioningProfile>) -> Self {
-        Self {
-            provisioning_profiles: response,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetEndpointProfilesResponse {
-    pub endpoint_profiles: Vec<domain_profiles::EndpointProfile>,
-}
-
-impl From<Vec<domain_profiles::EndpointProfile>> for GetEndpointProfilesResponse {
-    fn from(response: Vec<domain_profiles::EndpointProfile>) -> Self {
-        Self {
-            endpoint_profiles: response,
         }
     }
 }

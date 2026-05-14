@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{
-    profiles::{EndpointProfile, ProvisioningProfile},
-    provider_setup::GpuCloudProviderId,
-    workflow::WorkflowPreset,
-};
+use super::{provider_setup::GpuCloudProviderId, workflow::WorkflowPreset};
 
 pub mod validator;
 
@@ -16,8 +12,6 @@ pub enum PlacementPlan {
         selected_gpu_id: String,
         persistent_storage_volume_size_bytes: u64,
         selected_workflow_preset: WorkflowPreset,
-        selected_provisioning_profile: ProvisioningProfile,
-        selected_endpoint_profile: EndpointProfile,
     },
 }
 

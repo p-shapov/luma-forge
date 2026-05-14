@@ -25,8 +25,6 @@ This document focuses on provisioning and Workspace management. Sessions, genera
 - [Custom Nodes](./ubiquitous-language/custom-nodes.md)
 - [Workflow Preset](./ubiquitous-language/workflow-preset.md)
 - [Workflow Catalog](./ubiquitous-language/workflow-catalog.md)
-- [Provisioning Profile](./ubiquitous-language/provisioning-profile.md)
-- [Endpoint Profile](./ubiquitous-language/endpoint-profile.md)
 - [Provisioner Worker](./ubiquitous-language/provisioner-worker.md)
 - [Endpoint Worker](./ubiquitous-language/endpoint-worker.md)
 - [Workspace](./ubiquitous-language/workspace.md)

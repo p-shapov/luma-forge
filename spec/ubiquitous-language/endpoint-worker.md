@@ -8,7 +8,7 @@ The Endpoint Worker assumes that the required ComfyUI instance, Workflow definit
 
 **Invariants:**
 
-- The Endpoint Worker is referenced in Endpoint Profile through Docker image reference.
+- The Endpoint Worker image reference is supplied by Native build-time configuration.
 - The Endpoint Worker runs behind a Serverless Endpoint.
 - The Endpoint Worker communicates with a prepared ComfyUI instance.
 - The Endpoint Worker defines the runtime API contract used by the desktop application for generation.
@@ -18,6 +18,5 @@ The Endpoint Worker assumes that the required ComfyUI instance, Workflow definit
 
 - [Serverless Endpoint](./serverless-endpoint.md)
 - [GPU Cloud Provider](./gpu-cloud-provider.md)
-- [Endpoint Profile](./endpoint-profile.md)
 - [Workflow Preset](./workflow-preset.md)
 - [Workflow](./workflow.md)

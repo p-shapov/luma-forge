@@ -32,8 +32,6 @@ const ERROR_COPY = {
   secure_keyring_unavailable: { title: "Secure keyring unavailable" },
   provider_setup_recovery_required: { title: "Provider setup recovery required" },
   workflow_catalog_unavailable: { title: "Workflow catalog unavailable" },
-  provisioning_profiles_unavailable: { title: "Provisioning profiles unavailable" },
-  endpoint_profiles_unavailable: { title: "Endpoint profiles unavailable" },
   workspace_catalog_unavailable: { title: "Workspace catalog unavailable" },
   workspace_catalog_storage_unavailable: { title: "Workspace catalog storage unavailable" },
   workspace_catalog_migration_failed: { title: "Workspace catalog migration failed" },
@@ -44,9 +42,6 @@ const ERROR_COPY = {
   placement_datacenter_required: { title: "Datacenter required" },
   placement_gpu_required: { title: "GPU required" },
   workflow_preset_stale: { title: "Workflow preset stale" },
-  provisioning_profile_stale: { title: "Provisioning profile stale" },
-  endpoint_profile_stale: { title: "Endpoint profile stale" },
-  endpoint_profile_incompatible: { title: "Endpoint profile incompatible" },
   storage_size_below_preset_minimum: { title: "Storage size too small" },
   workspace_already_exists: { title: "Workspace already exists" },
   invalid_workspace_id: { title: "Invalid workspace ID" },
@@ -94,8 +89,8 @@ function recoveryHint(recoveryAction: string | null): string | null {
       return "Retry after the local service or provider becomes available.";
     case "retry_provider_inventory":
       return "Reload provider inventory before creating the workspace.";
-    case "reload_catalogs":
-      return "Reload workflow and profile catalogs, then rebuild the placement.";
+    case "reload_workflow_presets":
+      return "Reload the workflow catalog, then rebuild the placement.";
     case "recover_workspace_catalog":
       return "Recover or recreate the local workspace catalog before continuing.";
     case "reselect_placement":

@@ -1,5 +1,3 @@
-import type { EndpointProfile } from "./endpoint-profile";
-import type { ProvisioningProfile } from "./provisioning-profile";
 import type { WorkflowPreset } from "./workflow-preset";
 
 export type PlacementPlan = {
@@ -7,6 +5,4 @@ export type PlacementPlan = {
   selected_gpu_id: string;
   persistent_storage_volume_size_bytes: number;
   selected_workflow_preset: WorkflowPreset;
-  selected_provisioning_profile: ProvisioningProfile;
-  selected_endpoint_profile: EndpointProfile;
 }

@@ -9,9 +9,8 @@ use tauri::State;
 
 use crate::commands::CommandResult;
 use contracts::{
-    CreateWorkspaceRequest, CreateWorkspaceResponse, GetEndpointProfilesResponse,
-    GetProviderInventoryRequest, GetProviderInventoryResponse, GetProvisioningProfilesResponse,
-    GetWorkflowCatalogResponse, GetWorkspaceCatalogResponse,
+    CreateWorkspaceRequest, CreateWorkspaceResponse, GetProviderInventoryRequest,
+    GetProviderInventoryResponse, GetWorkflowCatalogResponse, GetWorkspaceCatalogResponse,
 };
 
 #[tauri::command]
@@ -23,34 +22,6 @@ pub(crate) fn get_workflow_catalog(
     let result = app_state
         .workspace_setup_read_service()
         .get_workflow_catalog()
-        .map(Into::into)
-        .map_err(Into::into);
-    command_log.finish(result)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn get_provisioning_profiles(
-    app_state: State<'_, NativeAppState>,
-) -> CommandResult<GetProvisioningProfilesResponse> {
-    let command_log = CommandLog::new("get_provisioning_profiles").start();
-    let result = app_state
-        .workspace_setup_read_service()
-        .get_provisioning_profiles()
-        .map(Into::into)
-        .map_err(Into::into);
-    command_log.finish(result)
-}
-
-#[tauri::command]
-#[specta::specta]
-pub(crate) fn get_endpoint_profiles(
-    app_state: State<'_, NativeAppState>,
-) -> CommandResult<GetEndpointProfilesResponse> {
-    let command_log = CommandLog::new("get_endpoint_profiles").start();
-    let result = app_state
-        .workspace_setup_read_service()
-        .get_endpoint_profiles()
         .map(Into::into)
         .map_err(Into::into);
     command_log.finish(result)

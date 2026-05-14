@@ -19,8 +19,6 @@ pub enum NativeCommandErrorCode {
     SecureKeyringUnavailable,
     ProviderSetupRecoveryRequired,
     WorkflowCatalogUnavailable,
-    ProvisioningProfilesUnavailable,
-    EndpointProfilesUnavailable,
     WorkspaceCatalogUnavailable,
     WorkspaceCatalogStorageUnavailable,
     WorkspaceCatalogMigrationFailed,
@@ -31,9 +29,6 @@ pub enum NativeCommandErrorCode {
     PlacementDatacenterRequired,
     PlacementGpuRequired,
     WorkflowPresetStale,
-    ProvisioningProfileStale,
-    EndpointProfileStale,
-    EndpointProfileIncompatible,
     StorageSizeBelowPresetMinimum,
     WorkspaceAlreadyExists,
     InvalidWorkspaceId,
@@ -57,8 +52,6 @@ impl NativeCommandErrorCode {
             Self::SecureKeyringUnavailable => "secure_keyring_unavailable",
             Self::ProviderSetupRecoveryRequired => "provider_setup_recovery_required",
             Self::WorkflowCatalogUnavailable => "workflow_catalog_unavailable",
-            Self::ProvisioningProfilesUnavailable => "provisioning_profiles_unavailable",
-            Self::EndpointProfilesUnavailable => "endpoint_profiles_unavailable",
             Self::WorkspaceCatalogUnavailable => "workspace_catalog_unavailable",
             Self::WorkspaceCatalogStorageUnavailable => "workspace_catalog_storage_unavailable",
             Self::WorkspaceCatalogMigrationFailed => "workspace_catalog_migration_failed",
@@ -69,9 +62,6 @@ impl NativeCommandErrorCode {
             Self::PlacementDatacenterRequired => "placement_datacenter_required",
             Self::PlacementGpuRequired => "placement_gpu_required",
             Self::WorkflowPresetStale => "workflow_preset_stale",
-            Self::ProvisioningProfileStale => "provisioning_profile_stale",
-            Self::EndpointProfileStale => "endpoint_profile_stale",
-            Self::EndpointProfileIncompatible => "endpoint_profile_incompatible",
             Self::StorageSizeBelowPresetMinimum => "storage_size_below_preset_minimum",
             Self::WorkspaceAlreadyExists => "workspace_already_exists",
             Self::InvalidWorkspaceId => "invalid_workspace_id",
@@ -238,12 +228,6 @@ fn error_code(error: &WorkspaceSetupError) -> NativeCommandErrorCode {
         WorkspaceSetupError::WorkflowCatalogUnavailable => {
             NativeCommandErrorCode::WorkflowCatalogUnavailable
         }
-        WorkspaceSetupError::ProvisioningProfilesUnavailable => {
-            NativeCommandErrorCode::ProvisioningProfilesUnavailable
-        }
-        WorkspaceSetupError::EndpointProfilesUnavailable => {
-            NativeCommandErrorCode::EndpointProfilesUnavailable
-        }
         WorkspaceSetupError::WorkspaceCatalogUnavailable => {
             NativeCommandErrorCode::WorkspaceCatalogUnavailable
         }
@@ -270,13 +254,6 @@ fn error_code(error: &WorkspaceSetupError) -> NativeCommandErrorCode {
         }
         WorkspaceSetupError::PlacementGpuRequired => NativeCommandErrorCode::PlacementGpuRequired,
         WorkspaceSetupError::WorkflowPresetStale => NativeCommandErrorCode::WorkflowPresetStale,
-        WorkspaceSetupError::ProvisioningProfileStale => {
-            NativeCommandErrorCode::ProvisioningProfileStale
-        }
-        WorkspaceSetupError::EndpointProfileStale => NativeCommandErrorCode::EndpointProfileStale,
-        WorkspaceSetupError::EndpointProfileIncompatible => {
-            NativeCommandErrorCode::EndpointProfileIncompatible
-        }
         WorkspaceSetupError::StorageSizeBelowPresetMinimum => {
             NativeCommandErrorCode::StorageSizeBelowPresetMinimum
         }
@@ -313,10 +290,6 @@ fn error_message(error: &WorkspaceSetupError) -> &'static str {
         WorkspaceSetupError::ProviderInventoryInvalid => "Provider inventory is invalid.",
         WorkspaceSetupError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
         WorkspaceSetupError::WorkflowCatalogUnavailable => "Workflow catalog is unavailable.",
-        WorkspaceSetupError::ProvisioningProfilesUnavailable => {
-            "Provisioning profiles are unavailable."
-        }
-        WorkspaceSetupError::EndpointProfilesUnavailable => "Endpoint profiles are unavailable.",
         WorkspaceSetupError::WorkspaceCatalogUnavailable => "Workspace catalog is unavailable.",
         WorkspaceSetupError::WorkspaceCatalogStorageUnavailable => {
             "Workspace catalog storage is unavailable."
@@ -333,11 +306,6 @@ fn error_message(error: &WorkspaceSetupError) -> &'static str {
         WorkspaceSetupError::PlacementDatacenterRequired => "Placement datacenter is required.",
         WorkspaceSetupError::PlacementGpuRequired => "Placement GPU is required.",
         WorkspaceSetupError::WorkflowPresetStale => "Workflow preset selection is stale.",
-        WorkspaceSetupError::ProvisioningProfileStale => "Provisioning profile selection is stale.",
-        WorkspaceSetupError::EndpointProfileStale => "Endpoint profile selection is stale.",
-        WorkspaceSetupError::EndpointProfileIncompatible => {
-            "Endpoint profile is incompatible with the selected workflow."
-        }
         WorkspaceSetupError::StorageSizeBelowPresetMinimum => {
             "Storage size is below the selected preset minimum."
         }
@@ -357,9 +325,6 @@ fn error_field(error: &WorkspaceSetupError) -> Option<&'static str> {
         WorkspaceSetupError::PlacementDatacenterRequired => Some("selected_datacenter_id"),
         WorkspaceSetupError::PlacementGpuRequired => Some("selected_gpu_id"),
         WorkspaceSetupError::WorkflowPresetStale => Some("selected_workflow_preset"),
-        WorkspaceSetupError::ProvisioningProfileStale => Some("selected_provisioning_profile"),
-        WorkspaceSetupError::EndpointProfileStale
-        | WorkspaceSetupError::EndpointProfileIncompatible => Some("selected_endpoint_profile"),
         WorkspaceSetupError::StorageSizeBelowPresetMinimum => {
             Some("persistent_storage_volume_size_bytes")
         }
@@ -377,10 +342,6 @@ fn error_reason(error: &WorkspaceSetupError) -> Option<&'static str> {
         WorkspaceSetupError::ProviderInventoryInvalid => Some("provider_inventory_invalid"),
         WorkspaceSetupError::SecureKeyringUnavailable => Some("secure_keyring_unavailable"),
         WorkspaceSetupError::WorkflowCatalogUnavailable => Some("workflow_catalog_unavailable"),
-        WorkspaceSetupError::ProvisioningProfilesUnavailable => {
-            Some("provisioning_profiles_unavailable")
-        }
-        WorkspaceSetupError::EndpointProfilesUnavailable => Some("endpoint_profiles_unavailable"),
         WorkspaceSetupError::WorkspaceCatalogUnavailable => Some("workspace_catalog_unavailable"),
         WorkspaceSetupError::WorkspaceCatalogStorageUnavailable => {
             Some("workspace_catalog_storage_unavailable")
@@ -397,9 +358,6 @@ fn error_reason(error: &WorkspaceSetupError) -> Option<&'static str> {
         WorkspaceSetupError::PlacementDatacenterRequired => Some("missing_required_value"),
         WorkspaceSetupError::PlacementGpuRequired => Some("missing_required_value"),
         WorkspaceSetupError::WorkflowPresetStale => Some("stale_catalog_object"),
-        WorkspaceSetupError::ProvisioningProfileStale => Some("stale_catalog_object"),
-        WorkspaceSetupError::EndpointProfileStale => Some("stale_catalog_object"),
-        WorkspaceSetupError::EndpointProfileIncompatible => Some("incompatible_selection"),
         WorkspaceSetupError::StorageSizeBelowPresetMinimum => Some("below_minimum"),
         WorkspaceSetupError::WorkspaceAlreadyExists => Some("workspace_already_exists"),
         WorkspaceSetupError::InvalidWorkspaceId => Some("invalid_uuid"),
@@ -420,12 +378,7 @@ fn error_recovery_action(error: &WorkspaceSetupError) -> Option<&'static str> {
         | WorkspaceSetupError::WorkspaceCatalogMigrationFailed
         | WorkspaceSetupError::WorkspaceCatalogQueryFailed => Some("retry"),
         WorkspaceSetupError::WorkflowCatalogUnavailable
-        | WorkspaceSetupError::ProvisioningProfilesUnavailable
-        | WorkspaceSetupError::EndpointProfilesUnavailable
-        | WorkspaceSetupError::WorkflowPresetStale
-        | WorkspaceSetupError::ProvisioningProfileStale
-        | WorkspaceSetupError::EndpointProfileStale
-        | WorkspaceSetupError::EndpointProfileIncompatible => Some("reload_catalogs"),
+        | WorkspaceSetupError::WorkflowPresetStale => Some("reload_workflow_presets"),
         WorkspaceSetupError::ProviderResponseInvalid
         | WorkspaceSetupError::ProviderInventoryInvalid => Some("retry_provider_inventory"),
         WorkspaceSetupError::WorkspaceCatalogCorrupt
@@ -652,23 +605,7 @@ mod tests {
                 NativeCommandErrorCode::WorkflowCatalogUnavailable,
                 None,
                 Some("workflow_catalog_unavailable"),
-                Some("reload_catalogs"),
-                false,
-            ),
-            (
-                WorkspaceSetupError::ProvisioningProfilesUnavailable,
-                NativeCommandErrorCode::ProvisioningProfilesUnavailable,
-                None,
-                Some("provisioning_profiles_unavailable"),
-                Some("reload_catalogs"),
-                false,
-            ),
-            (
-                WorkspaceSetupError::EndpointProfilesUnavailable,
-                NativeCommandErrorCode::EndpointProfilesUnavailable,
-                None,
-                Some("endpoint_profiles_unavailable"),
-                Some("reload_catalogs"),
+                Some("reload_workflow_presets"),
                 false,
             ),
             (
@@ -748,31 +685,7 @@ mod tests {
                 NativeCommandErrorCode::WorkflowPresetStale,
                 Some("selected_workflow_preset"),
                 Some("stale_catalog_object"),
-                Some("reload_catalogs"),
-                false,
-            ),
-            (
-                WorkspaceSetupError::ProvisioningProfileStale,
-                NativeCommandErrorCode::ProvisioningProfileStale,
-                Some("selected_provisioning_profile"),
-                Some("stale_catalog_object"),
-                Some("reload_catalogs"),
-                false,
-            ),
-            (
-                WorkspaceSetupError::EndpointProfileStale,
-                NativeCommandErrorCode::EndpointProfileStale,
-                Some("selected_endpoint_profile"),
-                Some("stale_catalog_object"),
-                Some("reload_catalogs"),
-                false,
-            ),
-            (
-                WorkspaceSetupError::EndpointProfileIncompatible,
-                NativeCommandErrorCode::EndpointProfileIncompatible,
-                Some("selected_endpoint_profile"),
-                Some("incompatible_selection"),
-                Some("reload_catalogs"),
+                Some("reload_workflow_presets"),
                 false,
             ),
             (

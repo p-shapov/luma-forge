@@ -35,10 +35,11 @@ Provision one saved `Draft` Workspace into a `Ready` Workspace by creating requi
 ## Preconditions
 
 - Workspace Setup completed and persisted a complete `Draft` Workspace.
-- Workspace contains a valid Placement Plan with selected GPU, data center, Persistent Storage Volume size, Provisioning Profile, and Endpoint Profile.
+- Workspace contains a valid Placement Plan with selected GPU, data center, Persistent Storage Volume size, and selected Workflow Preset.
 - GPU Cloud Provider Setup is complete.
 - Provider API Key exists in the secure keyring.
 - Native Layer can read and write the Workspace Catalog.
+- Native app was built with non-empty standardized Provisioner Worker and Endpoint Worker image refs and ports available through build-time Native configuration.
 
 ## Main Flow
 
@@ -209,7 +210,5 @@ Unexpected failures are cleanup-first: Native Layer preserves known identifiers 
 - [Serverless Endpoint](../ubiquitous-language/serverless-endpoint.md)
 - [Provisioner Worker](../ubiquitous-language/provisioner-worker.md)
 - [Endpoint Worker](../ubiquitous-language/endpoint-worker.md)
-- [Provisioning Profile](../ubiquitous-language/provisioning-profile.md)
-- [Endpoint Profile](../ubiquitous-language/endpoint-profile.md)
 - [Health Check](../ubiquitous-language/health-check.md)
 - [Workspace Resource Cleanup](../ubiquitous-language/workspace-resource-cleanup.md)

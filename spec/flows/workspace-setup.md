@@ -7,9 +7,9 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 ## Scope
 
 - Reads the Workflow Catalog and exposes selectable Workflow Presets to Client (React).
-- Uses the selected Workflow Preset to derive the required base Persistent Storage Volume size and Endpoint Profile.
+- Uses the selected Workflow Preset to derive the required base Persistent Storage Volume size.
 - Uses the selected GPU Cloud Provider and live provider inventory to help the Client configure one Placement Plan.
-- Validates the local provider key prerequisite, Workflow Preset existence, Placement Plan completeness, Workflow Preset compatibility, Provisioning Profile availability, and Endpoint Profile availability before persisting Workspace metadata.
+- Validates the local provider key prerequisite, Workflow Preset existence, Placement Plan completeness, and Workflow Preset compatibility before persisting Workspace metadata.
 - Persists one Workspace Catalog entry with a client-generated stable Workspace UUID and lifecycle state `Draft`.
 
 ## Non-goals
@@ -35,7 +35,8 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 ## Preconditions
 
 - GPU Cloud Provider Setup has completed and can be used by this Workspace Setup attempt.
-- Native Layer (Rust / Tauri) can read provider setup status, the secure keyring, the Workflow Catalog, Provisioning Profiles, Endpoint Profiles, and the Workspace Catalog.
+- Native Layer (Rust / Tauri) can read provider setup status, the secure keyring, the Workflow Catalog, and the Workspace Catalog.
+- The native app was built with non-empty standardized worker image refs and ports available through build-time Native configuration.
 - The Workflow Catalog contains at least one Workflow Preset supported by the current application build.
 - The Provider can report data centers and GPU availability.
 
@@ -49,21 +50,19 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
    Requests setup data:
    - provider setup status
    - selectable Workflow Presets
-   - local Endpoint Profiles
-   - local Provisioning Profiles
    Result: Native Layer receives a read-only setup request.
 
 3. Native Layer (Rust / Tauri) -> local application state
-   Reads provider setup status, secure keyring key presence, Workflow Catalog, Endpoint Profiles, and Provisioning Profiles.
-   Result: Native Layer determines setup completeness, selectable Workflow Presets, and available profiles.
+   Reads provider setup status, secure keyring key presence, and Workflow Catalog.
+   Result: Native Layer determines setup completeness and selectable Workflow Presets.
 
 4. Native Layer (Rust / Tauri) -> Client (React)
-   Returns redacted provider status, selectable Workflow Presets, Endpoint Profiles, and Provisioning Profiles.
+   Returns redacted provider status and selectable Workflow Presets.
    Result: Client can render Workflow Preset choices.
 
 5. User -> Client (React)
    Selects one Workflow Preset.
-   Result: Client chooses matching Provisioning and Endpoint Profiles and stores them with the selected Workflow Preset in temporary Workspace Setup state.
+   Result: Client stores the selected Workflow Preset in temporary Workspace Setup state.
 
 ---
 
@@ -91,7 +90,6 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
     - data center is selected
     - GPU is selected and belongs to the selected data center according to the latest placement options observed by the Client
     - Workflow Preset is selected
-    - Endpoint and Provisioning Profiles are selected
     - optional additional Persistent Storage Volume size is non-negative
     - final requested Persistent Storage Volume size satisfies the selected Workflow Preset minimum
     Result: Client blocks confirmation until the Placement Plan is complete.
@@ -107,8 +105,6 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
     - client-generated Workspace UUID
     - selected GPU Cloud Provider identifier
     - selected Workflow Preset identifier
-    - selected Provisioning Profile identifier
-    - selected Endpoint Profile identifier
     - configured Placement Plan
     Result: Native Layer receives the complete Workspace Setup request.
 
@@ -135,7 +131,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
 
 - One complete Workspace Catalog entry exists and is owned by Native Layer (Rust / Tauri).
 - The Workspace has a stable client-generated Workspace UUID.
-- The Workspace references exactly one GPU Cloud Provider, selected Workflow Preset, configured Placement Plan, Provisioning Profile, and Endpoint Profile.
+- The Workspace references exactly one GPU Cloud Provider, selected Workflow Preset, and configured Placement Plan.
 - The Workspace lifecycle state is `Draft`.
 - Persistent Storage Volume, active Provisioning Pod, and Serverless Endpoint snapshots are present and empty.
 - Existing unrelated Workspace Catalog entries are unchanged.
@@ -169,7 +165,7 @@ Create one local `Draft` Workspace Catalog entry from one selected Workflow Pres
   - Mutation guarantee: no Workspace Catalog mutation.
   - Client behavior: shows network error and allows retry.
 - Invalid Placement Plan configuration
-  - Native behavior: rejects Workspace creation before persistence when the plan is incomplete, references stale catalog objects, uses incompatible Workflow Preset / Provisioning Profile / Endpoint Profile combinations, or requests insufficient Persistent Storage Volume size.
+  - Native behavior: rejects Workspace creation before persistence when the plan is incomplete, references stale Workflow Preset data, or requests insufficient Persistent Storage Volume size.
   - Mutation guarantee: no Workspace Catalog mutation.
   - Client behavior: clears or marks temporary Placement Plan invalid and requires reselection.
 - Duplicate request with the same Workspace UUID
@@ -212,8 +208,6 @@ Partial or corrupt Workspace metadata must not be treated as `Ready` or used for
 - [Provisioning Pod](../ubiquitous-language/provisioning-pod.md)
 - [Serverless Endpoint](../ubiquitous-language/serverless-endpoint.md)
 - [Custom Nodes](../ubiquitous-language/custom-nodes.md)
-- [Provisioning Profile](../ubiquitous-language/provisioning-profile.md)
-- [Endpoint Profile](../ubiquitous-language/endpoint-profile.md)
 - [Endpoint Worker](../ubiquitous-language/endpoint-worker.md)
 - [Health Check](../ubiquitous-language/health-check.md)
 - [Workspace](../ubiquitous-language/workspace.md)

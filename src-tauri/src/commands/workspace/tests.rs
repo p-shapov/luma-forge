@@ -1,6 +1,6 @@
 use crate::{
     domain::{
-        placement as domain_placement, profiles as domain_profiles,
+        placement as domain_placement,
         provider_setup::GpuCloudProviderId as DomainGpuCloudProviderId,
         workflow as domain_workflow, workspace as domain_workspace,
     },
@@ -38,56 +38,6 @@ fn command_placement_plan() -> domain_placement::PlacementPlan {
             },
             required_model_assets: vec![],
             required_custom_nodes: vec![],
-        },
-        selected_provisioning_profile: domain_profiles::ProvisioningProfile::Runpod {
-            id: "provisioning".to_string(),
-            version: "1".to_string(),
-            name: "Provisioning".to_string(),
-            provisioner_worker_runtime: domain_profiles::ProvisionerWorkerRuntime {
-                provisioner_version: "1".to_string(),
-                docker_image_ref: "ghcr.io/luma-forge/provisioner:1".to_string(),
-                volume_mount_path: "/workspace".to_string(),
-                container_disk_bytes: 1,
-                compute_type: domain_profiles::ProvisioningComputeType::Pod,
-                status_endpoint: domain_profiles::ProvisioningStatusEndpoint {
-                    port: 8080,
-                    protocol: "http".to_string(),
-                    status_path: "/status".to_string(),
-                },
-            },
-            gpu_cloud_provider_config: domain_profiles::RunPodProvisioningProfileConfig {
-                cloud_type: None,
-                pod_template_id: None,
-                network_volume_mount_path: "/workspace".to_string(),
-                expose_http_ports: vec![8080],
-                env: None,
-            },
-        },
-        selected_endpoint_profile: domain_profiles::EndpointProfile::Runpod {
-            id: "endpoint".to_string(),
-            version: "1".to_string(),
-            name: "Endpoint".to_string(),
-            workflow_execution_type: domain_workflow::WorkflowExecutionType::T2i,
-            endpoint_worker_runtime: domain_profiles::EndpointWorkerRuntime {
-                endpoint_worker_version: "1".to_string(),
-                docker_image_ref: "ghcr.io/luma-forge/endpoint:1".to_string(),
-                http_port: 8080,
-                health_path: "/health".to_string(),
-                invoke_path: "/invoke".to_string(),
-            },
-            gpu_cloud_provider_config: domain_profiles::RunPodEndpointProfileConfig {
-                endpoint_template_id: None,
-                container_disk_bytes: 1,
-                volume_mount_path: "/workspace".to_string(),
-                env: None,
-                scaling: domain_profiles::RunPodServerlessScalingConfig {
-                    min_workers: 0,
-                    max_workers: 1,
-                    idle_timeout_seconds: 60,
-                    scaler_type: None,
-                    scaler_value: None,
-                },
-            },
         },
     }
 }

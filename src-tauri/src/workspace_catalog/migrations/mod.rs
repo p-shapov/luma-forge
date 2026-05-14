@@ -1,55 +1,19 @@
 use sqlx::{Row, SqliteTransaction};
 
-use crate::{
-    domain::{
-        profiles::{EndpointProfile, ProvisioningProfile},
-        workflow::WorkflowCatalog,
-    },
-    workspace_setup::error::WorkspaceSetupError,
-};
-
-mod v0001_legacy_workspace_json;
-
-#[cfg(test)]
-pub(crate) mod tests;
+use crate::workspace_setup::error::WorkspaceSetupError;
 
 pub(crate) const CURRENT_PERSISTENCE_VERSION: i64 = 1;
 pub(crate) const PERSISTENCE_VERSION_KEY: &str = "persistence_version";
 
-#[derive(Debug, Clone)]
-pub struct WorkspaceCatalogMigrationSource {
-    pub(super) workflow_catalog: WorkflowCatalog,
-    pub(super) provisioning_profiles: Vec<ProvisioningProfile>,
-    pub(super) endpoint_profiles: Vec<EndpointProfile>,
-}
-
-impl WorkspaceCatalogMigrationSource {
-    pub fn new(
-        workflow_catalog: WorkflowCatalog,
-        provisioning_profiles: Vec<ProvisioningProfile>,
-        endpoint_profiles: Vec<EndpointProfile>,
-    ) -> Self {
-        Self {
-            workflow_catalog,
-            provisioning_profiles,
-            endpoint_profiles,
-        }
-    }
-}
-
 pub(super) async fn run(
     transaction: &mut SqliteTransaction<'_>,
-    migration_source: &WorkspaceCatalogMigrationSource,
 ) -> Result<(), WorkspaceSetupError> {
     create_schema(transaction).await?;
     let version = persistence_version(transaction).await?;
     if version > CURRENT_PERSISTENCE_VERSION {
         return Err(WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     }
-    if version < CURRENT_PERSISTENCE_VERSION {
-        v0001_legacy_workspace_json::migrate(transaction, migration_source).await?;
-        set_persistence_version(transaction, CURRENT_PERSISTENCE_VERSION).await?;
-    }
+    set_persistence_version(transaction, CURRENT_PERSISTENCE_VERSION).await?;
 
     Ok(())
 }

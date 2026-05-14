@@ -1,11 +1,6 @@
 use crate::{
     bundled_catalog::error::BundledCatalogError,
-    domain::{
-        profiles::validator::{validate_endpoint_profiles, validate_provisioning_profiles},
-        profiles::{EndpointProfile, ProvisioningProfile},
-        workflow::validator::validate_workflow_catalog,
-        workflow::WorkflowCatalog,
-    },
+    domain::{workflow::validator::validate_workflow_catalog, workflow::WorkflowCatalog},
 };
 
 pub(super) fn parse_workflow_catalog(value: &str) -> Result<WorkflowCatalog, BundledCatalogError> {
@@ -13,22 +8,4 @@ pub(super) fn parse_workflow_catalog(value: &str) -> Result<WorkflowCatalog, Bun
         serde_json::from_str(value).map_err(|_| BundledCatalogError::ParseFailed)?;
     validate_workflow_catalog(&catalog).map_err(|_| BundledCatalogError::ValidationFailed)?;
     Ok(catalog)
-}
-
-pub(super) fn parse_provisioning_profiles(
-    value: &str,
-) -> Result<Vec<ProvisioningProfile>, BundledCatalogError> {
-    let profiles: Vec<ProvisioningProfile> =
-        serde_json::from_str(value).map_err(|_| BundledCatalogError::ParseFailed)?;
-    validate_provisioning_profiles(&profiles).map_err(|_| BundledCatalogError::ValidationFailed)?;
-    Ok(profiles)
-}
-
-pub(super) fn parse_endpoint_profiles(
-    value: &str,
-) -> Result<Vec<EndpointProfile>, BundledCatalogError> {
-    let profiles: Vec<EndpointProfile> =
-        serde_json::from_str(value).map_err(|_| BundledCatalogError::ParseFailed)?;
-    validate_endpoint_profiles(&profiles).map_err(|_| BundledCatalogError::ValidationFailed)?;
-    Ok(profiles)
 }

@@ -21,10 +21,6 @@ pub enum WorkspaceSetupError {
     SecureKeyringUnavailable,
     #[error("workflow catalog unavailable")]
     WorkflowCatalogUnavailable,
-    #[error("provisioning profiles unavailable")]
-    ProvisioningProfilesUnavailable,
-    #[error("endpoint profiles unavailable")]
-    EndpointProfilesUnavailable,
     #[error("workspace catalog unavailable")]
     WorkspaceCatalogUnavailable,
     #[error("workspace catalog storage unavailable")]
@@ -45,12 +41,6 @@ pub enum WorkspaceSetupError {
     PlacementGpuRequired,
     #[error("workflow preset stale")]
     WorkflowPresetStale,
-    #[error("provisioning profile stale")]
-    ProvisioningProfileStale,
-    #[error("endpoint profile stale")]
-    EndpointProfileStale,
-    #[error("endpoint profile incompatible")]
-    EndpointProfileIncompatible,
     #[error("storage size below preset minimum")]
     StorageSizeBelowPresetMinimum,
     #[error("workspace already exists")]
@@ -79,11 +69,6 @@ impl From<PlacementValidationError> for WorkspaceSetupError {
             PlacementValidationError::DatacenterRequired => Self::PlacementDatacenterRequired,
             PlacementValidationError::GpuRequired => Self::PlacementGpuRequired,
             PlacementValidationError::WorkflowPresetStale => Self::WorkflowPresetStale,
-            PlacementValidationError::ProvisioningProfileStale => Self::ProvisioningProfileStale,
-            PlacementValidationError::EndpointProfileStale => Self::EndpointProfileStale,
-            PlacementValidationError::EndpointProfileIncompatible => {
-                Self::EndpointProfileIncompatible
-            }
             PlacementValidationError::StorageSizeBelowPresetMinimum => {
                 Self::StorageSizeBelowPresetMinimum
             }

@@ -47,7 +47,6 @@ pub struct ProvisioningPodSnapshot {
     pub datacenter_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub selected_gpu_id: String,
-    pub provisioning_profile_id: String,
     pub provisioner_status_url: String,
 }
 
@@ -58,7 +57,6 @@ pub struct ServerlessEndpointSnapshot {
     pub datacenter_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub selected_gpu_id: String,
-    pub endpoint_profile_id: String,
     pub endpoint_invoke_url: String,
 }
 

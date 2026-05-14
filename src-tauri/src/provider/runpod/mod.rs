@@ -18,6 +18,7 @@ use mapper::{identity_from_graphql_response, inventory_from_graphql_response};
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
 const RUNPOD_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const RUNPOD_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+
 const IDENTITY_QUERY: &str = r#"
 query LumaForgeProviderIdentity {
   myself {

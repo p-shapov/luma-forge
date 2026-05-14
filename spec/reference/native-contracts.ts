@@ -1,9 +1,7 @@
-import type { EndpointProfile } from "./entities/endpoint-profile";
 import type { GpuCloudProviderId, GpuCloudProviderSetup } from "./entities/provider-setup";
 import type { PlacementPlan } from "./entities/placement-plan";
 import type { ProviderInventory } from "./entities/provider-inventory";
 import type { WorkspaceProvisioningProgress } from "./entities/workspace-provisioning-progress";
-import type { ProvisioningProfile } from "./entities/provisioning-profile";
 import type { WorkflowCatalog } from "./entities/workflow-catalog";
 import type { Workspace } from "./entities/workspace";
 import type { WorkspaceCatalog } from "./entities/workspace-catalog";
@@ -23,8 +21,6 @@ export type NativeCommandErrorCode =
   | "secure_keyring_unavailable"
   | "provider_setup_recovery_required"
   | "workflow_catalog_unavailable"
-  | "provisioning_profiles_unavailable"
-  | "endpoint_profiles_unavailable"
   | "workspace_catalog_unavailable"
   | "workspace_catalog_storage_unavailable"
   | "workspace_catalog_migration_failed"
@@ -35,9 +31,6 @@ export type NativeCommandErrorCode =
   | "placement_datacenter_required"
   | "placement_gpu_required"
   | "workflow_preset_stale"
-  | "provisioning_profile_stale"
-  | "endpoint_profile_stale"
-  | "endpoint_profile_incompatible"
   | "storage_size_below_preset_minimum"
   | "workspace_already_exists"
   | "invalid_workspace_id"
@@ -84,14 +77,6 @@ export type GetWorkflowCatalogResponse = {
 
 export type GetWorkspaceCatalogResponse = {
   workspace_catalog: WorkspaceCatalog;
-}
-
-export type GetProvisioningProfilesResponse = {
-  provisioning_profiles: ProvisioningProfile[];
-}
-
-export type GetEndpointProfilesResponse = {
-  endpoint_profiles: EndpointProfile[];
 }
 
 export type GetProviderInventoryRequest = {
@@ -156,10 +141,6 @@ export type NativeCommandApi = {
   get_workflow_catalog(): NativeCommandResult<GetWorkflowCatalogResponse>;
 
   get_workspace_catalog(): NativeCommandResult<GetWorkspaceCatalogResponse>;
-
-  get_provisioning_profiles(): NativeCommandResult<GetProvisioningProfilesResponse>;
-
-  get_endpoint_profiles(): NativeCommandResult<GetEndpointProfilesResponse>;
 
   get_provider_inventory(
     request: GetProviderInventoryRequest,
