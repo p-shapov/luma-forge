@@ -41,6 +41,46 @@ pub enum NativeCommandErrorCode {
     InvalidWorkspaceMetadata,
 }
 
+impl NativeCommandErrorCode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ProviderSetupIncomplete => "provider_setup_incomplete",
+            Self::ProviderSetupNotFound => "provider_setup_not_found",
+            Self::ProviderSetupAlreadyExists => "provider_setup_already_exists",
+            Self::ProviderApiKeyRequired => "provider_api_key_required",
+            Self::ProviderApiKeyUnauthorized => "provider_api_key_unauthorized",
+            Self::StoredProviderApiKeyInvalid => "stored_provider_api_key_invalid",
+            Self::ProviderApiUnavailable => "provider_api_unavailable",
+            Self::ProviderResponseInvalid => "provider_response_invalid",
+            Self::ProviderInventoryInvalid => "provider_inventory_invalid",
+            Self::ProviderIdentityResponseInvalid => "provider_identity_response_invalid",
+            Self::SecureKeyringUnavailable => "secure_keyring_unavailable",
+            Self::ProviderSetupRecoveryRequired => "provider_setup_recovery_required",
+            Self::WorkflowCatalogUnavailable => "workflow_catalog_unavailable",
+            Self::ProvisioningProfilesUnavailable => "provisioning_profiles_unavailable",
+            Self::EndpointProfilesUnavailable => "endpoint_profiles_unavailable",
+            Self::WorkspaceCatalogUnavailable => "workspace_catalog_unavailable",
+            Self::WorkspaceCatalogStorageUnavailable => "workspace_catalog_storage_unavailable",
+            Self::WorkspaceCatalogMigrationFailed => "workspace_catalog_migration_failed",
+            Self::WorkspaceCatalogQueryFailed => "workspace_catalog_query_failed",
+            Self::WorkspaceCatalogCorrupt => "workspace_catalog_corrupt",
+            Self::WorkspaceCatalogSchemaMismatch => "workspace_catalog_schema_mismatch",
+            Self::PlacementProviderMismatch => "placement_provider_mismatch",
+            Self::PlacementDatacenterRequired => "placement_datacenter_required",
+            Self::PlacementGpuRequired => "placement_gpu_required",
+            Self::WorkflowPresetStale => "workflow_preset_stale",
+            Self::ProvisioningProfileStale => "provisioning_profile_stale",
+            Self::EndpointProfileStale => "endpoint_profile_stale",
+            Self::EndpointProfileIncompatible => "endpoint_profile_incompatible",
+            Self::StorageSizeBelowPresetMinimum => "storage_size_below_preset_minimum",
+            Self::WorkspaceAlreadyExists => "workspace_already_exists",
+            Self::InvalidWorkspaceId => "invalid_workspace_id",
+            Self::WorkspaceNameRequired => "workspace_name_required",
+            Self::InvalidWorkspaceMetadata => "invalid_workspace_metadata",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct NativeCommandError {
     pub code: NativeCommandErrorCode,

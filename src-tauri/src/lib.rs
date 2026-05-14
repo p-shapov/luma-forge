@@ -10,6 +10,8 @@ mod workspace_setup;
 
 use tauri::Manager;
 
+const NATIVE_LOG_TARGET_PREFIX: &str = "luma_forge_lib";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = commands::builder();
@@ -17,7 +19,23 @@ pub fn run() {
     #[cfg(debug_assertions)]
     commands::export_typescript_bindings(&builder);
 
-    let mut app_builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let mut app_builder = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .clear_targets()
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::Stdout,
+                ))
+                .target(tauri_plugin_log::Target::new(
+                    tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("native".to_string()),
+                    },
+                ))
+                .level(log::LevelFilter::Info)
+                .filter(|metadata| metadata.target().starts_with(NATIVE_LOG_TARGET_PREFIX))
+                .build(),
+        )
+        .plugin(tauri_plugin_opener::init());
 
     #[cfg(debug_assertions)]
     {

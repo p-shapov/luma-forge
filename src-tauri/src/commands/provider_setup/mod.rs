@@ -1,6 +1,9 @@
 pub(super) mod contracts;
 
-use crate::{app_state::NativeAppState, domain::provider_setup::ProviderApiKey, provider_setup};
+use crate::{
+    app_state::NativeAppState, commands::logging::CommandLog,
+    domain::provider_setup::ProviderApiKey, provider_setup,
+};
 
 use crate::commands::CommandResult;
 use contracts::{
@@ -17,14 +20,18 @@ pub(crate) async fn get_gpu_cloud_provider_setup(
     app_state: State<'_, NativeAppState>,
 ) -> CommandResult<GetGpuCloudProviderSetupResponse> {
     let provider_id = request.gpu_cloud_provider_id;
-    app_state
+    let command_log = CommandLog::new("get_gpu_cloud_provider_setup")
+        .with_provider_id(provider_id.as_str())
+        .start();
+    let result = app_state
         .provider_setup_service()
         .get_setup(provider_id)
         .await
         .map(|setup| GetGpuCloudProviderSetupResponse {
             gpu_cloud_provider_setup: setup,
         })
-        .map_err(Into::into)
+        .map_err(Into::into);
+    command_log.finish(result)
 }
 
 #[tauri::command]
@@ -34,21 +41,28 @@ pub(crate) async fn setup_gpu_cloud_provider(
     app_state: State<'_, NativeAppState>,
 ) -> CommandResult<SetupGpuCloudProviderResponse> {
     let provider_id = request.gpu_cloud_provider_id;
-    let api_key = ProviderApiKey::new(request.provider_api_key)
-        .map_err(|_| provider_setup::ProviderSetupError::ProviderApiKeyRequired)?;
-    let _guard = app_state
-        .provider_setup_coordinator()
-        .lock(&provider_id)
-        .await;
+    let command_log = CommandLog::new("setup_gpu_cloud_provider")
+        .with_provider_id(provider_id.as_str())
+        .start();
+    let result = async {
+        let api_key = ProviderApiKey::new(request.provider_api_key)
+            .map_err(|_| provider_setup::ProviderSetupError::ProviderApiKeyRequired)?;
+        let _guard = app_state
+            .provider_setup_coordinator()
+            .lock(&provider_id)
+            .await;
 
-    app_state
-        .provider_setup_service()
-        .setup(provider_id, api_key)
-        .await
-        .map(|setup| SetupGpuCloudProviderResponse {
-            gpu_cloud_provider_setup: setup,
-        })
-        .map_err(Into::into)
+        app_state
+            .provider_setup_service()
+            .setup(provider_id, api_key)
+            .await
+            .map(|setup| SetupGpuCloudProviderResponse {
+                gpu_cloud_provider_setup: setup,
+            })
+            .map_err(Into::into)
+    }
+    .await;
+    command_log.finish(result)
 }
 
 #[tauri::command]
@@ -58,16 +72,23 @@ pub(crate) async fn delete_gpu_cloud_provider_setup(
     app_state: State<'_, NativeAppState>,
 ) -> CommandResult<DeleteGpuCloudProviderSetupResponse> {
     let provider_id = request.gpu_cloud_provider_id;
-    let _guard = app_state
-        .provider_setup_coordinator()
-        .lock(&provider_id)
-        .await;
+    let command_log = CommandLog::new("delete_gpu_cloud_provider_setup")
+        .with_provider_id(provider_id.as_str())
+        .start();
+    let result = async {
+        let _guard = app_state
+            .provider_setup_coordinator()
+            .lock(&provider_id)
+            .await;
 
-    app_state
-        .provider_setup_service()
-        .delete_setup(provider_id)
-        .map(|()| DeleteGpuCloudProviderSetupResponse {
-            gpu_cloud_provider_setup: None,
-        })
-        .map_err(Into::into)
+        app_state
+            .provider_setup_service()
+            .delete_setup(provider_id)
+            .map(|()| DeleteGpuCloudProviderSetupResponse {
+                gpu_cloud_provider_setup: None,
+            })
+            .map_err(Into::into)
+    }
+    .await;
+    command_log.finish(result)
 }
