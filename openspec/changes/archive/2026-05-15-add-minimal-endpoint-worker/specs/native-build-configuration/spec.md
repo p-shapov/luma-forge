@@ -1,8 +1,5 @@
-# native-build-configuration Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change remove-runtime-profiles. Update Purpose after archive.
-## Requirements
 ### Requirement: Parse worker build configuration during native build
 
 The Native build SHALL parse worker configuration during the Tauri native build before producing a native binary, and SHALL expose the parsed values to native code through Cargo build environment output. Provisioner Worker deployment artifacts SHALL remain provider-neutral until a concrete provider requires a different provisioner artifact. Endpoint Worker deployment artifacts SHALL be provider-specific for each endpoint provider supported by the current app build.
@@ -36,13 +33,3 @@ The Native build SHALL parse worker configuration during the Tauri native build 
 - **WHEN** the native build supports one or more endpoint providers
 - **THEN** each supported endpoint provider SHALL have its own Endpoint Worker deployment configuration values
 - **AND** the build MUST NOT expose a provider-neutral Endpoint Worker image ref as the authoritative endpoint deployment artifact
-
-### Requirement: Defer fixed RunPod runtime values until provisioning implementation
-
-RunPod runtime values that are not current product choices SHALL be removed from catalog/profile contracts and deferred until provisioning code introduces provider-owned implementation details.
-
-#### Scenario: RunPod provisioning resources are created
-
-- **WHEN** Native provisioning code needs RunPod cloud type, workspace mount path, or container disk size
-- **THEN** it SHALL introduce those values inside the provider/provisioning implementation boundary
-- **AND** it MUST NOT read these values from Provisioning Profile or Endpoint Profile data

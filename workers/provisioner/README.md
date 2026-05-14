@@ -11,6 +11,20 @@ PYTHONPATH=src python -m provisioner_worker
 
 The worker listens on `127.0.0.1:8000` by default and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
 
+During preparation, ComfyUI and Custom Node Python dependencies are installed into a virtual environment on the mounted workspace volume:
+
+```text
+/workspace/
+  ComfyUI/
+  .venv/
+  .luma-forge/
+    runtime.json
+    pip-freeze.txt
+    install-report.json
+```
+
+The worker must not install ComfyUI runtime dependencies into the ephemeral provisioner container Python environment. The endpoint worker later starts ComfyUI through `/workspace/.venv/bin/python`.
+
 ## Test
 
 ```bash
@@ -29,7 +43,7 @@ PYTHONPATH=src python -m compileall src tests
 
 ```bash
 cd workers/provisioner
-docker build -t luma-forge-provisioner:local .
+docker build -t luma-forge-provisioner:local -f ../Dockerfile --target provisioner ../..
 docker run --rm -p 8000:8000 -v "$PWD/tmp-workspace:/workspace" luma-forge-provisioner:local
 ```
 
@@ -39,6 +53,8 @@ Optional smoke check:
 cd workers/provisioner
 LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python -m unittest tests.test_container_smoke
 ```
+
+Provisioner and endpoint images are built from the shared provider-neutral Dockerfile at `workers/Dockerfile`.
 
 ## Deployment
 

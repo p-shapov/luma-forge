@@ -6,14 +6,14 @@ use parser::{AppConfigParseError, BuildEnvironment, NonEmptyEnvValue};
 
 const PROVISIONER_WORKER_IMAGE_REF_ENV: &str = "LUMA_FORGE_PROVISIONER_WORKER_IMAGE_REF";
 const PROVISIONER_WORKER_PORT_ENV: &str = "LUMA_FORGE_PROVISIONER_WORKER_PORT";
-const ENDPOINT_WORKER_IMAGE_REF_ENV: &str = "LUMA_FORGE_ENDPOINT_WORKER_IMAGE_REF";
-const ENDPOINT_WORKER_PORT_ENV: &str = "LUMA_FORGE_ENDPOINT_WORKER_PORT";
+const RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV: &str = "LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_IMAGE_REF";
+const RUNPOD_ENDPOINT_WORKER_PORT_ENV: &str = "LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT";
 
 pub(crate) struct AppConfig {
     provisioner_worker_image_ref: NonEmptyEnvValue,
     provisioner_worker_port: NonEmptyEnvValue,
-    endpoint_worker_image_ref: NonEmptyEnvValue,
-    endpoint_worker_port: NonEmptyEnvValue,
+    runpod_endpoint_worker_image_ref: NonEmptyEnvValue,
+    runpod_endpoint_worker_port: NonEmptyEnvValue,
 }
 
 impl AppConfig {
@@ -27,16 +27,17 @@ impl AppConfig {
         source.emit_cargo_rerun_instructions(&[
             PROVISIONER_WORKER_IMAGE_REF_ENV,
             PROVISIONER_WORKER_PORT_ENV,
-            ENDPOINT_WORKER_IMAGE_REF_ENV,
-            ENDPOINT_WORKER_PORT_ENV,
+            RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV,
+            RUNPOD_ENDPOINT_WORKER_PORT_ENV,
         ]);
 
         Ok(Self {
             provisioner_worker_image_ref: source
                 .parse_non_empty(PROVISIONER_WORKER_IMAGE_REF_ENV)?,
             provisioner_worker_port: source.parse_non_empty(PROVISIONER_WORKER_PORT_ENV)?,
-            endpoint_worker_image_ref: source.parse_non_empty(ENDPOINT_WORKER_IMAGE_REF_ENV)?,
-            endpoint_worker_port: source.parse_non_empty(ENDPOINT_WORKER_PORT_ENV)?,
+            runpod_endpoint_worker_image_ref: source
+                .parse_non_empty(RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV)?,
+            runpod_endpoint_worker_port: source.parse_non_empty(RUNPOD_ENDPOINT_WORKER_PORT_ENV)?,
         })
     }
 
@@ -50,10 +51,13 @@ impl AppConfig {
             self.provisioner_worker_port.as_str(),
         );
         emit_env(
-            ENDPOINT_WORKER_IMAGE_REF_ENV,
-            self.endpoint_worker_image_ref.as_str(),
+            RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV,
+            self.runpod_endpoint_worker_image_ref.as_str(),
         );
-        emit_env(ENDPOINT_WORKER_PORT_ENV, self.endpoint_worker_port.as_str());
+        emit_env(
+            RUNPOD_ENDPOINT_WORKER_PORT_ENV,
+            self.runpod_endpoint_worker_port.as_str(),
+        );
     }
 }
 

@@ -1,9 +1,12 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+import hashlib
+import json
 from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty
-from subprocess import DEVNULL, STDOUT, Popen, TimeoutExpired
+import string
+from subprocess import DEVNULL, PIPE, STDOUT, Popen, TimeoutExpired
 from threading import Event
 from time import monotonic
 
@@ -18,6 +21,13 @@ from provisioner_worker.errors import (
     WorkerError,
 )
 from provisioner_worker.paths import safe_child_path, safe_custom_node_child_path
+from provisioner_worker.runtime import (
+    build_manifest,
+    load_manifest,
+    runtime_paths,
+    validate_manifest,
+    write_manifest,
+)
 from provisioner_worker.schemas import CustomNode, GitSource, HuggingFaceSource, ModelAsset, StartRequest
 
 ProgressCallback = Callable[[str, int | None, str | None], None]
@@ -67,6 +77,53 @@ class CommandRunner:
         if process.returncode != 0:
             command = " ".join(args[:2])
             raise error_type(f"Command failed: {command}")
+
+    def capture(
+        self,
+        args: list[str],
+        *,
+        cwd: Path | None = None,
+        cancel_event: Event | None = None,
+        timeout_seconds: float | None = None,
+        error_type: type[PreparationError] = PreparationError,
+    ) -> str:
+        try:
+            process = Popen(args, cwd=cwd, stdout=PIPE, stderr=STDOUT, text=True)
+        except OSError as error:
+            command = " ".join(args[:2])
+            raise error_type(f"Command failed: {command}") from error
+
+        deadline = None if timeout_seconds is None else monotonic() + timeout_seconds
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                process.terminate()
+                try:
+                    process.communicate(timeout=5)
+                except TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=5)
+                raise Cancelled()
+            if deadline is not None and monotonic() >= deadline:
+                process.terminate()
+                try:
+                    process.communicate(timeout=5)
+                except TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=5)
+                raise StepTimeoutError("Provisioning step timed out.")
+            communicate_timeout = 0.1
+            if deadline is not None:
+                communicate_timeout = min(communicate_timeout, max(0.0, deadline - monotonic()))
+            try:
+                output, _ = process.communicate(timeout=communicate_timeout)
+                break
+            except TimeoutExpired:
+                continue
+
+        if process.returncode != 0:
+            command = " ".join(args[:2])
+            raise error_type(f"Command failed: {command}")
+        return output
 
 
 @dataclass(frozen=True)
@@ -136,22 +193,55 @@ class Provisioner:
     def prepare(self, request: StartRequest, progress: ProgressCallback, cancel_event: Event) -> None:
         workspace_root = request.workspace_mount_path.resolve(strict=False)
         workspace_root.mkdir(parents=True, exist_ok=True)
-        comfyui_root = workspace_root / "ComfyUI"
+        paths = runtime_paths(workspace_root)
+        comfyui_root = paths.comfyui_root
 
         self._check_cancelled(cancel_event)
         progress("installing_comfyui", 5, "Preparing ComfyUI")
         self._checkout_git(request.workflow_preset.required_comfyui_source, comfyui_root, cancel_event)
 
         self._check_cancelled(cancel_event)
-        progress("installing_comfyui", 25, "Installing ComfyUI dependencies")
-        self._install_requirements(comfyui_root / "requirements.txt", cwd=comfyui_root, cancel_event=cancel_event)
+        progress("installing_comfyui", 20, "Preparing volume Python environment")
+        self._ensure_volume_venv(paths.venv_dir, cancel_event)
 
-        self._install_custom_nodes(request.workflow_preset.required_custom_nodes, comfyui_root, progress, cancel_event)
+        self._check_cancelled(cancel_event)
+        progress("installing_comfyui", 25, "Installing ComfyUI dependencies into volume environment")
+        self._install_requirements(
+            comfyui_root / "requirements.txt",
+            cwd=comfyui_root,
+            python_path=paths.python_path,
+            report_label="comfyui",
+            metadata_dir=paths.metadata_dir,
+            cancel_event=cancel_event,
+        )
+
+        self._install_custom_nodes(
+            request.workflow_preset.required_custom_nodes,
+            comfyui_root,
+            paths.python_path,
+            paths.metadata_dir,
+            progress,
+            cancel_event,
+        )
         self._download_assets(request.workflow_preset.required_model_assets, comfyui_root, progress, cancel_event)
 
         self._check_cancelled(cancel_event)
+        progress("validating_environment", 90, "Recording prepared runtime environment")
+        python_version = self._capture_python_version(paths.python_path, cancel_event)
+        self._write_dependency_records(paths, cancel_event)
+        self._validate_environment(request, paths, include_manifest=False)
+        write_manifest(
+            build_manifest(
+                request=request,
+                paths=paths,
+                python_version=python_version,
+            ),
+            paths.runtime_manifest_path,
+        )
+
+        self._check_cancelled(cancel_event)
         progress("validating_environment", 95, "Validating prepared environment")
-        self._validate_environment(request, comfyui_root)
+        self._validate_environment(request, paths, include_manifest=True)
         progress("validating_environment", 100, "Environment prepared")
 
     def _checkout_git(self, source: GitSource, target: Path, cancel_event: Event) -> None:
@@ -180,10 +270,41 @@ class Provisioner:
             error_type=GitCheckoutError,
         )
 
-    def _install_requirements(self, requirements_path: Path, *, cwd: Path, cancel_event: Event) -> None:
+    def _ensure_volume_venv(self, venv_dir: Path, cancel_event: Event) -> None:
+        if (venv_dir / "bin" / "python").is_file():
+            return
+        venv_dir.parent.mkdir(parents=True, exist_ok=True)
+        self.command_runner.run(
+            ["python", "-m", "venv", str(venv_dir)],
+            cancel_event=cancel_event,
+            timeout_seconds=self.config.dependency_timeout_seconds,
+            error_type=DependencyInstallError,
+        )
+
+    def _install_requirements(
+        self,
+        requirements_path: Path,
+        *,
+        cwd: Path,
+        python_path: Path,
+        report_label: str,
+        metadata_dir: Path,
+        cancel_event: Event,
+    ) -> None:
         if requirements_path.exists():
+            metadata_dir.mkdir(parents=True, exist_ok=True)
+            report_path = _metadata_report_path(metadata_dir, report_label)
             self.command_runner.run(
-                ["python", "-m", "pip", "install", "-r", str(requirements_path)],
+                [
+                    str(python_path),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--report",
+                    str(report_path),
+                    "-r",
+                    str(requirements_path),
+                ],
                 cwd=cwd,
                 cancel_event=cancel_event,
                 timeout_seconds=self.config.dependency_timeout_seconds,
@@ -194,6 +315,8 @@ class Provisioner:
         self,
         custom_nodes: list[CustomNode],
         comfyui_root: Path,
+        python_path: Path,
+        metadata_dir: Path,
         progress: ProgressCallback,
         cancel_event: Event,
     ) -> None:
@@ -215,7 +338,14 @@ class Provisioner:
                     node.install.python_requirements_path.as_posix(),
                     field_name=f"custom_node[{node.id}].install.python_requirements_path",
                 )
-                self._install_requirements(requirements_path, cwd=target, cancel_event=cancel_event)
+                self._install_requirements(
+                    requirements_path,
+                    cwd=target,
+                    python_path=python_path,
+                    report_label=f"custom-node-{node.id}",
+                    metadata_dir=metadata_dir,
+                    cancel_event=cancel_event,
+                )
 
     def _download_assets(
         self,
@@ -239,11 +369,41 @@ class Provisioner:
                 timeout_seconds=self.config.download_timeout_seconds,
             )
 
-    def _validate_environment(self, request: StartRequest, comfyui_root: Path) -> None:
+    def _write_dependency_records(self, paths, cancel_event: Event) -> None:
+        paths.metadata_dir.mkdir(parents=True, exist_ok=True)
+        freeze = self.command_runner.capture(
+            [str(paths.python_path), "-m", "pip", "freeze"],
+            cancel_event=cancel_event,
+            timeout_seconds=self.config.dependency_timeout_seconds,
+            error_type=DependencyInstallError,
+        )
+        paths.pip_freeze_path.write_text(freeze, encoding="utf-8")
+        install_reports = sorted(path.name for path in paths.metadata_dir.glob("*-install-report.json"))
+        paths.install_report_path.write_text(
+            json.dumps({"reports": install_reports}, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _capture_python_version(self, python_path: Path, cancel_event: Event) -> str:
+        return self.command_runner.capture(
+            [str(python_path), "--version"],
+            cancel_event=cancel_event,
+            timeout_seconds=self.config.dependency_timeout_seconds,
+            error_type=DependencyInstallError,
+        ).strip()
+
+    def _validate_environment(self, request: StartRequest, paths, *, include_manifest: bool) -> None:
+        comfyui_root = paths.comfyui_root
         if not comfyui_root.exists() or not comfyui_root.is_dir():
             raise PreparationError("ComfyUI directory is missing")
         if not (comfyui_root / "main.py").is_file():
             raise PreparationError("ComfyUI entrypoint is missing")
+        if not paths.python_path.is_file():
+            raise PreparationError("Volume Python interpreter is missing")
+        if not paths.pip_freeze_path.is_file():
+            raise PreparationError("Dependency freeze record is missing")
+        if not paths.install_report_path.is_file():
+            raise PreparationError("Dependency install report is missing")
 
         for node in request.workflow_preset.required_custom_nodes:
             target = safe_custom_node_child_path(
@@ -262,6 +422,10 @@ class Provisioner:
             )
             if not target.exists() or not target.is_file():
                 raise PreparationError(f"Model asset is missing: {asset.id}")
+
+        if include_manifest:
+            manifest = load_manifest(paths.runtime_manifest_path)
+            validate_manifest(manifest, paths=paths)
 
     def _check_cancelled(self, cancel_event: Event) -> None:
         if cancel_event.is_set():
@@ -355,6 +519,22 @@ def _terminate_process(process) -> None:
     if process.is_alive():
         process.kill()
         process.join(timeout=5)
+
+
+def _metadata_report_path(metadata_dir: Path, report_label: str) -> Path:
+    safe_chars = string.ascii_letters + string.digits + "._-"
+    safe_label = "".join(character if character in safe_chars else "-" for character in report_label).strip(".-_")
+    if safe_label == "":
+        raise DependencyInstallError("Dependency install report label is invalid.")
+    if safe_label != report_label:
+        digest = hashlib.sha256(report_label.encode("utf-8")).hexdigest()[:12]
+        safe_label = f"{safe_label}-{digest}"
+
+    metadata_root = metadata_dir.resolve(strict=False)
+    report_path = (metadata_root / f"{safe_label}-install-report.json").resolve(strict=False)
+    if report_path.parent != metadata_root:
+        raise DependencyInstallError("Dependency install report path is invalid.")
+    return report_path
 
 
 def _is_huggingface_auth_error(error: Exception) -> bool:
