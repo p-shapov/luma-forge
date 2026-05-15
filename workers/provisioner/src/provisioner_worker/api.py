@@ -1,5 +1,6 @@
 import json
 import hmac
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
@@ -21,33 +22,54 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
     config: WorkerConfig | None = None
 
     def do_GET(self) -> None:
-        try:
-            self._authorize()
-            if self.path != "/status":
-                raise NotFoundError("Endpoint not found")
-            self._json(200, self._manager().status().to_dict())
-        except WorkerError as error:
-            self._worker_error(error)
+        self._handle_request(
+            {
+                "/status": self._handle_status,
+            },
+            read_json=False,
+            success_status=200,
+        )
 
     def do_POST(self) -> None:
+        self._handle_request(
+            {
+                "/start": self._handle_start,
+                "/cancel": self._handle_cancel,
+            },
+            read_json=True,
+            success_status=202,
+        )
+
+    def log_message(self, format: str, *args: Any) -> None:
+        return
+
+    def _handle_request(
+        self,
+        routes: dict[str, Callable[[Any], dict[str, Any]]],
+        *,
+        read_json: bool,
+        success_status: int,
+    ) -> None:
         try:
             self._authorize()
-            payload = self._read_json()
-            if self.path == "/start":
-                snapshot = self._manager().start(parse_start_request(payload))
-                self._json(202, snapshot.to_dict())
-            elif self.path == "/cancel":
-                snapshot = self._manager().cancel(parse_cancel_request(payload))
-                self._json(202, snapshot.to_dict())
-            else:
+            payload = self._read_json() if read_json else None
+            handler = routes.get(self.path)
+            if handler is None:
                 raise NotFoundError("Endpoint not found")
+            self._json(success_status, handler(payload))
         except WorkerError as error:
             self._worker_error(error)
         except json.JSONDecodeError:
             self._worker_error(InvalidJsonError("Request body must be valid JSON."))
 
-    def log_message(self, format: str, *args: Any) -> None:
-        return
+    def _handle_status(self, payload: Any) -> dict[str, Any]:
+        return self._manager().status().to_dict()
+
+    def _handle_start(self, payload: Any) -> dict[str, Any]:
+        return self._manager().start(parse_start_request(payload)).to_dict()
+
+    def _handle_cancel(self, payload: Any) -> dict[str, Any]:
+        return self._manager().cancel(parse_cancel_request(payload)).to_dict()
 
     def _read_json(self) -> Any:
         raw_content_length = self.headers.get("Content-Length")
