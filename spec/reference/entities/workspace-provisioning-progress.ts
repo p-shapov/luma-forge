@@ -1,26 +1,62 @@
-export type WorkspaceProvisioningProcessStatus =
+export type WorkspaceProvisioningStatus =
   | "idle"
   | "running"
-  | "failed"
+  | "cancelling"
   | "completed"
-  | "cancelled";
+  | "failed";
+
+export type WorkspaceProvisioningFailureCode =
+  | "provider_resource_failed"
+  | "provider_resource_terminated"
+  | "provider_resource_unknown"
+  | "provider_resource_missing"
+  | "provider_operation_indeterminate"
+  | "provisioner_worker_token_missing"
+  | "provisioner_worker_token_invalid"
+  | "provisioner_worker_unauthorized"
+  | "provisioner_worker_response_invalid"
+  | "provisioner_worker_failed"
+  | "readiness_validation_failed"
+  | "cancellation_cleanup_failed"
+  | "legacy_failure";
+
+export type WorkspaceProvisioningFailureSource =
+  | "native"
+  | "provider"
+  | "provider_resource"
+  | "provisioner_worker";
+
+export type WorkspaceProvisioningRecoveryAction =
+  | "retry"
+  | "recover_provider_setup"
+  | "reselect_placement"
+  | "inspect_workspace_provisioning"
+  | "cleanup_workspace_resources";
+
+export type WorkspaceProvisioningFailure = {
+  code: WorkspaceProvisioningFailureCode;
+  phase: WorkspaceProvisioningPhase;
+  source: WorkspaceProvisioningFailureSource;
+  retryable: boolean;
+  recovery_action: WorkspaceProvisioningRecoveryAction;
+  diagnostic: string | null;
+};
 
 export type WorkspaceProvisioningPhase =
-  | "creating_persistent_storage_volume"
+  | "not_started"
+  | "creating_volume"
   | "starting_provisioning_pod"
-  | "waiting_for_provisioning_worker"
-  | "downloading_assets"
-  | "installing_comfyui"
-  | "installing_custom_nodes"
-  | "validating_environment"
-  | "terminating_provisioning_pod"
-  | "creating_serverless_endpoint"
-  | "validating_readiness";
+  | "preparing_environment"
+  | "creating_endpoint_template"
+  | "creating_endpoint"
+  | "validating_readiness"
+  | "cleaning_up"
+  | "completed"
+  | "failed";
 
 export type WorkspaceProvisioningProgress = {
-  status: WorkspaceProvisioningProcessStatus;
-  phase: WorkspaceProvisioningPhase | null;
-  progress_percent: number | null;
-  diagnostic_message?: string;
-  updated_at: string;
-}
+  status: WorkspaceProvisioningStatus;
+  phase: WorkspaceProvisioningPhase;
+  percent: number | null;
+  failure: WorkspaceProvisioningFailure | null;
+};

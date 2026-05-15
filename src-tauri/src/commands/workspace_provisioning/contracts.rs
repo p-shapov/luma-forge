@@ -37,12 +37,63 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workspace::WorkspaceProvisioningFailureCode)]
+    #[serde(rename_all = "snake_case")]
+    pub(super) enum WorkspaceProvisioningFailureCode {
+        ProviderResourceFailed,
+        ProviderResourceTerminated,
+        ProviderResourceUnknown,
+        ProviderResourceMissing,
+        ProviderOperationIndeterminate,
+        ProvisionerWorkerTokenMissing,
+        ProvisionerWorkerTokenInvalid,
+        ProvisionerWorkerUnauthorized,
+        ProvisionerWorkerResponseInvalid,
+        ProvisionerWorkerFailed,
+        ReadinessValidationFailed,
+        CancellationCleanupFailed,
+        LegacyFailure,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workspace::WorkspaceProvisioningFailureSource)]
+    #[serde(rename_all = "snake_case")]
+    pub(super) enum WorkspaceProvisioningFailureSource {
+        Native,
+        Provider,
+        ProviderResource,
+        ProvisionerWorker,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workspace::WorkspaceProvisioningRecoveryAction)]
+    #[serde(rename_all = "snake_case")]
+    pub(super) enum WorkspaceProvisioningRecoveryAction {
+        Retry,
+        RecoverProviderSetup,
+        ReselectPlacement,
+        InspectWorkspaceProvisioning,
+        CleanupWorkspaceResources,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workspace::WorkspaceProvisioningFailure)]
+    pub(super) struct WorkspaceProvisioningFailure {
+        pub code: domain_workspace::WorkspaceProvisioningFailureCode,
+        pub phase: domain_workspace::WorkspaceProvisioningPhase,
+        pub source: domain_workspace::WorkspaceProvisioningFailureSource,
+        pub retryable: bool,
+        pub recovery_action: domain_workspace::WorkspaceProvisioningRecoveryAction,
+        pub diagnostic: Option<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_workspace::WorkspaceProvisioningProgress)]
     pub(super) struct WorkspaceProvisioningProgress {
         pub status: domain_workspace::WorkspaceProvisioningStatus,
         pub phase: domain_workspace::WorkspaceProvisioningPhase,
         pub percent: Option<u8>,
-        pub message: Option<String>,
+        pub failure: Option<domain_workspace::WorkspaceProvisioningFailure>,
     }
 }
 

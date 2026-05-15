@@ -96,11 +96,58 @@ pub enum WorkspaceProvisioningPhase {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningFailureCode {
+    ProviderResourceFailed,
+    ProviderResourceTerminated,
+    ProviderResourceUnknown,
+    ProviderResourceMissing,
+    ProviderOperationIndeterminate,
+    ProvisionerWorkerTokenMissing,
+    ProvisionerWorkerTokenInvalid,
+    ProvisionerWorkerUnauthorized,
+    ProvisionerWorkerResponseInvalid,
+    ProvisionerWorkerFailed,
+    ReadinessValidationFailed,
+    CancellationCleanupFailed,
+    LegacyFailure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningFailureSource {
+    Native,
+    Provider,
+    ProviderResource,
+    ProvisionerWorker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningRecoveryAction {
+    Retry,
+    RecoverProviderSetup,
+    ReselectPlacement,
+    InspectWorkspaceProvisioning,
+    CleanupWorkspaceResources,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceProvisioningFailure {
+    pub code: WorkspaceProvisioningFailureCode,
+    pub phase: WorkspaceProvisioningPhase,
+    pub source: WorkspaceProvisioningFailureSource,
+    pub retryable: bool,
+    pub recovery_action: WorkspaceProvisioningRecoveryAction,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceProvisioningProgress {
     pub status: WorkspaceProvisioningStatus,
     pub phase: WorkspaceProvisioningPhase,
     pub percent: Option<u8>,
-    pub message: Option<String>,
+    pub failure: Option<WorkspaceProvisioningFailure>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +164,8 @@ pub struct Workspace {
     #[serde(default)]
     pub provider_provisioning_snapshot: Option<ProviderProvisioningSnapshot>,
     pub environment_prepared_at: Option<String>,
+    #[serde(default)]
+    pub last_provisioning_failure: Option<WorkspaceProvisioningFailure>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +197,7 @@ impl Workspace {
             last_provisioning_pod_snapshot: None,
             provider_provisioning_snapshot: None,
             environment_prepared_at: None,
+            last_provisioning_failure: None,
         })
     }
 }

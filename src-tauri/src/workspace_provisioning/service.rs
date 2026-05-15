@@ -1,12 +1,14 @@
 use crate::{
     domain::{
         placement::PlacementPlan,
-        workspace::{ProviderResourceStatus, Workspace, WorkspaceLifecycleState},
+        workspace::{
+            ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
+        },
     },
     provisioner_worker::{
         progress_from_worker_status, ProvisionerWorkerJobStatus, ProvisionerWorkerStartRequest,
     },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore},
+    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -16,6 +18,7 @@ use super::{
         CreateServerlessEndpointInput, WorkspaceProvisioningResult,
     },
     coordinator::WorkspaceProvisioningCoordinator,
+    failure,
     gateways::{ProviderProvisioningGateway, ProvisionerWorkerGateway},
     progress::result,
     snapshots::{
@@ -88,6 +91,7 @@ where
             .ok_or(WorkspaceProvisioningError::ProviderSetupIncomplete)?;
 
         workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+        workspace.last_provisioning_failure = None;
         let workspace = self.update_workspace(&workspace).await?;
         Ok(result(workspace))
     }
@@ -156,9 +160,10 @@ where
                 workspace.last_provisioning_pod_snapshot = None;
                 workspace.provider_provisioning_snapshot = None;
                 workspace.environment_prepared_at = None;
+                workspace.last_provisioning_failure = None;
             }
             Err(_) => {
-                workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+                failure::fail_workspace(&mut workspace, failure::cancellation_cleanup_failed());
             }
         }
 
@@ -185,7 +190,12 @@ where
             {
                 Ok(observation) => observation,
                 Err(WorkspaceProvisioningError::ProviderOperationIndeterminate) => {
-                    workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+                    failure::fail_workspace(
+                        workspace,
+                        failure::indeterminate_provider_operation(
+                            WorkspaceProvisioningPhase::CreatingVolume,
+                        ),
+                    );
                     let workspace = self.update_workspace(workspace).await?;
                     return Ok(Some(result(workspace)));
                 }
@@ -279,8 +289,12 @@ where
             .await?;
         let observed_pod = observed_provisioning_pod_snapshot(workspace, &active_pod, observation);
         if is_terminal_provider_resource_status(&observed_pod.provider_resource_status) {
+            let failure = failure::provider_resource_failure(
+                WorkspaceProvisioningPhase::StartingProvisioningPod,
+                &observed_pod.provider_resource_status,
+            );
             workspace.active_provisioning_pod_snapshot = Some(observed_pod);
-            workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+            failure::fail_workspace(workspace, failure);
             let workspace = self.update_workspace(workspace).await?;
             return Ok(Some(result(workspace)));
         }
@@ -309,17 +323,25 @@ where
             return Ok(None);
         }
 
-        let token = match self
-            .secrets
-            .read_provisioner_worker_token(&workspace.id)
-            .map_err(WorkspaceProvisioningError::from)?
-        {
-            Some(token) => token,
-            None => {
-                workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+        let token = match self.secrets.read_provisioner_worker_token(&workspace.id) {
+            Ok(Some(token)) => token,
+            Ok(None) => {
+                failure::fail_workspace(
+                    workspace,
+                    failure::worker_token_missing(WorkspaceProvisioningPhase::PreparingEnvironment),
+                );
                 let workspace = self.update_workspace(workspace).await?;
                 return Ok(Some(result(workspace)));
             }
+            Err(SecretStoreError::InvalidStoredProvisionerWorkerToken) => {
+                failure::fail_workspace(
+                    workspace,
+                    failure::worker_token_invalid(WorkspaceProvisioningPhase::PreparingEnvironment),
+                );
+                let workspace = self.update_workspace(workspace).await?;
+                return Ok(Some(result(workspace)));
+            }
+            Err(error) => return Err(WorkspaceProvisioningError::from(error)),
         };
         let worker_status = match self
             .workers
@@ -444,9 +466,27 @@ where
             let volume = workspace
                 .persistent_storage_volume_snapshot
                 .as_ref()
-                .ok_or(WorkspaceProvisioningError::ProviderResponseInvalid)?;
-            let template = runpod_template_snapshot(workspace)
-                .ok_or(WorkspaceProvisioningError::ProviderResponseInvalid)?;
+                .cloned();
+            let Some(volume) = volume else {
+                failure::fail_workspace(
+                    workspace,
+                    failure::missing_provider_resource(
+                        WorkspaceProvisioningPhase::CreatingEndpoint,
+                    ),
+                );
+                let workspace = self.update_workspace(workspace).await?;
+                return Ok(Some(result(workspace)));
+            };
+            let Some(template) = runpod_template_snapshot(workspace) else {
+                failure::fail_workspace(
+                    workspace,
+                    failure::readiness_validation_failed(
+                        WorkspaceProvisioningPhase::CreatingEndpoint,
+                    ),
+                );
+                let workspace = self.update_workspace(workspace).await?;
+                return Ok(Some(result(workspace)));
+            };
             let PlacementPlan::Runpod {
                 selected_datacenter_id,
                 selected_gpu_id,
@@ -491,6 +531,7 @@ where
 
         if is_workspace_ready(workspace) {
             workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
+            workspace.last_provisioning_failure = None;
             let workspace = self.update_workspace(workspace).await?;
             return Ok(Some(result(workspace)));
         }
@@ -503,8 +544,10 @@ where
         mut workspace: Workspace,
         error: WorkspaceProvisioningError,
     ) -> Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError> {
-        if error.is_terminal_worker_failure() {
-            workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+        if let Some(failure) =
+            failure::worker_failure(WorkspaceProvisioningPhase::PreparingEnvironment, &error)
+        {
+            failure::fail_workspace(&mut workspace, failure);
             let workspace = self.update_workspace(&workspace).await?;
             Ok(Some(result(workspace)))
         } else {
@@ -531,37 +574,45 @@ where
     }
 
     fn fail_if_volume_status_is_terminal(&self, workspace: &mut Workspace) {
-        if workspace
+        if let Some(status) = workspace
             .persistent_storage_volume_snapshot
             .as_ref()
-            .is_some_and(|snapshot| {
-                is_terminal_provider_resource_status(&snapshot.provider_resource_status)
-            })
+            .map(|snapshot| snapshot.provider_resource_status.clone())
+            .filter(is_terminal_provider_resource_status)
         {
-            workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+            let failure = failure::provider_resource_failure(
+                WorkspaceProvisioningPhase::CreatingVolume,
+                &status,
+            );
+            failure::fail_workspace(workspace, failure);
         }
     }
 
     fn fail_if_template_status_is_terminal(&self, workspace: &mut Workspace) {
-        if runpod_template_snapshot(workspace)
-            .as_ref()
-            .is_some_and(|snapshot| {
-                is_terminal_provider_resource_status(&snapshot.provider_resource_status)
-            })
+        if let Some(status) = runpod_template_snapshot(workspace)
+            .map(|snapshot| snapshot.provider_resource_status)
+            .filter(is_terminal_provider_resource_status)
         {
-            workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+            let failure = failure::provider_resource_failure(
+                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                &status,
+            );
+            failure::fail_workspace(workspace, failure);
         }
     }
 
     fn fail_if_endpoint_status_is_terminal(&self, workspace: &mut Workspace) {
-        if workspace
+        if let Some(status) = workspace
             .serverless_endpoint_snapshot
             .as_ref()
-            .is_some_and(|snapshot| {
-                is_terminal_provider_resource_status(&snapshot.provider_resource_status)
-            })
+            .map(|snapshot| snapshot.provider_resource_status.clone())
+            .filter(is_terminal_provider_resource_status)
         {
-            workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+            let failure = failure::provider_resource_failure(
+                WorkspaceProvisioningPhase::CreatingEndpoint,
+                &status,
+            );
+            failure::fail_workspace(workspace, failure);
         }
     }
 }

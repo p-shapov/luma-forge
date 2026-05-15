@@ -293,6 +293,7 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
         last_provisioning_pod_snapshot: None,
         provider_provisioning_snapshot: None,
         environment_prepared_at: None,
+        last_provisioning_failure: None,
     }
 }
 

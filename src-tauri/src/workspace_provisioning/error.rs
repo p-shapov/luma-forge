@@ -56,17 +56,6 @@ impl From<SecretStoreError> for WorkspaceProvisioningError {
     }
 }
 
-impl WorkspaceProvisioningError {
-    pub(crate) fn is_terminal_worker_failure(&self) -> bool {
-        matches!(
-            self,
-            Self::ProvisionerWorkerUnauthorized
-                | Self::ProvisionerWorkerResponseInvalid
-                | Self::ProvisionerWorkerFailed { .. }
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

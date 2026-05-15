@@ -1,5 +1,6 @@
 import type { PlacementPlan } from "./placement-plan";
 import type { GpuCloudProviderId } from "./provider-setup";
+import type { WorkspaceProvisioningFailure } from "./workspace-provisioning-progress";
 import type {
   PersistentStorageVolumeSnapshot,
   ProvisioningPodSnapshot,
@@ -23,4 +24,5 @@ export type Workspace = {
   serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null;
   last_provisioning_pod_snapshot?: ProvisioningPodSnapshot | null;
   environment_prepared_at: string | null;
+  last_provisioning_failure: WorkspaceProvisioningFailure | null;
 };

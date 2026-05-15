@@ -225,6 +225,7 @@ mod remote_types {
         pub last_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,
         pub provider_provisioning_snapshot: Option<domain_workspace::ProviderProvisioningSnapshot>,
         pub environment_prepared_at: Option<String>,
+        pub last_provisioning_failure: Option<domain_workspace::WorkspaceProvisioningFailure>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

@@ -6,6 +6,7 @@ import type {
   WorkflowCatalog,
   Workspace,
   WorkspaceCatalog,
+  WorkspaceProvisioningFailure,
   WorkspaceProvisioningProgress,
   WorkspaceProvisioningResponse,
 } from "@/generated/commands";
@@ -205,6 +206,33 @@ function formatProvisioningLabel(value: string) {
     .join(" ");
 }
 
+function provisioningFailureText(failure: WorkspaceProvisioningFailure | null) {
+  if (failure === null) {
+    return null;
+  }
+
+  return [
+    `${formatProvisioningLabel(failure.source)} failure`,
+    formatProvisioningLabel(failure.code),
+    provisioningRecoveryHint(failure.recovery_action),
+  ].join(" - ");
+}
+
+function provisioningRecoveryHint(recoveryAction: WorkspaceProvisioningFailure["recovery_action"]) {
+  switch (recoveryAction) {
+    case "retry":
+      return "Retry when the provider is available.";
+    case "recover_provider_setup":
+      return "Recover provider setup before retrying.";
+    case "reselect_placement":
+      return "Reselect placement before retrying.";
+    case "cleanup_workspace_resources":
+      return "Clean up workspace resources before retrying.";
+    case "inspect_workspace_provisioning":
+      return "Inspect provisioning state before retrying.";
+  }
+}
+
 function provisioningProgressValue(
   progress: WorkspaceProvisioningProgress | undefined,
   workspace: Workspace | undefined,
@@ -289,6 +317,9 @@ export function HomePage() {
   const canRunProvisioningCommand = selectedProvisioningWorkspaceId.trim().length > 0;
   const selectedProvisioningWorkspace = workspaces.find(({ id }) => id === selectedProvisioningWorkspaceId);
   const selectedProvisioningProgress = provisioningProgressByWorkspaceId[selectedProvisioningWorkspaceId];
+  const selectedProvisioningFailureText = provisioningFailureText(
+    selectedProvisioningProgress?.failure ?? selectedProvisioningWorkspace?.last_provisioning_failure ?? null,
+  );
   const selectedProvisioningProgressValue = provisioningProgressValue(
     selectedProvisioningProgress,
     selectedProvisioningWorkspace,
@@ -960,10 +991,10 @@ export function HomePage() {
                               {selectedProvisioningProgress.percent === null
                                 ? "Progress pending"
                                 : `${selectedProvisioningProgressValue}%`}
-                              {selectedProvisioningProgress.message !== null && (
+                              {selectedProvisioningFailureText !== null && (
                                 <>
                                   {" - "}
-                                  {selectedProvisioningProgress.message}
+                                  {selectedProvisioningFailureText}
                                 </>
                               )}
                             </>

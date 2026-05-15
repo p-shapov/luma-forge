@@ -251,7 +251,7 @@ pub fn progress_from_worker_status(
             ProvisionerWorkerPhase::Failed => WorkspaceProvisioningPhase::Failed,
         },
         percent: status.progress_percent,
-        message: status.diagnostic.clone(),
+        failure: None,
     }
 }
 

@@ -117,6 +117,8 @@ function recoveryHint(recoveryAction: string | null): string | null {
       return "Change the highlighted request value and retry.";
     case "inspect_workspace_provisioning":
       return "Inspect the workspace provisioning state before retrying.";
+    case "cleanup_workspace_resources":
+      return "Clean up workspace resources before retrying.";
     default:
       return "Review the request and retry.";
   }

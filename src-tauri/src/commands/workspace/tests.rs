@@ -113,6 +113,7 @@ fn maps_workspace_response_to_command_contract() {
         last_provisioning_pod_snapshot: None,
         provider_provisioning_snapshot: None,
         environment_prepared_at: None,
+        last_provisioning_failure: None,
     });
 
     assert_eq!(

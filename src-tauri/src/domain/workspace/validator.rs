@@ -42,7 +42,14 @@ pub fn validate_workspace(workspace: &Workspace) -> DomainValidationResult {
             || workspace.serverless_endpoint_snapshot.is_some()
             || workspace.last_provisioning_pod_snapshot.is_some()
             || workspace.provider_provisioning_snapshot.is_some()
-            || workspace.environment_prepared_at.is_some())
+            || workspace.environment_prepared_at.is_some()
+            || workspace.last_provisioning_failure.is_some())
+    {
+        return Err(DomainValidationError);
+    }
+
+    if !matches!(workspace.lifecycle_state, WorkspaceLifecycleState::Failed)
+        && workspace.last_provisioning_failure.is_some()
     {
         return Err(DomainValidationError);
     }
@@ -249,6 +256,7 @@ mod tests {
             last_provisioning_pod_snapshot: None,
             provider_provisioning_snapshot: None,
             environment_prepared_at: None,
+            last_provisioning_failure: None,
         }
     }
 

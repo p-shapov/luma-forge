@@ -43,12 +43,13 @@ fn maps_provisioning_result_to_command_response_without_secret_fields() {
             last_provisioning_pod_snapshot: None,
             provider_provisioning_snapshot: None,
             environment_prepared_at: None,
+            last_provisioning_failure: None,
         },
         progress: WorkspaceProvisioningProgress {
             status: WorkspaceProvisioningStatus::Running,
             phase: WorkspaceProvisioningPhase::CreatingVolume,
             percent: None,
-            message: None,
+            failure: None,
         },
     });
     let payload = serde_json::to_value(&response).expect("response should serialize");

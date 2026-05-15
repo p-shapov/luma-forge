@@ -14,7 +14,9 @@ use crate::{
         workspace::{
             PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
             ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
-            Workspace, WorkspaceCatalog, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
+            Workspace, WorkspaceCatalog, WorkspaceLifecycleState, WorkspaceProvisioningFailureCode,
+            WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
+            WorkspaceProvisioningRecoveryAction,
         },
     },
     provisioner_worker::{
@@ -430,6 +432,7 @@ struct FakeWorker {
     start_count: Arc<AtomicUsize>,
     cancel_count: Arc<AtomicUsize>,
     status: Arc<Mutex<ProvisionerWorkerStatus>>,
+    status_error: Option<WorkspaceProvisioningError>,
     cancel_error: Option<WorkspaceProvisioningError>,
 }
 
@@ -457,7 +460,15 @@ impl FakeWorker {
                 progress_percent: None,
                 diagnostic: None,
             })),
+            status_error: None,
             cancel_error: None,
+        }
+    }
+
+    fn with_status_error(error: WorkspaceProvisioningError) -> Self {
+        Self {
+            status_error: Some(error),
+            ..Self::idle()
         }
     }
 
@@ -504,7 +515,12 @@ impl ProvisionerWorkerGateway for FakeWorker {
                 + 'a,
         >,
     > {
-        Box::pin(async move { Ok(self.status.lock().expect("worker status").clone()) })
+        Box::pin(async move {
+            if let Some(error) = &self.status_error {
+                return Err(error.clone());
+            }
+            Ok(self.status.lock().expect("worker status").clone())
+        })
     }
 
     fn cancel<'a>(
@@ -629,6 +645,23 @@ async fn sync_marks_failed_when_volume_refresh_is_terminal() {
         result.workspace.lifecycle_state,
         WorkspaceLifecycleState::Failed
     );
+    let failure = result
+        .workspace
+        .last_provisioning_failure
+        .expect("failure should be persisted");
+    assert_eq!(
+        failure.code,
+        WorkspaceProvisioningFailureCode::ProviderResourceFailed
+    );
+    assert_eq!(failure.phase, WorkspaceProvisioningPhase::CreatingVolume);
+    assert_eq!(
+        failure.source,
+        WorkspaceProvisioningFailureSource::ProviderResource
+    );
+    assert_eq!(
+        failure.recovery_action,
+        WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources
+    );
     assert_eq!(provider.get_volume_count.load(Ordering::SeqCst), 1);
 }
 
@@ -650,6 +683,45 @@ async fn indeterminate_volume_create_marks_failed_without_losing_workspace() {
         result.workspace.lifecycle_state,
         WorkspaceLifecycleState::Failed
     );
+    assert_eq!(
+        result
+            .workspace
+            .last_provisioning_failure
+            .expect("failure should be persisted")
+            .code,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate
+    );
+}
+
+#[tokio::test]
+async fn provider_command_failure_preserves_workspace_metadata() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        create_volume_error: Some(WorkspaceProvisioningError::ProviderRateLimited),
+        ..Default::default()
+    };
+    let service = service(catalog.clone(), provider);
+
+    let error = service
+        .sync(&workspace.id)
+        .await
+        .expect_err("rate limiting should be a command error");
+
+    assert_eq!(error, WorkspaceProvisioningError::ProviderRateLimited);
+    let stored = catalog
+        .find_workspace_by_id(&workspace.id)
+        .await
+        .expect("find")
+        .expect("workspace");
+    assert_eq!(
+        stored.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+    assert!(stored.persistent_storage_volume_snapshot.is_none());
+    assert!(stored.last_provisioning_failure.is_none());
 }
 
 #[tokio::test]
@@ -739,6 +811,73 @@ async fn sync_starts_idle_worker_and_returns_worker_progress() {
     );
     assert_eq!(result.progress.percent, Some(25));
     assert!(result.workspace.environment_prepared_at.is_none());
+}
+
+#[tokio::test]
+async fn worker_terminal_failure_persists_structured_failure_detail() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let service = service_with_parts(
+        catalog,
+        FakeProvider::default(),
+        FakeWorker::with_status_error(WorkspaceProvisioningError::ProvisionerWorkerFailed {
+            diagnostic: Some("safe diagnostic".to_string()),
+        }),
+        worker_token_map(&workspace.id),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    let failure = result
+        .workspace
+        .last_provisioning_failure
+        .expect("failure should be persisted");
+    assert_eq!(
+        failure.code,
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed
+    );
+    assert_eq!(
+        failure.source,
+        WorkspaceProvisioningFailureSource::ProvisionerWorker
+    );
+    assert_eq!(failure.diagnostic.as_deref(), Some("safe diagnostic"));
+}
+
+#[tokio::test]
+async fn missing_worker_token_marks_failed_with_structured_failure_detail() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let service = service_with_parts(
+        catalog,
+        FakeProvider::default(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    assert_eq!(
+        result
+            .progress
+            .failure
+            .expect("progress should expose failure")
+            .code,
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing
+    );
 }
 
 #[tokio::test]
@@ -858,6 +997,14 @@ async fn sync_marks_failed_when_template_refresh_is_terminal() {
         result.workspace.lifecycle_state,
         WorkspaceLifecycleState::Failed
     );
+    assert_eq!(
+        result
+            .workspace
+            .last_provisioning_failure
+            .expect("failure should be persisted")
+            .code,
+        WorkspaceProvisioningFailureCode::ProviderResourceTerminated
+    );
     assert_eq!(provider.get_template_count.load(Ordering::SeqCst), 1);
 }
 
@@ -891,6 +1038,14 @@ async fn sync_marks_failed_when_endpoint_refresh_is_terminal() {
     assert_eq!(
         result.workspace.lifecycle_state,
         WorkspaceLifecycleState::Failed
+    );
+    assert_eq!(
+        result
+            .workspace
+            .last_provisioning_failure
+            .expect("failure should be persisted")
+            .code,
+        WorkspaceProvisioningFailureCode::ProviderResourceUnknown
     );
     assert_eq!(provider.get_endpoint_count.load(Ordering::SeqCst), 1);
 }
@@ -987,6 +1142,14 @@ async fn cancel_continues_provider_cleanup_when_worker_cancel_fails() {
         result.workspace.lifecycle_state,
         WorkspaceLifecycleState::Failed
     );
+    assert_eq!(
+        result
+            .workspace
+            .last_provisioning_failure
+            .expect("failure should be persisted")
+            .code,
+        WorkspaceProvisioningFailureCode::CancellationCleanupFailed
+    );
 }
 
 #[tokio::test]
@@ -1010,6 +1173,14 @@ async fn cancel_marks_failed_and_preserves_metadata_when_cleanup_fails() {
     assert_eq!(
         result.workspace.lifecycle_state,
         WorkspaceLifecycleState::Failed
+    );
+    assert_eq!(
+        result
+            .workspace
+            .last_provisioning_failure
+            .expect("failure should be persisted")
+            .code,
+        WorkspaceProvisioningFailureCode::CancellationCleanupFailed
     );
     assert!(result.workspace.serverless_endpoint_snapshot.is_some());
     assert!(result.workspace.provider_provisioning_snapshot.is_some());

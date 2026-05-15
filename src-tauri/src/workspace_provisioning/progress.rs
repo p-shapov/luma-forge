@@ -1,5 +1,7 @@
 use crate::domain::workspace::{
-    Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase, WorkspaceProvisioningProgress,
+    Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
+    WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+    WorkspaceProvisioningPhase, WorkspaceProvisioningProgress, WorkspaceProvisioningRecoveryAction,
     WorkspaceProvisioningStatus,
 };
 
@@ -19,7 +21,7 @@ pub(crate) fn progress_for_workspace(workspace: &Workspace) -> WorkspaceProvisio
             status: WorkspaceProvisioningStatus::Idle,
             phase: WorkspaceProvisioningPhase::NotStarted,
             percent: Some(0),
-            message: None,
+            failure: None,
         },
         WorkspaceLifecycleState::Provisioning => WorkspaceProvisioningProgress {
             status: WorkspaceProvisioningStatus::Running,
@@ -41,19 +43,35 @@ pub(crate) fn progress_for_workspace(workspace: &Workspace) -> WorkspaceProvisio
                 WorkspaceProvisioningPhase::ValidatingReadiness
             },
             percent: None,
-            message: None,
+            failure: None,
         },
         WorkspaceLifecycleState::Ready => WorkspaceProvisioningProgress {
             status: WorkspaceProvisioningStatus::Completed,
             phase: WorkspaceProvisioningPhase::Completed,
             percent: Some(100),
-            message: None,
+            failure: None,
         },
         WorkspaceLifecycleState::Failed => WorkspaceProvisioningProgress {
             status: WorkspaceProvisioningStatus::Failed,
             phase: WorkspaceProvisioningPhase::Failed,
             percent: None,
-            message: None,
+            failure: Some(
+                workspace
+                    .last_provisioning_failure
+                    .clone()
+                    .unwrap_or_else(legacy_failure),
+            ),
         },
+    }
+}
+
+fn legacy_failure() -> WorkspaceProvisioningFailure {
+    WorkspaceProvisioningFailure {
+        code: WorkspaceProvisioningFailureCode::LegacyFailure,
+        phase: WorkspaceProvisioningPhase::Failed,
+        source: WorkspaceProvisioningFailureSource::Native,
+        retryable: false,
+        recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
+        diagnostic: None,
     }
 }

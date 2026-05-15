@@ -1,6 +1,7 @@
 mod contracts;
 mod coordinator;
 pub mod error;
+mod failure;
 mod gateways;
 mod progress;
 mod service;
