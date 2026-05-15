@@ -181,6 +181,45 @@ function endpointKeepAliveRange(capabilities: ProviderPlacementCapabilities | nu
   };
 }
 
+function gpuAvailabilityLabel(score: number) {
+  if (score >= 80) {
+    return "High availability";
+  }
+  if (score >= 50) {
+    return "Medium availability";
+  }
+  if (score > 0) {
+    return "Low availability";
+  }
+
+  return "Unavailable";
+}
+
+function gpuOptionLabel(gpu: { name: string; availability_score: number }) {
+  return `${gpu.name} - ${gpuAvailabilityLabel(gpu.availability_score)}`;
+}
+
+function isGpuAvailable(gpu: { availability_score: number } | undefined) {
+  return gpu !== undefined && gpu.availability_score > 0;
+}
+
+function workspacePlacementGpu(
+  providerInventory: ProviderInventory | null,
+  workspace: Workspace | undefined,
+) {
+  if (workspace === undefined) {
+    return undefined;
+  }
+
+  const datacenter = providerInventory?.datacenters.find(
+    ({ id }) => id === workspace.placement_plan.selected_datacenter_id,
+  );
+
+  return datacenter?.gpu_options.find(
+    ({ id }) => id === workspace.placement_plan.selected_gpu_id,
+  );
+}
+
 function upsertWorkspace(catalog: WorkspaceCatalog | null, workspace: Workspace): WorkspaceCatalog {
   return {
     workspaces: [
@@ -280,6 +319,7 @@ export function HomePage() {
     ?? datacenters[0];
   const selectedGpu = selectedDatacenter?.gpu_options.find(({ id }) => id === gpuId)
     ?? selectedDatacenter?.gpu_options[0];
+  const selectedGpuAvailable = isGpuAvailable(selectedGpu);
   const keepAliveRange = endpointKeepAliveRange(providerPlacementCapabilities);
   const selectedEndpointKeepAliveSeconds = clampNumber(
     endpointKeepAliveSeconds,
@@ -306,6 +346,7 @@ export function HomePage() {
     && selectedWorkflowPreset !== undefined
     && selectedDatacenter !== undefined
     && selectedGpu !== undefined
+    && selectedGpuAvailable
     && selectedAdditionalStorageSizeGb >= 0
     && requestedStorageSizeBytes >= requiredBaseStorageSizeBytes
     && requestedStorageSizeGb <= maxTotalStorageSizeGb
@@ -316,6 +357,12 @@ export function HomePage() {
   const selectedProvisioningWorkspaceId = provisioningWorkspaceId || workspaces[0]?.id || "";
   const canRunProvisioningCommand = selectedProvisioningWorkspaceId.trim().length > 0;
   const selectedProvisioningWorkspace = workspaces.find(({ id }) => id === selectedProvisioningWorkspaceId);
+  const selectedProvisioningGpu = workspacePlacementGpu(providerInventory, selectedProvisioningWorkspace);
+  const selectedProvisioningPlacementChecked = providerInventory !== null
+    && selectedProvisioningWorkspace !== undefined;
+  const selectedProvisioningGpuUnavailable = selectedProvisioningPlacementChecked
+    && !isGpuAvailable(selectedProvisioningGpu);
+  const canStartProvisioningCommand = canRunProvisioningCommand && !selectedProvisioningGpuUnavailable;
   const selectedProvisioningProgress = provisioningProgressByWorkspaceId[selectedProvisioningWorkspaceId];
   const selectedProvisioningFailureText = provisioningFailureText(
     selectedProvisioningProgress?.failure ?? selectedProvisioningWorkspace?.last_provisioning_failure ?? null,
@@ -900,10 +947,25 @@ export function HomePage() {
                         )}
                         {selectedDatacenter?.gpu_options.map(gpu => (
                           <NativeSelectOption key={gpu.id} value={gpu.id}>
-                            {gpu.name}
+                            {gpuOptionLabel(gpu)}
                           </NativeSelectOption>
                         ))}
                       </NativeSelect>
+                      {selectedGpu !== undefined && (
+                        <FieldDescription>
+                          {gpuAvailabilityLabel(selectedGpu.availability_score)}
+                          {" "}
+                          (
+                          {selectedGpu.availability_score}
+                          /100).
+                          {!selectedGpuAvailable && (
+                            <>
+                              {" "}
+                              Workspace creation is disabled until this GPU is available.
+                            </>
+                          )}
+                        </FieldDescription>
+                      )}
                     </Field>
                   </div>
 
@@ -954,6 +1016,24 @@ export function HomePage() {
                     </NativeSelect>
                     <FieldDescription>
                       Commands use the selected workspace ID and return the authoritative workspace snapshot.
+                      {selectedProvisioningGpu !== undefined && (
+                        <>
+                          {" "}
+                          GPU:
+                          {" "}
+                          {gpuAvailabilityLabel(selectedProvisioningGpu.availability_score)}
+                          {" "}
+                          (
+                          {selectedProvisioningGpu.availability_score}
+                          /100).
+                        </>
+                      )}
+                      {selectedProvisioningGpuUnavailable && (
+                        <>
+                          {" "}
+                          Start is disabled until the selected workspace GPU is available in loaded placement options.
+                        </>
+                      )}
                       {autoSyncWorkspace !== undefined && (
                         <>
                           {" "}
@@ -1004,7 +1084,7 @@ export function HomePage() {
 
                   <div className="flex flex-wrap gap-3">
                     <Button
-                      disabled={!canRunProvisioningCommand || pendingCommand !== null}
+                      disabled={!canStartProvisioningCommand || pendingCommand !== null}
                       onClick={() => runProvisioningCommand("initiateWorkspaceProvisioning")}
                     >
                       <HugeiconsIcon icon={PlayIcon} strokeWidth={2} data-icon="inline-start" />

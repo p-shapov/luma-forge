@@ -49,6 +49,8 @@ pub(super) struct RunPodInventoryData {
 pub(super) struct RunPodInventoryDatacenter {
     pub id: Option<String>,
     pub name: Option<String>,
+    #[serde(rename = "storageSupport")]
+    pub storage_support: Option<bool>,
     #[serde(rename = "gpuAvailability")]
     pub gpu_availability: Option<Vec<RunPodGpuAvailability>>,
 }

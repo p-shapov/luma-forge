@@ -81,15 +81,31 @@ The Native Layer SHALL apply required Workspace Catalog SQLite schema migrations
 
 ### Requirement: Read provider placement inventory
 
-The Native Layer SHALL expose a `get_provider_placement_options` command that returns provider placement options for an explicit GPU Cloud Provider after validating local provider setup prerequisites. Placement options SHALL include live Provider Inventory and provider placement capabilities.
+The Native Layer SHALL expose a `get_provider_placement_options` command that returns provider placement options for an explicit GPU Cloud Provider after validating local provider setup prerequisites. Placement options SHALL include live Provider Inventory and provider placement capabilities, and provider-specific inventory mapping SHALL only expose datacenters that can satisfy LumaForge's current provisioning prerequisites.
 
 #### Scenario: Provider setup is complete
 
 - **WHEN** the Client requests provider placement options for `runpod` and the local Provider API Key exists
 - **THEN** the Native Layer SHALL call RunPod using the stored Provider API Key to fetch live Provider Inventory
 - **AND** the Native Layer SHALL return available datacenters, GPU options per datacenter, and provider maximum Persistent Storage Volume size when known
+- **AND** returned RunPod datacenters SHALL be limited to datacenters whose provider inventory reports support for persistent network storage
 - **AND** the Native Layer SHALL return placement capabilities for RunPod endpoint keep-alive with `supported = true`, `default_seconds = 5`, `min_seconds = 5`, and `max_seconds = 3600`
 - **AND** the response MUST NOT include the Provider API Key
+
+#### Scenario: RunPod datacenter has GPUs but does not support network storage
+
+- **WHEN** RunPod inventory reports a datacenter with GPU availability and storage support is false or missing
+- **THEN** the Native Layer SHALL omit that datacenter from returned provider placement options
+- **AND** the Native Layer MUST NOT expose the omitted datacenter as selectable for a new RunPod Placement Plan
+
+#### Scenario: GPU availability is displayed during placement selection
+
+- **WHEN** the Native Layer returns RunPod GPU options with availability scores
+- **THEN** the Client SHALL display the availability for each selectable GPU option
+- **AND** the Client SHALL surface zero availability as unavailable rather than hiding the GPU solely because the score is zero
+- **AND** the Client SHALL disable workspace creation while the selected GPU has zero availability
+- **AND** the Client SHALL disable starting provisioning for a selected workspace when loaded placement options show that workspace's selected GPU has zero availability or is absent from currently eligible placement options
+- **AND** the Client SHALL continue allowing provisioning sync and cancellation commands for existing workspaces regardless of current GPU availability
 
 #### Scenario: Provider setup is incomplete
 

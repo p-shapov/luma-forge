@@ -179,6 +179,7 @@ fn parses_inventory_response() {
                 {
                     "id": "EU-RO-1",
                     "name": "EU RO 1",
+                    "storageSupport": true,
                     "gpuAvailability": [
                         {
                             "stockStatus": "High",
@@ -206,6 +207,111 @@ fn parses_inventory_response() {
         inventory.datacenters[0].gpu_options[0].availability_score,
         100
     );
+}
+
+#[test]
+fn filters_inventory_datacenters_without_storage_support() {
+    let response: GraphQlResponse<RunPodInventoryData> = serde_json::from_value(json!({
+        "data": {
+            "dataCenters": [
+                {
+                    "id": "AP-IN-1",
+                    "name": "AP IN 1",
+                    "storageSupport": false,
+                    "gpuAvailability": [
+                        {
+                            "stockStatus": "High",
+                            "gpuType": {
+                                "id": "NVIDIA H100 80GB HBM3",
+                                "displayName": "H100 SXM",
+                                "memoryInGb": 80
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    }))
+    .expect("inventory should parse");
+
+    let inventory = inventory_from_graphql_response(response).expect("inventory should map");
+
+    assert!(inventory.datacenters.is_empty());
+}
+
+#[test]
+fn filters_inventory_datacenters_when_storage_support_is_missing_or_null() {
+    let response: GraphQlResponse<RunPodInventoryData> = serde_json::from_value(json!({
+        "data": {
+            "dataCenters": [
+                {
+                    "id": "AP-IN-1",
+                    "name": "AP IN 1",
+                    "gpuAvailability": [
+                        {
+                            "stockStatus": "High",
+                            "gpuType": {
+                                "id": "NVIDIA H100 80GB HBM3",
+                                "displayName": "H100 SXM",
+                                "memoryInGb": 80
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "EU-FR-1",
+                    "name": "EU FR 1",
+                    "storageSupport": null,
+                    "gpuAvailability": [
+                        {
+                            "stockStatus": "High",
+                            "gpuType": {
+                                "id": "NVIDIA H200",
+                                "displayName": "H200 SXM",
+                                "memoryInGb": 141
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    }))
+    .expect("inventory should parse");
+
+    let inventory = inventory_from_graphql_response(response).expect("inventory should map");
+
+    assert!(inventory.datacenters.is_empty());
+}
+
+#[test]
+fn keeps_storage_supported_inventory_datacenters() {
+    let response: GraphQlResponse<RunPodInventoryData> = serde_json::from_value(json!({
+        "data": {
+            "dataCenters": [
+                {
+                    "id": "EU-RO-1",
+                    "name": "EU RO 1",
+                    "storageSupport": true,
+                    "gpuAvailability": [
+                        {
+                            "stockStatus": "High",
+                            "gpuType": {
+                                "id": "NVIDIA RTX 4090",
+                                "displayName": "RTX 4090",
+                                "memoryInGb": 24
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    }))
+    .expect("inventory should parse");
+
+    let inventory = inventory_from_graphql_response(response).expect("inventory should map");
+
+    assert_eq!(inventory.datacenters.len(), 1);
+    assert_eq!(inventory.datacenters[0].id, "EU-RO-1");
 }
 
 #[test]

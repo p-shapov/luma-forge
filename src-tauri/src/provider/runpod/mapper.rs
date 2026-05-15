@@ -102,6 +102,10 @@ pub(super) fn inventory_from_graphql_response(
 
     let mut datacenters = Vec::new();
     for data_center in data_centers {
+        if data_center.storage_support != Some(true) {
+            continue;
+        }
+
         let id = data_center
             .id
             .filter(|id| !id.is_empty())

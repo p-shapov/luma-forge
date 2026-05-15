@@ -47,6 +47,7 @@ query LumaForgeProviderInventory {
   dataCenters {
     id
     name
+    storageSupport
     gpuAvailability {
       stockStatus
       gpuType {
