@@ -29,6 +29,7 @@ impl From<SecretStoreError> for ProviderSetupError {
         match error {
             SecretStoreError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
             SecretStoreError::InvalidStoredProviderApiKey => Self::StoredProviderApiKeyInvalid,
+            SecretStoreError::InvalidStoredProvisionerWorkerToken => Self::SecureKeyringUnavailable,
         }
     }
 }

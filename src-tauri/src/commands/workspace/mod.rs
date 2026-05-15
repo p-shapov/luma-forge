@@ -9,8 +9,8 @@ use tauri::State;
 
 use crate::commands::CommandResult;
 use contracts::{
-    CreateWorkspaceRequest, CreateWorkspaceResponse, GetProviderInventoryRequest,
-    GetProviderInventoryResponse, GetWorkflowCatalogResponse, GetWorkspaceCatalogResponse,
+    CreateWorkspaceRequest, CreateWorkspaceResponse, GetProviderPlacementOptionsRequest,
+    GetProviderPlacementOptionsResponse, GetWorkflowCatalogResponse, GetWorkspaceCatalogResponse,
 };
 
 #[tauri::command]
@@ -29,17 +29,17 @@ pub(crate) fn get_workflow_catalog(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn get_provider_inventory(
-    request: GetProviderInventoryRequest,
+pub(crate) async fn get_provider_placement_options(
+    request: GetProviderPlacementOptionsRequest,
     app_state: State<'_, NativeAppState>,
-) -> CommandResult<GetProviderInventoryResponse> {
+) -> CommandResult<GetProviderPlacementOptionsResponse> {
     let provider_id = request.gpu_cloud_provider_id;
-    let command_log = CommandLog::new("get_provider_inventory")
+    let command_log = CommandLog::new("get_provider_placement_options")
         .with_provider_id(provider_id.as_str())
         .start();
     let result = app_state
         .workspace_setup_read_service()
-        .get_provider_inventory(provider_id)
+        .get_provider_placement_options(provider_id)
         .await
         .map(Into::into)
         .map_err(Into::into);

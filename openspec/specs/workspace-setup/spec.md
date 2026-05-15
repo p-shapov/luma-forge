@@ -81,24 +81,25 @@ The Native Layer SHALL apply required Workspace Catalog SQLite schema migrations
 
 ### Requirement: Read provider placement inventory
 
-The Native Layer SHALL expose a command that returns placement inventory for an explicit GPU Cloud Provider after validating local provider setup prerequisites.
+The Native Layer SHALL expose a `get_provider_placement_options` command that returns provider placement options for an explicit GPU Cloud Provider after validating local provider setup prerequisites. Placement options SHALL include live Provider Inventory and provider placement capabilities.
 
 #### Scenario: Provider setup is complete
 
-- **WHEN** the Client requests provider inventory for `runpod` and the local Provider API Key exists
-- **THEN** the Native Layer SHALL call RunPod using the stored Provider API Key
+- **WHEN** the Client requests provider placement options for `runpod` and the local Provider API Key exists
+- **THEN** the Native Layer SHALL call RunPod using the stored Provider API Key to fetch live Provider Inventory
 - **AND** the Native Layer SHALL return available datacenters, GPU options per datacenter, and provider maximum Persistent Storage Volume size when known
+- **AND** the Native Layer SHALL return placement capabilities for RunPod endpoint keep-alive with `supported = true`, `default_seconds = 5`, `min_seconds = 5`, and `max_seconds = 3600`
 - **AND** the response MUST NOT include the Provider API Key
 
 #### Scenario: Provider setup is incomplete
 
-- **WHEN** the Client requests provider inventory and the required local Provider API Key is missing
+- **WHEN** the Client requests provider placement options and the required local Provider API Key is missing
 - **THEN** the Native Layer SHALL reject the request with `provider_setup_incomplete`
 - **AND** the Native Layer MUST reject before calling the Provider
 
 #### Scenario: Provider API Key is invalid or revoked
 
-- **WHEN** the Client requests provider inventory and the Provider rejects the stored Provider API Key as unauthorized or forbidden
+- **WHEN** the Client requests provider placement options and the Provider rejects the stored Provider API Key as unauthorized or forbidden
 - **THEN** the Native Layer SHALL reject the request with `invalid_provider_api_key`
 - **AND** the Native Layer MUST NOT report the failure as retryable
 - **AND** the Native Layer MUST NOT mutate the Workspace Catalog
@@ -109,14 +110,21 @@ The Native Layer SHALL expose a command that returns placement inventory for an 
 - **THEN** the Native Layer SHALL reject the request with `provider_api_unavailable`
 - **AND** the Native Layer MUST NOT mutate the Workspace Catalog
 
+#### Scenario: Provider does not support endpoint keep-alive
+
+- **WHEN** a future GPU Cloud Provider does not support endpoint keep-alive configuration
+- **THEN** its provider placement options SHALL return endpoint keep-alive capability with `supported = false`
+- **AND** that provider's Placement Plan variant MUST NOT persist an endpoint keep-alive value
+
 ### Requirement: Create a Draft Workspace
 
 The Native Layer SHALL expose a command that creates one complete Workspace Catalog entry with lifecycle state `draft` from a client-generated Workspace UUID, name, GPU Cloud Provider id, and full selected Placement Plan. Draft Workspace lifecycle state and empty Provider Resource snapshot state SHALL be authored through the domain Workspace model, and the resulting domain Workspace SHALL be persisted as the authoritative Workspace Catalog record after required Workspace Catalog persistence migrations have completed.
 
 #### Scenario: Valid Workspace creation request
 
-- **WHEN** the Client submits a valid Workspace UUID, non-empty Workspace name, `runpod`, and a valid Placement Plan
-- **THEN** the Native Layer SHALL validate the local provider key prerequisite, bundled Workflow Preset compatibility, and placement structure before persistence
+- **WHEN** the Client submits a valid Workspace UUID, non-empty Workspace name, `runpod`, and a valid RunPod Placement Plan
+- **THEN** the Native Layer SHALL validate the local provider key prerequisite, bundled Workflow Preset compatibility, placement structure, and RunPod endpoint keep-alive range before persistence
+- **AND** the RunPod Placement Plan SHALL include provider-specific endpoint keep-alive seconds
 - **AND** the Native Layer SHALL initialize the SQLite-backed Workspace Catalog
 - **AND** the Native Layer SHALL apply required Workspace Catalog persistence migrations before checking duplicates or writing the new Workspace record
 - **AND** the Native Layer SHALL construct the Draft Workspace through the domain Workspace model
@@ -158,7 +166,7 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 
 ### Requirement: Workspace Setup uses domain-native catalog data
 
-Workspace Setup SHALL parse, validate, provide, persist, and expose domain-native Workflow Catalog and Workspace models without a separate workspace application contract layer or duplicated command model graph.
+Workspace Setup SHALL parse, validate, provide, persist, and expose domain-native Workflow Catalog, provider placement options, and Workspace models without a separate workspace application contract layer or duplicated command model graph.
 
 #### Scenario: Bundled Workflow Catalog is read
 
@@ -176,23 +184,31 @@ Workspace Setup SHALL parse, validate, provide, persist, and expose domain-nativ
 - **AND** returned Workspace records SHALL expose provider-discriminated domain Placement Plan data in the generated command payload
 - **AND** Workspace Setup domain models MUST NOT derive `specta::Type` solely to satisfy generated command payload generation
 
+#### Scenario: Provider placement options are read
+
+- **WHEN** Workspace Setup reads provider placement options
+- **THEN** the service SHALL return domain-native Provider Inventory data and provider placement capability data to the command boundary
+- **AND** the command boundary SHALL expose generated TypeScript bindings for the placement options response
+- **AND** Workspace Setup domain models MUST NOT derive `specta::Type` solely to satisfy generated command payload generation
+
 #### Scenario: Workspace creation receives a placement plan
 
 - **WHEN** the Client submits a Workspace creation request
 - **THEN** the generated command request SHALL require provider-discriminated domain Placement Plan data without selected Provisioning Profile or Endpoint Profile data
+- **AND** the submitted RunPod Placement Plan SHALL include provider-specific endpoint keep-alive seconds
 - **AND** the submitted Placement Plan SHALL include the nested `gpu_cloud_provider_id` discriminator required by the domain Placement Plan shape
 - **AND** the command boundary SHALL pass the submitted domain Placement Plan into the Workspace Setup service input without a parallel command Placement Plan DTO
 - **AND** Workspace Setup domain models MUST NOT derive `specta::Type` solely to satisfy generated command payload generation
 
 ### Requirement: Workspace Setup services use domain-native inputs and results
 
-Workspace Setup services SHALL use domain-native inputs and results for workflow catalogs, provider inventory, placement plans, and workspaces.
+Workspace Setup services SHALL use domain-native inputs and results for workflow catalogs, provider placement options, placement plans, and workspaces.
 
-#### Scenario: Provider inventory is fetched
+#### Scenario: Provider placement options are fetched
 
-- **WHEN** Workspace Setup fetches provider inventory for a GPU Cloud Provider
+- **WHEN** Workspace Setup fetches provider placement options for a GPU Cloud Provider
 - **THEN** the service SHALL pass a domain `GpuCloudProviderId` to the provider inventory gateway
-- **AND** the service SHALL return domain provider inventory data to the command boundary
+- **AND** the service SHALL return domain provider inventory data and provider placement capabilities to the command boundary
 
 #### Scenario: Workspace is created
 
@@ -253,6 +269,12 @@ The Native Layer SHALL treat the bundled Workflow Catalog as authoritative when 
 - **THEN** the Native Layer SHALL reject the Workspace creation request with `invalid_placement_plan`
 - **AND** the Native Layer MUST NOT persist a Workspace record
 
+#### Scenario: RunPod endpoint keep-alive is outside provider range
+
+- **WHEN** the Client submits a RunPod Placement Plan whose endpoint keep-alive seconds is lower than `5` or greater than `3600`
+- **THEN** the Native Layer SHALL reject the Workspace creation request with `invalid_placement_plan`
+- **AND** the Native Layer MUST NOT persist a Workspace record
+
 ### Requirement: Do not validate live availability during Workspace creation
 
 Workspace creation SHALL validate structural Placement Plan completeness and compatibility, but MUST NOT require the selected GPU or datacenter to still be live-available at creation time.
@@ -281,11 +303,11 @@ Workspace Setup MUST NOT create, modify, attach, or delete Provider Resources.
 
 ### Requirement: Keep Provider API Key secret during Workspace Setup
 
-Workspace Setup commands MUST NOT return, persist outside secure keyring, log, or include Provider API Keys in generated frontend types, command responses, errors, Workspace records, Provider Inventory responses, or diagnostics.
+Workspace Setup commands MUST NOT return, persist outside secure keyring, log, or include Provider API Keys in generated frontend types, command responses, errors, Workspace records, provider placement options responses, or diagnostics.
 
-#### Scenario: Provider inventory is returned
+#### Scenario: Provider placement options are returned
 
-- **WHEN** the Native Layer returns Provider Inventory
+- **WHEN** the Native Layer returns provider placement options
 - **THEN** the response SHALL include only UI-safe provider inventory data
 - **AND** the response MUST NOT include the Provider API Key
 
@@ -374,29 +396,29 @@ The Native Layer SHALL validate bundled Workflow Preset Hugging Face model asset
 - **THEN** the Native Layer SHALL NOT require fields beyond the Hugging Face source metadata and install path
 - **AND** the Native Layer SHALL NOT expose extra model asset metadata through generated command bindings
 
-### Requirement: Provider Inventory reports provider failure classes precisely
+### Requirement: Provider placement options report provider failure classes precisely
 
-Provider Inventory reads SHALL distinguish Provider authorization, provider network/API availability, malformed responses, and invalid mapped inventory.
+Provider placement options reads SHALL distinguish Provider authorization, provider network/API availability, malformed responses, and invalid mapped inventory.
 
 #### Scenario: Stored Provider API Key is missing
 
-- **WHEN** the Client requests Provider Inventory and the required local Provider API Key is missing
+- **WHEN** the Client requests provider placement options and the required local Provider API Key is missing
 - **THEN** the Native Layer SHALL reject the request with `provider_setup_incomplete`
 
 #### Scenario: Stored Provider API Key is unauthorized
 
-- **WHEN** RunPod rejects the stored Provider API Key while fetching inventory
+- **WHEN** RunPod rejects the stored Provider API Key while fetching provider placement options
 - **THEN** the Native Layer SHALL reject the request with a Provider API Key authorization error
 - **AND** React SHALL be able to route the user toward Provider Setup recovery
 
-#### Scenario: Provider Inventory request cannot reach provider
+#### Scenario: Provider placement options request cannot reach provider
 
 - **WHEN** RunPod inventory lookup fails due to timeout, DNS, connection failure, request timeout, provider outage, rate limiting, or non-auth provider availability failure
 - **THEN** the Native Layer SHALL reject the request with a retryable provider availability error
 
-#### Scenario: Provider Inventory response is malformed or invalid
+#### Scenario: Provider placement options response is malformed or invalid
 
-- **WHEN** RunPod inventory lookup returns a response that cannot be parsed, mapped, or validated as a Provider Inventory
+- **WHEN** RunPod inventory lookup returns a response that cannot be parsed, mapped, or validated as provider placement options
 - **THEN** the Native Layer SHALL reject the request with a Provider response or inventory invalid error
 - **AND** the generated command error MUST NOT include the raw Provider response body
 
@@ -408,7 +430,7 @@ Workspace creation SHALL return field-specific UI-safe errors for invalid comman
 
 - **WHEN** the Client submits a Workspace creation request whose `workspace_id` is missing or is not a valid UUID
 - **THEN** the Native Layer SHALL reject the request with `invalid_workspace_id`
-- **AND** the Native Layer MUST NOT read Provider setup, bundled catalogs, Provider Inventory, or Workspace Catalog persistence
+- **AND** the Native Layer MUST NOT read Provider setup, bundled catalogs, provider placement options, or Workspace Catalog persistence
 
 #### Scenario: Workspace name is missing
 
@@ -450,6 +472,12 @@ Workspace creation SHALL return UI-safe placement validation categories for inco
 - **THEN** the Native Layer SHALL reject the request with a storage minimum error
 - **AND** React SHALL be able to identify that storage selection must be increased
 
+#### Scenario: RunPod endpoint keep-alive is invalid
+
+- **WHEN** the requested RunPod endpoint keep-alive seconds is outside the provider-supported range
+- **THEN** the Native Layer SHALL reject the request with a placement endpoint keep-alive range error
+- **AND** React SHALL be able to identify that endpoint keep-alive selection must be changed
+
 ### Requirement: Workspace Catalog command errors distinguish safe recovery categories
 
 Workspace Catalog read and write failures SHALL expose safe command-level categories that help React choose retry, recovery, or blocking behavior.
@@ -486,4 +514,3 @@ Workspace Setup command errors SHALL give React enough UI-safe information to pr
 - **WHEN** any Workspace Setup read or mutation command fails
 - **THEN** React SHALL be able to distinguish whether the user should retry, refresh provider setup, reload catalogs, refresh Workspace Catalog, reselect placement data, change a request field, or recover local storage
 - **AND** React MUST NOT infer recovery behavior by parsing command error messages
-

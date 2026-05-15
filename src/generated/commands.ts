@@ -8,9 +8,12 @@ export const commands = {
 	setupGpuCloudProvider: (request: SetupGpuCloudProviderRequest) => typedError<SetupGpuCloudProviderResponse, NativeCommandError>(__TAURI_INVOKE("setup_gpu_cloud_provider", { request })),
 	deleteGpuCloudProviderSetup: (request: DeleteGpuCloudProviderSetupRequest) => typedError<DeleteGpuCloudProviderSetupResponse, NativeCommandError>(__TAURI_INVOKE("delete_gpu_cloud_provider_setup", { request })),
 	getWorkflowCatalog: () => typedError<GetWorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
-	getProviderInventory: (request: GetProviderInventoryRequest) => typedError<GetProviderInventoryResponse, NativeCommandError>(__TAURI_INVOKE("get_provider_inventory", { request })),
+	getProviderPlacementOptions: (request: GetProviderPlacementOptionsRequest) => typedError<GetProviderPlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_provider_placement_options", { request })),
 	getWorkspaceCatalog: () => typedError<GetWorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
 	createWorkspace: (request: CreateWorkspaceRequest) => typedError<CreateWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_workspace", { request })),
+	initiateWorkspaceProvisioning: (request: WorkspaceProvisioningRequest) => typedError<WorkspaceProvisioningResponse, NativeCommandError>(__TAURI_INVOKE("initiate_workspace_provisioning", { request })),
+	syncWorkspaceProvisioning: (request: WorkspaceProvisioningRequest) => typedError<WorkspaceProvisioningResponse, NativeCommandError>(__TAURI_INVOKE("sync_workspace_provisioning", { request })),
+	cancelWorkspaceProvisioning: (request: WorkspaceProvisioningRequest) => typedError<WorkspaceProvisioningResponse, NativeCommandError>(__TAURI_INVOKE("cancel_workspace_provisioning", { request })),
 };
 
 /* Types */
@@ -56,6 +59,8 @@ export type DeleteGpuCloudProviderSetupResponse = {
 	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
 };
 
+export type EndpointKeepAliveCapability = { supported: "true"; default_seconds: number; min_seconds: number; max_seconds: number } | { supported: "false" };
+
 export type GetGpuCloudProviderSetupRequest = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 };
@@ -64,12 +69,13 @@ export type GetGpuCloudProviderSetupResponse = {
 	gpu_cloud_provider_setup: GpuCloudProviderSetup | null,
 };
 
-export type GetProviderInventoryRequest = {
+export type GetProviderPlacementOptionsRequest = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 };
 
-export type GetProviderInventoryResponse = {
+export type GetProviderPlacementOptionsResponse = {
 	provider_inventory: ProviderInventory,
+	placement_capabilities: ProviderPlacementCapabilities,
 };
 
 export type GetWorkflowCatalogResponse = {
@@ -121,7 +127,7 @@ export type NativeCommandError = {
 	recovery_action: string | null,
 };
 
-export type NativeCommandErrorCode = "provider_setup_incomplete" | "provider_setup_not_found" | "provider_setup_already_exists" | "provider_api_key_required" | "provider_api_key_unauthorized" | "stored_provider_api_key_invalid" | "provider_api_unavailable" | "provider_response_invalid" | "provider_inventory_invalid" | "provider_identity_response_invalid" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "workspace_catalog_storage_unavailable" | "workspace_catalog_migration_failed" | "workspace_catalog_query_failed" | "workspace_catalog_corrupt" | "workspace_catalog_schema_mismatch" | "placement_provider_mismatch" | "placement_datacenter_required" | "placement_gpu_required" | "workflow_preset_stale" | "storage_size_below_preset_minimum" | "workspace_already_exists" | "invalid_workspace_id" | "workspace_name_required" | "invalid_workspace_metadata";
+export type NativeCommandErrorCode = "provider_setup_incomplete" | "provider_setup_not_found" | "provider_setup_already_exists" | "provider_api_key_required" | "provider_api_key_unauthorized" | "stored_provider_api_key_invalid" | "provider_api_unavailable" | "provider_response_invalid" | "provider_inventory_invalid" | "provider_identity_response_invalid" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "workspace_catalog_storage_unavailable" | "workspace_catalog_migration_failed" | "workspace_catalog_query_failed" | "workspace_catalog_corrupt" | "workspace_catalog_schema_mismatch" | "placement_provider_mismatch" | "placement_datacenter_required" | "placement_gpu_required" | "workflow_preset_stale" | "storage_size_below_preset_minimum" | "endpoint_keep_alive_out_of_range" | "workspace_already_exists" | "workspace_not_found" | "invalid_workspace_lifecycle" | "invalid_workspace_id" | "workspace_name_required" | "invalid_workspace_metadata" | "provider_resource_not_found" | "provider_operation_conflict" | "provider_operation_indeterminate" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed";
 
 export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
@@ -132,7 +138,7 @@ export type PersistentStorageVolumeSnapshot = {
 	mount_path: string,
 };
 
-export type PlacementPlan = { gpu_cloud_provider_id: "runpod"; selected_datacenter_id: string; selected_gpu_id: string; persistent_storage_volume_size_bytes: number; selected_workflow_preset: WorkflowPreset };
+export type PlacementPlan = { gpu_cloud_provider_id: "runpod"; selected_datacenter_id: string; selected_gpu_id: string; persistent_storage_volume_size_bytes: number; endpoint_keep_alive_seconds: number; selected_workflow_preset: WorkflowPreset };
 
 export type ProviderInventory = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
@@ -140,6 +146,12 @@ export type ProviderInventory = {
 	max_persistent_storage_volume_size_bytes: number | null,
 	datacenters: Datacenter[],
 };
+
+export type ProviderPlacementCapabilities = {
+	endpoint_keep_alive: EndpointKeepAliveCapability,
+};
+
+export type ProviderProvisioningSnapshot = { gpu_cloud_provider_id: "runpod"; endpoint_template_snapshot: RunPodEndpointTemplateSnapshot | null };
 
 export type ProviderResourceStatus = "creating" | "running" | "ready" | "terminated" | "failed" | "unknown";
 
@@ -150,6 +162,13 @@ export type ProvisioningPodSnapshot = {
 	provider_resource_status: ProviderResourceStatus,
 	selected_gpu_id: string,
 	provisioner_status_url: string,
+};
+
+export type RunPodEndpointTemplateSnapshot = {
+	template_id: string,
+	provider_resource_status: ProviderResourceStatus,
+	endpoint_worker_image_ref: string,
+	mount_path: string,
 };
 
 export type ServerlessEndpointSnapshot = {
@@ -199,6 +218,7 @@ export type Workspace = {
 	active_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
 	serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null,
 	last_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
+	provider_provisioning_snapshot: ProviderProvisioningSnapshot | null,
 	environment_prepared_at: string | null,
 };
 
@@ -207,6 +227,26 @@ export type WorkspaceCatalog = {
 };
 
 export type WorkspaceLifecycleState = "draft" | "provisioning" | "ready" | "failed";
+
+export type WorkspaceProvisioningPhase = "not_started" | "creating_volume" | "starting_provisioning_pod" | "preparing_environment" | "creating_endpoint_template" | "creating_endpoint" | "validating_readiness" | "cleaning_up" | "completed" | "failed";
+
+export type WorkspaceProvisioningProgress = {
+	status: WorkspaceProvisioningStatus,
+	phase: WorkspaceProvisioningPhase,
+	percent: number | null,
+	message: string | null,
+};
+
+export type WorkspaceProvisioningRequest = {
+	workspace_id: string,
+};
+
+export type WorkspaceProvisioningResponse = {
+	workspace: Workspace,
+	progress: WorkspaceProvisioningProgress,
+};
+
+export type WorkspaceProvisioningStatus = "idle" | "running" | "cancelling" | "completed" | "failed";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

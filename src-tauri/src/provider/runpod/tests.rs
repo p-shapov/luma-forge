@@ -1,15 +1,27 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use serde_json::json;
 
 use crate::{
-    domain::provider_setup::{ProviderApiKey, ProviderIdentity},
+    domain::{
+        provider_setup::{ProviderApiKey, ProviderIdentity},
+        workspace::ProviderResourceStatus,
+    },
     provider::{
         error::ProviderClientError,
         runpod::{
-            contracts::{GraphQlResponse, RunPodIdentityData, RunPodInventoryData},
-            mapper::{identity_from_graphql_response, inventory_from_graphql_response},
-            provider_error_from_inventory_status, RunPodClient,
+            contracts::{
+                GraphQlResponse, RunPodCreateNetworkVolumeRequest, RunPodCreatePodRequest,
+                RunPodCreateTemplateRequest, RunPodEndpointResponse, RunPodIdentityData,
+                RunPodInventoryData, RunPodNetworkVolumeResponse, RunPodPodResponse,
+                RunPodTemplateResponse,
+            },
+            mapper::{
+                endpoint_from_response, identity_from_graphql_response,
+                inventory_from_graphql_response, network_volume_from_response, pod_from_response,
+                template_from_response,
+            },
+            provider_error_from_inventory_status, provider_error_from_rest_status, RunPodClient,
         },
     },
 };
@@ -214,4 +226,240 @@ fn maps_inventory_auth_graphql_errors_to_unauthorized() {
     let error = inventory_from_graphql_response(response).expect_err("auth error should fail");
 
     assert_eq!(error, ProviderClientError::Unauthorized);
+}
+
+#[test]
+fn serializes_network_volume_create_request_with_documented_size_field() {
+    let payload = serde_json::to_value(RunPodCreateNetworkVolumeRequest {
+        name: "lf-workspace-volume".to_string(),
+        data_center_id: "EU-RO-1".to_string(),
+        size: 80,
+    })
+    .expect("request should serialize");
+
+    assert_eq!(
+        payload,
+        json!({
+            "name": "lf-workspace-volume",
+            "dataCenterId": "EU-RO-1",
+            "size": 80
+        })
+    );
+}
+
+#[test]
+fn parses_network_volume_response() {
+    let response: RunPodNetworkVolumeResponse = serde_json::from_value(json!({
+        "id": "volume-1",
+        "name": "lf-workspace",
+        "dataCenterId": "EU-RO-1",
+        "size": 80
+    }))
+    .expect("volume response should parse");
+
+    let observation = network_volume_from_response(response).expect("network volume should map");
+
+    assert_eq!(observation.id, "volume-1");
+    assert_eq!(observation.data_center_id, "EU-RO-1");
+    assert_eq!(observation.size_gb, 80);
+    assert_eq!(observation.status, ProviderResourceStatus::Ready);
+}
+
+#[test]
+fn serializes_pod_create_request_with_documented_shape() {
+    let payload = serde_json::to_value(RunPodCreatePodRequest {
+        name: "lf-workspace-provisioner".to_string(),
+        image_name: "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
+        gpu_type_ids: vec!["NVIDIA GeForce RTX 4090".to_string()],
+        data_center_ids: vec!["EU-RO-1".to_string()],
+        network_volume_id: "volume-1".to_string(),
+        volume_mount_path: "/workspace".to_string(),
+        env: HashMap::from([(
+            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+            "worker-token".to_string(),
+        )]),
+        ports: vec!["8080/http".to_string()],
+    })
+    .expect("request should serialize");
+
+    assert_eq!(
+        payload,
+        json!({
+            "name": "lf-workspace-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner-worker:test",
+            "gpuTypeIds": ["NVIDIA GeForce RTX 4090"],
+            "dataCenterIds": ["EU-RO-1"],
+            "networkVolumeId": "volume-1",
+            "volumeMountPath": "/workspace",
+            "env": {
+                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "worker-token"
+            },
+            "ports": ["8080/http"]
+        })
+    );
+}
+
+#[test]
+fn parses_pod_response_and_derives_status_url() {
+    let response: RunPodPodResponse = serde_json::from_value(json!({
+        "id": "pod-1",
+        "desiredStatus": "RUNNING",
+        "machine": {
+            "dataCenterId": "EU-RO-1",
+            "gpuTypeId": "NVIDIA GeForce RTX 4090"
+        },
+        "publicIp": "203.0.113.10",
+        "portMappings": {
+            "8080": 30001
+        },
+        "ports": [
+            "8080/http"
+        ]
+    }))
+    .expect("pod response should parse");
+
+    let observation = pod_from_response(response).expect("pod should map");
+
+    assert_eq!(observation.data_center_id, "EU-RO-1");
+    assert_eq!(observation.selected_gpu_id, "NVIDIA GeForce RTX 4090");
+    assert_eq!(observation.status, ProviderResourceStatus::Running);
+    assert_eq!(
+        observation.provisioner_status_url.as_deref(),
+        Some("http://203.0.113.10:30001/status")
+    );
+}
+
+#[test]
+fn serializes_serverless_template_create_request_with_worker_port() {
+    let payload = serde_json::to_value(RunPodCreateTemplateRequest {
+        name: "lf-workspace-endpoint-template".to_string(),
+        image_name: "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
+        container_disk_in_gb: 10,
+        env: HashMap::new(),
+        is_public: false,
+        is_serverless: true,
+        ports: vec!["8080/http".to_string()],
+        readme: String::new(),
+        volume_mount_path: "/workspace".to_string(),
+    })
+    .expect("request should serialize");
+
+    assert_eq!(
+        payload,
+        json!({
+            "name": "lf-workspace-endpoint-template",
+            "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "containerDiskInGb": 10,
+            "env": {},
+            "isPublic": false,
+            "isServerless": true,
+            "ports": ["8080/http"],
+            "readme": "",
+            "volumeMountPath": "/workspace"
+        })
+    );
+}
+
+#[test]
+fn parses_template_response() {
+    let response: RunPodTemplateResponse = serde_json::from_value(json!({
+        "id": "template-1",
+        "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+        "volumeMountPath": "/workspace",
+        "isServerless": true,
+        "ports": ["8080/http"]
+    }))
+    .expect("template response should parse");
+
+    let observation = template_from_response(response).expect("template should map");
+
+    assert_eq!(observation.id, "template-1");
+    assert_eq!(observation.status, ProviderResourceStatus::Ready);
+}
+
+#[test]
+fn rejects_non_serverless_template_response() {
+    let response: RunPodTemplateResponse = serde_json::from_value(json!({
+        "id": "template-1",
+        "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+        "volumeMountPath": "/workspace",
+        "isServerless": false
+    }))
+    .expect("template response should parse");
+
+    let error = template_from_response(response).expect_err("pod template should be rejected");
+
+    assert_eq!(error, ProviderClientError::ResponseInvalid);
+}
+
+#[test]
+fn parses_endpoint_response_and_derives_invoke_url() {
+    let response: RunPodEndpointResponse = serde_json::from_value(json!({
+        "id": "endpoint-1",
+        "status": "RUNNING",
+        "gpuTypeIds": ["NVIDIA RTX 4090"],
+        "dataCenterIds": ["EU-RO-1"]
+    }))
+    .expect("endpoint response should parse");
+
+    let observation = endpoint_from_response(response).expect("endpoint should map");
+
+    assert_eq!(observation.status, ProviderResourceStatus::Running);
+    assert_eq!(
+        observation.endpoint_invoke_url,
+        "https://api.runpod.ai/v2/endpoint-1/run"
+    );
+}
+
+#[test]
+fn parses_endpoint_response_without_status_as_ready() {
+    let response: RunPodEndpointResponse = serde_json::from_value(json!({
+        "id": "endpoint-1",
+        "gpuTypeIds": ["NVIDIA RTX 4090"],
+        "dataCenterIds": ["EU-RO-1"],
+        "idleTimeout": 5
+    }))
+    .expect("endpoint response should parse");
+
+    let observation = endpoint_from_response(response).expect("endpoint should map");
+
+    assert_eq!(observation.status, ProviderResourceStatus::Ready);
+}
+
+#[test]
+fn maps_rest_status_codes_to_provider_errors() {
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::UNAUTHORIZED),
+        Some(ProviderClientError::Unauthorized)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::NOT_FOUND),
+        Some(ProviderClientError::NotFound)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::CONFLICT),
+        Some(ProviderClientError::Conflict)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::GATEWAY_TIMEOUT),
+        Some(ProviderClientError::Indeterminate)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::SERVICE_UNAVAILABLE),
+        Some(ProviderClientError::ApiUnavailable)
+    );
+}
+
+#[test]
+fn rejects_invalid_rest_payloads() {
+    let response: RunPodNetworkVolumeResponse = serde_json::from_value(json!({
+        "id": "",
+        "dataCenterId": "EU-RO-1",
+        "size": 80
+    }))
+    .expect("payload should parse");
+
+    let error = network_volume_from_response(response).expect_err("blank resource id should fail");
+
+    assert_eq!(error, ProviderClientError::ResponseInvalid);
 }

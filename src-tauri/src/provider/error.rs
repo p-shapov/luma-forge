@@ -8,4 +8,10 @@ pub enum ProviderClientError {
     ApiUnavailable,
     #[error("provider response invalid")]
     ResponseInvalid,
+    #[error("provider resource not found")]
+    NotFound,
+    #[error("provider operation conflict")]
+    Conflict,
+    #[error("provider operation result indeterminate")]
+    Indeterminate,
 }

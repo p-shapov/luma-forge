@@ -9,6 +9,7 @@ mod error;
 mod logging;
 mod provider_setup;
 mod workspace;
+mod workspace_provisioning;
 
 #[cfg(any(debug_assertions, test))]
 pub(crate) use bindings::export_typescript_bindings;

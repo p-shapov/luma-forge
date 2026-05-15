@@ -7,7 +7,7 @@ use crate::{
         provider_setup as domain_provider_setup, workflow as domain_workflow,
         workspace as domain_workspace,
     },
-    workspace_setup::contracts::CreateWorkspaceInput,
+    workspace_setup::contracts::{CreateWorkspaceInput, ProviderPlacementOptions},
 };
 
 // Command-boundary metadata only. These remote definitions provide generated
@@ -132,6 +132,7 @@ mod remote_types {
             selected_datacenter_id: String,
             selected_gpu_id: String,
             persistent_storage_volume_size_bytes: u64,
+            endpoint_keep_alive_seconds: u32,
             selected_workflow_preset: domain_workflow::WorkflowPreset,
         },
     }
@@ -192,6 +193,24 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workspace::ProviderProvisioningSnapshot)]
+    #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
+    pub(super) enum ProviderProvisioningSnapshot {
+        Runpod {
+            endpoint_template_snapshot: Option<domain_workspace::RunPodEndpointTemplateSnapshot>,
+        },
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workspace::RunPodEndpointTemplateSnapshot)]
+    pub(super) struct RunPodEndpointTemplateSnapshot {
+        pub template_id: String,
+        pub provider_resource_status: domain_workspace::ProviderResourceStatus,
+        pub endpoint_worker_image_ref: String,
+        pub mount_path: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_workspace::Workspace)]
     pub(super) struct Workspace {
         pub gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId,
@@ -204,6 +223,7 @@ mod remote_types {
         pub active_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,
         pub serverless_endpoint_snapshot: Option<domain_workspace::ServerlessEndpointSnapshot>,
         pub last_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,
+        pub provider_provisioning_snapshot: Option<domain_workspace::ProviderProvisioningSnapshot>,
         pub environment_prepared_at: Option<String>,
     }
 
@@ -211,6 +231,26 @@ mod remote_types {
     #[specta(remote = domain_workspace::WorkspaceCatalog)]
     pub(super) struct WorkspaceCatalog {
         pub workspaces: Vec<domain_workspace::Workspace>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_placement::ProviderPlacementCapabilities)]
+    pub(super) struct ProviderPlacementCapabilities {
+        pub endpoint_keep_alive: domain_placement::EndpointKeepAliveCapability,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_placement::EndpointKeepAliveCapability)]
+    #[serde(tag = "supported", rename_all = "snake_case")]
+    pub(super) enum EndpointKeepAliveCapability {
+        #[serde(rename = "true")]
+        Supported {
+            default_seconds: u32,
+            min_seconds: u32,
+            max_seconds: u32,
+        },
+        #[serde(rename = "false")]
+        Unsupported,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -256,19 +296,21 @@ impl From<domain_workflow::WorkflowCatalog> for GetWorkflowCatalogResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetProviderInventoryRequest {
+pub struct GetProviderPlacementOptionsRequest {
     pub gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct GetProviderInventoryResponse {
+pub struct GetProviderPlacementOptionsResponse {
     pub provider_inventory: domain_inventory::ProviderInventory,
+    pub placement_capabilities: domain_placement::ProviderPlacementCapabilities,
 }
 
-impl From<domain_inventory::ProviderInventory> for GetProviderInventoryResponse {
-    fn from(response: domain_inventory::ProviderInventory) -> Self {
+impl From<ProviderPlacementOptions> for GetProviderPlacementOptionsResponse {
+    fn from(response: ProviderPlacementOptions) -> Self {
         Self {
-            provider_inventory: response,
+            provider_inventory: response.provider_inventory,
+            placement_capabilities: response.placement_capabilities,
         }
     }
 }

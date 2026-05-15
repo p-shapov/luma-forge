@@ -7,8 +7,9 @@ use crate::domain::{
 };
 
 use super::{
-    PersistentStorageVolumeSnapshot, ProvisioningPodSnapshot, ServerlessEndpointSnapshot,
-    Workspace, WorkspaceCatalog, WorkspaceLifecycleState,
+    PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
+    ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot, Workspace,
+    WorkspaceCatalog, WorkspaceLifecycleState,
 };
 
 pub fn validate_workspace_catalog(catalog: &WorkspaceCatalog) -> DomainValidationResult {
@@ -40,7 +41,14 @@ pub fn validate_workspace(workspace: &Workspace) -> DomainValidationResult {
             || workspace.active_provisioning_pod_snapshot.is_some()
             || workspace.serverless_endpoint_snapshot.is_some()
             || workspace.last_provisioning_pod_snapshot.is_some()
+            || workspace.provider_provisioning_snapshot.is_some()
             || workspace.environment_prepared_at.is_some())
+    {
+        return Err(DomainValidationError);
+    }
+
+    if matches!(workspace.lifecycle_state, WorkspaceLifecycleState::Ready)
+        && !has_ready_provisioning_state(workspace)
     {
         return Err(DomainValidationError);
     }
@@ -57,8 +65,50 @@ pub fn validate_workspace(workspace: &Workspace) -> DomainValidationResult {
     if let Some(snapshot) = &workspace.last_provisioning_pod_snapshot {
         validate_provisioning_pod_snapshot(workspace.gpu_cloud_provider_id, snapshot)?;
     }
+    if let Some(snapshot) = &workspace.provider_provisioning_snapshot {
+        validate_provider_provisioning_snapshot(workspace.gpu_cloud_provider_id, snapshot)?;
+    }
+    if workspace.serverless_endpoint_snapshot.is_some()
+        && runpod_endpoint_template_snapshot(workspace).is_none()
+    {
+        return Err(DomainValidationError);
+    }
 
     Ok(())
+}
+
+fn has_ready_provisioning_state(workspace: &Workspace) -> bool {
+    workspace.active_provisioning_pod_snapshot.is_none()
+        && workspace.environment_prepared_at.is_some()
+        && workspace
+            .persistent_storage_volume_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                snapshot.provider_resource_status == ProviderResourceStatus::Ready
+            })
+        && runpod_endpoint_template_snapshot(workspace).is_some_and(|snapshot| {
+            snapshot.provider_resource_status == ProviderResourceStatus::Ready
+        })
+        && workspace
+            .serverless_endpoint_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                matches!(
+                    snapshot.provider_resource_status,
+                    ProviderResourceStatus::Ready | ProviderResourceStatus::Running
+                )
+            })
+}
+
+fn runpod_endpoint_template_snapshot(
+    workspace: &Workspace,
+) -> Option<&RunPodEndpointTemplateSnapshot> {
+    match &workspace.provider_provisioning_snapshot {
+        Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot,
+        }) => endpoint_template_snapshot.as_ref(),
+        None => None,
+    }
 }
 
 fn validate_persistent_storage_volume_snapshot(
@@ -102,6 +152,39 @@ fn validate_serverless_endpoint_snapshot(
         || is_blank(&snapshot.datacenter_id)
         || is_blank(&snapshot.selected_gpu_id)
         || is_blank(&snapshot.endpoint_invoke_url)
+    {
+        return Err(DomainValidationError);
+    }
+
+    Ok(())
+}
+
+fn validate_provider_provisioning_snapshot(
+    provider_id: GpuCloudProviderId,
+    snapshot: &ProviderProvisioningSnapshot,
+) -> DomainValidationResult {
+    match (provider_id, snapshot) {
+        (
+            GpuCloudProviderId::Runpod,
+            ProviderProvisioningSnapshot::Runpod {
+                endpoint_template_snapshot,
+            },
+        ) => {
+            if let Some(template_snapshot) = endpoint_template_snapshot {
+                validate_runpod_endpoint_template_snapshot(template_snapshot)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_runpod_endpoint_template_snapshot(
+    snapshot: &RunPodEndpointTemplateSnapshot,
+) -> DomainValidationResult {
+    if is_blank(&snapshot.template_id)
+        || is_blank(&snapshot.endpoint_worker_image_ref)
+        || !is_safe_absolute_posix_path(&snapshot.mount_path)
     {
         return Err(DomainValidationError);
     }
@@ -164,6 +247,7 @@ mod tests {
             active_provisioning_pod_snapshot: None,
             serverless_endpoint_snapshot: None,
             last_provisioning_pod_snapshot: None,
+            provider_provisioning_snapshot: None,
             environment_prepared_at: None,
         }
     }
@@ -173,6 +257,7 @@ mod tests {
             selected_datacenter_id: "EU-RO-1".to_string(),
             selected_gpu_id: "NVIDIA RTX 4090".to_string(),
             persistent_storage_volume_size_bytes: 85899345920,
+            endpoint_keep_alive_seconds: 5,
             selected_workflow_preset: WorkflowPreset {
                 id: "preset".to_string(),
                 version: "1.0.0".to_string(),

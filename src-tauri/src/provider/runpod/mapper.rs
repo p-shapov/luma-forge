@@ -2,12 +2,15 @@ use crate::{
     domain::{
         provider_inventory::{Datacenter, GpuOption, ProviderInventory},
         provider_setup::{GpuCloudProviderId, ProviderApiKey, ProviderIdentity},
+        workspace::ProviderResourceStatus,
     },
     provider::{
         error::ProviderClientError,
         runpod::contracts::{
-            GraphQlError, GraphQlResponse, RunPodApiKey, RunPodGpuAvailability, RunPodIdentityData,
-            RunPodInventoryData,
+            GraphQlError, GraphQlResponse, RunPodApiKey, RunPodEndpointObservation,
+            RunPodEndpointResponse, RunPodGpuAvailability, RunPodIdentityData, RunPodInventoryData,
+            RunPodNetworkVolumeObservation, RunPodNetworkVolumeResponse, RunPodPodObservation,
+            RunPodPodResponse, RunPodTemplateObservation, RunPodTemplateResponse,
         },
     },
 };
@@ -128,6 +131,140 @@ pub(super) fn inventory_from_graphql_response(
         fetched_at,
         max_persistent_storage_volume_size_bytes: None,
         datacenters,
+    })
+}
+
+pub(super) fn network_volume_from_response(
+    payload: RunPodNetworkVolumeResponse,
+) -> Result<RunPodNetworkVolumeObservation, ProviderClientError> {
+    Ok(RunPodNetworkVolumeObservation {
+        id: non_empty(payload.id)?,
+        data_center_id: non_empty(payload.data_center_id)?,
+        size_gb: payload.size.ok_or(ProviderClientError::ResponseInvalid)?,
+        status: resource_status_or_ready(payload.status.as_deref()),
+    })
+}
+
+pub(super) fn pod_from_response(
+    payload: RunPodPodResponse,
+) -> Result<RunPodPodObservation, ProviderClientError> {
+    let machine = payload.machine.clone();
+    Ok(RunPodPodObservation {
+        id: non_empty(payload.id)?,
+        data_center_id: non_empty(payload.data_center_id.or_else(|| {
+            machine
+                .as_ref()
+                .and_then(|machine| machine.data_center_id.clone())
+        }))?,
+        selected_gpu_id: non_empty(payload.gpu_type_id.or_else(|| {
+            machine
+                .as_ref()
+                .and_then(|machine| machine.gpu_type_id.clone())
+                .or_else(|| payload.gpu.and_then(|gpu| gpu.id))
+        }))?,
+        status: resource_status(payload.pod_status.or(payload.desired_status).as_deref()),
+        provisioner_status_url: provisioner_status_url(
+            payload.public_ip,
+            payload.ports.unwrap_or_default(),
+            payload.port_mappings.unwrap_or_default(),
+        ),
+    })
+}
+
+pub(super) fn template_from_response(
+    payload: RunPodTemplateResponse,
+) -> Result<RunPodTemplateObservation, ProviderClientError> {
+    if payload.is_serverless == Some(false) {
+        return Err(ProviderClientError::ResponseInvalid);
+    }
+
+    Ok(RunPodTemplateObservation {
+        id: non_empty(payload.id)?,
+        image_name: non_empty(payload.image_name)?,
+        volume_mount_path: non_empty(payload.volume_mount_path)?,
+        status: resource_status_or_ready(payload.status.as_deref()),
+    })
+}
+
+pub(super) fn endpoint_from_response(
+    payload: RunPodEndpointResponse,
+) -> Result<RunPodEndpointObservation, ProviderClientError> {
+    let id = non_empty(payload.id)?;
+    let data_center_id = payload
+        .data_center_ids
+        .unwrap_or_default()
+        .into_iter()
+        .find(|value| !value.trim().is_empty())
+        .ok_or(ProviderClientError::ResponseInvalid)?;
+    let selected_gpu_id = payload
+        .gpu_type_ids
+        .unwrap_or_default()
+        .into_iter()
+        .find(|value| !value.trim().is_empty())
+        .ok_or(ProviderClientError::ResponseInvalid)?;
+    let endpoint_invoke_url = payload
+        .endpoint_url
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("https://api.runpod.ai/v2/{id}/run"));
+
+    Ok(RunPodEndpointObservation {
+        id,
+        data_center_id,
+        selected_gpu_id,
+        status: resource_status_or_ready(payload.status.as_deref()),
+        endpoint_invoke_url,
+    })
+}
+
+fn non_empty(value: Option<String>) -> Result<String, ProviderClientError> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(ProviderClientError::ResponseInvalid)
+}
+
+fn resource_status(status: Option<&str>) -> ProviderResourceStatus {
+    match status.unwrap_or_default().to_ascii_uppercase().as_str() {
+        "CREATED" | "READY" | "HEALTHY" => ProviderResourceStatus::Ready,
+        "RUNNING" | "IN_USE" => ProviderResourceStatus::Running,
+        "CREATING" | "PENDING" | "STARTING" | "INITIALIZING" => ProviderResourceStatus::Creating,
+        "EXITED" | "STOPPED" | "TERMINATED" | "DELETED" => ProviderResourceStatus::Terminated,
+        "FAILED" | "ERROR" | "UNHEALTHY" => ProviderResourceStatus::Failed,
+        _ => ProviderResourceStatus::Unknown,
+    }
+}
+
+fn resource_status_or_ready(status: Option<&str>) -> ProviderResourceStatus {
+    match status {
+        Some(status) => resource_status(Some(status)),
+        None => ProviderResourceStatus::Ready,
+    }
+}
+
+fn provisioner_status_url(
+    public_ip: Option<String>,
+    ports: Vec<String>,
+    port_mappings: std::collections::HashMap<String, u16>,
+) -> Option<String> {
+    let public_ip = public_ip.filter(|value| !value.trim().is_empty())?;
+    let (private_port, scheme) = exposed_http_port(&ports).or_else(|| {
+        port_mappings
+            .keys()
+            .find_map(|private_port| Some((private_port.parse::<u16>().ok()?, "http")))
+    })?;
+    let public_port = port_mappings.get(&private_port.to_string())?;
+
+    Some(format!("{scheme}://{public_ip}:{public_port}/status"))
+}
+
+fn exposed_http_port(ports: &[String]) -> Option<(u16, &'static str)> {
+    ports.iter().find_map(|port| {
+        let (private_port, protocol) = port.split_once('/')?;
+        let scheme = match protocol.to_ascii_lowercase().as_str() {
+            "http" => "http",
+            "https" => "https",
+            _ => return None,
+        };
+        Some((private_port.parse::<u16>().ok()?, scheme))
     })
 }
 

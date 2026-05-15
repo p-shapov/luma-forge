@@ -1,0 +1,1099 @@
+use super::*;
+
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use crate::{
+    domain::{
+        provider_setup::ProviderApiKey,
+        workspace::{
+            ProviderProvisioningSnapshot, RunPodEndpointTemplateSnapshot,
+            ServerlessEndpointSnapshot, WorkspaceCatalog, WorkspaceLifecycleState,
+            WorkspaceProvisioningPhase,
+        },
+    },
+    secrets::SecretStoreError,
+    workspace_setup::{error::WorkspaceSetupError, tests::sample_workspace},
+};
+
+#[derive(Debug, Clone)]
+struct MemorySecretStore {
+    api_key: Option<String>,
+    worker_tokens: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl SecretStore for MemorySecretStore {
+    fn has_api_key_entry(
+        &self,
+        _provider_id: &GpuCloudProviderId,
+    ) -> Result<bool, SecretStoreError> {
+        Ok(self.api_key.is_some())
+    }
+
+    fn read_api_key(
+        &self,
+        _provider_id: &GpuCloudProviderId,
+    ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
+        self.api_key
+            .clone()
+            .map(ProviderApiKey::new)
+            .transpose()
+            .map_err(|_| SecretStoreError::InvalidStoredProviderApiKey)
+    }
+
+    fn replace_api_key(
+        &self,
+        _provider_id: &GpuCloudProviderId,
+        _api_key: &ProviderApiKey,
+    ) -> Result<(), SecretStoreError> {
+        unimplemented!("provisioning tests do not replace provider keys")
+    }
+
+    fn delete_api_key(&self, _provider_id: &GpuCloudProviderId) -> Result<(), SecretStoreError> {
+        unimplemented!("provisioning tests do not delete provider keys")
+    }
+
+    fn write_provisioner_worker_token(
+        &self,
+        workspace_id: &str,
+        token: &ProvisionerWorkerBearerToken,
+    ) -> Result<(), SecretStoreError> {
+        self.worker_tokens
+            .lock()
+            .expect("worker token lock")
+            .insert(workspace_id.to_string(), token.expose_secret().to_string());
+        Ok(())
+    }
+
+    fn read_provisioner_worker_token(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
+        self.worker_tokens
+            .lock()
+            .expect("worker token lock")
+            .get(workspace_id)
+            .cloned()
+            .map(ProvisionerWorkerBearerToken::new)
+            .transpose()
+            .map_err(|_| SecretStoreError::InvalidStoredProvisionerWorkerToken)
+    }
+
+    fn delete_provisioner_worker_token(&self, workspace_id: &str) -> Result<(), SecretStoreError> {
+        self.worker_tokens
+            .lock()
+            .expect("worker token lock")
+            .remove(workspace_id);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct MemoryWorkspaceCatalog {
+    workspaces: Arc<Mutex<Vec<Workspace>>>,
+}
+
+impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
+    fn list_workspaces<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            Ok(WorkspaceCatalog {
+                workspaces: self.workspaces.lock().expect("catalog lock").clone(),
+            })
+        })
+    }
+
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Workspace>, WorkspaceSetupError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            Ok(self
+                .workspaces
+                .lock()
+                .expect("catalog lock")
+                .iter()
+                .find(|workspace| workspace.id == id)
+                .cloned())
+        })
+    }
+
+    fn insert_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.workspaces
+                .lock()
+                .expect("catalog lock")
+                .push(workspace.clone());
+            Ok(workspace.clone())
+        })
+    }
+
+    fn update_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut workspaces = self.workspaces.lock().expect("catalog lock");
+            let existing = workspaces
+                .iter_mut()
+                .find(|existing| existing.id == workspace.id)
+                .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            *existing = workspace.clone();
+            Ok(workspace.clone())
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct FakeProvider {
+    create_volume_count: Arc<AtomicUsize>,
+    get_volume_count: Arc<AtomicUsize>,
+    delete_volume_count: Arc<AtomicUsize>,
+    create_pod_count: Arc<AtomicUsize>,
+    get_pod_count: Arc<AtomicUsize>,
+    delete_pod_count: Arc<AtomicUsize>,
+    create_template_count: Arc<AtomicUsize>,
+    get_template_count: Arc<AtomicUsize>,
+    delete_template_count: Arc<AtomicUsize>,
+    create_endpoint_count: Arc<AtomicUsize>,
+    get_endpoint_count: Arc<AtomicUsize>,
+    delete_endpoint_count: Arc<AtomicUsize>,
+    create_volume_error: Option<WorkspaceProvisioningError>,
+    get_volume_status: Option<ProviderResourceStatus>,
+    get_template_status: Option<ProviderResourceStatus>,
+    get_endpoint_status: Option<ProviderResourceStatus>,
+    delete_endpoint_error: Option<WorkspaceProvisioningError>,
+}
+
+impl ProviderProvisioningGateway for FakeProvider {
+    fn create_network_volume<'a>(
+        &'a self,
+        _input: CreateNetworkVolumeInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.create_volume_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.create_volume_error {
+                return Err(error.clone());
+            }
+            Ok(NetworkVolumeObservation {
+                provider_resource_id: "volume-1".to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+                provider_resource_status: ProviderResourceStatus::Ready,
+                mount_path: "/workspace".to_string(),
+            })
+        })
+    }
+
+    fn get_network_volume<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _volume_id: &'a str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.get_volume_count.fetch_add(1, Ordering::SeqCst);
+            Ok(NetworkVolumeObservation {
+                provider_resource_id: _volume_id.to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+                provider_resource_status: self
+                    .get_volume_status
+                    .clone()
+                    .unwrap_or(ProviderResourceStatus::Ready),
+                mount_path: "/workspace".to_string(),
+            })
+        })
+    }
+
+    fn delete_network_volume<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _volume_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.delete_volume_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+
+    fn create_provisioning_pod<'a>(
+        &'a self,
+        input: CreateProvisioningPodInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.create_pod_count.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(
+                input.provisioner_worker_image_ref,
+                "ghcr.io/luma-forge/provisioner-worker:test"
+            );
+            assert_eq!(input.provisioner_worker_port, 8080);
+            Ok(ProvisioningPodObservation {
+                provider_resource_id: "pod-1".to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+                provider_resource_status: ProviderResourceStatus::Running,
+                provisioner_status_url: Some("http://203.0.113.10:30001/status".to_string()),
+            })
+        })
+    }
+
+    fn get_provisioning_pod<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        pod_id: &'a str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.get_pod_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ProvisioningPodObservation {
+                provider_resource_id: pod_id.to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+                provider_resource_status: ProviderResourceStatus::Running,
+                provisioner_status_url: Some("http://203.0.113.10:30001/status".to_string()),
+            })
+        })
+    }
+
+    fn delete_provisioning_pod<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _pod_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.delete_pod_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+
+    fn create_endpoint_template<'a>(
+        &'a self,
+        input: CreateEndpointTemplateInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.create_template_count.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(input.endpoint_worker_port, 8080);
+            Ok(EndpointTemplateObservation {
+                template_id: "template-1".to_string(),
+                endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
+                mount_path: "/workspace".to_string(),
+                provider_resource_status: ProviderResourceStatus::Ready,
+            })
+        })
+    }
+
+    fn get_endpoint_template<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _template_id: &'a str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.get_template_count.fetch_add(1, Ordering::SeqCst);
+            Ok(EndpointTemplateObservation {
+                template_id: _template_id.to_string(),
+                endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
+                mount_path: "/workspace".to_string(),
+                provider_resource_status: self
+                    .get_template_status
+                    .clone()
+                    .unwrap_or(ProviderResourceStatus::Ready),
+            })
+        })
+    }
+
+    fn delete_endpoint_template<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _template_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.delete_template_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        _input: CreateServerlessEndpointInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.create_endpoint_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ServerlessEndpointObservation {
+                provider_resource_id: "endpoint-1".to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+                provider_resource_status: ProviderResourceStatus::Ready,
+                endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
+            })
+        })
+    }
+
+    fn get_serverless_endpoint<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _endpoint_id: &'a str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.get_endpoint_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ServerlessEndpointObservation {
+                provider_resource_id: _endpoint_id.to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+                provider_resource_status: self
+                    .get_endpoint_status
+                    .clone()
+                    .unwrap_or(ProviderResourceStatus::Ready),
+                endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
+            })
+        })
+    }
+
+    fn delete_serverless_endpoint<'a>(
+        &'a self,
+        _provider_id: GpuCloudProviderId,
+        _endpoint_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.delete_endpoint_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.delete_endpoint_error {
+                return Err(error.clone());
+            }
+            Ok(())
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FakeWorker {
+    start_count: Arc<AtomicUsize>,
+    cancel_count: Arc<AtomicUsize>,
+    status: Arc<Mutex<ProvisionerWorkerStatus>>,
+    cancel_error: Option<WorkspaceProvisioningError>,
+}
+
+impl FakeWorker {
+    fn idle() -> Self {
+        Self::with_status(ProvisionerWorkerJobStatus::Idle)
+    }
+
+    fn succeeded() -> Self {
+        Self::with_status(ProvisionerWorkerJobStatus::Succeeded)
+    }
+
+    fn with_status(status: ProvisionerWorkerJobStatus) -> Self {
+        Self {
+            start_count: Arc::default(),
+            cancel_count: Arc::default(),
+            status: Arc::new(Mutex::new(ProvisionerWorkerStatus {
+                phase: match status {
+                    ProvisionerWorkerJobStatus::Succeeded => {
+                        crate::provisioner_worker::ProvisionerWorkerPhase::Completed
+                    }
+                    _ => crate::provisioner_worker::ProvisionerWorkerPhase::Idle,
+                },
+                status,
+                progress_percent: None,
+                diagnostic: None,
+            })),
+            cancel_error: None,
+        }
+    }
+
+    fn with_cancel_error(error: WorkspaceProvisioningError) -> Self {
+        Self {
+            cancel_error: Some(error),
+            ..Self::idle()
+        }
+    }
+}
+
+impl ProvisionerWorkerGateway for FakeWorker {
+    fn start<'a>(
+        &'a self,
+        _provisioner_status_url: &'a str,
+        _token: &'a ProvisionerWorkerBearerToken,
+        _request: &'a ProvisionerWorkerStartRequest,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.start_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ProvisionerWorkerStatus {
+                status: ProvisionerWorkerJobStatus::Running,
+                phase: crate::provisioner_worker::ProvisionerWorkerPhase::InstallingRuntime,
+                progress_percent: Some(25),
+                diagnostic: None,
+            })
+        })
+    }
+
+    fn status<'a>(
+        &'a self,
+        _provisioner_status_url: &'a str,
+        _token: &'a ProvisionerWorkerBearerToken,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move { Ok(self.status.lock().expect("worker status").clone()) })
+    }
+
+    fn cancel<'a>(
+        &'a self,
+        _provisioner_status_url: &'a str,
+        _token: &'a ProvisionerWorkerBearerToken,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.cancel_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.cancel_error {
+                return Err(error.clone());
+            }
+            Ok(self.status.lock().expect("worker status").clone())
+        })
+    }
+}
+
+#[tokio::test]
+async fn initiate_transitions_draft_to_provisioning() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let service = service(catalog.clone(), FakeProvider::default());
+
+    let result = service.initiate(&workspace.id).await.expect("initiate");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+    assert_eq!(
+        catalog
+            .find_workspace_by_id(&workspace.id)
+            .await
+            .expect("find")
+            .expect("workspace")
+            .lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+}
+
+#[tokio::test]
+async fn sync_creates_network_volume_once() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert!(result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_some());
+    assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 1);
+
+    service.sync(&workspace.id).await.expect("second sync");
+    assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sync_refreshes_existing_volume_snapshot() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    workspace.persistent_storage_volume_snapshot = Some(PersistentStorageVolumeSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "volume-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Creating,
+        provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+        mount_path: "/workspace".to_string(),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result
+            .workspace
+            .persistent_storage_volume_snapshot
+            .expect("volume")
+            .provider_resource_status,
+        ProviderResourceStatus::Ready
+    );
+    assert_eq!(provider.get_volume_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sync_marks_failed_when_volume_refresh_is_terminal() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    workspace.persistent_storage_volume_snapshot = Some(PersistentStorageVolumeSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "volume-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Creating,
+        provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+        mount_path: "/workspace".to_string(),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        get_volume_status: Some(ProviderResourceStatus::Failed),
+        ..Default::default()
+    };
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    assert_eq!(provider.get_volume_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn indeterminate_volume_create_marks_failed_without_losing_workspace() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        create_volume_error: Some(WorkspaceProvisioningError::ProviderOperationIndeterminate),
+        ..Default::default()
+    };
+    let service = service(catalog, provider);
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+}
+
+#[tokio::test]
+async fn sync_creates_provisioning_pod_and_stores_worker_token() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    workspace.persistent_storage_volume_snapshot = Some(PersistentStorageVolumeSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "volume-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+        provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+        mount_path: "/workspace".to_string(),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let worker_tokens = Arc::new(Mutex::new(HashMap::new()));
+    let service = WorkspaceProvisioningService::new(
+        MemorySecretStore {
+            api_key: Some("rp_123_secret".to_string()),
+            worker_tokens: worker_tokens.clone(),
+        },
+        provider.clone(),
+        catalog,
+        FakeWorker::idle(),
+        WorkspaceProvisioningCoordinator::default(),
+        test_config(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert!(result.workspace.active_provisioning_pod_snapshot.is_some());
+    assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 1);
+    assert_eq!(worker_tokens.lock().expect("tokens").len(), 1);
+}
+
+#[tokio::test]
+async fn concurrent_sync_is_read_only() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let coordinator = WorkspaceProvisioningCoordinator::default();
+    let _guard = coordinator.try_enter(&workspace.id).expect("enter");
+    let service = WorkspaceProvisioningService::new(
+        MemorySecretStore {
+            api_key: Some("rp_123_secret".to_string()),
+            worker_tokens: Arc::default(),
+        },
+        provider.clone(),
+        catalog,
+        FakeWorker::idle(),
+        coordinator,
+        test_config(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert!(result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_none());
+    assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_starts_idle_worker_and_returns_worker_progress() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let worker = FakeWorker::idle();
+    let tokens = worker_token_map(&workspace.id);
+    let service = service_with_parts(catalog, provider.clone(), worker.clone(), tokens);
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(provider.get_pod_count.load(Ordering::SeqCst), 1);
+    assert_eq!(worker.start_count.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        result.progress.phase,
+        WorkspaceProvisioningPhase::PreparingEnvironment
+    );
+    assert_eq!(result.progress.percent, Some(25));
+    assert!(result.workspace.environment_prepared_at.is_none());
+}
+
+#[tokio::test]
+async fn sync_persists_environment_timestamp_when_worker_succeeds() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let service = service_with_parts(
+        catalog,
+        FakeProvider::default(),
+        FakeWorker::succeeded(),
+        worker_token_map(&workspace.id),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert!(result.workspace.environment_prepared_at.is_some());
+    assert!(result.workspace.active_provisioning_pod_snapshot.is_some());
+}
+
+#[tokio::test]
+async fn sync_terminates_pod_and_deletes_token_after_environment_is_prepared() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let tokens = worker_token_map(&workspace.id);
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        tokens.clone(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(provider.delete_pod_count.load(Ordering::SeqCst), 1);
+    assert!(result.workspace.active_provisioning_pod_snapshot.is_none());
+    assert!(result.workspace.last_provisioning_pod_snapshot.is_some());
+    assert!(tokens.lock().expect("tokens").is_empty());
+}
+
+#[tokio::test]
+async fn sync_creates_endpoint_template_after_environment_preparation() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(provider.create_template_count.load(Ordering::SeqCst), 1);
+    assert!(runpod_template_snapshot(&result.workspace).is_some());
+}
+
+#[tokio::test]
+async fn sync_creates_endpoint_from_ready_template_and_keep_alive_plan() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 1);
+    assert!(result.workspace.serverless_endpoint_snapshot.is_some());
+}
+
+#[tokio::test]
+async fn sync_marks_failed_when_template_refresh_is_terminal() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Creating)),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        get_template_status: Some(ProviderResourceStatus::Terminated),
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    assert_eq!(provider.get_template_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sync_marks_failed_when_endpoint_refresh_is_terminal() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    workspace.serverless_endpoint_snapshot = Some(ServerlessEndpointSnapshot {
+        provider_resource_status: ProviderResourceStatus::Creating,
+        ..endpoint_snapshot()
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        get_endpoint_status: Some(ProviderResourceStatus::Unknown),
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    assert_eq!(provider.get_endpoint_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sync_marks_workspace_ready_after_required_snapshots_are_ready() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let service = service_with_parts(
+        catalog,
+        FakeProvider::default(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Ready
+    );
+}
+
+#[tokio::test]
+async fn cancel_cleans_known_resources_and_returns_workspace_to_draft() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let worker = FakeWorker::idle();
+    let tokens = worker_token_map(&workspace.id);
+    let service = service_with_parts(catalog, provider.clone(), worker.clone(), tokens.clone());
+
+    let result = service.cancel(&workspace.id).await.expect("cancel");
+
+    assert_eq!(worker.cancel_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_pod_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_volume_count.load(Ordering::SeqCst), 1);
+    assert!(tokens.lock().expect("tokens").is_empty());
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Draft
+    );
+    assert!(result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_none());
+    assert!(result.workspace.provider_provisioning_snapshot.is_none());
+}
+
+#[tokio::test]
+async fn cancel_continues_provider_cleanup_when_worker_cancel_fails() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let worker =
+        FakeWorker::with_cancel_error(WorkspaceProvisioningError::ProvisionerWorkerUnavailable);
+    let tokens = worker_token_map(&workspace.id);
+    let service = service_with_parts(catalog, provider.clone(), worker.clone(), tokens.clone());
+
+    let result = service.cancel(&workspace.id).await.expect("cancel");
+
+    assert_eq!(worker.cancel_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_pod_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_volume_count.load(Ordering::SeqCst), 1);
+    assert!(tokens.lock().expect("tokens").is_empty());
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+}
+
+#[tokio::test]
+async fn cancel_marks_failed_and_preserves_metadata_when_cleanup_fails() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        delete_endpoint_error: Some(WorkspaceProvisioningError::ProviderApiUnavailable),
+        ..Default::default()
+    };
+    let service = service_with_parts(catalog, provider, FakeWorker::idle(), Arc::default());
+
+    let result = service.cancel(&workspace.id).await.expect("cancel");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    assert!(result.workspace.serverless_endpoint_snapshot.is_some());
+    assert!(result.workspace.provider_provisioning_snapshot.is_some());
+}
+
+fn service(
+    catalog: MemoryWorkspaceCatalog,
+    provider: FakeProvider,
+) -> WorkspaceProvisioningService<MemorySecretStore, FakeProvider, MemoryWorkspaceCatalog, FakeWorker>
+{
+    service_with_parts(catalog, provider, FakeWorker::idle(), Arc::default())
+}
+
+fn service_with_parts(
+    catalog: MemoryWorkspaceCatalog,
+    provider: FakeProvider,
+    worker: FakeWorker,
+    worker_tokens: Arc<Mutex<HashMap<String, String>>>,
+) -> WorkspaceProvisioningService<MemorySecretStore, FakeProvider, MemoryWorkspaceCatalog, FakeWorker>
+{
+    WorkspaceProvisioningService::new(
+        MemorySecretStore {
+            api_key: Some("rp_123_secret".to_string()),
+            worker_tokens,
+        },
+        provider,
+        catalog,
+        worker,
+        WorkspaceProvisioningCoordinator::default(),
+        test_config(),
+    )
+}
+
+fn provisioning_workspace_with_ready_volume(id: &str) -> Workspace {
+    let mut workspace = sample_workspace(id);
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    workspace.persistent_storage_volume_snapshot = Some(PersistentStorageVolumeSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "volume-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+        provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+        mount_path: "/workspace".to_string(),
+    });
+    workspace
+}
+
+fn active_pod() -> ProvisioningPodSnapshot {
+    ProvisioningPodSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "pod-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Running,
+        selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        provisioner_status_url: "http://203.0.113.10:30001/status".to_string(),
+    }
+}
+
+fn template_snapshot(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
+    RunPodEndpointTemplateSnapshot {
+        template_id: "template-1".to_string(),
+        endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
+        mount_path: "/workspace".to_string(),
+        provider_resource_status: status,
+    }
+}
+
+fn endpoint_snapshot() -> ServerlessEndpointSnapshot {
+    ServerlessEndpointSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "endpoint-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+        selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
+    }
+}
+
+fn worker_token_map(workspace_id: &str) -> Arc<Mutex<HashMap<String, String>>> {
+    Arc::new(Mutex::new(HashMap::from([(
+        workspace_id.to_string(),
+        "worker-token".to_string(),
+    )])))
+}
+
+fn test_config() -> WorkspaceProvisioningConfig {
+    WorkspaceProvisioningConfig {
+        provisioner_worker_image_ref: "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
+        provisioner_worker_port: 8080,
+        runpod_endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
+        runpod_endpoint_worker_port: 8080,
+        volume_mount_path: "/workspace".to_string(),
+    }
+}

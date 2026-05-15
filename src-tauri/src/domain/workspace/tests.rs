@@ -11,6 +11,7 @@ fn placement_plan() -> PlacementPlan {
         selected_datacenter_id: "EU-RO-1".to_string(),
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         persistent_storage_volume_size_bytes: 85899345920,
+        endpoint_keep_alive_seconds: 5,
         selected_workflow_preset: WorkflowPreset {
             id: "preset".to_string(),
             version: "1.0.0".to_string(),
@@ -43,6 +44,7 @@ fn creates_draft_workspace_with_empty_resource_snapshots() {
     assert!(workspace.active_provisioning_pod_snapshot.is_none());
     assert!(workspace.serverless_endpoint_snapshot.is_none());
     assert!(workspace.last_provisioning_pod_snapshot.is_none());
+    assert!(workspace.provider_provisioning_snapshot.is_none());
     assert_eq!(workspace.environment_prepared_at, None);
 }
 
