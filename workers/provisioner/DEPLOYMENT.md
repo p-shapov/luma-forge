@@ -6,6 +6,7 @@ The Provisioner Worker and RunPod Endpoint Worker are deployed by publishing sep
 - `.github/workflows/deploy-endpoint-worker.yml`
 
 Both workflows build from the shared provider-neutral Dockerfile at `workers/Dockerfile`.
+The provisioner deployment workflow also starts the built provisioner image and runs the container smoke test before authenticating to the registry or publishing tags.
 
 ## Triggers
 
@@ -25,6 +26,19 @@ The workflows publish to GitHub Container Registry:
 It uses GitHub Actions' built-in token and requires repository package write access. No custom registry secrets are required.
 
 Do not store registry credentials, provider API keys, or worker bearer tokens in repository files. The deployment workflow reads authentication only from GitHub Actions token context.
+
+## Validation
+
+Provisioner deployment validation runs the Python test suite, builds the provisioner image, and runs the opt-in container smoke test against the built image tag:
+
+```bash
+cd workers/provisioner
+LUMA_FORGE_RUN_CONTAINER_SMOKE=1 \
+  LUMA_FORGE_PROVISIONER_SMOKE_IMAGE=<built-image-tag> \
+  PYTHONPATH=src python -m unittest tests.test_container_smoke
+```
+
+When `LUMA_FORGE_PROVISIONER_SMOKE_IMAGE` is omitted, the smoke test builds `luma-forge-provisioner:smoke` locally before running the container check.
 
 ## Published Tags
 

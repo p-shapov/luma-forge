@@ -4,6 +4,7 @@ from pathlib import Path
 from threading import Event
 
 from helpers import COMMIT_REVISION, start_payload, test_config
+from auxiliary.command_runner import Cancelled
 from app.errors import (
     DependencyInstallError,
     PreparationError,
@@ -42,6 +43,24 @@ class FakeCommandRunner:
         return ""
 
 
+class CancelAwareFakeCommandRunner(FakeCommandRunner):
+    def run(self, args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
+        if cancel_event is not None and cancel_event.is_set():
+            raise Cancelled()
+        super().run(args, cwd=cwd, cancel_event=cancel_event, timeout_seconds=timeout_seconds, error_type=error_type)
+
+    def capture(self, args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
+        if cancel_event is not None and cancel_event.is_set():
+            raise Cancelled()
+        return super().capture(
+            args,
+            cwd=cwd,
+            cancel_event=cancel_event,
+            timeout_seconds=timeout_seconds,
+            error_type=error_type,
+        )
+
+
 class FakeDownloader:
     def __init__(self):
         self.calls = []
@@ -50,6 +69,13 @@ class FakeDownloader:
         self.calls.append((asset, target, timeout_seconds))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"model")
+
+
+class CancelAwareFakeDownloader(FakeDownloader):
+    def download(self, asset, target, *, cancel_event=None, timeout_seconds=None):
+        if cancel_event is not None and cancel_event.is_set():
+            raise Cancelled()
+        super().download(asset, target, cancel_event=cancel_event, timeout_seconds=timeout_seconds)
 
 
 class MissingFileDownloader:
@@ -423,6 +449,95 @@ class PreparerTests(unittest.TestCase):
 
             self.assertEqual(str(context.exception), "Model asset is missing: safe-asset")
             self.assertNotIn(secret, str(context.exception))
+
+    def test_cancels_before_comfyui_checkout_without_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            runner = CancelAwareFakeCommandRunner()
+            cancel_event = Event()
+            cancel_event.set()
+
+            with self.assertRaises(Cancelled):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=CancelAwareFakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    cancel_event,
+                )
+
+            self.assertEqual(runner.calls, [])
+            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+
+    def test_cancels_before_dependency_installation_without_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            runner = CancelAwareFakeCommandRunner()
+            downloader = CancelAwareFakeDownloader()
+            cancel_event = Event()
+            phases = []
+
+            def progress(phase, progress_percent, message):
+                phases.append(phase)
+                if phase == "installing_comfyui" and progress_percent == 25:
+                    cancel_event.set()
+
+            with self.assertRaises(Cancelled):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=downloader,
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(request, progress, cancel_event)
+
+            self.assertIn("installing_comfyui", phases)
+            self.assertFalse(any("--report" in call[0] for call in runner.calls))
+            self.assertEqual(downloader.calls, [])
+            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+
+    def test_cancels_before_asset_download_without_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            runner = CancelAwareFakeCommandRunner()
+            downloader = CancelAwareFakeDownloader()
+            cancel_event = Event()
+
+            def progress(phase, progress_percent, message):
+                if phase == "downloading_assets":
+                    cancel_event.set()
+
+            with self.assertRaises(Cancelled):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=downloader,
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(request, progress, cancel_event)
+
+            self.assertEqual(downloader.calls, [])
+            self.assertFalse((Path(directory) / "ComfyUI/models/checkpoints/model.safetensors").exists())
+            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+
+    def test_cancels_before_final_validation_without_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            runner = CancelAwareFakeCommandRunner()
+            cancel_event = Event()
+
+            def progress(phase, progress_percent, message):
+                if phase == "validating_environment" and progress_percent == 90:
+                    cancel_event.set()
+
+            with self.assertRaises(Cancelled):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(request, progress, cancel_event)
+
+            self.assertTrue((Path(directory) / "ComfyUI/models/checkpoints/model.safetensors").is_file())
+            self.assertEqual(runner.capture_calls, [])
+            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
 
 def custom_node(
     *,

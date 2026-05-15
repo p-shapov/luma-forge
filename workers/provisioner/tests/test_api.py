@@ -1,12 +1,20 @@
 from contextlib import redirect_stderr
+from copy import deepcopy
 from io import StringIO
 import tempfile
 import time
 import unittest
 from pathlib import Path
 
-from helpers import BlockingProvisioner, ImmediateProvisioner, ServerFixture, start_payload, test_config
-from app.errors import GitCheckoutError
+from helpers import BlockingProvisioner, ImmediateProvisioner, RecordingProvisioner, ServerFixture, start_payload, test_config
+from app.errors import (
+    AssetAuthRequiredError,
+    AssetDownloadError,
+    DependencyInstallError,
+    GitCheckoutError,
+    PathValidationError,
+    StepTimeoutError,
+)
 
 
 class ApiTests(unittest.TestCase):
@@ -36,6 +44,58 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "invalid_request")
         self.assertEqual(payload["reason_code"], "invalid_request")
+
+    def test_invalid_start_has_no_side_effects(self):
+        provisioner = RecordingProvisioner()
+        with tempfile.TemporaryDirectory() as directory, ServerFixture(
+            provisioner,
+            workspace_mount_path=Path(directory),
+        ) as server:
+            status, payload = server.request("POST", "/start", {"job_id": ""})
+            _, latest = server.request("GET", "/status")
+            workspace_entries = list(Path(directory).iterdir())
+
+        self.assertEqual(status, 400)
+        self.assertEqual(payload["code"], "invalid_request")
+        self.assertEqual(latest["status"], "idle")
+        self.assertFalse(provisioner.called)
+        self.assertEqual(workspace_entries, [])
+
+    def test_unsafe_start_payloads_have_no_side_effects(self):
+        def set_custom_node_path(payload, value):
+            payload["workflow_preset"]["required_custom_nodes"] = [_custom_node(value)]
+
+        def set_model_path(payload, value):
+            payload["workflow_preset"]["required_model_assets"][0]["install"]["comfyui_relative_path"] = value
+
+        cases = [
+            ("unsafe workflow id", lambda payload: payload["workflow_preset"].update({"id": "../unsafe"})),
+            ("unsafe custom node path", lambda payload: set_custom_node_path(payload, "models/node")),
+            ("unsafe model path", lambda payload: set_model_path(payload, "../model.safetensors")),
+            (
+                "mutable comfyui revision",
+                lambda payload: payload["workflow_preset"]["required_comfyui_source"].update({"revision": "main"}),
+            ),
+        ]
+
+        for name, mutate in cases:
+            with self.subTest(name=name):
+                payload = start_payload()
+                mutate(payload)
+                provisioner = RecordingProvisioner()
+                with tempfile.TemporaryDirectory() as directory, ServerFixture(
+                    provisioner,
+                    workspace_mount_path=Path(directory),
+                ) as server:
+                    status, response = server.request("POST", "/start", payload)
+                    _, latest = server.request("GET", "/status")
+                    workspace_entries = list(Path(directory).iterdir())
+
+                self.assertEqual(status, 400)
+                self.assertIn(response["code"], {"invalid_request", "path_validation_failed"})
+                self.assertEqual(latest["status"], "idle")
+                self.assertFalse(provisioner.called)
+                self.assertEqual(workspace_entries, [])
 
     def test_start_conflicts_while_job_is_active(self):
         provisioner = BlockingProvisioner()
@@ -96,26 +156,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "succeeded")
         self.assertEqual(payload["progress_percent"], 100)
 
-    def test_failed_job_reports_specific_error_code(self):
-        class FailingProvisioner(ImmediateProvisioner):
-            def prepare(self, request, progress, cancel_event):
-                raise GitCheckoutError("Git checkout failed.")
+    def test_failed_job_reports_expected_error_codes(self):
+        cases = [
+            (GitCheckoutError("Git checkout failed."), "git_checkout_failed", "git_checkout_failed"),
+            (
+                DependencyInstallError("Dependency installation failed."),
+                "dependency_install_failed",
+                "dependency_install_failed",
+            ),
+            (AssetDownloadError("Asset download failed."), "asset_download_failed", "asset_download_failed"),
+            (AssetAuthRequiredError("Asset auth required."), "asset_auth_required", "asset_auth_required"),
+            (PathValidationError("path must be safe"), "path_validation_failed", "path_validation_failed"),
+            (StepTimeoutError("Provisioning step timed out."), "step_timeout", "step_timeout"),
+        ]
 
-        with tempfile.TemporaryDirectory() as directory, ServerFixture(
-            FailingProvisioner(),
-            workspace_mount_path=Path(directory),
-        ) as server:
-            server.request("POST", "/start", start_payload())
-            for _ in range(50):
-                _, payload = server.request("GET", "/status")
-                if payload["status"] == "failed":
-                    break
-                time.sleep(0.02)
+        for error, expected_code, expected_reason in cases:
+            with self.subTest(error=error.__class__.__name__):
+                provisioner = RecordingProvisioner(error)
+                with tempfile.TemporaryDirectory() as directory, ServerFixture(
+                    provisioner,
+                    workspace_mount_path=Path(directory),
+                ) as server:
+                    server.request("POST", "/start", start_payload())
+                    payload = _wait_for_status(server, "failed")
 
-        self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["error"]["code"], "git_checkout_failed")
-        self.assertEqual(payload["error"]["reason_code"], "git_checkout_failed")
-        self.assertEqual(payload["error"]["message"], "Git checkout failed.")
+                self.assertTrue(provisioner.called)
+                self.assertEqual(payload["status"], "failed")
+                self.assertEqual(payload["error"]["code"], expected_code)
+                self.assertEqual(payload["error"]["reason_code"], expected_reason)
+                self.assertEqual(payload["error"]["message"], error.message)
 
     def test_unexpected_job_error_is_sanitized(self):
         secret = "secret-token-0123456789abcdef"
@@ -131,11 +200,7 @@ class ApiTests(unittest.TestCase):
                 workspace_mount_path=Path(directory),
             ) as server:
                 server.request("POST", "/start", start_payload())
-                for _ in range(50):
-                    _, payload = server.request("GET", "/status")
-                    if payload["status"] == "failed":
-                        break
-                    time.sleep(0.02)
+                payload = _wait_for_status(server, "failed")
 
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["diagnostic_message"], "Provisioning job failed")
@@ -314,6 +379,32 @@ class ApiTests(unittest.TestCase):
 
         self.assertNotIn(token, str(payload))
         self.assertNotIn("wrong", str(payload))
+
+
+def _wait_for_status(server: ServerFixture, status: str) -> dict:
+    for _ in range(50):
+        _, payload = server.request("GET", "/status")
+        if payload["status"] == status:
+            return payload
+        time.sleep(0.02)
+    return payload
+
+
+def _custom_node(comfyui_custom_nodes_relative_path: str) -> dict:
+    payload = deepcopy(start_payload()["workflow_preset"])
+    node = {
+        "id": "example-node",
+        "name": "Example Node",
+        "git_source": {
+            "source_type": "git",
+            "repository_url": "https://example.test/node.git",
+            "revision": payload["required_comfyui_source"]["revision"],
+        },
+        "install": {
+            "comfyui_custom_nodes_relative_path": comfyui_custom_nodes_relative_path,
+        },
+    }
+    return node
 
 
 if __name__ == "__main__":

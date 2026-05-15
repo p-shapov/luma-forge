@@ -42,6 +42,8 @@ def safe_custom_node_child_path(root: Path, relative_value: object, *, field_nam
     custom_nodes_root = (root_resolved / "custom_nodes").resolve(strict=False)
     target = (root_resolved / relative_path).resolve(strict=False)
 
+    if custom_nodes_root != root_resolved and root_resolved not in custom_nodes_root.parents:
+        raise PathValidationError(f"{field_name} must resolve under {root_resolved}")
     if custom_nodes_root not in target.parents:
         raise PathValidationError(f"{field_name} must resolve under {custom_nodes_root}")
 

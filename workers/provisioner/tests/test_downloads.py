@@ -3,8 +3,10 @@ import time
 import unittest
 from pathlib import Path
 from threading import Event
+from unittest.mock import patch
 
 from helpers import start_payload
+from auxiliary.command_runner import Cancelled
 from auxiliary.huggingface import PublicFileDownloader
 from app.errors import AssetAuthRequiredError, AssetDownloadError, StepTimeoutError
 from app.schemas import parse_start_request
@@ -111,6 +113,49 @@ class PublicFileDownloaderTests(unittest.TestCase):
 
             time.sleep(0.3)
             self.assertFalse(target.exists())
+
+    def test_cancel_during_file_placement_removes_partial_file(self):
+        cancel_event = Event()
+        with tempfile.TemporaryDirectory() as directory:
+            downloaded_path = Path(directory) / "cache/model.safetensors"
+            target = Path(directory) / "models/checkpoints/model.safetensors"
+            target.parent.mkdir(parents=True)
+            original_open = Path.open
+
+            def patched_open(path, *args, **kwargs):
+                if path == downloaded_path:
+                    return CancellingSource(cancel_event)
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", patched_open):
+                with self.assertRaises(Cancelled):
+                    PublicFileDownloader()._place_downloaded_file(
+                        downloaded_path,
+                        target,
+                        cancel_event=cancel_event,
+                    )
+
+            self.assertFalse(target.exists())
+            self.assertFalse((target.with_suffix(target.suffix + ".part")).exists())
+
+
+class CancellingSource:
+    def __init__(self, cancel_event: Event):
+        self.cancel_event = cancel_event
+        self.reads = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size):
+        self.reads += 1
+        if self.reads == 1:
+            self.cancel_event.set()
+            return b"x"
+        return b""
 
 
 if __name__ == "__main__":

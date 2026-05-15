@@ -8,22 +8,23 @@ from http.client import HTTPConnection
 @unittest.skipUnless(os.environ.get("LUMA_FORGE_RUN_CONTAINER_SMOKE") == "1", "container smoke test is opt-in")
 class ContainerSmokeTests(unittest.TestCase):
     def test_container_reports_idle_status(self):
-        image = "luma-forge-provisioner:smoke"
+        image = os.environ.get("LUMA_FORGE_PROVISIONER_SMOKE_IMAGE", "luma-forge-provisioner:smoke")
         token = "smoke-token-0123456789abcdef0123"
-        subprocess.run(
-            [
-                "docker",
-                "build",
-                "-t",
-                image,
-                "-f",
-                "../Dockerfile",
-                "--target",
-                "provisioner",
-                "../..",
-            ],
-            check=True,
-        )
+        if "LUMA_FORGE_PROVISIONER_SMOKE_IMAGE" not in os.environ:
+            subprocess.run(
+                [
+                    "docker",
+                    "build",
+                    "-t",
+                    image,
+                    "-f",
+                    "../Dockerfile",
+                    "--target",
+                    "provisioner",
+                    "../..",
+                ],
+                check=True,
+            )
         container = subprocess.check_output(
             [
                 "docker",

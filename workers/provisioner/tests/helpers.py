@@ -58,6 +58,20 @@ class ImmediateProvisioner:
         progress("validating_environment", 100, "done")
 
 
+class RecordingProvisioner:
+    def __init__(self, error: Exception | None = None):
+        self.error = error
+        self.called = False
+        self.requests = []
+
+    def prepare(self, request, progress, cancel_event):
+        self.called = True
+        self.requests.append(request)
+        if self.error is not None:
+            raise self.error
+        progress("validating_environment", 100, "done")
+
+
 class BlockingProvisioner:
     def __init__(self):
         self.started = Event()
