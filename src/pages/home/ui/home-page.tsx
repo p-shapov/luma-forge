@@ -190,8 +190,10 @@ function upsertWorkspace(catalog: WorkspaceCatalog | null, workspace: Workspace)
 }
 
 function isTerminalProvisioningResponse(response: WorkspaceProvisioningResponse) {
-  return response.progress.status === "completed"
+  return response.progress.status === "idle"
+    || response.progress.status === "completed"
     || response.progress.status === "failed"
+    || response.workspace.lifecycle_state === "draft"
     || response.workspace.lifecycle_state === "ready"
     || response.workspace.lifecycle_state === "failed";
 }
@@ -573,7 +575,13 @@ export function HomePage() {
 
     void runCommand(
       label,
-      async () => action({ workspace_id: workspaceId }),
+      async () => {
+        if (label === "cancelWorkspaceProvisioning") {
+          setAutoSyncWorkspaceId(null);
+        }
+
+        return action({ workspace_id: workspaceId });
+      },
       (response) => {
         rememberProvisioningResponse(response);
 

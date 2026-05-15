@@ -22,6 +22,7 @@ use crate::{
                 template_from_response,
             },
             provider_error_from_inventory_status, provider_error_from_rest_status, RunPodClient,
+            RUNPOD_REST_ENDPOINT,
         },
     },
 };
@@ -33,6 +34,11 @@ fn parse_identity(
     let response: GraphQlResponse<RunPodIdentityData> =
         serde_json::from_value(value).expect("response should parse");
     identity_from_graphql_response(&ProviderApiKey::new(secret.to_string()).unwrap(), response)
+}
+
+#[test]
+fn default_rest_endpoint_uses_documented_host() {
+    assert_eq!(RUNPOD_REST_ENDPOINT, "https://rest.runpod.io/v1");
 }
 
 #[test]

@@ -27,7 +27,7 @@ use mapper::{
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
-const RUNPOD_REST_ENDPOINT: &str = "https://api.runpod.io/v1";
+const RUNPOD_REST_ENDPOINT: &str = "https://rest.runpod.io/v1";
 const RUNPOD_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const RUNPOD_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
