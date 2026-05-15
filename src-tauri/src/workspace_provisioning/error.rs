@@ -39,7 +39,7 @@ pub enum WorkspaceProvisioningError {
     #[error("provisioner worker conflict")]
     ProvisionerWorkerConflict,
     #[error("provisioner worker response invalid")]
-    ProvisionerWorkerResponseInvalid,
+    ProvisionerWorkerResponseInvalid { diagnostic: Option<String> },
     #[error("provisioner worker failed")]
     ProvisionerWorkerFailed { diagnostic: Option<String> },
 }

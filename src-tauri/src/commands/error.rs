@@ -509,7 +509,7 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         WorkspaceProvisioningError::ProvisionerWorkerConflict => {
             NativeCommandErrorCode::ProvisionerWorkerConflict
         }
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. } => {
             NativeCommandErrorCode::ProvisionerWorkerResponseInvalid
         }
         WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => {
@@ -571,7 +571,7 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
         WorkspaceProvisioningError::ProvisionerWorkerConflict => {
             "Provisioner worker operation is currently in conflict."
         }
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. } => {
             "Provisioner worker response is invalid."
         }
         WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => "Provisioner worker failed.",
@@ -613,7 +613,7 @@ fn provisioning_error_reason(error: &WorkspaceProvisioningError) -> Option<&'sta
         WorkspaceProvisioningError::ProvisionerWorkerUnauthorized => Some("worker_unauthorized"),
         WorkspaceProvisioningError::ProvisionerWorkerUnavailable => Some("worker_unavailable"),
         WorkspaceProvisioningError::ProvisionerWorkerConflict => Some("worker_conflict"),
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. } => {
             Some("worker_response_invalid")
         }
         WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => Some("worker_failed"),
@@ -639,7 +639,7 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         | WorkspaceProvisioningError::ProviderResourceNotFound
         | WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
         | WorkspaceProvisioningError::ProvisionerWorkerUnauthorized
-        | WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid
+        | WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. }
         | WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => {
             Some("inspect_workspace_provisioning")
         }

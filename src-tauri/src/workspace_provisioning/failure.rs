@@ -75,9 +75,9 @@ pub(crate) fn worker_failure(
             WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized,
             None,
         ),
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => (
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { diagnostic } => (
             WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid,
-            None,
+            diagnostic.clone(),
         ),
         WorkspaceProvisioningError::ProvisionerWorkerFailed { diagnostic } => (
             WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,

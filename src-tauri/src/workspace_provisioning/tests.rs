@@ -452,6 +452,7 @@ impl ProviderProvisioningGateway for FakeProvider {
 struct FakeWorker {
     start_count: Arc<AtomicUsize>,
     cancel_count: Arc<AtomicUsize>,
+    start_requests: Arc<Mutex<Vec<ProvisionerWorkerStartRequest>>>,
     status: Arc<Mutex<ProvisionerWorkerStatus>>,
     status_error: Option<WorkspaceProvisioningError>,
     cancel_error: Option<WorkspaceProvisioningError>,
@@ -470,6 +471,7 @@ impl FakeWorker {
         Self {
             start_count: Arc::default(),
             cancel_count: Arc::default(),
+            start_requests: Arc::default(),
             status: Arc::new(Mutex::new(ProvisionerWorkerStatus {
                 phase: match status {
                     ProvisionerWorkerJobStatus::Succeeded => {
@@ -506,7 +508,7 @@ impl ProvisionerWorkerGateway for FakeWorker {
         &'a self,
         _provisioner_status_url: &'a str,
         _token: &'a ProvisionerWorkerBearerToken,
-        _request: &'a ProvisionerWorkerStartRequest,
+        request: &'a ProvisionerWorkerStartRequest,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
@@ -516,6 +518,10 @@ impl ProvisionerWorkerGateway for FakeWorker {
     > {
         Box::pin(async move {
             self.start_count.fetch_add(1, Ordering::SeqCst);
+            self.start_requests
+                .lock()
+                .expect("start requests")
+                .push(request.clone());
             Ok(ProvisionerWorkerStatus {
                 status: ProvisionerWorkerJobStatus::Running,
                 phase: crate::provisioner_worker::ProvisionerWorkerPhase::InstallingRuntime,
@@ -900,6 +906,73 @@ async fn sync_starts_idle_worker_and_returns_worker_progress() {
 }
 
 #[tokio::test]
+async fn sync_starts_idle_worker_with_job_id() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let worker = FakeWorker::idle();
+    let service = service_with_parts(
+        catalog,
+        FakeProvider::default(),
+        worker.clone(),
+        worker_token_map(&workspace.id),
+    );
+
+    service.sync(&workspace.id).await.expect("sync");
+
+    let requests = worker.start_requests.lock().expect("start requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].job_id, workspace.id);
+    assert_eq!(
+        requests[0].workflow_preset.id,
+        workspace.placement_plan.selected_workflow_preset().id
+    );
+}
+
+#[tokio::test]
+async fn sync_treats_temporarily_unavailable_worker_as_running_progress() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let worker =
+        FakeWorker::with_status_error(WorkspaceProvisioningError::ProvisionerWorkerUnavailable);
+    let service = service_with_parts(
+        catalog.clone(),
+        provider.clone(),
+        worker.clone(),
+        worker_token_map(&workspace.id),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+    assert_eq!(
+        result.progress.phase,
+        WorkspaceProvisioningPhase::PreparingEnvironment
+    );
+    assert_eq!(worker.start_count.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 0);
+    let stored = catalog
+        .find_workspace_by_id(&workspace.id)
+        .await
+        .expect("find")
+        .expect("workspace");
+    assert_eq!(
+        stored.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+    assert!(stored.last_provisioning_failure.is_none());
+}
+
+#[tokio::test]
 async fn sync_preserves_existing_provisioner_status_url_when_provider_omits_it() {
     let catalog = MemoryWorkspaceCatalog::default();
     let mut workspace =
@@ -928,6 +1001,54 @@ async fn sync_preserves_existing_provisioner_status_url_when_provider_omits_it()
             .expect("active pod")
             .provisioner_status_url,
         active_pod.provisioner_status_url
+    );
+}
+
+#[tokio::test]
+async fn worker_response_invalid_persists_structured_failure_detail() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let service = service_with_parts(
+        catalog,
+        FakeProvider::default(),
+        FakeWorker::with_status_error(
+            WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid {
+                diagnostic: Some(
+                    "code: invalid_request\nreason_code: missing_job_id\nmessage: job_id is required"
+                        .to_string(),
+                ),
+            },
+        ),
+        worker_token_map(&workspace.id),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    let failure = result
+        .workspace
+        .last_provisioning_failure
+        .expect("failure should be persisted");
+    assert_eq!(
+        failure.code,
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
+    );
+    assert_eq!(
+        failure.source,
+        WorkspaceProvisioningFailureSource::ProvisionerWorker
+    );
+    assert_eq!(
+        failure.diagnostic,
+        Some(
+            "code: invalid_request\nreason_code: missing_job_id\nmessage: job_id is required"
+                .to_string()
+        )
     );
 }
 

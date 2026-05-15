@@ -251,8 +251,8 @@ fn worker_error(error: ProvisionerWorkerError) -> WorkspaceProvisioningError {
         ProvisionerWorkerError::Unreachable => {
             WorkspaceProvisioningError::ProvisionerWorkerUnavailable
         }
-        ProvisionerWorkerError::InvalidPayload => {
-            WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid
+        ProvisionerWorkerError::InvalidPayload { diagnostic } => {
+            WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { diagnostic }
         }
         ProvisionerWorkerError::TerminalFailure { diagnostic } => {
             WorkspaceProvisioningError::ProvisionerWorkerFailed { diagnostic }

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use reqwest::StatusCode;
+use reqwest::{header::HeaderMap, header::CONTENT_TYPE, StatusCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -94,7 +94,7 @@ impl ProvisionerWorkerHttpGateway {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProvisionerWorkerStartRequest {
-    pub workspace_id: String,
+    pub job_id: String,
     pub workflow_preset: WorkflowPreset,
 }
 
@@ -111,6 +111,7 @@ pub enum ProvisionerWorkerJobStatus {
     Idle,
     Running,
     Cancelling,
+    Cancelled,
     Succeeded,
     Failed,
 }
@@ -118,12 +119,14 @@ pub enum ProvisionerWorkerJobStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionerWorkerPhase {
     Idle,
+    Starting,
     ResolvingWorkflow,
     InstallingRuntime,
     InstallingModels,
     InstallingCustomNodes,
     WritingManifest,
     Completed,
+    Cancelled,
     Failed,
 }
 
@@ -136,7 +139,7 @@ pub enum ProvisionerWorkerError {
     #[error("provisioner worker unreachable")]
     Unreachable,
     #[error("provisioner worker payload invalid")]
-    InvalidPayload,
+    InvalidPayload { diagnostic: Option<String> },
     #[error("provisioner worker terminal failure")]
     TerminalFailure { diagnostic: Option<String> },
 }
@@ -144,73 +147,117 @@ pub enum ProvisionerWorkerError {
 #[derive(Debug, Deserialize)]
 struct ProvisionerWorkerStatusResponse {
     status: Option<String>,
+    job_id: Option<String>,
     phase: Option<String>,
     progress_percent: Option<u8>,
     diagnostic: Option<String>,
+    diagnostic_message: Option<String>,
+    error: Option<ProvisionerWorkerErrorResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProvisionerWorkerErrorResponse {
+    code: Option<String>,
+    reason_code: Option<String>,
+    message: Option<String>,
 }
 
 async fn parse_worker_response(
     response: reqwest::Response,
 ) -> Result<ProvisionerWorkerStatus, ProvisionerWorkerError> {
-    if let Some(error) = worker_error_from_status(response.status()) {
-        return Err(error);
+    let status = response.status();
+    let is_worker_json = has_json_content_type(response.headers());
+    if !status.is_success() {
+        let diagnostic = if is_worker_json {
+            response
+                .json::<ProvisionerWorkerErrorResponse>()
+                .await
+                .ok()
+                .and_then(diagnostic_from_worker_error)
+        } else {
+            None
+        };
+        return Err(worker_error_from_status(status, diagnostic, is_worker_json));
+    }
+
+    if !is_worker_json {
+        return Err(success_payload_error(is_worker_json));
     }
 
     let payload = response
         .json::<ProvisionerWorkerStatusResponse>()
         .await
-        .map_err(|_| ProvisionerWorkerError::InvalidPayload)?;
+        .map_err(|_| success_payload_error(is_worker_json))?;
     status_from_response(payload)
 }
 
-fn worker_error_from_status(status: StatusCode) -> Option<ProvisionerWorkerError> {
+fn worker_error_from_status(
+    status: StatusCode,
+    diagnostic: Option<String>,
+    is_worker_json: bool,
+) -> ProvisionerWorkerError {
     match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-            Some(ProvisionerWorkerError::Unauthorized)
-        }
-        StatusCode::CONFLICT => Some(ProvisionerWorkerError::Conflict),
-        status if !status.is_success() => Some(ProvisionerWorkerError::Unreachable),
-        _ => None,
+        _ if !is_worker_json => ProvisionerWorkerError::Unreachable,
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ProvisionerWorkerError::Unauthorized,
+        StatusCode::CONFLICT => ProvisionerWorkerError::Conflict,
+        status if status.is_server_error() => ProvisionerWorkerError::Unreachable,
+        _ => ProvisionerWorkerError::InvalidPayload { diagnostic },
     }
+}
+
+fn success_payload_error(is_worker_json: bool) -> ProvisionerWorkerError {
+    if is_worker_json {
+        ProvisionerWorkerError::InvalidPayload { diagnostic: None }
+    } else {
+        ProvisionerWorkerError::Unreachable
+    }
+}
+
+fn has_json_content_type(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value.split(';').next().is_some_and(|media_type| {
+                media_type.trim().eq_ignore_ascii_case("application/json")
+            })
+        })
 }
 
 fn worker_url(provisioner_status_url: &str, path: &str) -> Result<String, ProvisionerWorkerError> {
     let base_url = provisioner_status_url
         .strip_suffix("/status")
-        .ok_or(ProvisionerWorkerError::InvalidPayload)?;
+        .ok_or(ProvisionerWorkerError::InvalidPayload { diagnostic: None })?;
     Ok(format!("{base_url}/{path}"))
 }
 
 fn status_from_response(
     response: ProvisionerWorkerStatusResponse,
 ) -> Result<ProvisionerWorkerStatus, ProvisionerWorkerError> {
+    let _job_id = response.job_id.as_deref();
     let status = match response.status.as_deref() {
         Some("idle") => ProvisionerWorkerJobStatus::Idle,
         Some("running") => ProvisionerWorkerJobStatus::Running,
         Some("cancelling") => ProvisionerWorkerJobStatus::Cancelling,
+        Some("cancelled") => ProvisionerWorkerJobStatus::Cancelled,
         Some("succeeded") => ProvisionerWorkerJobStatus::Succeeded,
         Some("failed") => ProvisionerWorkerJobStatus::Failed,
-        _ => return Err(ProvisionerWorkerError::InvalidPayload),
+        _ => return Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None }),
     };
-    let phase = match response.phase.as_deref() {
-        Some("idle") => ProvisionerWorkerPhase::Idle,
-        Some("resolving_workflow") => ProvisionerWorkerPhase::ResolvingWorkflow,
-        Some("installing_runtime") => ProvisionerWorkerPhase::InstallingRuntime,
-        Some("installing_models") => ProvisionerWorkerPhase::InstallingModels,
-        Some("installing_custom_nodes") => ProvisionerWorkerPhase::InstallingCustomNodes,
-        Some("writing_manifest") => ProvisionerWorkerPhase::WritingManifest,
-        Some("completed") => ProvisionerWorkerPhase::Completed,
-        Some("failed") => ProvisionerWorkerPhase::Failed,
-        _ => return Err(ProvisionerWorkerError::InvalidPayload),
-    };
+    let phase = phase_from_response(response.phase.as_deref(), &status)?;
     if response
         .progress_percent
         .is_some_and(|percent| percent > 100)
     {
-        return Err(ProvisionerWorkerError::InvalidPayload);
+        return Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None });
     }
 
-    let diagnostic = response.diagnostic.map(sanitize_diagnostic);
+    let diagnostic = response
+        .error
+        .and_then(diagnostic_from_worker_error)
+        .or(response.diagnostic_message)
+        .or(response.diagnostic)
+        .map(sanitize_diagnostic);
     if status == ProvisionerWorkerJobStatus::Failed {
         return Err(ProvisionerWorkerError::TerminalFailure { diagnostic });
     }
@@ -223,6 +270,40 @@ fn status_from_response(
     })
 }
 
+fn phase_from_response(
+    phase: Option<&str>,
+    status: &ProvisionerWorkerJobStatus,
+) -> Result<ProvisionerWorkerPhase, ProvisionerWorkerError> {
+    match phase {
+        Some("idle") => Ok(ProvisionerWorkerPhase::Idle),
+        Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
+        Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
+        Some("installing_runtime" | "installing_comfyui") => {
+            Ok(ProvisionerWorkerPhase::InstallingRuntime)
+        }
+        Some("installing_models" | "downloading_assets") => {
+            Ok(ProvisionerWorkerPhase::InstallingModels)
+        }
+        Some("installing_custom_nodes") => Ok(ProvisionerWorkerPhase::InstallingCustomNodes),
+        Some("writing_manifest" | "validating_environment") => {
+            Ok(ProvisionerWorkerPhase::WritingManifest)
+        }
+        Some("completed") => Ok(ProvisionerWorkerPhase::Completed),
+        Some("cancelled") => Ok(ProvisionerWorkerPhase::Cancelled),
+        Some("failed") => Ok(ProvisionerWorkerPhase::Failed),
+        None => match status {
+            ProvisionerWorkerJobStatus::Idle => Ok(ProvisionerWorkerPhase::Idle),
+            ProvisionerWorkerJobStatus::Succeeded => Ok(ProvisionerWorkerPhase::Completed),
+            ProvisionerWorkerJobStatus::Cancelled => Ok(ProvisionerWorkerPhase::Cancelled),
+            ProvisionerWorkerJobStatus::Failed => Ok(ProvisionerWorkerPhase::Failed),
+            ProvisionerWorkerJobStatus::Running | ProvisionerWorkerJobStatus::Cancelling => {
+                Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None })
+            }
+        },
+        Some(_) => Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None }),
+    }
+}
+
 pub fn progress_from_worker_status(
     status: &ProvisionerWorkerStatus,
 ) -> WorkspaceProvisioningProgress {
@@ -232,14 +313,15 @@ pub fn progress_from_worker_status(
                 WorkspaceProvisioningStatus::Running
             }
             ProvisionerWorkerJobStatus::Cancelling => WorkspaceProvisioningStatus::Cancelling,
+            ProvisionerWorkerJobStatus::Cancelled => WorkspaceProvisioningStatus::Cancelling,
             ProvisionerWorkerJobStatus::Succeeded => WorkspaceProvisioningStatus::Running,
             ProvisionerWorkerJobStatus::Failed => WorkspaceProvisioningStatus::Failed,
         },
         phase: match status.phase {
-            ProvisionerWorkerPhase::Idle | ProvisionerWorkerPhase::ResolvingWorkflow => {
-                WorkspaceProvisioningPhase::PreparingEnvironment
-            }
-            ProvisionerWorkerPhase::InstallingRuntime
+            ProvisionerWorkerPhase::Idle
+            | ProvisionerWorkerPhase::Starting
+            | ProvisionerWorkerPhase::ResolvingWorkflow
+            | ProvisionerWorkerPhase::InstallingRuntime
             | ProvisionerWorkerPhase::InstallingModels
             | ProvisionerWorkerPhase::InstallingCustomNodes
             | ProvisionerWorkerPhase::WritingManifest => {
@@ -248,11 +330,33 @@ pub fn progress_from_worker_status(
             ProvisionerWorkerPhase::Completed => {
                 WorkspaceProvisioningPhase::CreatingEndpointTemplate
             }
+            ProvisionerWorkerPhase::Cancelled => WorkspaceProvisioningPhase::CleaningUp,
             ProvisionerWorkerPhase::Failed => WorkspaceProvisioningPhase::Failed,
         },
         percent: status.progress_percent,
         failure: None,
     }
+}
+
+fn diagnostic_from_worker_error(error: ProvisionerWorkerErrorResponse) -> Option<String> {
+    let mut parts = Vec::new();
+    if let Some(code) = non_blank(error.code) {
+        parts.push(format!("code: {code}"));
+    }
+    if let Some(reason_code) = non_blank(error.reason_code) {
+        parts.push(format!("reason_code: {reason_code}"));
+    }
+    if let Some(message) = non_blank(error.message) {
+        parts.push(format!("message: {message}"));
+    }
+
+    (!parts.is_empty()).then(|| sanitize_diagnostic(parts.join("\n")))
+}
+
+fn non_blank(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn sanitize_diagnostic(diagnostic: String) -> String {
@@ -280,6 +384,9 @@ mod tests {
             phase: Some("installing_models".to_string()),
             progress_percent: Some(42),
             diagnostic: Some("Downloading model".to_string()),
+            diagnostic_message: None,
+            error: None,
+            ..status_response_defaults()
         })
         .expect("status should map");
 
@@ -300,6 +407,9 @@ mod tests {
             phase: Some("failed".to_string()),
             progress_percent: Some(10),
             diagnostic: Some("failed\u{0} with token rp_secret".to_string()),
+            diagnostic_message: None,
+            error: None,
+            ..status_response_defaults()
         })
         .expect_err("terminal failure should map");
 
@@ -312,27 +422,158 @@ mod tests {
     }
 
     #[test]
+    fn accepts_idle_status_without_phase() {
+        let status = status_from_response(ProvisionerWorkerStatusResponse {
+            status: Some("idle".to_string()),
+            phase: None,
+            ..status_response_defaults()
+        })
+        .expect("idle status without phase should map");
+
+        assert_eq!(status.status, ProvisionerWorkerJobStatus::Idle);
+        assert_eq!(status.phase, ProvisionerWorkerPhase::Idle);
+    }
+
+    #[test]
+    fn accepts_terminal_success_without_phase() {
+        let status = status_from_response(ProvisionerWorkerStatusResponse {
+            status: Some("succeeded".to_string()),
+            phase: None,
+            progress_percent: Some(100),
+            ..status_response_defaults()
+        })
+        .expect("terminal success without phase should map");
+
+        assert_eq!(status.status, ProvisionerWorkerJobStatus::Succeeded);
+        assert_eq!(status.phase, ProvisionerWorkerPhase::Completed);
+    }
+
+    #[test]
+    fn maps_current_worker_phase_vocabulary() {
+        for (worker_phase, expected_phase) in [
+            ("starting", ProvisionerWorkerPhase::Starting),
+            (
+                "installing_comfyui",
+                ProvisionerWorkerPhase::InstallingRuntime,
+            ),
+            (
+                "installing_custom_nodes",
+                ProvisionerWorkerPhase::InstallingCustomNodes,
+            ),
+            (
+                "downloading_assets",
+                ProvisionerWorkerPhase::InstallingModels,
+            ),
+            (
+                "validating_environment",
+                ProvisionerWorkerPhase::WritingManifest,
+            ),
+        ] {
+            let status = status_from_response(ProvisionerWorkerStatusResponse {
+                status: Some("running".to_string()),
+                phase: Some(worker_phase.to_string()),
+                ..status_response_defaults()
+            })
+            .expect("current worker phase should map");
+
+            assert_eq!(status.phase, expected_phase);
+            assert_eq!(
+                progress_from_worker_status(&status).phase,
+                WorkspaceProvisioningPhase::PreparingEnvironment
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_failure_uses_structured_worker_error_diagnostic() {
+        let error = status_from_response(ProvisionerWorkerStatusResponse {
+            status: Some("failed".to_string()),
+            phase: None,
+            diagnostic_message: Some("Download failed".to_string()),
+            error: Some(ProvisionerWorkerErrorResponse {
+                code: Some("asset_download_failed".to_string()),
+                reason_code: Some("not_found".to_string()),
+                message: Some("Model asset was not found".to_string()),
+            }),
+            ..status_response_defaults()
+        })
+        .expect_err("terminal failure should map");
+
+        assert_eq!(
+            error,
+            ProvisionerWorkerError::TerminalFailure {
+                diagnostic: Some(
+                    "code: asset_download_failed\nreason_code: not_found\nmessage: Model asset was not found"
+                        .to_string()
+                ),
+            }
+        );
+    }
+
+    #[test]
     fn rejects_invalid_payloads() {
         let error = status_from_response(ProvisionerWorkerStatusResponse {
             status: Some("running".to_string()),
             phase: Some("installing_models".to_string()),
             progress_percent: Some(101),
             diagnostic: None,
+            diagnostic_message: None,
+            error: None,
+            ..status_response_defaults()
         })
         .expect_err("invalid percentage should fail");
 
-        assert_eq!(error, ProvisionerWorkerError::InvalidPayload);
+        assert_eq!(
+            error,
+            ProvisionerWorkerError::InvalidPayload { diagnostic: None }
+        );
     }
 
     #[test]
     fn maps_unauthorized_and_conflict_statuses() {
         assert_eq!(
-            worker_error_from_status(StatusCode::UNAUTHORIZED),
-            Some(ProvisionerWorkerError::Unauthorized)
+            worker_error_from_status(StatusCode::UNAUTHORIZED, None, true),
+            ProvisionerWorkerError::Unauthorized
         );
         assert_eq!(
-            worker_error_from_status(StatusCode::CONFLICT),
-            Some(ProvisionerWorkerError::Conflict)
+            worker_error_from_status(StatusCode::CONFLICT, None, true),
+            ProvisionerWorkerError::Conflict
+        );
+    }
+
+    #[test]
+    fn maps_non_json_proxy_readiness_responses_to_unreachable() {
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::CONFLICT,
+            StatusCode::NOT_FOUND,
+        ] {
+            assert_eq!(
+                worker_error_from_status(status, None, false),
+                ProvisionerWorkerError::Unreachable
+            );
+        }
+        assert_eq!(
+            success_payload_error(false),
+            ProvisionerWorkerError::Unreachable
+        );
+    }
+
+    #[test]
+    fn maps_worker_json_contract_errors_to_invalid_payload_with_diagnostic() {
+        assert_eq!(
+            worker_error_from_status(
+                StatusCode::BAD_REQUEST,
+                Some("code: invalid_request".to_string()),
+                true,
+            ),
+            ProvisionerWorkerError::InvalidPayload {
+                diagnostic: Some("code: invalid_request".to_string()),
+            }
+        );
+        assert_eq!(
+            success_payload_error(true),
+            ProvisionerWorkerError::InvalidPayload { diagnostic: None }
         );
     }
 
@@ -350,5 +591,17 @@ mod tests {
         .expect_err("unreachable worker should fail");
 
         assert_eq!(error, ProvisionerWorkerError::Unreachable);
+    }
+
+    fn status_response_defaults() -> ProvisionerWorkerStatusResponse {
+        ProvisionerWorkerStatusResponse {
+            status: None,
+            job_id: None,
+            phase: None,
+            progress_percent: None,
+            diagnostic: None,
+            diagnostic_message: None,
+            error: None,
+        }
     }
 }

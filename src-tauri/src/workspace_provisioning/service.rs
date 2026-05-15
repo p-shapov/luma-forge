@@ -3,6 +3,7 @@ use crate::{
         placement::PlacementPlan,
         workspace::{
             ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
+            WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
         },
     },
     provisioner_worker::{
@@ -383,19 +384,26 @@ where
             .await
         {
             Ok(status) if status.status == ProvisionerWorkerJobStatus::Idle => {
-                self.workers
+                match self
+                    .workers
                     .start(
                         &active_pod.provisioner_status_url,
                         &token,
                         &ProvisionerWorkerStartRequest {
-                            workspace_id: workspace.id.clone(),
+                            job_id: workspace.id.clone(),
                             workflow_preset: workspace
                                 .placement_plan
                                 .selected_workflow_preset()
                                 .clone(),
                         },
                     )
-                    .await?
+                    .await
+                {
+                    Ok(status) => status,
+                    Err(error) => {
+                        return self.handle_worker_error(workspace.clone(), error).await;
+                    }
+                }
             }
             Ok(status) if status.status == ProvisionerWorkerJobStatus::Succeeded => {
                 workspace.environment_prepared_at = Some(now_rfc3339()?);
@@ -404,9 +412,7 @@ where
             }
             Ok(status) => status,
             Err(error) => {
-                return self
-                    .fail_workspace_after_worker_error(workspace.clone(), error)
-                    .await;
+                return self.handle_worker_error(workspace.clone(), error).await;
             }
         };
         Ok(Some(WorkspaceProvisioningResult {
@@ -573,11 +579,18 @@ where
         Ok(None)
     }
 
-    async fn fail_workspace_after_worker_error(
+    async fn handle_worker_error(
         &self,
         mut workspace: Workspace,
         error: WorkspaceProvisioningError,
     ) -> Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError> {
+        if error == WorkspaceProvisioningError::ProvisionerWorkerUnavailable {
+            return Ok(Some(WorkspaceProvisioningResult {
+                workspace,
+                progress: worker_readiness_progress(),
+            }));
+        }
+
         if let Some(failure) =
             failure::worker_failure(WorkspaceProvisioningPhase::PreparingEnvironment, &error)
         {
@@ -648,6 +661,15 @@ where
             );
             failure::fail_workspace(workspace, failure);
         }
+    }
+}
+
+fn worker_readiness_progress() -> WorkspaceProvisioningProgress {
+    WorkspaceProvisioningProgress {
+        status: WorkspaceProvisioningStatus::Running,
+        phase: WorkspaceProvisioningPhase::PreparingEnvironment,
+        percent: None,
+        failure: None,
     }
 }
 
