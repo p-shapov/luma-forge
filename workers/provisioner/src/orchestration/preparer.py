@@ -15,6 +15,14 @@ from app.schemas import CustomNode, ModelAsset, StartRequest
 ProgressCallback = Callable[[str, int | None, str | None], None]
 
 
+def _phase_progress(start: int, end: int, index: int, total: int) -> int:
+    if total <= 1:
+        progress = start
+    else:
+        progress = start + ((index - 1) * (end - start)) // (total - 1)
+    return max(0, min(100, progress))
+
+
 class Provisioner:
     def __init__(
         self,
@@ -98,9 +106,14 @@ class Provisioner:
         if not custom_nodes:
             return
 
+        total_nodes = len(custom_nodes)
         for index, node in enumerate(custom_nodes, start=1):
             self._check_cancelled(cancel_event)
-            progress("installing_custom_nodes", 30 + index, f"Installing Custom Node {node.name}")
+            progress(
+                "installing_custom_nodes",
+                _phase_progress(30, 55, index, total_nodes),
+                f"Installing Custom Node {node.name}",
+            )
             target = safe_custom_node_child_path(
                 comfyui_root,
                 node.install.comfyui_custom_nodes_relative_path.as_posix(),
@@ -129,9 +142,14 @@ class Provisioner:
         progress: ProgressCallback,
         cancel_event: Event,
     ) -> None:
+        total_assets = len(assets)
         for index, asset in enumerate(assets, start=1):
             self._check_cancelled(cancel_event)
-            progress("downloading_assets", 55 + index, f"Downloading model asset {asset.name}")
+            progress(
+                "downloading_assets",
+                _phase_progress(55, 90, index, total_assets),
+                f"Downloading model asset {asset.name}",
+            )
             target = safe_child_path(
                 comfyui_root,
                 asset.install.comfyui_relative_path.as_posix(),

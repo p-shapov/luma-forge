@@ -204,6 +204,48 @@ class PreparerTests(unittest.TestCase):
             self.assertEqual(report_paths[0].parent, (Path(directory) / ".luma-forge").resolve(strict=False))
             self.assertTrue(report_paths[0].name.startswith("custom-node-..-unsafe-node-"))
 
+    def test_bounds_custom_node_and_asset_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(
+                    id=f"node-{index}",
+                    comfyui_custom_nodes_relative_path=f"custom_nodes/node-{index}",
+                )
+                for index in range(40)
+            ]
+            payload["workflow_preset"]["required_model_assets"] = [
+                model_asset(
+                    id=f"asset-{index}",
+                    comfyui_relative_path=f"models/checkpoints/model-{index}.safetensors",
+                )
+                for index in range(60)
+            ]
+            request = parse_start_request(payload)
+            progress_events = []
+
+            Provisioner(
+                command_runner=FakeCommandRunner(),
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
+                request,
+                lambda phase, progress, message: progress_events.append((phase, progress)),
+                Event(),
+            )
+
+            reported_progress = [progress for phase, progress in progress_events if progress is not None]
+            custom_node_progress = [
+                progress for phase, progress in progress_events if phase == "installing_custom_nodes"
+            ]
+            asset_progress = [progress for phase, progress in progress_events if phase == "downloading_assets"]
+
+            self.assertTrue(all(0 <= progress <= 100 for progress in reported_progress))
+            self.assertEqual(custom_node_progress[0], 30)
+            self.assertEqual(custom_node_progress[-1], 55)
+            self.assertEqual(asset_progress[0], 55)
+            self.assertEqual(asset_progress[-1], 90)
+
     def test_installs_comfyui_requirements_through_volume_venv(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())
@@ -316,6 +358,28 @@ def custom_node(
         },
         "install": install,
     }
+
+
+def model_asset(
+    *,
+    id="model",
+    comfyui_relative_path="models/checkpoints/model.safetensors",
+):
+    return {
+        "id": id,
+        "name": "Model",
+        "model_asset_kind": "checkpoint",
+        "download_source": {
+            "source_type": "huggingface",
+            "repository_id": "owner/model",
+            "file_path": f"{id}.safetensors",
+            "revision": "main",
+        },
+        "install": {
+            "comfyui_relative_path": comfyui_relative_path,
+        },
+    }
+
 
 if __name__ == "__main__":
     unittest.main()
