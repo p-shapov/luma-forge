@@ -4,8 +4,7 @@ use crate::{
     workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupCatalogReader},
 };
 
-const WORKFLOW_CATALOG_JSON: &str =
-    include_str!("../../../resources/catalog/workflow-catalog.json");
+const WORKFLOW_CATALOG_JSON: &str = include_str!("../../../bundled/workflow-catalog.json");
 
 #[derive(Debug, Clone, Default)]
 pub struct BundledCatalogReader;

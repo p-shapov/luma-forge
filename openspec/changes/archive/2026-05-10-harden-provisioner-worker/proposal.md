@@ -26,6 +26,6 @@ None.
 ## Impact
 
 - `workers/provisioner`: HTTP handler, request parsing, preparation workflow, downloader, error mapping, configuration, and tests.
-- `resources/catalog/workflow-catalog.json`: Bundled source revisions and model file metadata.
+- `bundled/workflow-catalog.json`: Bundled source revisions and model file metadata.
 - `src-tauri/src/domain/workflow`: Catalog validation rules and tests.
 - Generated frontend command bindings may need regeneration if native type exports change, but this change does not add model digest metadata.

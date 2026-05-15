@@ -35,9 +35,9 @@ None.
   - `src-tauri/src/bundled/bundled_catalog_validator.rs`
   - `src-tauri/src/bundled/bundled_catalog_tests.rs`
 - Affected bundled catalog data:
-  - `resources/catalog/workflow-catalog.json`
-  - `resources/catalog/provisioning-profiles.json`
-  - `resources/catalog/endpoint-profiles.json`
+  - `bundled/workflow-catalog.json`
+  - `bundled/provisioning-profiles.json`
+  - `bundled/endpoint-profiles.json`
 - Affected generated/reference frontend contracts:
   - `src/generated/commands.ts`
   - `spec/reference/**`

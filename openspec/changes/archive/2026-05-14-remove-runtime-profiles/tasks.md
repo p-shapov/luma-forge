@@ -8,7 +8,7 @@
 ## 2. Remove Profile Domain And Catalogs
 
 - [x] 2.1 Remove Provisioning Profile and Endpoint Profile domain types, validators, test fixtures, and command remote type metadata.
-- [x] 2.2 Remove `resources/catalog/provisioning-profiles.json` and `resources/catalog/endpoint-profiles.json` plus bundled catalog parser/reader code for profile catalogs.
+- [x] 2.2 Remove `bundled/provisioning-profiles.json` and `bundled/endpoint-profiles.json` plus bundled catalog parser/reader code for profile catalogs.
 - [x] 2.3 Update bundled catalog validation so Workspace Setup reads and validates only the Workflow Catalog.
 - [x] 2.4 Remove profile catalog read commands and command error paths for `get_provisioning_profiles` and `get_endpoint_profiles`.
 - [x] 2.5 Remove generated TypeScript bindings and frontend command access for profile commands and profile types.
