@@ -130,6 +130,12 @@ def _parse_bearer_token(env: Mapping[str, str]) -> str:
             "invalid_characters",
             "value must not contain whitespace or control characters",
         )
+    if not token.isascii():
+        raise ConfigurationError(
+            BEARER_TOKEN_ENV,
+            "invalid_characters",
+            "value must contain only ASCII characters",
+        )
     return token
 
 

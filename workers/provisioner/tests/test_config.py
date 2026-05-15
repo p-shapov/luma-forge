@@ -83,6 +83,7 @@ class ConfigTests(unittest.TestCase):
             f"{VALID_TOKEN} with-space",
             f"{VALID_TOKEN}\n",
             f"{VALID_TOKEN}\x7f",
+            f"{VALID_TOKEN}é",
         ]
 
         for value in invalid_values:

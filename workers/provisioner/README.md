@@ -84,7 +84,7 @@ The diagnostic never includes configured environment values or secrets.
 
 | Variable | Default | Validation |
 | --- | --- | --- |
-| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 characters; no whitespace or control characters. |
+| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
 | `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
 | `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
 | `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` | `1048576` | Positive integer up to `104857600`. |

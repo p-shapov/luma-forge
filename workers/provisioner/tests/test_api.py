@@ -133,6 +133,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["reason_code"], "invalid_authorization")
         self.assertNotIn("secret", payload["message"])
 
+    def test_non_ascii_authorization_is_rejected(self):
+        config = test_config(bearer_token="authorized-token-0123456789abcdef")
+        with ServerFixture(ImmediateProvisioner(), config=config) as server:
+            status, payload = server.request("GET", "/status", headers={"Authorization": "Bearer é"})
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["code"], "unauthorized")
+        self.assertEqual(payload["reason_code"], "invalid_authorization")
+
     def test_missing_authorization_is_rejected(self):
         with ServerFixture(ImmediateProvisioner()) as server:
             status, payload = server.request("GET", "/status", authorize=False)

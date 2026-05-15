@@ -100,7 +100,14 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
     def _authorize(self) -> None:
         token = self._config().bearer_token
         authorization = self.headers.get("Authorization")
-        if authorization is None or not hmac.compare_digest(authorization, f"Bearer {token}"):
+        if authorization is None:
+            raise UnauthorizedError("Unauthorized.")
+        try:
+            authorization_bytes = authorization.encode("ascii")
+            expected_authorization = f"Bearer {token}".encode("ascii")
+        except UnicodeEncodeError as error:
+            raise UnauthorizedError("Unauthorized.") from error
+        if not hmac.compare_digest(authorization_bytes, expected_authorization):
             raise UnauthorizedError("Unauthorized.")
 
     def _worker_error(self, error: WorkerError) -> None:
