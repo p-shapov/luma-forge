@@ -2,19 +2,26 @@ use super::*;
 
 use std::{
     collections::HashMap,
+    future::Future,
+    pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
+    sync::{Arc, Mutex},
 };
 
 use crate::{
     domain::{
-        provider_setup::ProviderApiKey,
+        provider_setup::{GpuCloudProviderId, ProviderApiKey},
         workspace::{
-            ProviderProvisioningSnapshot, RunPodEndpointTemplateSnapshot,
-            ServerlessEndpointSnapshot, WorkspaceCatalog, WorkspaceLifecycleState,
-            WorkspaceProvisioningPhase,
+            PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
+            ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
+            Workspace, WorkspaceCatalog, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
         },
     },
-    secrets::SecretStoreError,
+    provisioner_worker::{
+        ProvisionerWorkerJobStatus, ProvisionerWorkerStartRequest, ProvisionerWorkerStatus,
+    },
+    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_setup::{error::WorkspaceSetupError, tests::sample_workspace},
 };
 
