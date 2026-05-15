@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from threading import Event, Lock, Thread
-from typing import Any
+from typing import TypedDict
 
 from provisioner_worker import __version__
 from provisioner_worker.config import WorkerConfig
@@ -10,6 +10,17 @@ from provisioner_worker.preparer import Cancelled, Provisioner
 from provisioner_worker.schemas import CancelRequest, StartRequest
 
 ACTIVE_STATUSES = {"running", "cancelling"}
+
+
+class JobSnapshotPayload(TypedDict):
+    status: str
+    job_id: str | None
+    phase: str | None
+    progress_percent: int | None
+    diagnostic_message: str | None
+    error: WorkerErrorPayload | None
+    updated_at: str
+    provisioner_version: str
 
 
 @dataclass
@@ -23,7 +34,7 @@ class JobSnapshot:
     updated_at: str
     provisioner_version: str
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> JobSnapshotPayload:
         return {
             "status": self.status,
             "job_id": self.job_id,
