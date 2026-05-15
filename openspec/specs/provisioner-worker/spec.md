@@ -130,9 +130,10 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 #### Scenario: Job fails
 
 - **WHEN** a provisioning step cannot complete safely
-- **THEN** the Provisioner Worker SHALL mark the job `failed`
+- **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL report terminal failure with UI-safe error metadata
-- **AND** the response MUST NOT include provider secrets, tokens, or raw credential-bearing command output
+- **AND** the terminal error metadata SHALL use the standard worker error payload shape with `code`, `reason_code`, and `message`
+- **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
 ### Requirement: Cancel active provisioning
 
@@ -200,23 +201,17 @@ The Provisioner Worker SHALL validate Custom Node checkout and requirements path
 - **AND** the Provisioner Worker MUST NOT read requirements files outside the Custom Node checkout root
 
 ### Requirement: Authorize worker API requests
-The Provisioner Worker SHALL require bearer-token authorization for every HTTP endpoint when worker authorization is configured.
+The Provisioner Worker SHALL require bearer-token authorization for every HTTP endpoint.
 
 #### Scenario: Authorized request is accepted
-- **WHEN** a worker bearer token is configured
-- **AND** the client calls `GET /status`, `POST /start`, or `POST /cancel` with `Authorization: Bearer <configured-token>`
+- **WHEN** the client calls `GET /status`, `POST /start`, or `POST /cancel` with `Authorization: Bearer <configured-token>`
 - **THEN** the Provisioner Worker SHALL process the request normally
 
 #### Scenario: Unauthorized request is rejected
-- **WHEN** a worker bearer token is configured
-- **AND** the client omits the authorization header or provides a different token
+- **WHEN** the client omits the authorization header or provides a different token
 - **THEN** the Provisioner Worker SHALL reject the request with `unauthorized`
 - **AND** the Provisioner Worker MUST NOT start, cancel, or expose any provisioning job state mutation because of that request
 - **AND** the response MUST NOT include the configured token
-
-#### Scenario: Authorization is not configured
-- **WHEN** no worker bearer token is configured
-- **THEN** the Provisioner Worker SHALL continue to accept requests without an authorization header
 
 ### Requirement: Bound worker request bodies
 The Provisioner Worker SHALL enforce a configured maximum request body size before decoding request JSON.
@@ -237,47 +232,72 @@ The Provisioner Worker SHALL enforce a configured maximum request body size befo
 - **AND** the Provisioner Worker MUST NOT mutate provisioning job state
 
 ### Requirement: Report structured worker error codes
-The Provisioner Worker SHALL map expected failure classes to stable UI-safe error codes and messages.
+The Provisioner Worker SHALL map expected failure classes to stable UI-safe error codes, reason codes, and messages.
 
 #### Scenario: Git checkout fails
 - **WHEN** a ComfyUI or Custom Node Git clone, fetch, or checkout operation fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `git_checkout_failed`
+- **AND** `GET /status` SHALL include a stable `reason_code` for the Git checkout failure
 - **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Dependency installation fails
 - **WHEN** ComfyUI or Custom Node dependency installation into the volume-local virtual environment fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
+- **AND** `GET /status` SHALL include a stable `reason_code` for the dependency installation failure
 - **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Volume environment creation fails
 - **WHEN** the Provisioner Worker cannot create or validate the volume-local virtual environment
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
+- **AND** `GET /status` SHALL include a stable `reason_code` for the volume environment failure
 - **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Model download fails
 - **WHEN** a public Hugging Face model asset cannot be downloaded because of transport, missing file, or unavailable service failure
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `asset_download_failed`
+- **AND** `GET /status` SHALL include a stable `reason_code` for the asset download failure
 
 #### Scenario: Model download requires authentication
 - **WHEN** Hugging Face rejects a model asset download because authentication or authorization is required
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `asset_auth_required`
+- **AND** `GET /status` SHALL include a stable `reason_code` for the asset authorization failure
 - **AND** the Provisioner Worker MUST NOT request, read, persist, or log a Hugging Face API key
 
 #### Scenario: Path validation fails
 - **WHEN** a request contains an unsafe workspace, Custom Node, requirements, virtual environment, runtime metadata, or model asset install path
 - **THEN** the Provisioner Worker SHALL reject the start request or mark the active job `failed` before the unsafe write or read
 - **AND** the API response or job status SHALL include error code `path_validation_failed`
+- **AND** the API response or job status SHALL include a stable `reason_code` for the path validation failure
+- **AND** any exposed context MUST include only safe field or path-role identifiers, not the raw unsafe path value
 
 #### Scenario: Provisioning step times out
 - **WHEN** a Git, virtual environment creation, dependency installation, or model download step exceeds its configured timeout
 - **THEN** the Provisioner Worker SHALL stop the active operation where possible
 - **AND** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `step_timeout`
+- **AND** `GET /status` SHALL include a stable `reason_code` for the timed-out step
+
+#### Scenario: Request validation fails
+- **WHEN** a worker API request is malformed, has invalid JSON, has invalid content length, or fails payload validation
+- **THEN** the worker API response SHALL include an error code such as `invalid_request` or `invalid_json`
+- **AND** the worker API response SHALL include a stable `reason_code` for the request validation failure
+
+#### Scenario: Request is unauthorized
+- **WHEN** the client omits authorization or provides invalid authorization
+- **THEN** the worker API response SHALL include error code `unauthorized`
+- **AND** the worker API response SHALL include a stable `reason_code` for the authorization failure
+- **AND** the response MUST NOT reveal whether the supplied token matched any prefix, length, or token format rule
+
+#### Scenario: Request conflicts with active job
+- **WHEN** `POST /start` is called while a provisioning job is active
+- **THEN** the worker API response SHALL include error code `job_already_running`
+- **AND** the worker API response SHALL include a stable `reason_code` for the active job conflict
+- **AND** the active job identifier MAY be included only as UI-safe structured context
 
 ### Requirement: Require immutable Git revisions for worker-prepared sources
 The Provisioner Worker SHALL reject worker-prepared Git sources that do not specify immutable commit revisions.
@@ -302,3 +322,67 @@ The Provisioner Worker SHALL apply configured timeouts to external Git, virtual 
 - **WHEN** a Git command, virtual environment creation, dependency installation, or model download exceeds its configured timeout
 - **THEN** the Provisioner Worker SHALL stop the operation where possible
 - **AND** the Provisioner Worker SHALL fail the active job with `step_timeout`
+
+### Requirement: Format worker error payloads consistently
+The Provisioner Worker SHALL serialize runtime worker errors with a consistent UI-safe error payload shape.
+
+#### Scenario: Immediate worker API error is returned
+- **WHEN** `GET /status`, `POST /start`, or `POST /cancel` rejects a request before starting or changing provisioning work
+- **THEN** the HTTP response body SHALL include `code`, `reason_code`, and `message`
+- **AND** `code` SHALL remain the broad stable worker error classification
+- **AND** `reason_code` SHALL identify the specific stable reason within that classification
+- **AND** the response MAY include `context` containing only allowlisted UI-safe metadata
+- **AND** the response MUST NOT include bearer tokens, provider API keys, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
+
+#### Scenario: Terminal job error is returned
+- **WHEN** `GET /status` reports a failed provisioning job
+- **THEN** the `error` object SHALL include `code`, `reason_code`, and `message`
+- **AND** the `error` object MAY include `context` containing only allowlisted UI-safe metadata
+- **AND** the `error` object MUST NOT include bearer tokens, provider API keys, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
+
+#### Scenario: Worker error has no additional context
+- **WHEN** a worker error has no safe metadata to expose
+- **THEN** the serialized error payload SHALL omit `context`
+- **AND** consumers MUST NOT need to parse `message` to classify the error
+
+### Requirement: Validate Provisioner Worker runtime environment
+The Provisioner Worker SHALL validate its runtime environment before starting the HTTP server.
+
+#### Scenario: Runtime environment is valid
+- **WHEN** the provisioner process starts with a valid bearer token, bind host, bind port, request size limit, step timeouts, and workspace mount path
+- **THEN** the Provisioner Worker SHALL start the HTTP server using the validated runtime configuration
+- **AND** all worker modules SHALL use that same validated runtime configuration for authorization, request limits, step timeouts, and workspace mount validation
+
+#### Scenario: Bearer token is missing or malformed
+- **WHEN** `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` is missing, blank after trimming, shorter than 32 characters, or contains whitespace or control characters
+- **THEN** the Provisioner Worker SHALL fail startup with a configuration error
+- **AND** the Provisioner Worker MUST NOT start the HTTP server
+- **AND** the startup failure SHALL emit machine-readable error code `configuration_error`
+- **AND** the configuration error MUST NOT include the bearer token value
+
+#### Scenario: Numeric runtime value is invalid
+- **WHEN** `LUMA_FORGE_PROVISIONER_PORT`, `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES`, `LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS`, `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS`, or `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` is configured with a blank, non-numeric, non-finite, non-positive, or out-of-range value
+- **THEN** the Provisioner Worker SHALL fail startup with a configuration error
+- **AND** the startup failure SHALL emit machine-readable error code `configuration_error`
+- **AND** the Provisioner Worker MUST NOT silently replace the configured value with a default
+- **AND** the Provisioner Worker MUST NOT start the HTTP server
+
+#### Scenario: Bind host is invalid
+- **WHEN** `LUMA_FORGE_PROVISIONER_HOST` is configured with a blank value or a value that is not a valid IP address or DNS hostname
+- **THEN** the Provisioner Worker SHALL fail startup with a configuration error
+- **AND** the startup failure SHALL emit machine-readable error code `configuration_error`
+- **AND** the Provisioner Worker MUST NOT start the HTTP server
+
+#### Scenario: Workspace mount path is invalid
+- **WHEN** `LUMA_FORGE_WORKSPACE_MOUNT_PATH` is configured with a blank, relative, or non-normalized path
+- **THEN** the Provisioner Worker SHALL fail startup with a configuration error
+- **AND** the startup failure SHALL emit machine-readable error code `configuration_error`
+- **AND** the Provisioner Worker MUST NOT start the HTTP server
+
+#### Scenario: Runtime configuration failure is machine-readable
+- **WHEN** runtime environment validation fails during process startup
+- **THEN** the Provisioner Worker SHALL write one structured diagnostic to stderr with code `configuration_error`
+- **AND** the diagnostic SHALL include the affected environment variable name and a stable reason code
+- **AND** the diagnostic MUST NOT include configured environment values or secrets
+- **AND** the process SHALL exit before binding the HTTP server
+

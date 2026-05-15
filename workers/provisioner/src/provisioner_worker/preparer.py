@@ -184,11 +184,11 @@ class Provisioner:
         *,
         command_runner: CommandRunner | None = None,
         downloader: PublicFileDownloader | None = None,
-        config: WorkerConfig | None = None,
+        config: WorkerConfig,
     ):
         self.command_runner = command_runner or CommandRunner()
         self.downloader = downloader or PublicFileDownloader()
-        self.config = config or WorkerConfig.from_env()
+        self.config = config
 
     def prepare(self, request: StartRequest, progress: ProgressCallback, cancel_event: Event) -> None:
         workspace_root = request.workspace_mount_path.resolve(strict=False)

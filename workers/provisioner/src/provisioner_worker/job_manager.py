@@ -1,12 +1,11 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import os
-from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Any
 
 from provisioner_worker import __version__
-from provisioner_worker.errors import ConflictError, ValidationError, WorkerError
+from provisioner_worker.config import WorkerConfig
+from provisioner_worker.errors import ConflictError, ValidationError, WorkerError, WorkerErrorPayload
 from provisioner_worker.preparer import Cancelled, Provisioner
 from provisioner_worker.schemas import CancelRequest, StartRequest
 
@@ -20,7 +19,7 @@ class JobSnapshot:
     phase: str | None
     progress_percent: int | None
     diagnostic_message: str | None
-    error: dict[str, str] | None
+    error: WorkerErrorPayload | None
     updated_at: str
     provisioner_version: str
 
@@ -38,12 +37,9 @@ class JobSnapshot:
 
 
 class JobManager:
-    def __init__(self, provisioner: Provisioner | None = None, *, workspace_mount_path: Path | None = None):
-        self._provisioner = provisioner or Provisioner()
-        configured_mount_path = workspace_mount_path or Path(
-            os.environ.get("LUMA_FORGE_WORKSPACE_MOUNT_PATH", "/workspace"),
-        )
-        self._workspace_mount_path = configured_mount_path.resolve(strict=False)
+    def __init__(self, provisioner: Provisioner | None = None, *, config: WorkerConfig):
+        self._provisioner = provisioner or Provisioner(config=config)
+        self._workspace_mount_path = config.workspace_mount_path
         self._lock = Lock()
         self._cancel_event = Event()
         self._snapshot = JobSnapshot(
@@ -65,11 +61,18 @@ class JobManager:
     def start(self, request: StartRequest) -> JobSnapshot:
         requested_mount_path = request.workspace_mount_path.resolve(strict=False)
         if requested_mount_path != self._workspace_mount_path:
-            raise ValidationError("workspace_mount_path must match the configured workspace mount path.")
+            raise ValidationError(
+                "workspace_mount_path must match the configured workspace mount path.",
+                reason_code="workspace_mount_path_mismatch",
+                context={"field": "workspace_mount_path"},
+            )
 
         with self._lock:
             if self._snapshot.status in ACTIVE_STATUSES:
-                raise ConflictError("Provisioner worker already has an active job.")
+                raise ConflictError(
+                    "Provisioner worker already has an active job.",
+                    context={"active_job_id": self._snapshot.job_id},
+                )
 
             self._cancel_event = Event()
             self._snapshot = JobSnapshot(
@@ -89,7 +92,11 @@ class JobManager:
     def cancel(self, request: CancelRequest) -> JobSnapshot:
         with self._lock:
             if self._snapshot.job_id != request.job_id or self._snapshot.status not in ACTIVE_STATUSES:
-                raise ValidationError("No matching active job to cancel.")
+                raise ValidationError(
+                    "No matching active job to cancel.",
+                    reason_code="no_matching_active_job",
+                    context={"field": "job_id"},
+                )
             self._snapshot.status = "cancelling"
             self._snapshot.diagnostic_message = "Cancellation requested"
             self._snapshot.updated_at = _now()
@@ -102,10 +109,18 @@ class JobManager:
         except Cancelled:
             self._terminal("cancelled", "Provisioning job cancelled", None)
         except WorkerError as error:
-            self._terminal("failed", error.message, {"code": error.code, "message": error.message})
+            self._terminal("failed", error.message, error.to_dict())
         except Exception as error:
             message = "Provisioning job failed"
-            self._terminal("failed", message, {"code": "unexpected_error", "message": message})
+            self._terminal(
+                "failed",
+                message,
+                {
+                    "code": "unexpected_error",
+                    "reason_code": "unexpected_exception",
+                    "message": message,
+                },
+            )
             raise error
         else:
             if cancel_event.is_set():
@@ -123,7 +138,7 @@ class JobManager:
             self._snapshot.diagnostic_message = message
             self._snapshot.updated_at = _now()
 
-    def _terminal(self, status: str, message: str, error: dict[str, str] | None) -> None:
+    def _terminal(self, status: str, message: str, error: WorkerErrorPayload | None) -> None:
         with self._lock:
             self._snapshot.status = status
             self._snapshot.phase = None

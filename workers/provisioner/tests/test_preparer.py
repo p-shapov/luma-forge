@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from threading import Event, Timer
 
-from helpers import COMMIT_REVISION, start_payload
+from helpers import COMMIT_REVISION, start_payload, test_config
 from provisioner_worker.errors import (
     AssetAuthRequiredError,
     AssetDownloadError,
@@ -93,7 +93,7 @@ class PreparerTests(unittest.TestCase):
             downloader = FakeDownloader()
             phases = []
 
-            Provisioner(command_runner=runner, downloader=downloader).prepare(
+            Provisioner(command_runner=runner, downloader=downloader, config=test_config()).prepare(
                 request,
                 lambda phase, progress, message: phases.append(phase),
                 Event(),
@@ -247,7 +247,7 @@ class PreparerTests(unittest.TestCase):
             request = parse_start_request(payload)
             runner = FakeCommandRunner()
 
-            Provisioner(command_runner=runner, downloader=FakeDownloader()).prepare(
+            Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
                 request,
                 lambda phase, progress, message: None,
                 Event(),
@@ -284,7 +284,7 @@ class PreparerTests(unittest.TestCase):
             request = parse_start_request(payload)
             runner = FakeCommandRunner()
 
-            Provisioner(command_runner=runner, downloader=FakeDownloader()).prepare(
+            Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
                 request,
                 lambda phase, progress, message: None,
                 Event(),
@@ -304,7 +304,7 @@ class PreparerTests(unittest.TestCase):
             request = parse_start_request(start_payload(Path(directory)))
             runner = FakeCommandRunner()
 
-            Provisioner(command_runner=runner, downloader=FakeDownloader()).prepare(
+            Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
                 request,
                 lambda phase, progress, message: None,
                 Event(),
@@ -358,7 +358,7 @@ class PreparerTests(unittest.TestCase):
             runner.run = skip_venv
 
             with self.assertRaises(PreparationError):
-                Provisioner(command_runner=runner, downloader=FakeDownloader()).prepare(
+                Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
                     request,
                     lambda phase, progress, message: None,
                     Event(),
@@ -369,7 +369,11 @@ class PreparerTests(unittest.TestCase):
             request = parse_start_request(start_payload(Path(directory)))
 
             with self.assertRaises(PreparationError):
-                Provisioner(command_runner=FakeCommandRunner(), downloader=MissingFileDownloader()).prepare(
+                Provisioner(
+                    command_runner=FakeCommandRunner(),
+                    downloader=MissingFileDownloader(),
+                    config=test_config(),
+                ).prepare(
                     request,
                     lambda phase, progress, message: None,
                     Event(),

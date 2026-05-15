@@ -9,6 +9,7 @@ from http.client import HTTPConnection
 class ContainerSmokeTests(unittest.TestCase):
     def test_container_reports_idle_status(self):
         image = "luma-forge-provisioner:smoke"
+        token = "smoke-token-0123456789abcdef0123"
         subprocess.run(
             [
                 "docker",
@@ -24,7 +25,16 @@ class ContainerSmokeTests(unittest.TestCase):
             check=True,
         )
         container = subprocess.check_output(
-            ["docker", "run", "-d", "-p", "127.0.0.1::8000", image],
+            [
+                "docker",
+                "run",
+                "-d",
+                "-e",
+                f"LUMA_FORGE_PROVISIONER_BEARER_TOKEN={token}",
+                "-p",
+                "127.0.0.1::8000",
+                image,
+            ],
             text=True,
         ).strip()
         try:
@@ -36,7 +46,7 @@ class ContainerSmokeTests(unittest.TestCase):
             for _ in range(30):
                 try:
                     connection = HTTPConnection("127.0.0.1", int(host_port), timeout=1)
-                    connection.request("GET", "/status")
+                    connection.request("GET", "/status", headers={"Authorization": f"Bearer {token}"})
                     response = connection.getresponse()
                     payload = response.read().decode("utf-8")
                     connection.close()
