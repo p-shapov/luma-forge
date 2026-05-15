@@ -114,12 +114,14 @@ pub struct RunPodCreatePodRequest {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RunPodPodResponse {
     pub id: Option<String>,
+    pub name: Option<String>,
     pub data_center_id: Option<String>,
     pub desired_status: Option<String>,
     pub pod_status: Option<String>,
     pub gpu_type_id: Option<String>,
     pub gpu: Option<RunPodPodGpuResponse>,
     pub machine: Option<RunPodPodMachineResponse>,
+    pub network_volume_id: Option<String>,
     pub ports: Option<Vec<String>>,
     pub public_ip: Option<String>,
     pub port_mappings: Option<HashMap<String, u16>>,

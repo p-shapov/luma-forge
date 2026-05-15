@@ -9,8 +9,9 @@ mod snapshots;
 
 pub use contracts::{
     CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-    CreateServerlessEndpointInput, EndpointTemplateObservation, NetworkVolumeObservation,
-    ProvisioningPodObservation, ServerlessEndpointObservation, WorkspaceProvisioningResult,
+    CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, EndpointTemplateObservation,
+    NetworkVolumeObservation, ObserveProvisioningPodInput, ProvisioningPodObservation,
+    ServerlessEndpointObservation, WorkspaceProvisioningResult,
 };
 pub use coordinator::WorkspaceProvisioningCoordinator;
 pub use error::WorkspaceProvisioningError;

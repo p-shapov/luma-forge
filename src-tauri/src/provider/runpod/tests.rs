@@ -18,11 +18,11 @@ use crate::{
             },
             mapper::{
                 endpoint_from_response, identity_from_graphql_response,
-                inventory_from_graphql_response, network_volume_from_response, pod_from_response,
-                template_from_response,
+                inventory_from_graphql_response, network_volume_from_response,
+                pod_from_response_with_context, template_from_response, RunPodPodResponseContext,
             },
-            provider_error_from_inventory_status, provider_error_from_rest_status, RunPodClient,
-            RUNPOD_REST_ENDPOINT,
+            pods_by_name_and_volume, provider_error_from_inventory_status,
+            provider_error_from_rest_status, RunPodClient, RUNPOD_REST_ENDPOINT,
         },
     },
 };
@@ -424,7 +424,7 @@ fn serializes_pod_create_request_with_documented_shape() {
 }
 
 #[test]
-fn parses_pod_response_and_derives_status_url() {
+fn parses_pod_response_and_derives_http_proxy_status_url() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
         "desiredStatus": "RUNNING",
@@ -442,15 +442,178 @@ fn parses_pod_response_and_derives_status_url() {
     }))
     .expect("pod response should parse");
 
-    let observation = pod_from_response(response).expect("pod should map");
+    let observation = pod_from_response_with_context(response, None).expect("pod should map");
 
     assert_eq!(observation.data_center_id, "EU-RO-1");
     assert_eq!(observation.selected_gpu_id, "NVIDIA GeForce RTX 4090");
     assert_eq!(observation.status, ProviderResourceStatus::Running);
     assert_eq!(
         observation.provisioner_status_url.as_deref(),
+        Some("https://pod-1-8080.proxy.runpod.net/status")
+    );
+}
+
+#[test]
+fn parses_pod_response_with_request_context_when_provider_omits_placement_fields() {
+    let response: RunPodPodResponse = serde_json::from_value(json!({
+        "id": "pod-1",
+        "desiredStatus": "RUNNING",
+        "publicIp": "",
+        "ports": ["8000/http"],
+        "portMappings": null,
+        "machine": {}
+    }))
+    .expect("pod response should parse");
+
+    let observation = pod_from_response_with_context(
+        response,
+        Some(RunPodPodResponseContext {
+            data_center_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA GeForce RTX 4090".to_string(),
+        }),
+    )
+    .expect("pod should map with request context");
+
+    assert_eq!(observation.data_center_id, "EU-RO-1");
+    assert_eq!(observation.selected_gpu_id, "NVIDIA GeForce RTX 4090");
+    assert_eq!(
+        observation.provisioner_status_url.as_deref(),
+        Some("https://pod-1-8000.proxy.runpod.net/status")
+    );
+}
+
+#[test]
+fn parses_direct_tcp_pod_response_with_public_ip_and_port_mapping() {
+    let response: RunPodPodResponse = serde_json::from_value(json!({
+        "id": "pod-1",
+        "desiredStatus": "RUNNING",
+        "machine": {
+            "dataCenterId": "EU-RO-1",
+            "gpuTypeId": "NVIDIA GeForce RTX 4090"
+        },
+        "publicIp": "203.0.113.10",
+        "portMappings": {
+            "8080": 30001
+        },
+        "ports": [
+            "8080/tcp"
+        ]
+    }))
+    .expect("pod response should parse");
+
+    let observation = pod_from_response_with_context(response, None).expect("pod should map");
+
+    assert_eq!(
+        observation.provisioner_status_url.as_deref(),
         Some("http://203.0.113.10:30001/status")
     );
+}
+
+#[test]
+fn filters_pods_by_name_and_volume_for_discovery() {
+    let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
+        {
+            "id": "pod-1",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "volume-1",
+            "ports": ["8080/http"]
+        },
+        {
+            "id": "pod-wrong-volume",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "other-volume",
+            "ports": ["8080/http"]
+        },
+        {
+            "id": "pod-terminated",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "TERMINATED",
+            "networkVolumeId": "volume-1",
+            "ports": ["8080/http"]
+        }
+    ]))
+    .expect("pod list should parse");
+
+    let observations = pods_by_name_and_volume(
+        payloads,
+        "luma-forge-workspace-1-provisioner",
+        "volume-1",
+        RunPodPodResponseContext {
+            data_center_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        },
+    )
+    .expect("matching pods should map");
+
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].id, "pod-1");
+    assert_eq!(
+        observations[0].provisioner_status_url.as_deref(),
+        Some("https://pod-1-8080.proxy.runpod.net/status")
+    );
+}
+
+#[test]
+fn pod_discovery_filter_returns_multiple_matches_when_provider_has_duplicates() {
+    let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
+        {
+            "id": "pod-1",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "volume-1",
+            "ports": ["8080/http"]
+        },
+        {
+            "id": "pod-2",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "volume-1",
+            "ports": ["8080/http"]
+        }
+    ]))
+    .expect("pod list should parse");
+
+    let observations = pods_by_name_and_volume(
+        payloads,
+        "luma-forge-workspace-1-provisioner",
+        "volume-1",
+        RunPodPodResponseContext {
+            data_center_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        },
+    )
+    .expect("matching pods should map");
+
+    assert_eq!(observations.len(), 2);
+}
+
+#[test]
+fn pod_discovery_filter_returns_zero_matches_without_name_and_volume_match() {
+    let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
+        {
+            "id": "pod-1",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "other-volume",
+            "ports": ["8080/http"]
+        }
+    ]))
+    .expect("pod list should parse");
+
+    let observations = pods_by_name_and_volume(
+        payloads,
+        "luma-forge-workspace-1-provisioner",
+        "volume-1",
+        RunPodPodResponseContext {
+            data_center_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        },
+    )
+    .expect("matching pods should map");
+
+    assert!(observations.is_empty());
 }
 
 #[test]

@@ -149,29 +149,48 @@ pub(super) fn network_volume_from_response(
     })
 }
 
-pub(super) fn pod_from_response(
+#[derive(Debug, Clone)]
+pub(super) struct RunPodPodResponseContext {
+    pub data_center_id: String,
+    pub selected_gpu_id: String,
+}
+
+pub(super) fn pod_from_response_with_context(
     payload: RunPodPodResponse,
+    context: Option<RunPodPodResponseContext>,
 ) -> Result<RunPodPodObservation, ProviderClientError> {
     let machine = payload.machine.clone();
+    let id = non_empty(payload.id)?;
     Ok(RunPodPodObservation {
-        id: non_empty(payload.id)?,
+        provisioner_status_url: provisioner_status_url(
+            &id,
+            payload.public_ip,
+            payload.ports.unwrap_or_default(),
+            payload.port_mappings.unwrap_or_default(),
+        ),
+        id,
         data_center_id: non_empty(payload.data_center_id.or_else(|| {
             machine
                 .as_ref()
                 .and_then(|machine| machine.data_center_id.clone())
+                .or_else(|| {
+                    context
+                        .as_ref()
+                        .map(|context| context.data_center_id.clone())
+                })
         }))?,
         selected_gpu_id: non_empty(payload.gpu_type_id.or_else(|| {
             machine
                 .as_ref()
                 .and_then(|machine| machine.gpu_type_id.clone())
                 .or_else(|| payload.gpu.and_then(|gpu| gpu.id))
+                .or_else(|| {
+                    context
+                        .as_ref()
+                        .map(|context| context.selected_gpu_id.clone())
+                })
         }))?,
         status: resource_status(payload.pod_status.or(payload.desired_status).as_deref()),
-        provisioner_status_url: provisioner_status_url(
-            payload.public_ip,
-            payload.ports.unwrap_or_default(),
-            payload.port_mappings.unwrap_or_default(),
-        ),
     })
 }
 
@@ -245,30 +264,39 @@ fn resource_status_or_ready(status: Option<&str>) -> ProviderResourceStatus {
 }
 
 fn provisioner_status_url(
+    pod_id: &str,
     public_ip: Option<String>,
     ports: Vec<String>,
     port_mappings: std::collections::HashMap<String, u16>,
 ) -> Option<String> {
+    if let Some(private_port) = exposed_http_port(&ports) {
+        return Some(format!(
+            "https://{pod_id}-{private_port}.proxy.runpod.net/status"
+        ));
+    }
+
     let public_ip = public_ip.filter(|value| !value.trim().is_empty())?;
-    let (private_port, scheme) = exposed_http_port(&ports).or_else(|| {
+    let private_port = exposed_tcp_port(&ports).or_else(|| {
         port_mappings
             .keys()
-            .find_map(|private_port| Some((private_port.parse::<u16>().ok()?, "http")))
+            .find_map(|private_port| private_port.parse::<u16>().ok())
     })?;
     let public_port = port_mappings.get(&private_port.to_string())?;
 
-    Some(format!("{scheme}://{public_ip}:{public_port}/status"))
+    Some(format!("http://{public_ip}:{public_port}/status"))
 }
 
-fn exposed_http_port(ports: &[String]) -> Option<(u16, &'static str)> {
+fn exposed_http_port(ports: &[String]) -> Option<u16> {
     ports.iter().find_map(|port| {
         let (private_port, protocol) = port.split_once('/')?;
-        let scheme = match protocol.to_ascii_lowercase().as_str() {
-            "http" => "http",
-            "https" => "https",
-            _ => return None,
-        };
-        Some((private_port.parse::<u16>().ok()?, scheme))
+        (protocol.eq_ignore_ascii_case("http")).then_some(private_port.parse::<u16>().ok()?)
+    })
+}
+
+fn exposed_tcp_port(ports: &[String]) -> Option<u16> {
+    ports.iter().find_map(|port| {
+        let (private_port, protocol) = port.split_once('/')?;
+        (protocol.eq_ignore_ascii_case("tcp")).then_some(private_port.parse::<u16>().ok()?)
     })
 }
 

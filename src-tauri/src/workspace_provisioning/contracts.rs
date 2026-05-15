@@ -37,6 +37,23 @@ pub struct CreateProvisioningPodInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct DiscoverProvisioningPodsInput {
+    pub gpu_cloud_provider_id: GpuCloudProviderId,
+    pub workspace_id: String,
+    pub datacenter_id: String,
+    pub selected_gpu_id: String,
+    pub network_volume_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObserveProvisioningPodInput {
+    pub gpu_cloud_provider_id: GpuCloudProviderId,
+    pub provider_resource_id: String,
+    pub datacenter_id: String,
+    pub selected_gpu_id: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct ProvisioningPodObservation {
     pub provider_resource_id: String,
     pub datacenter_id: String,

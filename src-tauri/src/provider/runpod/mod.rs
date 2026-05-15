@@ -23,7 +23,8 @@ pub use contracts::{
 
 use mapper::{
     endpoint_from_response, identity_from_graphql_response, inventory_from_graphql_response,
-    network_volume_from_response, pod_from_response, template_from_response,
+    network_volume_from_response, pod_from_response_with_context, template_from_response,
+    RunPodPodResponseContext,
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
@@ -224,15 +225,46 @@ impl RunPodClient {
             .send()
             .await
             .map_err(|_| ProviderClientError::Indeterminate)?;
+        let context = RunPodPodResponseContext {
+            data_center_id: request
+                .data_center_ids
+                .first()
+                .cloned()
+                .ok_or(ProviderClientError::ResponseInvalid)?,
+            selected_gpu_id: request
+                .gpu_type_ids
+                .first()
+                .cloned()
+                .ok_or(ProviderClientError::ResponseInvalid)?,
+        };
         parse_rest_response::<RunPodPodResponse>(response)
             .await
-            .and_then(pod_from_response)
+            .and_then(|payload| pod_from_response_with_context(payload, Some(context)))
     }
 
-    pub async fn get_pod(
+    pub async fn get_pod_with_context(
         &self,
         api_key: &ProviderApiKey,
         pod_id: &str,
+        data_center_id: &str,
+        selected_gpu_id: &str,
+    ) -> Result<RunPodPodObservation, ProviderClientError> {
+        self.get_pod_mapped(
+            api_key,
+            pod_id,
+            Some(RunPodPodResponseContext {
+                data_center_id: data_center_id.to_string(),
+                selected_gpu_id: selected_gpu_id.to_string(),
+            }),
+        )
+        .await
+    }
+
+    async fn get_pod_mapped(
+        &self,
+        api_key: &ProviderApiKey,
+        pod_id: &str,
+        context: Option<RunPodPodResponseContext>,
     ) -> Result<RunPodPodObservation, ProviderClientError> {
         let response = self
             .http
@@ -243,7 +275,30 @@ impl RunPodClient {
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         parse_rest_response::<RunPodPodResponse>(response)
             .await
-            .and_then(pod_from_response)
+            .and_then(|payload| pod_from_response_with_context(payload, context))
+    }
+
+    pub async fn find_pods_by_name_and_volume(
+        &self,
+        api_key: &ProviderApiKey,
+        name: &str,
+        network_volume_id: &str,
+        data_center_id: &str,
+        selected_gpu_id: &str,
+    ) -> Result<Vec<RunPodPodObservation>, ProviderClientError> {
+        let context = RunPodPodResponseContext {
+            data_center_id: data_center_id.to_string(),
+            selected_gpu_id: selected_gpu_id.to_string(),
+        };
+        let response = self
+            .http
+            .get(format!("{}/pods", self.rest_endpoint))
+            .bearer_auth(api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|_| ProviderClientError::ApiUnavailable)?;
+        let payloads = parse_rest_response::<Vec<RunPodPodResponse>>(response).await?;
+        pods_by_name_and_volume(payloads, name, network_volume_id, context)
     }
 
     pub async fn delete_pod(
@@ -360,6 +415,36 @@ impl RunPodClient {
         }
         provider_error_from_rest_status(response.status()).map_or(Ok(()), Err)
     }
+}
+
+fn pods_by_name_and_volume(
+    payloads: Vec<RunPodPodResponse>,
+    name: &str,
+    network_volume_id: &str,
+    context: RunPodPodResponseContext,
+) -> Result<Vec<RunPodPodObservation>, ProviderClientError> {
+    payloads
+        .into_iter()
+        .filter(|payload| {
+            payload.name.as_deref() == Some(name)
+                && payload.network_volume_id.as_deref() == Some(network_volume_id)
+        })
+        .filter(|payload| !pod_response_is_deleted(payload))
+        .map(|payload| pod_from_response_with_context(payload, Some(context.clone())))
+        .collect()
+}
+
+fn pod_response_is_deleted(payload: &RunPodPodResponse) -> bool {
+    matches!(
+        payload
+            .pod_status
+            .as_deref()
+            .or(payload.desired_status.as_deref())
+            .unwrap_or_default()
+            .to_ascii_uppercase()
+            .as_str(),
+        "EXITED" | "STOPPED" | "TERMINATED" | "DELETED"
+    )
 }
 
 pub(super) fn provider_error_from_inventory_status(

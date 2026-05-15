@@ -11,8 +11,9 @@ use crate::{
 use super::{
     contracts::{
         CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, EndpointTemplateObservation, NetworkVolumeObservation,
-        ProvisioningPodObservation, ServerlessEndpointObservation,
+        CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, EndpointTemplateObservation,
+        NetworkVolumeObservation, ObserveProvisioningPodInput, ProvisioningPodObservation,
+        ServerlessEndpointObservation,
     },
     WorkspaceProvisioningError,
 };
@@ -58,10 +59,20 @@ pub trait ProviderProvisioningGateway: Send + Sync {
         >,
     >;
 
+    fn discover_provisioning_pods<'a>(
+        &'a self,
+        input: DiscoverProvisioningPodsInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    >;
+
     fn get_provisioning_pod<'a>(
         &'a self,
-        provider_id: GpuCloudProviderId,
-        pod_id: &'a str,
+        input: ObserveProvisioningPodInput,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>

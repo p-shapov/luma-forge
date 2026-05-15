@@ -17,9 +17,9 @@ use crate::{
     secrets::{KeyringSecretStore, SecretStore},
     workspace_provisioning::{
         CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, EndpointTemplateObservation, NetworkVolumeObservation,
-        ProviderProvisioningGateway, ProvisioningPodObservation, ServerlessEndpointObservation,
-        WorkspaceProvisioningError,
+        CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, EndpointTemplateObservation,
+        NetworkVolumeObservation, ObserveProvisioningPodInput, ProviderProvisioningGateway,
+        ProvisioningPodObservation, ServerlessEndpointObservation, WorkspaceProvisioningError,
     },
     workspace_setup::{
         contracts::ProviderPlacementOptions, error::WorkspaceSetupError,
@@ -214,8 +214,7 @@ where
 
     fn get_provisioning_pod<'a>(
         &'a self,
-        provider_id: GpuCloudProviderId,
-        pod_id: &'a str,
+        input: ObserveProvisioningPodInput,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>
@@ -224,13 +223,52 @@ where
         >,
     > {
         Box::pin(async move {
-            let api_key = self.provisioning_api_key(&provider_id)?;
-            match provider_id {
+            let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+            match input.gpu_cloud_provider_id {
                 GpuCloudProviderId::Runpod => self
                     .runpod
-                    .get_pod(&api_key, pod_id)
+                    .get_pod_with_context(
+                        &api_key,
+                        &input.provider_resource_id,
+                        &input.datacenter_id,
+                        &input.selected_gpu_id,
+                    )
                     .await
                     .map(runpod_pod_observation)
+                    .map_err(provisioning_error_from_client_error),
+            }
+        })
+    }
+
+    fn discover_provisioning_pods<'a>(
+        &'a self,
+        input: DiscoverProvisioningPodsInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+            match input.gpu_cloud_provider_id {
+                GpuCloudProviderId::Runpod => self
+                    .runpod
+                    .find_pods_by_name_and_volume(
+                        &api_key,
+                        &provider_resource_name(&input.workspace_id, "provisioner"),
+                        &input.network_volume_id,
+                        &input.datacenter_id,
+                        &input.selected_gpu_id,
+                    )
+                    .await
+                    .map(|observations| {
+                        observations
+                            .into_iter()
+                            .map(runpod_pod_observation)
+                            .collect()
+                    })
                     .map_err(provisioning_error_from_client_error),
             }
         })

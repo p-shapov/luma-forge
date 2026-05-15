@@ -166,6 +166,7 @@ struct FakeProvider {
     create_volume_count: Arc<AtomicUsize>,
     get_volume_count: Arc<AtomicUsize>,
     delete_volume_count: Arc<AtomicUsize>,
+    discover_pods_count: Arc<AtomicUsize>,
     create_pod_count: Arc<AtomicUsize>,
     get_pod_count: Arc<AtomicUsize>,
     delete_pod_count: Arc<AtomicUsize>,
@@ -176,7 +177,9 @@ struct FakeProvider {
     get_endpoint_count: Arc<AtomicUsize>,
     delete_endpoint_count: Arc<AtomicUsize>,
     create_volume_error: Option<WorkspaceProvisioningError>,
+    discovered_pods: Vec<ProvisioningPodObservation>,
     get_volume_status: Option<ProviderResourceStatus>,
+    get_pod_status_url: Option<Option<String>>,
     get_template_status: Option<ProviderResourceStatus>,
     get_endpoint_status: Option<ProviderResourceStatus>,
     delete_endpoint_error: Option<WorkspaceProvisioningError>,
@@ -272,10 +275,25 @@ impl ProviderProvisioningGateway for FakeProvider {
         })
     }
 
+    fn discover_provisioning_pods<'a>(
+        &'a self,
+        _input: DiscoverProvisioningPodsInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.discover_pods_count.fetch_add(1, Ordering::SeqCst);
+            Ok(self.discovered_pods.clone())
+        })
+    }
+
     fn get_provisioning_pod<'a>(
         &'a self,
-        _provider_id: GpuCloudProviderId,
-        pod_id: &'a str,
+        input: ObserveProvisioningPodInput,
     ) -> Pin<
         Box<
             dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>
@@ -286,11 +304,14 @@ impl ProviderProvisioningGateway for FakeProvider {
         Box::pin(async move {
             self.get_pod_count.fetch_add(1, Ordering::SeqCst);
             Ok(ProvisioningPodObservation {
-                provider_resource_id: pod_id.to_string(),
-                datacenter_id: "EU-RO-1".to_string(),
-                selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+                provider_resource_id: input.provider_resource_id,
+                datacenter_id: input.datacenter_id,
+                selected_gpu_id: input.selected_gpu_id,
                 provider_resource_status: ProviderResourceStatus::Running,
-                provisioner_status_url: Some("http://203.0.113.10:30001/status".to_string()),
+                provisioner_status_url: self
+                    .get_pod_status_url
+                    .clone()
+                    .unwrap_or_else(|| Some("http://203.0.113.10:30001/status".to_string())),
             })
         })
     }
@@ -757,6 +778,71 @@ async fn sync_creates_provisioning_pod_and_stores_worker_token() {
     assert!(result.workspace.active_provisioning_pod_snapshot.is_some());
     assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 1);
     assert_eq!(worker_tokens.lock().expect("tokens").len(), 1);
+
+    service.sync(&workspace.id).await.expect("second sync");
+    assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn sync_adopts_single_discovered_provisioning_pod_before_create() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_pods: vec![discovered_pod("pod-existing")],
+        ..Default::default()
+    };
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    let active_pod = result
+        .workspace
+        .active_provisioning_pod_snapshot
+        .expect("active pod should be adopted");
+    assert_eq!(active_pod.provider_resource_id, "pod-existing");
+    assert_eq!(provider.discover_pods_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_fails_closed_when_multiple_discovered_provisioning_pods_exist() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_pods: vec![discovered_pod("pod-1"), discovered_pod("pod-2")],
+        ..Default::default()
+    };
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Failed
+    );
+    assert!(result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_some());
+    assert!(result.workspace.active_provisioning_pod_snapshot.is_none());
+    let failure = result
+        .workspace
+        .last_provisioning_failure
+        .expect("failure should be persisted");
+    assert_eq!(
+        failure.code,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate
+    );
+    assert_eq!(
+        failure.phase,
+        WorkspaceProvisioningPhase::StartingProvisioningPod
+    );
+    assert_eq!(provider.discover_pods_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -811,6 +897,38 @@ async fn sync_starts_idle_worker_and_returns_worker_progress() {
     );
     assert_eq!(result.progress.percent, Some(25));
     assert!(result.workspace.environment_prepared_at.is_none());
+}
+
+#[tokio::test]
+async fn sync_preserves_existing_provisioner_status_url_when_provider_omits_it() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    let mut active_pod = active_pod();
+    active_pod.provider_resource_status = ProviderResourceStatus::Creating;
+    workspace.active_provisioning_pod_snapshot = Some(active_pod.clone());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        get_pod_status_url: Some(None),
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider,
+        FakeWorker::idle(),
+        worker_token_map(&workspace.id),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result
+            .workspace
+            .active_provisioning_pod_snapshot
+            .expect("active pod")
+            .provisioner_status_url,
+        active_pod.provisioner_status_url
+    );
 }
 
 #[tokio::test]
@@ -1236,6 +1354,18 @@ fn active_pod() -> ProvisioningPodSnapshot {
         provider_resource_status: ProviderResourceStatus::Running,
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         provisioner_status_url: "http://203.0.113.10:30001/status".to_string(),
+    }
+}
+
+fn discovered_pod(provider_resource_id: &str) -> ProvisioningPodObservation {
+    ProvisioningPodObservation {
+        provider_resource_id: provider_resource_id.to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        provider_resource_status: ProviderResourceStatus::Running,
+        provisioner_status_url: Some(format!(
+            "https://{provider_resource_id}-8080.proxy.runpod.net/status"
+        )),
     }
 }
 

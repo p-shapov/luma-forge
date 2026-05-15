@@ -15,7 +15,8 @@ use crate::{
 use super::{
     contracts::{
         CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, WorkspaceProvisioningResult,
+        CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, ObserveProvisioningPodInput,
+        WorkspaceProvisioningResult,
     },
     coordinator::WorkspaceProvisioningCoordinator,
     failure,
@@ -242,11 +243,42 @@ where
                 .persistent_storage_volume_snapshot
                 .as_ref()
                 .expect("volume checked above");
+            let network_volume_id = volume.provider_resource_id.clone();
             let PlacementPlan::Runpod {
                 selected_datacenter_id,
                 selected_gpu_id,
                 ..
             } = &workspace.placement_plan;
+            let discovered_pods = self
+                .providers
+                .discover_provisioning_pods(DiscoverProvisioningPodsInput {
+                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
+                    workspace_id: workspace.id.clone(),
+                    datacenter_id: selected_datacenter_id.clone(),
+                    selected_gpu_id: selected_gpu_id.clone(),
+                    network_volume_id: network_volume_id.clone(),
+                })
+                .await?;
+            match discovered_pods.as_slice() {
+                [] => {}
+                [observation] => {
+                    workspace.active_provisioning_pod_snapshot = Some(
+                        created_provisioning_pod_snapshot(workspace, observation.clone())?,
+                    );
+                    let workspace = self.update_workspace(workspace).await?;
+                    return Ok(Some(result(workspace)));
+                }
+                _ => {
+                    failure::fail_workspace(
+                        workspace,
+                        failure::indeterminate_provider_operation(
+                            WorkspaceProvisioningPhase::StartingProvisioningPod,
+                        ),
+                    );
+                    let workspace = self.update_workspace(workspace).await?;
+                    return Ok(Some(result(workspace)));
+                }
+            }
             let token = ProvisionerWorkerBearerToken::new(uuid::Uuid::new_v4().to_string())
                 .map_err(|_| WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid)?;
             self.secrets
@@ -261,7 +293,7 @@ where
                     provisioner_worker_port: self.config.provisioner_worker_port,
                     datacenter_id: selected_datacenter_id.clone(),
                     selected_gpu_id: selected_gpu_id.clone(),
-                    network_volume_id: volume.provider_resource_id.clone(),
+                    network_volume_id,
                     mount_path: self.config.volume_mount_path.clone(),
                     bearer_token: token,
                 })
@@ -282,10 +314,12 @@ where
 
         let observation = self
             .providers
-            .get_provisioning_pod(
-                workspace.gpu_cloud_provider_id,
-                &active_pod.provider_resource_id,
-            )
+            .get_provisioning_pod(ObserveProvisioningPodInput {
+                gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
+                provider_resource_id: active_pod.provider_resource_id.clone(),
+                datacenter_id: active_pod.datacenter_id.clone(),
+                selected_gpu_id: active_pod.selected_gpu_id.clone(),
+            })
             .await?;
         let observed_pod = observed_provisioning_pod_snapshot(workspace, &active_pod, observation);
         if is_terminal_provider_resource_status(&observed_pod.provider_resource_status) {
