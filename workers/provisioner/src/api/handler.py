@@ -43,6 +43,12 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        if code == 501:
+            self._handle_unsupported_method()
+            return
+        super().send_error(code, message, explain)
+
     def _handle_request(
         self,
         routes: dict[str, Callable[[Any], dict[str, Any]]],
@@ -52,15 +58,22 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
     ) -> None:
         try:
             self._authorize()
-            payload = self._read_json() if read_json else None
             handler = routes.get(self.path)
             if handler is None:
                 raise NotFoundError("Endpoint not found")
+            payload = self._read_json() if read_json else None
             self._json(success_status, handler(payload))
         except WorkerError as error:
             self._worker_error(error)
         except json.JSONDecodeError:
             self._worker_error(InvalidJsonError("Request body must be valid JSON."))
+
+    def _handle_unsupported_method(self) -> None:
+        try:
+            self._authorize()
+            raise NotFoundError("Endpoint not found")
+        except WorkerError as error:
+            self._worker_error(error)
 
     def _handle_status(self, payload: Any) -> dict[str, Any]:
         return self._manager().status().to_dict()

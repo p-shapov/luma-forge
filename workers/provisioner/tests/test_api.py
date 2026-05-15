@@ -1,3 +1,5 @@
+from contextlib import redirect_stderr
+from io import StringIO
 import tempfile
 import time
 import unittest
@@ -115,6 +117,34 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["error"]["reason_code"], "git_checkout_failed")
         self.assertEqual(payload["error"]["message"], "Git checkout failed.")
 
+    def test_unexpected_job_error_is_sanitized(self):
+        secret = "secret-token-0123456789abcdef"
+
+        class UnexpectedProvisioner(ImmediateProvisioner):
+            def prepare(self, request, progress, cancel_event):
+                raise RuntimeError(f"unexpected failure {secret}")
+
+        stderr = StringIO()
+        with redirect_stderr(stderr):
+            with tempfile.TemporaryDirectory() as directory, ServerFixture(
+                UnexpectedProvisioner(),
+                workspace_mount_path=Path(directory),
+            ) as server:
+                server.request("POST", "/start", start_payload())
+                for _ in range(50):
+                    _, payload = server.request("GET", "/status")
+                    if payload["status"] == "failed":
+                        break
+                    time.sleep(0.02)
+
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["diagnostic_message"], "Provisioning job failed")
+        self.assertEqual(payload["error"]["code"], "unexpected_error")
+        self.assertEqual(payload["error"]["reason_code"], "unexpected_exception")
+        self.assertNotIn(secret, str(payload))
+        self.assertNotIn(secret, stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
     def test_authorized_request_is_accepted(self):
         config = test_config(bearer_token="authorized-token-0123456789abcdef")
         with ServerFixture(ImmediateProvisioner(), config=config) as server:
@@ -181,6 +211,80 @@ class ApiTests(unittest.TestCase):
     def test_unknown_endpoint_includes_reason_code(self):
         with ServerFixture(ImmediateProvisioner()) as server:
             status, payload = server.request("GET", "/unknown")
+
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["code"], "not_found")
+        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+
+    def test_unknown_post_endpoint_does_not_parse_malformed_json(self):
+        with ServerFixture(ImmediateProvisioner()) as server:
+            status, payload = server.raw_request(
+                b"POST /unknown HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Authorization: Bearer test-token-0123456789abcdef012345\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 1\r\n"
+                b"\r\n"
+                b"{",
+            )
+
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["code"], "not_found")
+        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+
+    def test_unknown_post_endpoint_does_not_enforce_body_size(self):
+        with ServerFixture(
+            ImmediateProvisioner(),
+            config=test_config(max_request_bytes=2),
+        ) as server:
+            status, payload = server.raw_request(
+                b"POST /unknown HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Authorization: Bearer test-token-0123456789abcdef012345\r\n"
+                b"Content-Type: application/json\r\n"
+                b"Content-Length: 3\r\n"
+                b"\r\n"
+                b"xxx",
+            )
+
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["code"], "not_found")
+        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+
+    def test_unsupported_method_requires_authorization(self):
+        with ServerFixture(ImmediateProvisioner()) as server:
+            status, payload = server.raw_request(
+                b"PUT /status HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"\r\n",
+            )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["code"], "unauthorized")
+        self.assertEqual(payload["reason_code"], "invalid_authorization")
+
+    def test_unsupported_method_rejects_invalid_authorization(self):
+        with ServerFixture(ImmediateProvisioner()) as server:
+            status, payload = server.raw_request(
+                b"PUT /status HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Authorization: Bearer wrong\r\n"
+                b"\r\n",
+            )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["code"], "unauthorized")
+        self.assertEqual(payload["reason_code"], "invalid_authorization")
+        self.assertNotIn("wrong", str(payload))
+
+    def test_unsupported_method_returns_json_not_found_when_authorized(self):
+        with ServerFixture(ImmediateProvisioner()) as server:
+            status, payload = server.raw_request(
+                b"PUT /status HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Authorization: Bearer test-token-0123456789abcdef012345\r\n"
+                b"\r\n",
+            )
 
         self.assertEqual(status, 404)
         self.assertEqual(payload["code"], "not_found")

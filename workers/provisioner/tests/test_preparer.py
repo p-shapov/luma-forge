@@ -91,6 +91,43 @@ class PreparerTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             parse_start_request(payload)
 
+    def test_rejects_unsafe_preset_identifiers_without_echoing_values(self):
+        unsafe_values = [
+            "../unsafe-token",
+            " unsafe-token",
+            "bad id",
+            "bad/id",
+            "bad<id>",
+            "badé",
+            "a" * 129,
+        ]
+
+        for unsafe_value in unsafe_values:
+            cases = [
+                ("workflow_preset.id", lambda payload: payload["workflow_preset"].update({"id": unsafe_value})),
+                (
+                    "custom_node.id",
+                    lambda payload: payload["workflow_preset"].update(
+                        {"required_custom_nodes": [custom_node(id=unsafe_value)]}
+                    ),
+                ),
+                (
+                    "model_asset.id",
+                    lambda payload: payload["workflow_preset"].update(
+                        {"required_model_assets": [model_asset(id=unsafe_value)]}
+                    ),
+                ),
+            ]
+            for field, mutate in cases:
+                with self.subTest(field=field, unsafe_value=unsafe_value):
+                    payload = start_payload()
+                    mutate(payload)
+
+                    with self.assertRaises(ValidationError) as context:
+                        parse_start_request(payload)
+
+                    self.assertNotIn(unsafe_value, str(context.exception))
+
     def test_rejects_unsafe_huggingface_file_path(self):
         for file_path in ["/tmp/model.safetensors", "../model.safetensors", "models/../model.safetensors"]:
             with self.subTest(file_path=file_path):
@@ -176,11 +213,11 @@ class PreparerTests(unittest.TestCase):
                 runner.calls,
             )
 
-    def test_sanitizes_custom_node_install_report_filename(self):
+    def test_uses_safe_custom_node_id_in_install_report_filename(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = start_payload()
             payload["workflow_preset"]["required_custom_nodes"] = [
-                custom_node(id="../unsafe/node", python_requirements_path="requirements.txt"),
+                custom_node(id="safe.node_1", python_requirements_path="requirements.txt"),
             ]
             request = parse_start_request(payload)
             runner = FakeCommandRunner()
@@ -202,7 +239,34 @@ class PreparerTests(unittest.TestCase):
             ]
             self.assertEqual(len(report_paths), 1)
             self.assertEqual(report_paths[0].parent, (Path(directory) / ".luma-forge").resolve(strict=False))
-            self.assertTrue(report_paths[0].name.startswith("custom-node-..-unsafe-node-"))
+            self.assertEqual(report_paths[0].name, "custom-node-safe.node_1-install-report.json")
+
+    def test_progress_messages_include_custom_node_id_and_model_asset_name(self):
+        secret = "Bearer secret-token with misleading text"
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(id="safe-node", name=secret),
+            ]
+            payload["workflow_preset"]["required_model_assets"] = [
+                model_asset(id="safe-asset", name="Inspectable Model"),
+            ]
+            request = parse_start_request(payload)
+            messages = []
+
+            Provisioner(
+                command_runner=FakeCommandRunner(),
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
+                request,
+                lambda phase, progress, message: messages.append(message),
+                Event(),
+            )
+
+            self.assertIn("Installing Custom Node safe-node", messages)
+            self.assertIn("Downloading model asset Inspectable Model", messages)
+            self.assertNotIn(secret, str(messages))
 
     def test_bounds_custom_node_and_asset_progress(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -323,7 +387,7 @@ class PreparerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())
 
-            with self.assertRaises(PreparationError):
+            with self.assertRaises(PreparationError) as context:
                 Provisioner(
                     command_runner=FakeCommandRunner(),
                     downloader=MissingFileDownloader(),
@@ -335,10 +399,35 @@ class PreparerTests(unittest.TestCase):
                 )
 
             self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+            self.assertEqual(str(context.exception), "Model asset is missing: model")
+
+    def test_validation_failure_includes_validated_id_but_not_preset_asset_name(self):
+        secret = "Bearer secret-token"
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_model_assets"] = [
+                model_asset(id="safe-asset", name=secret),
+            ]
+            request = parse_start_request(payload)
+
+            with self.assertRaises(PreparationError) as context:
+                Provisioner(
+                    command_runner=FakeCommandRunner(),
+                    downloader=MissingFileDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertEqual(str(context.exception), "Model asset is missing: safe-asset")
+            self.assertNotIn(secret, str(context.exception))
 
 def custom_node(
     *,
     id="example-node",
+    name="Example Node",
     comfyui_custom_nodes_relative_path="custom_nodes/example-node",
     python_requirements_path=None,
 ):
@@ -350,7 +439,7 @@ def custom_node(
 
     return {
         "id": id,
-        "name": "Example Node",
+        "name": name,
         "git_source": {
             "source_type": "git",
             "repository_url": "https://example.test/node.git",
@@ -363,11 +452,12 @@ def custom_node(
 def model_asset(
     *,
     id="model",
+    name="Model",
     comfyui_relative_path="models/checkpoints/model.safetensors",
 ):
     return {
         "id": id,
-        "name": "Model",
+        "name": name,
         "model_asset_kind": "checkpoint",
         "download_source": {
             "source_type": "huggingface",

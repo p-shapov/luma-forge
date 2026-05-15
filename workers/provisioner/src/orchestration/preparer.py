@@ -112,7 +112,7 @@ class Provisioner:
             progress(
                 "installing_custom_nodes",
                 _phase_progress(30, 55, index, total_nodes),
-                f"Installing Custom Node {node.name}",
+                f"Installing Custom Node {node.id}",
             )
             target = safe_custom_node_child_path(
                 comfyui_root,

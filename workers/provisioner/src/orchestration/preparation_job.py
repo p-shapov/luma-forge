@@ -112,7 +112,7 @@ class JobManager:
             self._terminal("cancelled", "Provisioning job cancelled", None)
         except WorkerError as error:
             self._terminal("failed", error.message, error.to_dict())
-        except Exception as error:
+        except Exception:
             message = "Provisioning job failed"
             self._terminal(
                 "failed",
@@ -123,7 +123,6 @@ class JobManager:
                     "message": message,
                 },
             )
-            raise error
         else:
             if cancel_event.is_set():
                 self._terminal("cancelled", "Provisioning job cancelled", None)

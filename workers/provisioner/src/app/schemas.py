@@ -6,6 +6,10 @@ from typing import Any
 from app.errors import ValidationError
 from auxiliary.paths import safe_custom_node_relative_path, safe_relative_path
 
+MAX_IDENTIFIER_LENGTH = 128
+MAX_DISPLAY_NAME_LENGTH = 256
+SAFE_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9._-]+")
+
 
 @dataclass(frozen=True)
 class GitSource:
@@ -86,9 +90,9 @@ def parse_cancel_request(payload: Any) -> CancelRequest:
 def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
     data = _object(payload, "workflow_preset")
     return WorkflowPreset(
-        id=_non_empty_string(data.get("id"), "workflow_preset.id"),
+        id=_safe_identifier(data.get("id"), "workflow_preset.id"),
         version=_non_empty_string(data.get("version"), "workflow_preset.version"),
-        name=_non_empty_string(data.get("name"), "workflow_preset.name"),
+        name=_display_name(data.get("name"), "workflow_preset.name"),
         required_comfyui_source=_parse_git_source(
             data.get("required_comfyui_source"),
             "workflow_preset.required_comfyui_source",
@@ -134,8 +138,8 @@ def _parse_model_asset(payload: Any, field: str) -> ModelAsset:
     data = _object(payload, field)
     install = _object(data.get("install"), f"{field}.install")
     return ModelAsset(
-        id=_non_empty_string(data.get("id"), f"{field}.id"),
-        name=_non_empty_string(data.get("name"), f"{field}.name"),
+        id=_safe_identifier(data.get("id"), f"{field}.id"),
+        name=_display_name(data.get("name"), f"{field}.name"),
         download_source=_parse_huggingface_source(data.get("download_source"), f"{field}.download_source"),
         install=ModelAssetInstall(
             comfyui_relative_path=safe_relative_path(
@@ -151,8 +155,8 @@ def _parse_custom_node(payload: Any, field: str) -> CustomNode:
     install = _object(data.get("install"), f"{field}.install")
     requirements = install.get("python_requirements_path")
     return CustomNode(
-        id=_non_empty_string(data.get("id"), f"{field}.id"),
-        name=_non_empty_string(data.get("name"), f"{field}.name"),
+        id=_safe_identifier(data.get("id"), f"{field}.id"),
+        name=_display_name(data.get("name"), f"{field}.name"),
         git_source=_parse_git_source(data.get("git_source"), f"{field}.git_source"),
         install=CustomNodeInstall(
             comfyui_custom_nodes_relative_path=safe_custom_node_relative_path(
@@ -185,6 +189,22 @@ def _non_empty_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or value.strip() == "":
         raise ValidationError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _safe_identifier(value: Any, field: str) -> str:
+    if not isinstance(value, str) or value == "":
+        raise ValidationError(f"{field} must be a non-empty string")
+    identifier = value
+    if len(identifier) > MAX_IDENTIFIER_LENGTH or SAFE_IDENTIFIER_PATTERN.fullmatch(identifier) is None:
+        raise ValidationError(f"{field} must be a safe identifier")
+    return identifier
+
+
+def _display_name(value: Any, field: str) -> str:
+    name = _non_empty_string(value, field)
+    if len(name) > MAX_DISPLAY_NAME_LENGTH or any(ord(character) < 32 or ord(character) == 127 for character in name):
+        raise ValidationError(f"{field} must be a safe display name")
+    return name
 
 
 def _is_immutable_git_revision(value: str) -> bool:
