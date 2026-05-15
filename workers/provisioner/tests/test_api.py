@@ -21,7 +21,7 @@ class ApiTests(unittest.TestCase):
             ImmediateProvisioner(),
             workspace_mount_path=Path(directory),
         ) as server:
-            status, payload = server.request("POST", "/start", start_payload(Path(directory)))
+            status, payload = server.request("POST", "/start", start_payload())
 
         self.assertEqual(status, 202)
         self.assertEqual(payload["status"], "running")
@@ -41,9 +41,9 @@ class ApiTests(unittest.TestCase):
             provisioner,
             workspace_mount_path=Path(directory),
         ) as server:
-            first_status, _ = server.request("POST", "/start", start_payload(Path(directory)))
+            first_status, _ = server.request("POST", "/start", start_payload())
             self.assertTrue(provisioner.started.wait(2))
-            second_status, payload = server.request("POST", "/start", start_payload(Path(directory), job_id="job-2"))
+            second_status, payload = server.request("POST", "/start", start_payload(job_id="job-2"))
             provisioner.release.set()
 
         self.assertEqual(first_status, 202)
@@ -58,7 +58,7 @@ class ApiTests(unittest.TestCase):
             provisioner,
             workspace_mount_path=Path(directory),
         ) as server:
-            server.request("POST", "/start", start_payload(Path(directory)))
+            server.request("POST", "/start", start_payload())
             self.assertTrue(provisioner.started.wait(2))
             status, payload = server.request("POST", "/cancel", {"job_id": "job-1"})
             for _ in range(50):
@@ -84,7 +84,7 @@ class ApiTests(unittest.TestCase):
             ImmediateProvisioner(),
             workspace_mount_path=Path(directory),
         ) as server:
-            server.request("POST", "/start", start_payload(Path(directory)))
+            server.request("POST", "/start", start_payload())
             for _ in range(50):
                 _, payload = server.request("GET", "/status")
                 if payload["status"] == "succeeded":
@@ -93,18 +93,6 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "succeeded")
         self.assertEqual(payload["progress_percent"], 100)
-
-    def test_start_rejects_unconfigured_workspace_mount_path(self):
-        with tempfile.TemporaryDirectory() as allowed, tempfile.TemporaryDirectory() as other, ServerFixture(
-            ImmediateProvisioner(),
-            workspace_mount_path=Path(allowed),
-        ) as server:
-            status, payload = server.request("POST", "/start", start_payload(Path(other)))
-
-        self.assertEqual(status, 400)
-        self.assertEqual(payload["code"], "invalid_request")
-        self.assertEqual(payload["reason_code"], "workspace_mount_path_mismatch")
-        self.assertEqual(payload["context"], {"field": "workspace_mount_path"})
 
     def test_failed_job_reports_specific_error_code(self):
         class FailingProvisioner(ImmediateProvisioner):
@@ -115,7 +103,7 @@ class ApiTests(unittest.TestCase):
             FailingProvisioner(),
             workspace_mount_path=Path(directory),
         ) as server:
-            server.request("POST", "/start", start_payload(Path(directory)))
+            server.request("POST", "/start", start_payload())
             for _ in range(50):
                 _, payload = server.request("GET", "/status")
                 if payload["status"] == "failed":

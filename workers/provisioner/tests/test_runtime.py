@@ -27,7 +27,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_manifest_round_trips_without_secret_fields(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
             paths = runtime_paths(Path(directory))
             manifest = build_manifest(
                 request=request,
@@ -56,7 +56,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_validate_manifest_rejects_wrong_environment_kind(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
             paths = runtime_paths(Path(directory))
             manifest = build_manifest(
                 request=request,

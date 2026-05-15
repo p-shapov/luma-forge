@@ -191,7 +191,7 @@ class Provisioner:
         self.config = config
 
     def prepare(self, request: StartRequest, progress: ProgressCallback, cancel_event: Event) -> None:
-        workspace_root = request.workspace_mount_path.resolve(strict=False)
+        workspace_root = self.config.workspace_mount_path.resolve(strict=False)
         workspace_root.mkdir(parents=True, exist_ok=True)
         paths = runtime_paths(workspace_root)
         comfyui_root = paths.comfyui_root

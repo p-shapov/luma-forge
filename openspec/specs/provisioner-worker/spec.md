@@ -26,9 +26,9 @@ The Provisioner Worker SHALL start one provisioning job only after `POST /start`
 
 #### Scenario: Start request is accepted
 
-- **WHEN** `POST /start` receives a valid job identifier, selected Workflow Preset, and mounted workspace path while the worker is idle
+- **WHEN** `POST /start` receives a valid job identifier and selected Workflow Preset while the worker is idle
 - **THEN** the Provisioner Worker SHALL create one active provisioning job
-- **AND** the Provisioner Worker SHALL begin preparing the mounted workspace volume
+- **AND** the Provisioner Worker SHALL begin preparing the configured mounted workspace volume
 - **AND** `GET /status` SHALL report `running` with the active job identifier
 
 #### Scenario: Start request is invalid
@@ -385,4 +385,3 @@ The Provisioner Worker SHALL validate its runtime environment before starting th
 - **AND** the diagnostic SHALL include the affected environment variable name and a stable reason code
 - **AND** the diagnostic MUST NOT include configured environment values or secrets
 - **AND** the process SHALL exit before binding the HTTP server
-

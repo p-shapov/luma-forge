@@ -46,10 +46,9 @@ def sample_preset() -> dict[str, Any]:
     }
 
 
-def start_payload(tmp_path: Path, *, job_id: str = "job-1", preset: dict[str, Any] | None = None) -> dict[str, Any]:
+def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "job_id": job_id,
-        "workspace_mount_path": str(tmp_path),
         "workflow_preset": preset or sample_preset(),
     }
 

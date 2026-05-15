@@ -60,7 +60,6 @@ class WorkflowPreset:
 @dataclass(frozen=True)
 class StartRequest:
     job_id: str
-    workspace_mount_path: Path
     workflow_preset: WorkflowPreset
 
 
@@ -72,11 +71,9 @@ class CancelRequest:
 def parse_start_request(payload: Any) -> StartRequest:
     data = _object(payload, "request")
     job_id = _non_empty_string(data.get("job_id"), "job_id")
-    workspace_mount_path = Path(_non_empty_string(data.get("workspace_mount_path"), "workspace_mount_path"))
     workflow_preset = _parse_workflow_preset(data.get("workflow_preset"))
     return StartRequest(
         job_id=job_id,
-        workspace_mount_path=workspace_mount_path,
         workflow_preset=workflow_preset,
     )
 

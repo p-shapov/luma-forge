@@ -87,13 +87,17 @@ class SlowHubDownload:
 class PreparerTests(unittest.TestCase):
     def test_prepares_environment_with_mocked_git_and_downloads(self):
         with tempfile.TemporaryDirectory() as directory:
-            payload = start_payload(Path(directory), preset=start_payload(Path(directory))["workflow_preset"])
+            payload = start_payload(preset=start_payload()["workflow_preset"])
             request = parse_start_request(payload)
             runner = FakeCommandRunner()
             downloader = FakeDownloader()
             phases = []
 
-            Provisioner(command_runner=runner, downloader=downloader, config=test_config()).prepare(
+            Provisioner(
+                command_runner=runner,
+                downloader=downloader,
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
                 request,
                 lambda phase, progress, message: phases.append(phase),
                 Event(),
@@ -108,7 +112,7 @@ class PreparerTests(unittest.TestCase):
             self.assertTrue((Path(directory) / ".luma-forge/pip-freeze.txt").is_file())
 
     def test_downloads_asset_with_huggingface_hub_client(self):
-        request = parse_start_request(start_payload(Path("/tmp/workspace")))
+        request = parse_start_request(start_payload())
         asset = request.workflow_preset.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
@@ -123,7 +127,7 @@ class PreparerTests(unittest.TestCase):
             self.assertTrue(target.is_file())
 
     def test_uses_hub_returned_target_for_cache_reuse(self):
-        request = parse_start_request(start_payload(Path("/tmp/workspace")))
+        request = parse_start_request(start_payload())
         asset = request.workflow_preset.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
@@ -146,7 +150,7 @@ class PreparerTests(unittest.TestCase):
             error.response = type("Response", (), {"status_code": 403})()
             raise error
 
-        request = parse_start_request(start_payload(Path("/tmp/workspace")))
+        request = parse_start_request(start_payload())
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(AssetAuthRequiredError):
                 PublicFileDownloader(fail_auth).download(
@@ -160,7 +164,7 @@ class PreparerTests(unittest.TestCase):
         def fail_download(**kwargs):
             raise RuntimeError("missing")
 
-        request = parse_start_request(start_payload(Path("/tmp/workspace")))
+        request = parse_start_request(start_payload())
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(AssetDownloadError):
                 PublicFileDownloader(fail_download).download(
@@ -171,7 +175,7 @@ class PreparerTests(unittest.TestCase):
                 )
 
     def test_download_timeout_terminates_hub_process(self):
-        request = parse_start_request(start_payload(Path("/tmp/workspace")))
+        request = parse_start_request(start_payload())
         asset = request.workflow_preset.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
@@ -188,7 +192,7 @@ class PreparerTests(unittest.TestCase):
             self.assertFalse(target.exists())
 
     def test_rejects_mutable_git_revision(self):
-        payload = start_payload(Path("/tmp/workspace"))
+        payload = start_payload()
         payload["workflow_preset"]["required_comfyui_source"]["revision"] = "main"
 
         with self.assertRaises(ValidationError):
@@ -197,14 +201,14 @@ class PreparerTests(unittest.TestCase):
     def test_rejects_unsafe_huggingface_file_path(self):
         for file_path in ["/tmp/model.safetensors", "../model.safetensors", "models/../model.safetensors"]:
             with self.subTest(file_path=file_path):
-                payload = start_payload(Path("/tmp/workspace"))
+                payload = start_payload()
                 payload["workflow_preset"]["required_model_assets"][0]["download_source"]["file_path"] = file_path
 
                 with self.assertRaises(ValidationError):
                     parse_start_request(payload)
 
     def test_accepts_custom_node_without_requirements_path(self):
-        payload = start_payload(Path("/tmp/workspace"))
+        payload = start_payload()
         payload["workflow_preset"]["required_custom_nodes"] = [custom_node()]
 
         request = parse_start_request(payload)
@@ -212,7 +216,7 @@ class PreparerTests(unittest.TestCase):
         self.assertIsNone(request.workflow_preset.required_custom_nodes[0].install.python_requirements_path)
 
     def test_rejects_blank_custom_node_requirements_path(self):
-        payload = start_payload(Path("/tmp/workspace"))
+        payload = start_payload()
         payload["workflow_preset"]["required_custom_nodes"] = [
             custom_node(python_requirements_path=""),
         ]
@@ -221,7 +225,7 @@ class PreparerTests(unittest.TestCase):
             parse_start_request(payload)
 
     def test_rejects_custom_node_checkout_outside_custom_nodes(self):
-        payload = start_payload(Path("/tmp/workspace"))
+        payload = start_payload()
         payload["workflow_preset"]["required_custom_nodes"] = [
             custom_node(comfyui_custom_nodes_relative_path="models/node"),
         ]
@@ -230,7 +234,7 @@ class PreparerTests(unittest.TestCase):
             parse_start_request(payload)
 
     def test_rejects_custom_node_requirements_path_escaping_checkout_root(self):
-        payload = start_payload(Path("/tmp/workspace"))
+        payload = start_payload()
         payload["workflow_preset"]["required_custom_nodes"] = [
             custom_node(python_requirements_path="../requirements.txt"),
         ]
@@ -240,14 +244,18 @@ class PreparerTests(unittest.TestCase):
 
     def test_prepares_custom_node_under_custom_nodes_with_requirements(self):
         with tempfile.TemporaryDirectory() as directory:
-            payload = start_payload(Path(directory))
+            payload = start_payload()
             payload["workflow_preset"]["required_custom_nodes"] = [
                 custom_node(python_requirements_path="requirements.txt"),
             ]
             request = parse_start_request(payload)
             runner = FakeCommandRunner()
 
-            Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
+            Provisioner(
+                command_runner=runner,
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
                 request,
                 lambda phase, progress, message: None,
                 Event(),
@@ -277,14 +285,18 @@ class PreparerTests(unittest.TestCase):
 
     def test_sanitizes_custom_node_install_report_filename(self):
         with tempfile.TemporaryDirectory() as directory:
-            payload = start_payload(Path(directory))
+            payload = start_payload()
             payload["workflow_preset"]["required_custom_nodes"] = [
                 custom_node(id="../unsafe/node", python_requirements_path="requirements.txt"),
             ]
             request = parse_start_request(payload)
             runner = FakeCommandRunner()
 
-            Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
+            Provisioner(
+                command_runner=runner,
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
                 request,
                 lambda phase, progress, message: None,
                 Event(),
@@ -301,10 +313,14 @@ class PreparerTests(unittest.TestCase):
 
     def test_installs_comfyui_requirements_through_volume_venv(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
             runner = FakeCommandRunner()
 
-            Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
+            Provisioner(
+                command_runner=runner,
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
                 request,
                 lambda phase, progress, message: None,
                 Event(),
@@ -341,7 +357,7 @@ class PreparerTests(unittest.TestCase):
 
     def test_fails_when_volume_venv_is_missing_during_validation(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
             runner = FakeCommandRunner()
 
             def skip_venv(args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
@@ -358,7 +374,11 @@ class PreparerTests(unittest.TestCase):
             runner.run = skip_venv
 
             with self.assertRaises(PreparationError):
-                Provisioner(command_runner=runner, downloader=FakeDownloader(), config=test_config()).prepare(
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
                     request,
                     lambda phase, progress, message: None,
                     Event(),
@@ -366,13 +386,13 @@ class PreparerTests(unittest.TestCase):
 
     def test_does_not_write_manifest_when_final_validation_fails(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
 
             with self.assertRaises(PreparationError):
                 Provisioner(
                     command_runner=FakeCommandRunner(),
                     downloader=MissingFileDownloader(),
-                    config=test_config(),
+                    config=test_config(workspace_mount_path=Path(directory)),
                 ).prepare(
                     request,
                     lambda phase, progress, message: None,

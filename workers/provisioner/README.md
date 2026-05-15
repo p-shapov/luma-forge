@@ -104,12 +104,11 @@ Authorization: Bearer <LUMA_FORGE_PROVISIONER_BEARER_TOKEN>
 ### `POST /start`
 
 Starts one provisioning job. A second start while a job is active returns `409`.
-`workspace_mount_path` must resolve exactly to the worker's configured mount path, set by `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defaulting to `/workspace`.
+The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defaults to `/workspace`.
 
 ```json
 {
   "job_id": "workspace-id",
-  "workspace_mount_path": "/workspace",
   "workflow_preset": {
     "id": "comfyui-t2i-basic",
     "version": "1.0.0",

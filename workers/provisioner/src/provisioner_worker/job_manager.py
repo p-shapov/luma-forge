@@ -50,7 +50,6 @@ class JobSnapshot:
 class JobManager:
     def __init__(self, provisioner: Provisioner | None = None, *, config: WorkerConfig):
         self._provisioner = provisioner or Provisioner(config=config)
-        self._workspace_mount_path = config.workspace_mount_path
         self._lock = Lock()
         self._cancel_event = Event()
         self._snapshot = JobSnapshot(
@@ -70,14 +69,6 @@ class JobManager:
             return _copy_snapshot(self._snapshot)
 
     def start(self, request: StartRequest) -> JobSnapshot:
-        requested_mount_path = request.workspace_mount_path.resolve(strict=False)
-        if requested_mount_path != self._workspace_mount_path:
-            raise ValidationError(
-                "workspace_mount_path must match the configured workspace mount path.",
-                reason_code="workspace_mount_path_mismatch",
-                context={"field": "workspace_mount_path"},
-            )
-
         with self._lock:
             if self._snapshot.status in ACTIVE_STATUSES:
                 raise ConflictError(
