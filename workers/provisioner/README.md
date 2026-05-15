@@ -6,10 +6,11 @@ Container-side worker that prepares a mounted ComfyUI workspace after the native
 
 ```bash
 cd workers/provisioner
-PYTHONPATH=src python -m provisioner_worker
+LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
+  PYTHONPATH=src python -m app
 ```
 
-The worker listens on `127.0.0.1:8000` by default and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
+The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
 
 During preparation, ComfyUI and Custom Node Python dependencies are installed into a virtual environment on the mounted workspace volume:
 
@@ -44,7 +45,11 @@ PYTHONPATH=src python -m compileall src tests
 ```bash
 cd workers/provisioner
 docker build -t luma-forge-provisioner:local -f ../Dockerfile --target provisioner ../..
-docker run --rm -p 8000:8000 -v "$PWD/tmp-workspace:/workspace" luma-forge-provisioner:local
+docker run --rm \
+  -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
+  -p 8000:8000 \
+  -v "$PWD/tmp-workspace:/workspace" \
+  luma-forge-provisioner:local
 ```
 
 Optional smoke check:
@@ -60,17 +65,50 @@ Provisioner and endpoint images are built from the shared provider-neutral Docke
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub Actions worker image deployment workflow, required registry configuration, produced tags, and rollback process.
 
+Remote provisioning must inject a unique per-pod bearer token through `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`, then send `Authorization: Bearer <token>` on every worker API request. The token must not be logged, persisted in workspace metadata, or returned in worker responses.
+
+## Runtime Environment
+
+The worker validates runtime environment before binding the HTTP server. Invalid configured values fail startup instead of falling back silently. Startup configuration failures write one JSON diagnostic to stderr, exit with code `78`, and do not start the HTTP API:
+
+```json
+{
+  "code": "configuration_error",
+  "env_name": "LUMA_FORGE_PROVISIONER_PORT",
+  "reason_code": "invalid_integer",
+  "message": "Invalid Provisioner Worker configuration for LUMA_FORGE_PROVISIONER_PORT: value must be an integer."
+}
+```
+
+The diagnostic never includes configured environment values or secrets.
+
+| Variable | Default | Validation |
+| --- | --- | --- |
+| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
+| `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
+| `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
+| `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` | `1048576` | Positive integer up to `104857600`. |
+| `LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
+| `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
+| `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`. |
+| `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
+
 ## API
+
+Every endpoint requires:
+
+```http
+Authorization: Bearer <LUMA_FORGE_PROVISIONER_BEARER_TOKEN>
+```
 
 ### `POST /start`
 
 Starts one provisioning job. A second start while a job is active returns `409`.
-`workspace_mount_path` must resolve exactly to the worker's configured mount path, set by `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defaulting to `/workspace`.
+The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defaults to `/workspace`.
 
 ```json
 {
   "job_id": "workspace-id",
-  "workspace_mount_path": "/workspace",
   "workflow_preset": {
     "id": "comfyui-t2i-basic",
     "version": "1.0.0",
@@ -88,6 +126,15 @@ Starts one provisioning job. A second start while a job is active returns `409`.
 }
 ```
 
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8000/start \
+  -H "Authorization: Bearer local-token-0123456789abcdef0123" \
+  -H "Content-Type: application/json" \
+  --data @start-request.json
+```
+
 ### `POST /cancel`
 
 Requests cancellation for the active job.
@@ -97,9 +144,25 @@ Cancellation terminates active Git/pip subprocess work and interrupts asset down
 { "job_id": "workspace-id" }
 ```
 
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8000/cancel \
+  -H "Authorization: Bearer local-token-0123456789abcdef0123" \
+  -H "Content-Type: application/json" \
+  --data '{"job_id":"workspace-id"}'
+```
+
 ### `GET /status`
 
 Returns the current worker status with UI-safe diagnostics.
+
+Example:
+
+```bash
+curl http://127.0.0.1:8000/status \
+  -H "Authorization: Bearer local-token-0123456789abcdef0123"
+```
 
 ```json
 {
@@ -141,7 +204,8 @@ Failure responses include UI-safe error metadata:
   "progress_percent": 56,
   "diagnostic_message": "Hugging Face asset download failed",
   "error": {
-    "code": "preparation_failed",
+    "code": "asset_download_failed",
+    "reason_code": "asset_download_failed",
     "message": "Hugging Face asset download failed"
   },
   "updated_at": "2026-05-09T00:00:00Z",
@@ -151,11 +215,14 @@ Failure responses include UI-safe error metadata:
 
 ## Error Responses
 
+Worker API errors use `code` for broad classification and `reason_code` for specific handling. Safe structured metadata appears under `context` when available. Error payloads must not include bearer tokens, provider API keys, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs.
+
 Invalid requests return `400`:
 
 ```json
 {
   "code": "invalid_request",
+  "reason_code": "invalid_request",
   "message": "job_id must be a non-empty string"
 }
 ```
@@ -165,8 +232,11 @@ Calling `POST /start` while a job is active returns `409`:
 ```json
 {
   "code": "job_already_running",
+  "reason_code": "active_job_exists",
   "message": "Provisioner worker already has an active job.",
-  "active_job_id": "workspace-id"
+  "context": {
+    "active_job_id": "workspace-id"
+  }
 }
 ```
 
@@ -175,6 +245,30 @@ Unknown endpoints return `404`:
 ```json
 {
   "code": "not_found",
+  "reason_code": "endpoint_not_found",
   "message": "Endpoint not found"
+}
+```
+
+Unauthorized requests return `401`:
+
+```json
+{
+  "code": "unauthorized",
+  "reason_code": "invalid_authorization",
+  "message": "Unauthorized."
+}
+```
+
+Oversized requests return `413`:
+
+```json
+{
+  "code": "request_too_large",
+  "reason_code": "request_body_too_large",
+  "message": "Request body is too large.",
+  "context": {
+    "max_request_bytes": 1048576
+  }
 }
 ```

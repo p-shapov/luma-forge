@@ -8,23 +8,34 @@ from http.client import HTTPConnection
 @unittest.skipUnless(os.environ.get("LUMA_FORGE_RUN_CONTAINER_SMOKE") == "1", "container smoke test is opt-in")
 class ContainerSmokeTests(unittest.TestCase):
     def test_container_reports_idle_status(self):
-        image = "luma-forge-provisioner:smoke"
-        subprocess.run(
+        image = os.environ.get("LUMA_FORGE_PROVISIONER_SMOKE_IMAGE", "luma-forge-provisioner:smoke")
+        token = "smoke-token-0123456789abcdef0123"
+        if "LUMA_FORGE_PROVISIONER_SMOKE_IMAGE" not in os.environ:
+            subprocess.run(
+                [
+                    "docker",
+                    "build",
+                    "-t",
+                    image,
+                    "-f",
+                    "../Dockerfile",
+                    "--target",
+                    "provisioner",
+                    "../..",
+                ],
+                check=True,
+            )
+        container = subprocess.check_output(
             [
                 "docker",
-                "build",
-                "-t",
+                "run",
+                "-d",
+                "-e",
+                f"LUMA_FORGE_PROVISIONER_BEARER_TOKEN={token}",
+                "-p",
+                "127.0.0.1::8000",
                 image,
-                "-f",
-                "../Dockerfile",
-                "--target",
-                "provisioner",
-                "../..",
             ],
-            check=True,
-        )
-        container = subprocess.check_output(
-            ["docker", "run", "-d", "-p", "127.0.0.1::8000", image],
             text=True,
         ).strip()
         try:
@@ -36,7 +47,7 @@ class ContainerSmokeTests(unittest.TestCase):
             for _ in range(30):
                 try:
                     connection = HTTPConnection("127.0.0.1", int(host_port), timeout=1)
-                    connection.request("GET", "/status")
+                    connection.request("GET", "/status", headers={"Authorization": f"Bearer {token}"})
                     response = connection.getresponse()
                     payload = response.read().decode("utf-8")
                     connection.close()

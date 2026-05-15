@@ -66,6 +66,13 @@ jobs:
             docker tag "$PROVISIONER_SHA_TAG" "$PROVISIONER_VERSION_TAG"
           fi
 
+      - name: Smoke test provisioner image
+        working-directory: workers/provisioner
+        env:
+          LUMA_FORGE_RUN_CONTAINER_SMOKE: "1"
+          LUMA_FORGE_PROVISIONER_SMOKE_IMAGE: ${{ steps.image.outputs.provisioner_sha_tag }}
+        run: PYTHONPATH=src python -m unittest tests.test_container_smoke
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:

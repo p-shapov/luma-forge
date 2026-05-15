@@ -4,8 +4,8 @@ import tempfile
 import unittest
 
 from helpers import start_payload
-from provisioner_worker.errors import PreparationError
-from provisioner_worker.runtime import (
+from app.errors import PreparationError
+from runtime.manifest import (
     ENVIRONMENT_KIND,
     build_manifest,
     load_manifest,
@@ -13,7 +13,7 @@ from provisioner_worker.runtime import (
     validate_manifest,
     write_manifest,
 )
-from provisioner_worker.schemas import parse_start_request
+from app.schemas import parse_start_request
 
 
 class RuntimeTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_manifest_round_trips_without_secret_fields(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
             paths = runtime_paths(Path(directory))
             manifest = build_manifest(
                 request=request,
@@ -56,7 +56,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_validate_manifest_rejects_wrong_environment_kind(self):
         with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload(Path(directory)))
+            request = parse_start_request(start_payload())
             paths = runtime_paths(Path(directory))
             manifest = build_manifest(
                 request=request,

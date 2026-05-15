@@ -3,9 +3,7 @@
 ## Purpose
 
 Defines how LumaForge deploys worker container images from Git through repository automation.
-
 ## Requirements
-
 ### Requirement: Deploy Worker Images from Git
 
 The repository SHALL provide separate GitHub Actions workflows that deploy worker container images from tracked Git source and the shared worker Dockerfile.
@@ -43,6 +41,12 @@ Each worker deployment workflow SHALL complete that worker's validation successf
 - **THEN** it SHALL run the test command for that worker package
 - **AND** it SHALL run the Docker build for that worker image using the shared worker Dockerfile
 - **AND** it SHALL continue to registry publication only after validation succeeds for that image
+
+#### Scenario: Provisioner image smoke validation passes
+- **WHEN** the provisioner worker deployment workflow has built the provisioner container image
+- **THEN** it SHALL run the provisioner container smoke test against that built image before registry authentication or publication
+- **AND** it SHALL verify the container starts, accepts authorized `GET /status`, returns `idle`, and contains its runtime Python dependencies
+- **AND** it SHALL continue to registry publication only after the smoke test succeeds
 
 #### Scenario: Worker validation fails
 - **WHEN** any required worker validation step fails
@@ -87,3 +91,4 @@ The repository SHALL document how to operate the worker deployment workflows.
 - **AND** documentation SHALL describe the GitHub Container Registry image paths for the provisioner and endpoint images
 - **AND** documentation SHALL describe produced image tags
 - **AND** documentation SHALL describe rollback by selecting previously published immutable commit SHA tags for the affected worker images
+
