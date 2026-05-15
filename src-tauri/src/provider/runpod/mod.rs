@@ -366,6 +366,10 @@ pub(super) fn provider_error_from_inventory_status(
 ) -> Option<ProviderClientError> {
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
         Some(ProviderClientError::Unauthorized)
+    } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        Some(ProviderClientError::RateLimited)
+    } else if status.is_client_error() {
+        Some(ProviderClientError::RequestRejected)
     } else if !status.is_success() {
         Some(ProviderClientError::ApiUnavailable)
     } else {
@@ -392,12 +396,16 @@ pub(super) fn provider_error_from_rest_status(
         Some(ProviderClientError::Unauthorized)
     } else if status == reqwest::StatusCode::NOT_FOUND {
         Some(ProviderClientError::NotFound)
+    } else if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        Some(ProviderClientError::RateLimited)
     } else if status == reqwest::StatusCode::CONFLICT {
         Some(ProviderClientError::Conflict)
     } else if status == reqwest::StatusCode::REQUEST_TIMEOUT
         || status == reqwest::StatusCode::GATEWAY_TIMEOUT
     {
         Some(ProviderClientError::Indeterminate)
+    } else if status.is_client_error() {
+        Some(ProviderClientError::RequestRejected)
     } else if !status.is_success() {
         Some(ProviderClientError::ApiUnavailable)
     } else {

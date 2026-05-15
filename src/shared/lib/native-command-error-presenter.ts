@@ -26,6 +26,8 @@ const ERROR_COPY = {
   provider_api_key_unauthorized: { title: "Provider API key unauthorized" },
   stored_provider_api_key_invalid: { title: "Stored provider API key invalid" },
   provider_api_unavailable: { title: "Provider API unavailable" },
+  provider_rate_limited: { title: "Provider rate limited" },
+  provider_request_rejected: { title: "Provider request rejected" },
   provider_response_invalid: { title: "Provider response invalid" },
   provider_inventory_invalid: { title: "Provider inventory invalid" },
   provider_identity_response_invalid: { title: "Provider identity response invalid" },
@@ -99,14 +101,14 @@ function recoveryHint(recoveryAction: string | null): string | null {
       return "Delete and recreate provider setup if refresh does not recover it.";
     case "retry":
       return "Retry after the local service or provider becomes available.";
+    case "reselect_placement":
+      return "Update the placement selection and try again.";
     case "retry_provider_inventory":
       return "Reload provider inventory before creating the workspace.";
     case "reload_workflow_presets":
       return "Reload the workflow catalog, then rebuild the placement.";
     case "recover_workspace_catalog":
       return "Recover or recreate the local workspace catalog before continuing.";
-    case "reselect_placement":
-      return "Update the placement selection and try again.";
     case "refresh_workspace_catalog":
       return "Refresh the workspace catalog before creating another workspace.";
     case "refresh_workspace":

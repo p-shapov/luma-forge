@@ -16,6 +16,10 @@ pub enum WorkspaceProvisioningError {
     ProviderApiKeyUnauthorized,
     #[error("provider api unavailable")]
     ProviderApiUnavailable,
+    #[error("provider rate limited")]
+    ProviderRateLimited,
+    #[error("provider request rejected")]
+    ProviderRequestRejected,
     #[error("provider response invalid")]
     ProviderResponseInvalid,
     #[error("provider resource not found")]

@@ -163,4 +163,29 @@ mod tests {
 
         assert_eq!(value, "provider_api_key");
     }
+
+    #[test]
+    fn provider_failure_log_uses_stable_metadata_without_message_text() {
+        let log = CommandLog::for_test("sync_workspace_provisioning", uuid::Uuid::nil())
+            .with_provider_id("runpod");
+        let error = NativeCommandError {
+            code: NativeCommandErrorCode::ProviderRequestRejected,
+            message: "Provider request was rejected with rp_test_secret and RUNPOD_BAD_CODE."
+                .to_string(),
+            retryable: false,
+            field: Some("selected_datacenter_id".to_string()),
+            reason: Some("provider_request_rejected".to_string()),
+            recovery_action: Some("reselect_placement".to_string()),
+        };
+
+        let message = log.failure_message(&error);
+
+        assert!(message.contains("code=provider_request_rejected"));
+        assert!(message.contains("reason=provider_request_rejected"));
+        assert!(message.contains("recovery_action=reselect_placement"));
+        assert!(!message.contains("Provider request was rejected"));
+        assert!(!message.contains("rp_test_secret"));
+        assert!(!message.contains("RUNPOD_BAD_CODE"));
+        assert!(!message.contains('\n'));
+    }
 }

@@ -84,7 +84,7 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> ProviderClientError {
     }) {
         ProviderClientError::Unauthorized
     } else {
-        ProviderClientError::ApiUnavailable
+        ProviderClientError::RequestRejected
     }
 }
 

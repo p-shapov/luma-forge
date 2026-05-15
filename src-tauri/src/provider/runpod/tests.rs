@@ -221,6 +221,18 @@ fn maps_inventory_auth_status_to_unauthorized() {
 }
 
 #[test]
+fn maps_inventory_client_error_status_to_request_rejected() {
+    assert_eq!(
+        provider_error_from_inventory_status(reqwest::StatusCode::BAD_REQUEST),
+        Some(ProviderClientError::RequestRejected)
+    );
+    assert_eq!(
+        provider_error_from_inventory_status(reqwest::StatusCode::UNPROCESSABLE_ENTITY),
+        Some(ProviderClientError::RequestRejected)
+    );
+}
+
+#[test]
 fn maps_inventory_auth_graphql_errors_to_unauthorized() {
     let response: GraphQlResponse<RunPodInventoryData> = serde_json::from_value(json!({
         "errors": [
@@ -445,6 +457,18 @@ fn maps_rest_status_codes_to_provider_errors() {
     assert_eq!(
         provider_error_from_rest_status(reqwest::StatusCode::CONFLICT),
         Some(ProviderClientError::Conflict)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::TOO_MANY_REQUESTS),
+        Some(ProviderClientError::RateLimited)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::BAD_REQUEST),
+        Some(ProviderClientError::RequestRejected)
+    );
+    assert_eq!(
+        provider_error_from_rest_status(reqwest::StatusCode::UNPROCESSABLE_ENTITY),
+        Some(ProviderClientError::RequestRejected)
     );
     assert_eq!(
         provider_error_from_rest_status(reqwest::StatusCode::GATEWAY_TIMEOUT),

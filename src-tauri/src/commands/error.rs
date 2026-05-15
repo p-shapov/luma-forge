@@ -16,6 +16,8 @@ pub enum NativeCommandErrorCode {
     ProviderApiKeyUnauthorized,
     StoredProviderApiKeyInvalid,
     ProviderApiUnavailable,
+    ProviderRateLimited,
+    ProviderRequestRejected,
     ProviderResponseInvalid,
     ProviderInventoryInvalid,
     ProviderIdentityResponseInvalid,
@@ -61,6 +63,8 @@ impl NativeCommandErrorCode {
             Self::ProviderApiKeyUnauthorized => "provider_api_key_unauthorized",
             Self::StoredProviderApiKeyInvalid => "stored_provider_api_key_invalid",
             Self::ProviderApiUnavailable => "provider_api_unavailable",
+            Self::ProviderRateLimited => "provider_rate_limited",
+            Self::ProviderRequestRejected => "provider_request_rejected",
             Self::ProviderResponseInvalid => "provider_response_invalid",
             Self::ProviderInventoryInvalid => "provider_inventory_invalid",
             Self::ProviderIdentityResponseInvalid => "provider_identity_response_invalid",
@@ -256,6 +260,10 @@ fn error_code(error: &WorkspaceSetupError) -> NativeCommandErrorCode {
         WorkspaceSetupError::ProviderApiUnavailable => {
             NativeCommandErrorCode::ProviderApiUnavailable
         }
+        WorkspaceSetupError::ProviderRateLimited => NativeCommandErrorCode::ProviderRateLimited,
+        WorkspaceSetupError::ProviderRequestRejected => {
+            NativeCommandErrorCode::ProviderRequestRejected
+        }
         WorkspaceSetupError::ProviderResponseInvalid => {
             NativeCommandErrorCode::ProviderResponseInvalid
         }
@@ -315,6 +323,7 @@ fn error_retryable(error: &WorkspaceSetupError) -> bool {
     matches!(
         error,
         WorkspaceSetupError::ProviderApiUnavailable
+            | WorkspaceSetupError::ProviderRateLimited
             | WorkspaceSetupError::SecureKeyringUnavailable
             | WorkspaceSetupError::WorkspaceCatalogUnavailable
             | WorkspaceSetupError::WorkspaceCatalogStorageUnavailable
@@ -329,6 +338,8 @@ fn error_message(error: &WorkspaceSetupError) -> &'static str {
         WorkspaceSetupError::ProviderApiKeyUnauthorized => "Provider API key is not authorized.",
         WorkspaceSetupError::StoredProviderApiKeyInvalid => "Stored provider API key is invalid.",
         WorkspaceSetupError::ProviderApiUnavailable => "Provider API is unavailable.",
+        WorkspaceSetupError::ProviderRateLimited => "Provider API rate limit was reached.",
+        WorkspaceSetupError::ProviderRequestRejected => "Provider request was rejected.",
         WorkspaceSetupError::ProviderResponseInvalid => "Provider response is invalid.",
         WorkspaceSetupError::ProviderInventoryInvalid => "Provider inventory is invalid.",
         WorkspaceSetupError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
@@ -385,6 +396,8 @@ fn error_reason(error: &WorkspaceSetupError) -> Option<&'static str> {
         WorkspaceSetupError::ProviderApiKeyUnauthorized => Some("provider_rejected_key"),
         WorkspaceSetupError::StoredProviderApiKeyInvalid => Some("stored_secret_invalid"),
         WorkspaceSetupError::ProviderApiUnavailable => Some("provider_unavailable"),
+        WorkspaceSetupError::ProviderRateLimited => Some("provider_rate_limited"),
+        WorkspaceSetupError::ProviderRequestRejected => Some("provider_request_rejected"),
         WorkspaceSetupError::ProviderResponseInvalid => Some("provider_response_invalid"),
         WorkspaceSetupError::ProviderInventoryInvalid => Some("provider_inventory_invalid"),
         WorkspaceSetupError::SecureKeyringUnavailable => Some("secure_keyring_unavailable"),
@@ -420,6 +433,7 @@ fn error_recovery_action(error: &WorkspaceSetupError) -> Option<&'static str> {
         WorkspaceSetupError::ProviderApiKeyUnauthorized
         | WorkspaceSetupError::StoredProviderApiKeyInvalid => Some("recover_provider_setup"),
         WorkspaceSetupError::ProviderApiUnavailable
+        | WorkspaceSetupError::ProviderRateLimited
         | WorkspaceSetupError::SecureKeyringUnavailable
         | WorkspaceSetupError::WorkspaceCatalogUnavailable
         | WorkspaceSetupError::WorkspaceCatalogStorageUnavailable
@@ -428,6 +442,7 @@ fn error_recovery_action(error: &WorkspaceSetupError) -> Option<&'static str> {
         WorkspaceSetupError::WorkflowCatalogUnavailable
         | WorkspaceSetupError::WorkflowPresetStale => Some("reload_workflow_presets"),
         WorkspaceSetupError::ProviderResponseInvalid
+        | WorkspaceSetupError::ProviderRequestRejected
         | WorkspaceSetupError::ProviderInventoryInvalid => Some("retry_provider_inventory"),
         WorkspaceSetupError::WorkspaceCatalogCorrupt
         | WorkspaceSetupError::WorkspaceCatalogSchemaMismatch => Some("recover_workspace_catalog"),
@@ -460,6 +475,12 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         }
         WorkspaceProvisioningError::ProviderApiUnavailable => {
             NativeCommandErrorCode::ProviderApiUnavailable
+        }
+        WorkspaceProvisioningError::ProviderRateLimited => {
+            NativeCommandErrorCode::ProviderRateLimited
+        }
+        WorkspaceProvisioningError::ProviderRequestRejected => {
+            NativeCommandErrorCode::ProviderRequestRejected
         }
         WorkspaceProvisioningError::ProviderResponseInvalid => {
             NativeCommandErrorCode::ProviderResponseInvalid
@@ -502,6 +523,7 @@ fn provisioning_error_retryable(error: &WorkspaceProvisioningError) -> bool {
         error,
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable
             | WorkspaceProvisioningError::ProviderApiUnavailable
+            | WorkspaceProvisioningError::ProviderRateLimited
             | WorkspaceProvisioningError::ProviderOperationConflict
             | WorkspaceProvisioningError::ProviderOperationIndeterminate
             | WorkspaceProvisioningError::SecureKeyringUnavailable
@@ -526,6 +548,8 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
             "Provider API key is not authorized."
         }
         WorkspaceProvisioningError::ProviderApiUnavailable => "Provider API is unavailable.",
+        WorkspaceProvisioningError::ProviderRateLimited => "Provider API rate limit was reached.",
+        WorkspaceProvisioningError::ProviderRequestRejected => "Provider request was rejected.",
         WorkspaceProvisioningError::ProviderResponseInvalid => "Provider response is invalid.",
         WorkspaceProvisioningError::ProviderResourceNotFound => "Provider resource was not found.",
         WorkspaceProvisioningError::ProviderOperationConflict => {
@@ -574,6 +598,8 @@ fn provisioning_error_reason(error: &WorkspaceProvisioningError) -> Option<&'sta
         WorkspaceProvisioningError::ProviderSetupIncomplete => Some("setup_incomplete"),
         WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("provider_rejected_key"),
         WorkspaceProvisioningError::ProviderApiUnavailable => Some("provider_unavailable"),
+        WorkspaceProvisioningError::ProviderRateLimited => Some("provider_rate_limited"),
+        WorkspaceProvisioningError::ProviderRequestRejected => Some("provider_request_rejected"),
         WorkspaceProvisioningError::ProviderResponseInvalid => Some("provider_response_invalid"),
         WorkspaceProvisioningError::ProviderResourceNotFound => Some("provider_resource_not_found"),
         WorkspaceProvisioningError::ProviderOperationConflict => {
@@ -600,6 +626,7 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         WorkspaceProvisioningError::InvalidWorkspaceLifecycle => Some("refresh_workspace"),
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable
         | WorkspaceProvisioningError::ProviderApiUnavailable
+        | WorkspaceProvisioningError::ProviderRateLimited
         | WorkspaceProvisioningError::ProviderOperationConflict
         | WorkspaceProvisioningError::ProviderOperationIndeterminate
         | WorkspaceProvisioningError::SecureKeyringUnavailable
@@ -607,6 +634,7 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         | WorkspaceProvisioningError::ProvisionerWorkerConflict => Some("retry"),
         WorkspaceProvisioningError::ProviderSetupIncomplete
         | WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("recover_provider_setup"),
+        WorkspaceProvisioningError::ProviderRequestRejected => Some("reselect_placement"),
         WorkspaceProvisioningError::ProviderResponseInvalid
         | WorkspaceProvisioningError::ProviderResourceNotFound
         | WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
@@ -692,6 +720,51 @@ mod tests {
         );
         assert!(!error.message.contains("secret-looking"));
         assert!(!error.retryable);
+    }
+
+    #[test]
+    fn workspace_setup_provider_request_rejection_maps_to_non_retryable_recovery() {
+        let error = NativeCommandError::from(WorkspaceSetupError::ProviderRequestRejected);
+
+        assert_eq!(error.code, NativeCommandErrorCode::ProviderRequestRejected);
+        assert_eq!(error.reason.as_deref(), Some("provider_request_rejected"));
+        assert_eq!(
+            error.recovery_action.as_deref(),
+            Some("retry_provider_inventory")
+        );
+        assert!(!error.retryable);
+    }
+
+    #[test]
+    fn workspace_setup_provider_rate_limit_maps_to_retryable_recovery() {
+        let error = NativeCommandError::from(WorkspaceSetupError::ProviderRateLimited);
+
+        assert_eq!(error.code, NativeCommandErrorCode::ProviderRateLimited);
+        assert_eq!(error.reason.as_deref(), Some("provider_rate_limited"));
+        assert_eq!(error.recovery_action.as_deref(), Some("retry"));
+        assert!(error.retryable);
+    }
+
+    #[test]
+    fn provisioning_request_rejection_maps_to_non_retryable_recovery() {
+        let error = NativeCommandError::from(WorkspaceProvisioningError::ProviderRequestRejected);
+
+        assert_eq!(error.code, NativeCommandErrorCode::ProviderRequestRejected);
+        assert_eq!(error.field, None);
+        assert_eq!(error.reason.as_deref(), Some("provider_request_rejected"));
+        assert_eq!(error.recovery_action.as_deref(), Some("reselect_placement"));
+        assert!(!error.retryable);
+    }
+
+    #[test]
+    fn provisioning_rate_limit_maps_to_retryable_recovery() {
+        let error = NativeCommandError::from(WorkspaceProvisioningError::ProviderRateLimited);
+
+        assert_eq!(error.code, NativeCommandErrorCode::ProviderRateLimited);
+        assert_eq!(error.field, None);
+        assert_eq!(error.reason.as_deref(), Some("provider_rate_limited"));
+        assert_eq!(error.recovery_action.as_deref(), Some("retry"));
+        assert!(error.retryable);
     }
 
     #[test]
@@ -816,6 +889,22 @@ mod tests {
                 Some("provider_unavailable"),
                 Some("retry"),
                 true,
+            ),
+            (
+                WorkspaceSetupError::ProviderRateLimited,
+                NativeCommandErrorCode::ProviderRateLimited,
+                None,
+                Some("provider_rate_limited"),
+                Some("retry"),
+                true,
+            ),
+            (
+                WorkspaceSetupError::ProviderRequestRejected,
+                NativeCommandErrorCode::ProviderRequestRejected,
+                None,
+                Some("provider_request_rejected"),
+                Some("retry_provider_inventory"),
+                false,
             ),
             (
                 WorkspaceSetupError::ProviderResponseInvalid,

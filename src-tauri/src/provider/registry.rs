@@ -427,8 +427,11 @@ where
 fn provider_setup_error_from_client_error(error: ProviderClientError) -> ProviderSetupError {
     match error {
         ProviderClientError::Unauthorized => ProviderSetupError::ProviderApiKeyUnauthorized,
-        ProviderClientError::ApiUnavailable => ProviderSetupError::ProviderApiUnavailable,
-        ProviderClientError::ResponseInvalid
+        ProviderClientError::ApiUnavailable | ProviderClientError::RateLimited => {
+            ProviderSetupError::ProviderApiUnavailable
+        }
+        ProviderClientError::RequestRejected
+        | ProviderClientError::ResponseInvalid
         | ProviderClientError::NotFound
         | ProviderClientError::Conflict
         | ProviderClientError::Indeterminate => ProviderSetupError::ProviderIdentityResponseInvalid,
@@ -439,6 +442,8 @@ fn error_from_client_error(error: ProviderClientError) -> WorkspaceSetupError {
     match error {
         ProviderClientError::Unauthorized => WorkspaceSetupError::ProviderApiKeyUnauthorized,
         ProviderClientError::ApiUnavailable => WorkspaceSetupError::ProviderApiUnavailable,
+        ProviderClientError::RateLimited => WorkspaceSetupError::ProviderRateLimited,
+        ProviderClientError::RequestRejected => WorkspaceSetupError::ProviderRequestRejected,
         ProviderClientError::ResponseInvalid
         | ProviderClientError::NotFound
         | ProviderClientError::Conflict
@@ -450,6 +455,8 @@ fn provisioning_error_from_client_error(error: ProviderClientError) -> Workspace
     match error {
         ProviderClientError::Unauthorized => WorkspaceProvisioningError::ProviderApiKeyUnauthorized,
         ProviderClientError::ApiUnavailable => WorkspaceProvisioningError::ProviderApiUnavailable,
+        ProviderClientError::RateLimited => WorkspaceProvisioningError::ProviderRateLimited,
+        ProviderClientError::RequestRejected => WorkspaceProvisioningError::ProviderRequestRejected,
         ProviderClientError::ResponseInvalid => WorkspaceProvisioningError::ProviderResponseInvalid,
         ProviderClientError::NotFound => WorkspaceProvisioningError::ProviderResourceNotFound,
         ProviderClientError::Conflict => WorkspaceProvisioningError::ProviderOperationConflict,

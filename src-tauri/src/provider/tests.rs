@@ -10,7 +10,7 @@ use crate::{
     workspace_setup::{error::WorkspaceSetupError, ProviderPlacementOptionsGateway},
 };
 
-use super::error_from_client_error;
+use super::{error_from_client_error, provisioning_error_from_client_error};
 
 #[derive(Debug, Clone, Default)]
 struct EmptySecretStore;
@@ -133,6 +133,38 @@ fn inventory_auth_failure_maps_to_provider_key_unauthorized() {
     assert_eq!(
         error_from_client_error(ProviderClientError::Unauthorized),
         WorkspaceSetupError::ProviderApiKeyUnauthorized
+    );
+}
+
+#[test]
+fn inventory_rate_limit_maps_to_retryable_provider_availability() {
+    assert_eq!(
+        error_from_client_error(ProviderClientError::RateLimited),
+        WorkspaceSetupError::ProviderRateLimited
+    );
+}
+
+#[test]
+fn inventory_request_rejection_does_not_collapse_to_unavailable() {
+    assert_eq!(
+        error_from_client_error(ProviderClientError::RequestRejected),
+        WorkspaceSetupError::ProviderRequestRejected
+    );
+}
+
+#[test]
+fn provisioning_request_rejection_maps_to_request_rejected() {
+    assert_eq!(
+        provisioning_error_from_client_error(ProviderClientError::RequestRejected),
+        WorkspaceProvisioningError::ProviderRequestRejected
+    );
+}
+
+#[test]
+fn provisioning_rate_limit_maps_to_rate_limited() {
+    assert_eq!(
+        provisioning_error_from_client_error(ProviderClientError::RateLimited),
+        WorkspaceProvisioningError::ProviderRateLimited
     );
 }
 

@@ -6,6 +6,10 @@ pub enum ProviderClientError {
     Unauthorized,
     #[error("provider api unavailable")]
     ApiUnavailable,
+    #[error("provider rate limited")]
+    RateLimited,
+    #[error("provider request rejected")]
+    RequestRejected,
     #[error("provider response invalid")]
     ResponseInvalid,
     #[error("provider resource not found")]

@@ -13,6 +13,10 @@ pub enum WorkspaceSetupError {
     StoredProviderApiKeyInvalid,
     #[error("provider api unavailable")]
     ProviderApiUnavailable,
+    #[error("provider rate limited")]
+    ProviderRateLimited,
+    #[error("provider request rejected")]
+    ProviderRequestRejected,
     #[error("provider response invalid")]
     ProviderResponseInvalid,
     #[error("provider inventory invalid")]

@@ -104,10 +104,32 @@ The Native Layer SHALL expose a `get_provider_placement_options` command that re
 - **AND** the Native Layer MUST NOT report the failure as retryable
 - **AND** the Native Layer MUST NOT mutate the Workspace Catalog
 
-#### Scenario: Provider inventory lookup fails
+#### Scenario: Provider inventory request is rate limited
 
-- **WHEN** the Provider inventory request fails due to timeout, transport error, unavailable Provider API, or unreadable provider response
-- **THEN** the Native Layer SHALL reject the request with `provider_api_unavailable`
+- **WHEN** the Provider inventory request fails because the Provider reports rate limiting
+- **THEN** the Native Layer SHALL reject the request with a retryable UI-safe `provider_rate_limited` command error
+- **AND** the Native Layer MUST NOT mutate the Workspace Catalog
+- **AND** the command error MUST NOT expose Provider API Keys, raw provider request bodies, raw provider response bodies, or provider-specific error codes
+
+#### Scenario: Provider inventory request is temporarily unavailable
+
+- **WHEN** the Provider inventory request fails due to timeout, transport error, or temporarily unavailable Provider API
+- **THEN** the Native Layer SHALL reject the request with a retryable UI-safe provider availability error
+- **AND** the Native Layer MUST NOT mutate the Workspace Catalog
+- **AND** the command error MUST NOT expose Provider API Keys, raw provider request bodies, raw provider response bodies, or provider-specific error codes
+
+#### Scenario: Provider inventory request is rejected
+
+- **WHEN** the Provider rejects the inventory request for a non-authentication request validation reason
+- **THEN** the Native Layer SHALL reject the request with a non-retryable UI-safe `provider_request_rejected` command error
+- **AND** retryability SHALL be derived from the LumaForge-owned provider error instead of provider-specific error codes or message strings
+- **AND** the Native Layer MUST NOT mutate the Workspace Catalog
+
+#### Scenario: Provider inventory response is invalid
+
+- **WHEN** the Provider inventory request succeeds but the Provider response cannot be parsed or cannot be mapped into valid Provider Inventory
+- **THEN** the Native Layer SHALL reject the request with a UI-safe provider inventory or response validation error
+- **AND** the Native Layer MUST NOT report the same request as safely retryable solely because parsing failed
 - **AND** the Native Layer MUST NOT mutate the Workspace Catalog
 
 #### Scenario: Provider does not support endpoint keep-alive
