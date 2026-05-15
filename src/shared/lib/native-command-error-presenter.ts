@@ -43,10 +43,22 @@ const ERROR_COPY = {
   placement_gpu_required: { title: "GPU required" },
   workflow_preset_stale: { title: "Workflow preset stale" },
   storage_size_below_preset_minimum: { title: "Storage size too small" },
+  endpoint_keep_alive_out_of_range: { title: "Endpoint keep-alive out of range" },
   workspace_already_exists: { title: "Workspace already exists" },
+  workspace_not_found: { title: "Workspace not found" },
+  invalid_workspace_lifecycle: { title: "Invalid workspace lifecycle" },
   invalid_workspace_id: { title: "Invalid workspace ID" },
   workspace_name_required: { title: "Workspace name required" },
   invalid_workspace_metadata: { title: "Invalid workspace metadata" },
+  provider_resource_not_found: { title: "Provider resource not found" },
+  provider_operation_conflict: { title: "Provider operation conflict" },
+  provider_operation_indeterminate: { title: "Provider operation indeterminate" },
+  provisioner_worker_token_invalid: { title: "Provisioner worker token invalid" },
+  provisioner_worker_unauthorized: { title: "Provisioner worker unauthorized" },
+  provisioner_worker_unavailable: { title: "Provisioner worker unavailable" },
+  provisioner_worker_conflict: { title: "Provisioner worker conflict" },
+  provisioner_worker_response_invalid: { title: "Provisioner worker response invalid" },
+  provisioner_worker_failed: { title: "Provisioner worker failed" },
 } satisfies Record<NativeCommandErrorCode, NativeCommandErrorCopy>;
 
 export function isNativeCommandError(value: unknown): value is NativeCommandError {
@@ -97,8 +109,12 @@ function recoveryHint(recoveryAction: string | null): string | null {
       return "Update the placement selection and try again.";
     case "refresh_workspace_catalog":
       return "Refresh the workspace catalog before creating another workspace.";
+    case "refresh_workspace":
+      return "Refresh the workspace catalog, then retry the provisioning command.";
     case "change_request":
       return "Change the highlighted request value and retry.";
+    case "inspect_workspace_provisioning":
+      return "Inspect the workspace provisioning state before retrying.";
     default:
       return "Review the request and retry.";
   }

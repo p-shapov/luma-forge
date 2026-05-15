@@ -64,30 +64,30 @@ workers/
 
 The native build requires worker configuration. Development builds can provide these values through real build environment variables or the project `.env` file:
 
-| Variable                                         | Purpose                                                              |
-| ------------------------------------------------ | -------------------------------------------------------------------- |
-| `LUMA_FORGE_PROVISIONER_WORKER_IMAGE_REF`        | Provider-neutral Provisioner Worker container image ref.             |
-| `LUMA_FORGE_PROVISIONER_WORKER_PORT`             | Provisioner Worker HTTP port exposed by temporary provisioning pods. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_IMAGE_REF`    | RunPod Endpoint Worker container image ref.                          |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT`         | RunPod Endpoint Worker container port.                               |
+| Variable                                      | Purpose                                                              |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| `LUMA_FORGE_PROVISIONER_WORKER_IMAGE_REF`     | Provider-neutral Provisioner Worker container image ref.             |
+| `LUMA_FORGE_PROVISIONER_WORKER_PORT`          | Provisioner Worker HTTP port exposed by temporary provisioning pods. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_IMAGE_REF` | RunPod Endpoint Worker container image ref.                          |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT`      | RunPod Endpoint Worker container port.                               |
 
 Missing or blank values fail the native build. Values from the real build environment override `.env`. Changing `.env` requires rebuilding the native app.
 
 Worker images share a provider-neutral Docker base under `workers/Dockerfile`. The Provisioner Worker installs ComfyUI and Custom Node Python dependencies into `/workspace/.venv` on the mounted network volume and records metadata under `/workspace/.luma-forge`. The RunPod Endpoint Worker validates that metadata and starts ComfyUI with `/workspace/.venv/bin/python`.
 
-| Command                                                                                        | Purpose                                     |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `bun install`                                                                                  | Install frontend dependencies.              |
-| `bun run dev`                                                                                  | Start the Vite frontend development server. |
-| `bun run tauri dev`                                                                            | Run the Tauri desktop application.          |
-| `bun run build`                                                                                | Build and type-check the frontend.          |
-| `bun run lint`                                                                                 | Run ESLint.                                 |
-| `bun run lint:fix`                                                                             | Apply ESLint autofixes.                     |
-| `cargo test --manifest-path src-tauri/Cargo.toml`                                              | Run native tests.                           |
-| `cargo clippy --manifest-path src-tauri/Cargo.toml --fix --allow-dirty --allow-staged`         | Run native linting with autofixes.          |
-| `cargo fmt --manifest-path src-tauri/Cargo.toml`                                               | Format native code.                         |
-| `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests` | Run provisioner worker tests.               |
-| `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests`       | Run RunPod endpoint worker tests.           |
+| Command                                                                                                | Purpose                                     |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
+| `bun install`                                                                                          | Install frontend dependencies.              |
+| `bun run dev`                                                                                          | Start the Vite frontend development server. |
+| `bun run tauri dev`                                                                                    | Run the Tauri desktop application.          |
+| `bun run build`                                                                                        | Build and type-check the frontend.          |
+| `bun run lint`                                                                                         | Run ESLint.                                 |
+| `bun run lint:fix`                                                                                     | Apply ESLint autofixes.                     |
+| `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run native tests.                           |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --fix --allow-dirty --allow-staged`                 | Run native linting with autofixes.          |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml`                                                       | Format native code.                         |
+| `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`         | Run provisioner worker tests.               |
+| `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests` | Run RunPod endpoint worker tests.           |
 
 ## Code Generation
 

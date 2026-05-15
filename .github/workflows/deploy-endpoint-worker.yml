@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       provider:
-        description: "Endpoint provider"
+        description: Endpoint provider
         required: true
         type: choice
         default: runpod
