@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from provisioner_worker.errors import ValidationError
-from provisioner_worker.paths import safe_child_path, safe_relative_path
+from app.errors import ValidationError
+from auxiliary.paths import safe_child_path, safe_relative_path
 
 
 class PathSafetyTests(unittest.TestCase):

@@ -2,10 +2,10 @@ from http.server import ThreadingHTTPServer
 import json
 import sys
 
-from provisioner_worker.api import ProvisionerRequestHandler
-from provisioner_worker.config import ConfigurationError, WorkerConfig
-from provisioner_worker.job_manager import JobManager
-from provisioner_worker.preparer import Provisioner
+from api.handler import ProvisionerRequestHandler
+from app.config import ConfigurationError, WorkerConfig
+from orchestration.preparation_job import JobManager
+from orchestration.preparer import Provisioner
 
 
 def main() -> None:

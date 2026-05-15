@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from provisioner_worker.errors import (
+from app.errors import (
     ConflictError,
     GitCheckoutError,
     RequestTooLargeError,

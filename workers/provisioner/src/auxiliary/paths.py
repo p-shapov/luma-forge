@@ -1,6 +1,6 @@
 from pathlib import Path, PurePosixPath
 
-from provisioner_worker.errors import PathValidationError
+from app.errors import PathValidationError
 
 
 def safe_relative_path(value: object, *, field_name: str) -> Path:

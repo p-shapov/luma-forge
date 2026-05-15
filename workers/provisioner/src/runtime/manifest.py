@@ -4,9 +4,9 @@ import json
 import platform
 from pathlib import Path
 
-from provisioner_worker.errors import PreparationError
-from provisioner_worker.paths import safe_child_path
-from provisioner_worker.schemas import CustomNode, StartRequest
+from app.errors import PreparationError
+from auxiliary.paths import safe_child_path
+from app.schemas import CustomNode, StartRequest
 
 ENVIRONMENT_KIND = "volume_venv"
 METADATA_DIR = ".luma-forge"

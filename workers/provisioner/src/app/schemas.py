@@ -3,8 +3,8 @@ from pathlib import Path
 import re
 from typing import Any
 
-from provisioner_worker.errors import ValidationError
-from provisioner_worker.paths import safe_custom_node_relative_path, safe_relative_path
+from app.errors import ValidationError
+from auxiliary.paths import safe_custom_node_relative_path, safe_relative_path
 
 
 @dataclass(frozen=True)

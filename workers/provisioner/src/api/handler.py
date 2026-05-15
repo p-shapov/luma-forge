@@ -4,8 +4,8 @@ from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
-from provisioner_worker.config import WorkerConfig
-from provisioner_worker.errors import (
+from app.config import WorkerConfig
+from app.errors import (
     InvalidJsonError,
     NotFoundError,
     RequestTooLargeError,
@@ -13,8 +13,8 @@ from provisioner_worker.errors import (
     ValidationError,
     WorkerError,
 )
-from provisioner_worker.job_manager import JobManager
-from provisioner_worker.schemas import parse_cancel_request, parse_start_request
+from orchestration.preparation_job import JobManager
+from app.schemas import parse_cancel_request, parse_start_request
 
 
 class ProvisionerRequestHandler(BaseHTTPRequestHandler):

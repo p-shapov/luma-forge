@@ -6,9 +6,9 @@ import socket
 from threading import Event, Thread
 from typing import Any
 
-from provisioner_worker.api import ProvisionerRequestHandler
-from provisioner_worker.config import WorkerConfig
-from provisioner_worker.job_manager import JobManager
+from api.handler import ProvisionerRequestHandler
+from app.config import WorkerConfig
+from orchestration.preparation_job import JobManager
 
 COMMIT_REVISION = "0123456789abcdef0123456789abcdef01234567"
 TEST_BEARER_TOKEN = "test-token-0123456789abcdef012345"

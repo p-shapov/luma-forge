@@ -7,7 +7,7 @@ Container-side worker that prepares a mounted ComfyUI workspace after the native
 ```bash
 cd workers/provisioner
 LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
-  PYTHONPATH=src python -m provisioner_worker
+  PYTHONPATH=src python -m app
 ```
 
 The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.

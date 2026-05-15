@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from provisioner_worker.config import (
+from app.config import (
     ConfigurationError,
     DEFAULT_DEPENDENCY_TIMEOUT_SECONDS,
     DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
@@ -19,7 +19,7 @@ from provisioner_worker.config import (
     MAX_TIMEOUT_SECONDS,
     WorkerConfig,
 )
-from provisioner_worker.server import create_server, main
+from app.server import create_server, main
 
 
 VALID_TOKEN = "config-token-0123456789abcdef0123"
@@ -165,7 +165,7 @@ class ConfigTests(unittest.TestCase):
         )
         stderr = StringIO()
 
-        with patch("provisioner_worker.server.WorkerConfig.from_env", side_effect=error):
+        with patch("app.server.WorkerConfig.from_env", side_effect=error):
             with self.assertRaises(SystemExit) as context:
                 with redirect_stderr(stderr):
                     main()

@@ -385,3 +385,50 @@ The Provisioner Worker SHALL validate its runtime environment before starting th
 - **AND** the diagnostic SHALL include the affected environment variable name and a stable reason code
 - **AND** the diagnostic MUST NOT include configured environment values or secrets
 - **AND** the process SHALL exit before binding the HTTP server
+
+### Requirement: Preserve preparation behavior during internal preparation refactors
+
+The Provisioner Worker SHALL preserve existing preparation behavior when the internal preparation implementation is split across focused modules or services.
+
+#### Scenario: Preparation sequence remains equivalent
+
+- **WHEN** a valid start request is accepted and preparation succeeds
+- **THEN** the Provisioner Worker SHALL clone or update ComfyUI, create or reuse the volume-local virtual environment, install ComfyUI dependencies, install declared Custom Nodes and their dependencies, download declared model assets, write dependency records, write the prepared runtime manifest, validate the prepared environment, and report terminal success according to the existing preparation contract
+- **AND** the Provisioner Worker SHALL preserve the existing progress phases and terminal job status behavior
+
+#### Scenario: Preparation failure mapping remains equivalent
+
+- **WHEN** a Git checkout, virtual environment creation, dependency installation, public Hugging Face asset download, cancellation, timeout, or final validation failure occurs during preparation
+- **THEN** the Provisioner Worker SHALL map the failure to the same UI-safe worker error class, job status, and diagnostic contract used before the internal refactor
+- **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
+
+#### Scenario: Prepared filesystem outputs remain equivalent
+
+- **WHEN** preparation completes successfully after the internal preparation implementation is refactored
+- **THEN** the mounted workspace volume SHALL contain the same required ComfyUI files, Custom Node directories, model asset files, volume-local virtual environment files, dependency records, and runtime manifest shape required by the prepared environment validation contract
+- **AND** the Provisioner Worker MUST NOT write outside the validated mounted workspace paths
+
+### Requirement: Preserve worker behavior during internal package reorganization
+
+The Provisioner Worker SHALL preserve existing runtime behavior when its internal Python modules are reorganized into responsibility-based top-level packages under `workers/provisioner/src/`.
+
+#### Scenario: Worker API behavior remains unchanged
+
+- **WHEN** the internal provisioner worker source layout is reorganized
+- **THEN** `GET /status`, `POST /start`, and `POST /cancel` SHALL preserve their existing authorization, request validation, status, success payload, and error payload behavior
+- **AND** the Provisioner Worker MUST NOT expose provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs because of the reorganization
+
+#### Scenario: Preparation behavior remains unchanged
+
+- **WHEN** the internal provisioner worker source layout is reorganized
+- **THEN** successful provisioning SHALL still prepare ComfyUI, Custom Nodes, model assets, dependency records, and runtime manifest outputs according to the existing preparation contract
+- **AND** failure, timeout, and cancellation cases SHALL map to the same worker job status and UI-safe error classifications as before the reorganization
+
+#### Scenario: Module ownership is visible from package paths
+
+- **WHEN** a developer scans the provisioner worker `src/` directory
+- **THEN** HTTP adapter modules SHALL be grouped separately from orchestration modules at the top level of `src/`
+- **AND** orchestration modules SHALL group job lifecycle management and high-level runtime-preparation sequencing together
+- **AND** orchestration modules SHALL be grouped separately from prepared-runtime modules and auxiliary support modules
+- **AND** auxiliary support modules SHALL group Git checkout, Hugging Face retrieval, filesystem path safety, and generic process execution away from application flow modules
+- **AND** the runtime source tree MUST NOT require an additional `provisioner_worker` package wrapper solely to contain the worker modules

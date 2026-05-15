@@ -3,11 +3,11 @@ from datetime import UTC, datetime
 from threading import Event, Lock, Thread
 from typing import TypedDict
 
-from provisioner_worker import __version__
-from provisioner_worker.config import WorkerConfig
-from provisioner_worker.errors import ConflictError, ValidationError, WorkerError, WorkerErrorPayload
-from provisioner_worker.preparer import Cancelled, Provisioner
-from provisioner_worker.schemas import CancelRequest, StartRequest
+from app import __version__
+from app.config import WorkerConfig
+from app.errors import ConflictError, ValidationError, WorkerError, WorkerErrorPayload
+from orchestration.preparer import Cancelled, Provisioner
+from app.schemas import CancelRequest, StartRequest
 
 ACTIVE_STATUSES = {"running", "cancelling"}
 

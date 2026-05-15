@@ -23,7 +23,7 @@ COPY workers/provisioner/src ./src
 RUN python -m pip install --no-cache-dir .
 
 EXPOSE 8000
-CMD ["python", "-m", "provisioner_worker"]
+CMD ["python", "-m", "app"]
 
 FROM worker-base AS runpod-endpoint
 

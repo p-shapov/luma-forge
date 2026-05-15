@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from helpers import BlockingProvisioner, ImmediateProvisioner, ServerFixture, start_payload, test_config
-from provisioner_worker.errors import GitCheckoutError
+from app.errors import GitCheckoutError
 
 
 class ApiTests(unittest.TestCase):
