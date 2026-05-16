@@ -163,12 +163,34 @@ class ReleaseToolTests(unittest.TestCase):
         validate_workers_index = workflow.index("Validate workers")
         build_provisioner_index = workflow.index("Build provisioner image")
         publish_index = workflow.index("Publish image pair")
+        verify_catalog_pr_scope_index = workflow.index("Verify Runtime Catalog PR scope")
         catalog_pr_index = workflow.index("Open Runtime Catalog update PR")
 
         self.assertLess(validate_catalog_index, validate_workers_index)
         self.assertLess(validate_catalog_index, build_provisioner_index)
         self.assertLess(validate_catalog_index, publish_index)
+        self.assertLess(verify_catalog_pr_scope_index, catalog_pr_index)
         self.assertLess(validate_catalog_index, catalog_pr_index)
+
+    def test_workflow_restricts_runtime_catalog_pr_to_catalog_file(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        catalog_pr_section = workflow.split("Open Runtime Catalog update PR", maxsplit=1)[1]
+
+        self.assertIn("add-paths:", catalog_pr_section)
+        self.assertIn("bundled/runtime-catalog.json", catalog_pr_section)
+
+    def test_workflow_fails_on_unexpected_catalog_pr_changes(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        verify_section = workflow.split("Verify Runtime Catalog PR scope", maxsplit=1)[1].split(
+            "Open Runtime Catalog update PR",
+            maxsplit=1,
+        )[0]
+
+        self.assertIn("git status --porcelain --untracked-files=all", verify_section)
+        self.assertIn("grep -vx 'bundled/runtime-catalog.json'", verify_section)
+        self.assertIn("unexpected changed paths", verify_section)
+        self.assertIn("exit 1", verify_section)
 
     def test_accepts_compatible_existing_contract_append(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)

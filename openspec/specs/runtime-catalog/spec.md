@@ -74,3 +74,21 @@ Published runtime contract id/version pairs and their implementation revisions S
 - **WHEN** the runtime recipe release workflow prepares to append an implementation revision under an existing runtime contract id/version
 - **THEN** it SHALL verify that the selected recipe's Python version, platform, ComfyUI revision, PyTorch index URL, PyTorch package list, base requirements, and runtime manifest compatibility metadata match the existing catalog contract
 - **AND** it SHALL reject the catalog update before image publication when any compatibility field differs
+
+### Requirement: Runtime Catalog update PRs contain only catalog changes
+The runtime recipe release workflow SHALL ensure automated Runtime Catalog update PRs contain only the intended bundled Runtime Catalog file.
+
+#### Scenario: Catalog update PR is opened
+- **WHEN** the runtime recipe release workflow generates a Runtime Catalog update PR
+- **THEN** the PR SHALL include changes to `bundled/runtime-catalog.json`
+- **AND** the PR MUST NOT include generated Python packaging artifacts, worker build outputs, or other non-catalog files
+
+#### Scenario: Worker validation creates generated files
+- **WHEN** worker validation, package installation, tests, or image build preparation creates generated files in the repository checkout
+- **THEN** the workflow SHALL prevent those generated files from being included in the Runtime Catalog update PR
+
+#### Scenario: Unexpected tracked changes remain before PR creation
+- **WHEN** the runtime recipe release workflow is ready to open the Runtime Catalog update PR
+- **AND** the repository has changed tracked or untracked paths other than `bundled/runtime-catalog.json`
+- **THEN** the workflow SHALL fail before creating or updating the PR
+- **AND** the workflow SHALL report the unexpected changed paths for diagnosis
