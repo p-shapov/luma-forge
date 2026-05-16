@@ -47,9 +47,19 @@
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
+        },
+        {
+          "revision": "2026.05.16-003",
+          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:af202cfc2a2b97ec970925d7e2d5abd5e9fb6a2dd5bededbf364f834bc0ab201",
+          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:e2ace526f37a07ea46c68ca355312135e37e33c65a232f0c3877335bfddb80df",
+          "image_metadata": {
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
+            "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
+          }
         }
       ],
-      "default_implementation_revision": "2026.05.16-002"
+      "default_implementation_revision": "2026.05.16-003"
     }
   ]
 }
