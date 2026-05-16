@@ -148,9 +148,26 @@ jobs:
             --provisioner-ref "${{ steps.digest.outputs.provisioner_ref }}" \
             --endpoint-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
+      - name: Verify Runtime Catalog PR scope
+        run: |
+          changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/runtime-catalog.json'; then
+            echo "::error::Runtime Catalog update did not modify bundled/runtime-catalog.json"
+            exit 1
+          fi
+
+          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -vx 'bundled/runtime-catalog.json' || true)"
+          if [ -n "$unexpected_paths" ]; then
+            echo "::error::Runtime Catalog update produced unexpected changed paths:"
+            printf '%s\n' "$unexpected_paths"
+            exit 1
+          fi
+
       - name: Open Runtime Catalog update PR
         uses: peter-evans/create-pull-request@v8
         with:
+          add-paths: |
+            bundled/runtime-catalog.json
           branch: runtime-catalog/${{ steps.recipe.outputs.contract_id }}-${{ steps.recipe.outputs.contract_version }}-${{ steps.recipe.outputs.implementation_revision }}
           title: "chore(workers): catalog runtime ${{ steps.recipe.outputs.contract_id }} ${{ steps.recipe.outputs.implementation_revision }}"
           commit-message: "chore(workers): catalog runtime implementation"

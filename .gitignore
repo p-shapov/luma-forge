@@ -14,6 +14,8 @@ dist-ssr
 *.local
 __pycache__/
 *.py[cod]
+workers/*/build/
+workers/*/src/*.egg-info/
 
 # Editor directories and files
 .vscode/*
@@ -27,4 +29,4 @@ __pycache__/
 *.sw?
 
 # OpenSpec directories
-openspec/changes/archived
+openspec/changes/archive
