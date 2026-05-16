@@ -111,6 +111,7 @@ jobs:
           provisioner="$(docker create "${{ steps.image.outputs.provisioner_tag }}")"
           endpoint="$(docker create "${{ steps.image.outputs.endpoint_tag }}")"
           docker cp "$provisioner:/opt/luma-forge/runtime/runtime-metadata.json" /tmp/provisioner-runtime.json
+          docker cp "$provisioner:/opt/luma-forge/runtime/base-runtime.tar.gz" /tmp/base-runtime.tar.gz
           docker cp "$endpoint:/opt/luma-forge/runtime/runtime-contract.json" /tmp/endpoint-runtime.json
           docker rm "$provisioner" "$endpoint"
           python workers/runtime-recipes/release_tool.py validate-image-metadata \
@@ -118,6 +119,8 @@ jobs:
             --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}" \
             --provisioner-runtime-metadata /tmp/provisioner-runtime.json \
             --endpoint-runtime-metadata /tmp/endpoint-runtime.json
+          python workers/runtime-recipes/release_tool.py validate-runtime-archive \
+            --runtime-archive /tmp/base-runtime.tar.gz
 
       - name: Log in to GHCR
         uses: docker/login-action@v4

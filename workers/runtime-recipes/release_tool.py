@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import re
 import sys
+import tarfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -230,6 +231,17 @@ def validate_image_metadata(
             "provisioner runtime metadata does not match selected recipe: "
             + ", ".join(mismatches)
         )
+
+
+def validate_runtime_archive(path: Path) -> None:
+    if not path.is_file():
+        raise ReleaseToolError(f"runtime archive is missing: {path}")
+    try:
+        with tarfile.open(path, mode="r:*") as archive:
+            for member in archive:
+                tarfile.data_filter(member, "/tmp/luma-forge-runtime-archive-validation")
+    except (OSError, tarfile.TarError) as error:
+        raise ReleaseToolError(f"runtime archive is not safely extractable: {error}") from error
 
 
 def recipe_outputs(recipe: dict[str, Any], recipe_path: Path, implementation_revision: str) -> dict[str, str]:
@@ -530,6 +542,10 @@ def _cmd_validate_image_metadata(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_validate_runtime_archive(args: argparse.Namespace) -> None:
+    validate_runtime_archive(Path(args.runtime_archive))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Runtime recipe release helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -561,6 +577,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate_image.add_argument("--provisioner-runtime-metadata", required=True)
     validate_image.add_argument("--endpoint-runtime-metadata", required=True)
     validate_image.set_defaults(func=_cmd_validate_image_metadata)
+
+    validate_archive = subparsers.add_parser("validate-runtime-archive", help="validate runtime archive safety")
+    validate_archive.add_argument("--runtime-archive", required=True)
+    validate_archive.set_defaults(func=_cmd_validate_runtime_archive)
     return parser
 
 

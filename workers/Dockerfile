@@ -22,7 +22,7 @@ ARG LUMA_FORGE_BASE_REQUIREMENTS_JSON=["requirements.txt"]
 
 WORKDIR /runtime-build
 
-RUN python -m venv /workspace/.venv \
+RUN python -m venv --copies /workspace/.venv \
     && /workspace/.venv/bin/python -m pip install --no-cache-dir --upgrade pip
 
 RUN test "$LUMA_FORGE_RUNTIME_PYTHON_VERSION" = "3.12" \

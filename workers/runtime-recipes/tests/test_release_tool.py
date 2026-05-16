@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import json
 import shutil
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -101,6 +102,11 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("LUMA_FORGE_BASE_REQUIREMENTS_JSON", dockerfile)
         self.assertIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
         self.assertNotIn("-r /workspace/ComfyUI/requirements.txt", dockerfile)
+
+    def test_dockerfile_builds_runtime_venv_without_symlinks(self):
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("python -m venv --copies /workspace/.venv", dockerfile)
 
     def test_manual_dispatch_allows_optional_auto_revision_without_stale_default(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -289,6 +295,30 @@ class ReleaseToolTests(unittest.TestCase):
                 provisioner_metadata=provisioner_metadata,
                 endpoint_metadata=endpoint_metadata,
             )
+
+    def test_validate_runtime_archive_rejects_absolute_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "base-runtime.tar.gz"
+            with tarfile.open(archive_path, "w:gz") as archive:
+                link = tarfile.TarInfo(".venv/bin/python3.12")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "/usr/local/bin/python3.12"
+                archive.addfile(link)
+
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "safely extractable"):
+                release_tool.validate_runtime_archive(archive_path)
+
+    def test_validate_runtime_archive_accepts_data_filter_safe_members(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = root / "payload"
+            payload.mkdir()
+            (payload / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
+            archive_path = root / "base-runtime.tar.gz"
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(payload / "main.py", arcname="ComfyUI/main.py")
+
+            release_tool.validate_runtime_archive(archive_path)
 
     def test_cli_writes_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
