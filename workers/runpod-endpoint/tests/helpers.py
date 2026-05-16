@@ -68,15 +68,19 @@ class WorkerFixture:
         (self.metadata_dir / "runtime.json").write_text(
             json.dumps(
                 {
-                    "environment_kind": "volume_venv",
+                    "environment_kind": "image_baked_comfyui_runtime",
                     "python_path": str(self.venv_python),
                     "comfyui_root": str(self.comfyui_root),
                     "python_version": "Python 3.12.0",
                     "platform": "test-platform",
                     "comfyui_revision": "0123456789abcdef0123456789abcdef01234567",
+                    "runtime_contract_id": "comfyui-python312-cu121",
+                    "runtime_contract_version": "1.0.0",
+                    "implementation_revision": "2026.05.16-001",
+                    "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
                     "custom_node_revisions": [],
-                    "pip_freeze_path": str(self.pip_freeze_path),
-                    "install_report_path": str(self.install_report_path),
+                    "base_dependency_record_paths": [str(self.pip_freeze_path), str(self.install_report_path)],
                     "prepared_at": "2026-05-15T00:00:00+00:00",
                 }
             ),

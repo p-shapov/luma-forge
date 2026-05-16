@@ -8,6 +8,7 @@ use crate::{
         placement::validator as placement_validator,
         provider_inventory::validator as provider_inventory_validator,
         provider_setup::GpuCloudProviderId,
+        runtime::RuntimeCatalog,
         workflow::WorkflowCatalog,
         workspace::{Workspace, WorkspaceCatalog},
     },
@@ -29,6 +30,7 @@ pub trait ProviderPlacementOptionsGateway: Send + Sync {
 
 pub trait WorkspaceSetupCatalogReader: Send + Sync {
     fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError>;
+    fn runtime_catalog(&self) -> Result<RuntimeCatalog, WorkspaceSetupError>;
 }
 
 pub struct WorkspaceSetupService<C, S, P, W> {
@@ -94,18 +96,29 @@ where
             .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
 
         let workflow_catalog = self.catalogs.workflow_catalog()?;
+        let runtime_catalog = self.catalogs.runtime_catalog()?;
         placement_validator::validate_placement_plan(
             provider_id,
             &request.placement_plan,
             &workflow_catalog,
+            &runtime_catalog,
         )
         .map_err(WorkspaceSetupError::from)?;
+        let resolved_runtime_implementation = runtime_catalog
+            .resolve_default(
+                &request
+                    .placement_plan
+                    .selected_workflow_preset()
+                    .required_runtime_contract,
+            )
+            .ok_or(WorkspaceSetupError::WorkflowCatalogUnavailable)?;
 
         let workspace = Workspace::new_draft(
             provider_id,
             workspace_id.to_string(),
             name.to_string(),
             request.placement_plan,
+            resolved_runtime_implementation,
         )
         .map_err(|_| WorkspaceSetupError::InvalidWorkspaceMetadata)?;
 

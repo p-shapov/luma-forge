@@ -1,7 +1,11 @@
 use crate::domain::{
     placement::PlacementPlan,
     provider_setup::GpuCloudProviderId,
-    workflow::{ComfyUiRuntimeSource, WorkflowExecutionType, WorkflowPreset},
+    runtime::{
+        ResolvedRuntimeImplementationSnapshot, RuntimeContractReference, RuntimeImageMetadata,
+        RuntimeMetadata,
+    },
+    workflow::{WorkflowExecutionType, WorkflowPreset},
 };
 
 use super::{Workspace, WorkspaceLifecycleState, WorkspaceValidationError};
@@ -23,12 +27,34 @@ fn placement_plan() -> PlacementPlan {
             name: "Preset".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 85899345920,
-            required_comfyui_source: ComfyUiRuntimeSource::Git {
-                repository_url: "https://github.com/comfyanonymous/ComfyUI".to_string(),
-                revision: "main".to_string(),
+            required_runtime_contract: RuntimeContractReference {
+                id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
             },
             required_model_assets: vec![],
             required_custom_nodes: vec![],
+        },
+    }
+}
+
+fn runtime_snapshot() -> ResolvedRuntimeImplementationSnapshot {
+    ResolvedRuntimeImplementationSnapshot {
+        contract_id: "comfyui-python312-cu121".to_string(),
+        contract_version: "1.0.0".to_string(),
+        implementation_revision: "2026.05.16-001".to_string(),
+        provisioner_image_ref: "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        endpoint_image_ref: "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222".to_string(),
+        runtime_metadata: RuntimeMetadata {
+            environment_kind: "image_baked_comfyui_runtime".to_string(),
+            python_version: "3.12".to_string(),
+            platform: "linux-x86_64-cuda".to_string(),
+            comfyui_revision: "aa9d2fc713664e9ffe37763f4c9240c0c3eda667".to_string(),
+            base_dependency_record_paths: vec![".luma-forge/base-runtime/pip-freeze.txt".to_string()],
+        },
+        image_metadata: RuntimeImageMetadata {
+            provisioner_runtime_archive_path: "/opt/luma-forge/runtime/base-runtime.tar.zst".to_string(),
+            provisioner_runtime_metadata_path: "/opt/luma-forge/runtime/runtime-metadata.json".to_string(),
+            endpoint_runtime_contract_path: "/opt/luma-forge/runtime/runtime-contract.json".to_string(),
         },
     }
 }
@@ -40,6 +66,7 @@ fn creates_draft_workspace_with_empty_resource_snapshots() {
         "018f6a40-0000-7000-8000-000000000001".to_string(),
         "Workspace".to_string(),
         placement_plan(),
+        runtime_snapshot(),
     )
     .expect("draft workspace should be valid");
 
@@ -61,6 +88,7 @@ fn rejects_missing_identity_or_name() {
         " ".to_string(),
         "Workspace".to_string(),
         placement_plan(),
+        runtime_snapshot(),
     )
     .expect_err("missing id should fail");
     let missing_name = Workspace::new_draft(
@@ -68,6 +96,7 @@ fn rejects_missing_identity_or_name() {
         "018f6a40-0000-7000-8000-000000000001".to_string(),
         " ".to_string(),
         placement_plan(),
+        runtime_snapshot(),
     )
     .expect_err("missing name should fail");
 
@@ -90,6 +119,7 @@ fn serializes_failed_workspace_with_provisioning_failure_detail() {
         "018f6a40-0000-7000-8000-000000000001".to_string(),
         "Workspace".to_string(),
         placement_plan(),
+        runtime_snapshot(),
     )
     .expect("draft workspace should be valid");
     workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
@@ -125,6 +155,7 @@ fn deserializes_legacy_workspace_without_provisioning_failure_detail() {
         "018f6a40-0000-7000-8000-000000000001".to_string(),
         "Workspace".to_string(),
         placement_plan(),
+        runtime_snapshot(),
     )
     .expect("draft workspace should be valid");
     let mut value = serde_json::to_value(&workspace).expect("workspace should serialize");

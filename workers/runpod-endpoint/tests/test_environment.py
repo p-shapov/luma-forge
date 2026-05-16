@@ -25,7 +25,18 @@ class EnvironmentTests(unittest.TestCase):
         with WorkerFixture() as fixture:
             payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
             fixture.config.runtime_manifest_path.write_text(
-                payload.replace('"volume_venv"', '"container_python"'),
+                payload.replace('"image_baked_comfyui_runtime"', '"container_python"'),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_runtime_contract_metadata_is_missing(self):
+        with WorkerFixture() as fixture:
+            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
+            fixture.config.runtime_manifest_path.write_text(
+                payload.replace('"runtime_contract_id": "comfyui-python312-cu121",', ""),
                 encoding="utf-8",
             )
 

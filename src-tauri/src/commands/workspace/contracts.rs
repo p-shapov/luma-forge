@@ -4,8 +4,8 @@ use specta::Type;
 use crate::{
     domain::{
         placement as domain_placement, provider_inventory as domain_inventory,
-        provider_setup as domain_provider_setup, workflow as domain_workflow,
-        workspace as domain_workspace,
+        provider_setup as domain_provider_setup, runtime as domain_runtime,
+        workflow as domain_workflow, workspace as domain_workspace,
     },
     workspace_setup::contracts::{CreateWorkspaceInput, ProviderPlacementOptions},
 };
@@ -94,13 +94,40 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workflow::ComfyUiRuntimeSource)]
-    #[serde(tag = "source_type", rename_all = "snake_case")]
-    pub(super) enum ComfyUiRuntimeSource {
-        Git {
-            repository_url: String,
-            revision: String,
-        },
+    #[specta(remote = domain_runtime::RuntimeContractReference)]
+    pub(super) struct RuntimeContractReference {
+        pub id: String,
+        pub version: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_runtime::RuntimeMetadata)]
+    pub(super) struct RuntimeMetadata {
+        pub environment_kind: String,
+        pub python_version: String,
+        pub platform: String,
+        pub comfyui_revision: String,
+        pub base_dependency_record_paths: Vec<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_runtime::RuntimeImageMetadata)]
+    pub(super) struct RuntimeImageMetadata {
+        pub provisioner_runtime_archive_path: String,
+        pub provisioner_runtime_metadata_path: String,
+        pub endpoint_runtime_contract_path: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_runtime::ResolvedRuntimeImplementationSnapshot)]
+    pub(super) struct ResolvedRuntimeImplementationSnapshot {
+        pub contract_id: String,
+        pub contract_version: String,
+        pub implementation_revision: String,
+        pub provisioner_image_ref: String,
+        pub endpoint_image_ref: String,
+        pub runtime_metadata: domain_runtime::RuntimeMetadata,
+        pub image_metadata: domain_runtime::RuntimeImageMetadata,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -111,7 +138,7 @@ mod remote_types {
         pub name: String,
         pub workflow_execution_type: domain_workflow::WorkflowExecutionType,
         pub required_base_volume_size_bytes: u64,
-        pub required_comfyui_source: domain_workflow::ComfyUiRuntimeSource,
+        pub required_runtime_contract: domain_runtime::RuntimeContractReference,
         pub required_model_assets: Vec<domain_workflow::ModelAsset>,
         pub required_custom_nodes: Vec<domain_workflow::CustomNode>,
     }
@@ -218,6 +245,7 @@ mod remote_types {
         pub name: String,
         pub lifecycle_state: domain_workspace::WorkspaceLifecycleState,
         pub placement_plan: domain_placement::PlacementPlan,
+        pub resolved_runtime_implementation: domain_runtime::ResolvedRuntimeImplementationSnapshot,
         pub persistent_storage_volume_snapshot:
             Option<domain_workspace::PersistentStorageVolumeSnapshot>,
         pub active_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,

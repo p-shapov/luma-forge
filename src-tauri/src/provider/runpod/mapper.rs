@@ -201,6 +201,7 @@ pub(super) fn pod_from_response_with_context(
                         .map(|context| context.selected_gpu_id.clone())
                 })
         }))?,
+        image_name: non_empty(payload.image_name)?,
         status: resource_status(payload.pod_status.or(payload.desired_status).as_deref()),
     })
 }

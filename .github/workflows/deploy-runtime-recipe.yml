@@ -1,0 +1,210 @@
+name: Deploy Runtime Recipe
+
+on:
+  push:
+    tags:
+      - "runtime-recipe-v*"
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: Runtime recipe
+        required: true
+        type: choice
+        options:
+          - workers/runtime-recipes/comfyui-python312-cu121.yaml
+        default: workers/runtime-recipes/comfyui-python312-cu121.yaml
+      implementation_revision:
+        description: Runtime implementation revision
+        required: true
+        default: 2026.05.16-001
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: deploy-runtime-recipe-${{ github.ref }}-${{ inputs.recipe || 'tag' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate, build, and publish runtime pair
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install release tooling
+        run: python -m pip install --upgrade pip pyyaml jsonschema
+
+      - name: Resolve recipe metadata
+        id: recipe
+        env:
+          RECIPE: ${{ inputs.recipe || 'workers/runtime-recipes/comfyui-python312-cu121.yaml' }}
+          IMPLEMENTATION_REVISION: ${{ inputs.implementation_revision || github.ref_name }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, re, yaml
+          from jsonschema import Draft202012Validator
+          recipe_path = os.environ["RECIPE"]
+          with open(recipe_path, "r", encoding="utf-8") as handle:
+              recipe = yaml.safe_load(handle)
+          with open("workers/runtime-recipes/schema.json", "r", encoding="utf-8") as handle:
+              schema = yaml.safe_load(handle)
+          Draft202012Validator(schema).validate(recipe)
+          contract = recipe["contract"]
+          runtime = recipe["runtime"]
+          revision = os.environ["IMPLEMENTATION_REVISION"]
+          if not re.fullmatch(r"[a-z][a-z0-9-]*", contract["id"]):
+              raise SystemExit("invalid contract id")
+          print(f"recipe={recipe_path}")
+          print(f"contract_id={contract['id']}")
+          print(f"contract_version={contract['version']}")
+          print(f"implementation_revision={revision}")
+          print(f"comfyui_repository={runtime['comfyui']['repository_url']}")
+          print(f"comfyui_revision={runtime['comfyui']['revision']}")
+          PY
+
+      - name: Validate workers
+        run: |
+          python -m pip install workers/provisioner workers/runpod-endpoint pyyaml
+          PYTHONPATH=workers/provisioner/src python -m unittest discover -s workers/provisioner/tests
+          PYTHONPATH=workers/runpod-endpoint/src python -m unittest discover -s workers/runpod-endpoint/tests
+
+      - name: Resolve image tags
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          CONTRACT_ID: ${{ steps.recipe.outputs.contract_id }}
+          CONTRACT_VERSION: ${{ steps.recipe.outputs.contract_version }}
+          IMPLEMENTATION_REVISION: ${{ steps.recipe.outputs.implementation_revision }}
+        run: |
+          base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          suffix="${CONTRACT_ID}-${CONTRACT_VERSION}-${IMPLEMENTATION_REVISION}"
+          printf 'provisioner_tag=%s\n' "${base}/provisioner-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
+          printf 'endpoint_tag=%s\n' "${base}/runpod-endpoint-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build provisioner image
+        run: |
+          docker build --file workers/Dockerfile --platform linux/amd64 --target provisioner \
+            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_ID="${{ steps.recipe.outputs.contract_id }}" \
+            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_VERSION="${{ steps.recipe.outputs.contract_version }}" \
+            --build-arg LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION="${{ steps.recipe.outputs.implementation_revision }}" \
+            --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
+            --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.recipe.outputs.comfyui_revision }}" \
+            --tag "${{ steps.image.outputs.provisioner_tag }}" .
+
+      - name: Build endpoint image
+        run: |
+          docker build --file workers/Dockerfile --platform linux/amd64 --target runpod-endpoint \
+            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_ID="${{ steps.recipe.outputs.contract_id }}" \
+            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_VERSION="${{ steps.recipe.outputs.contract_version }}" \
+            --build-arg LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION="${{ steps.recipe.outputs.implementation_revision }}" \
+            --tag "${{ steps.image.outputs.endpoint_tag }}" .
+
+      - name: Validate image pair runtime metadata
+        run: |
+          provisioner="$(docker create "${{ steps.image.outputs.provisioner_tag }}")"
+          endpoint="$(docker create "${{ steps.image.outputs.endpoint_tag }}")"
+          docker cp "$provisioner:/opt/luma-forge/runtime/runtime-metadata.json" /tmp/provisioner-runtime.json
+          docker cp "$endpoint:/opt/luma-forge/runtime/runtime-contract.json" /tmp/endpoint-runtime.json
+          docker rm "$provisioner" "$endpoint"
+          python - <<'PY'
+          import json
+          provisioner = json.load(open("/tmp/provisioner-runtime.json", encoding="utf-8"))
+          endpoint = json.load(open("/tmp/endpoint-runtime.json", encoding="utf-8"))
+          keys = ("contract_id", "contract_version", "implementation_revision")
+          if {key: provisioner[key] for key in keys} != {key: endpoint[key] for key in keys}:
+              raise SystemExit("runtime image pair metadata mismatch")
+          PY
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Publish image pair
+        run: |
+          docker push "${{ steps.image.outputs.provisioner_tag }}"
+          docker push "${{ steps.image.outputs.endpoint_tag }}"
+
+      - name: Resolve pushed image digests
+        id: digest
+        run: |
+          provisioner_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.image.outputs.provisioner_tag }}")"
+          endpoint_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.image.outputs.endpoint_tag }}")"
+          printf 'provisioner_ref=%s\n' "$provisioner_digest" >> "$GITHUB_OUTPUT"
+          printf 'endpoint_ref=%s\n' "$endpoint_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Runtime Catalog update
+        env:
+          CONTRACT_ID: ${{ steps.recipe.outputs.contract_id }}
+          CONTRACT_VERSION: ${{ steps.recipe.outputs.contract_version }}
+          IMPLEMENTATION_REVISION: ${{ steps.recipe.outputs.implementation_revision }}
+          COMFYUI_REVISION: ${{ steps.recipe.outputs.comfyui_revision }}
+          PROVISIONER_REF: ${{ steps.digest.outputs.provisioner_ref }}
+          ENDPOINT_REF: ${{ steps.digest.outputs.endpoint_ref }}
+        run: |
+          python - <<'PY'
+          import json, os
+          path = "bundled/runtime-catalog.json"
+          with open(path, "r", encoding="utf-8") as handle:
+              catalog = json.load(handle)
+          contract_id = os.environ["CONTRACT_ID"]
+          contract_version = os.environ["CONTRACT_VERSION"]
+          implementation_revision = os.environ["IMPLEMENTATION_REVISION"]
+          contracts = catalog["runtime_contracts"]
+          contract = next((item for item in contracts if item["id"] == contract_id and item["version"] == contract_version), None)
+          if contract is None:
+              contract = {
+                  "id": contract_id,
+                  "version": contract_version,
+                  "display_name": f"{contract_id} {contract_version}",
+                  "runtime_metadata": {
+                      "environment_kind": "image_baked_comfyui_runtime",
+                      "python_version": "3.12",
+                      "platform": "linux-x86_64-cuda",
+                      "comfyui_revision": os.environ["COMFYUI_REVISION"],
+                      "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"]
+                  },
+                  "implementation_revisions": [],
+                  "default_implementation_revision": implementation_revision,
+              }
+              contracts.append(contract)
+          if any(item["revision"] == implementation_revision for item in contract["implementation_revisions"]):
+              raise SystemExit(f"implementation revision already exists: {implementation_revision}")
+          contract["implementation_revisions"].append({
+              "revision": implementation_revision,
+              "provisioner_image_ref": os.environ["PROVISIONER_REF"],
+              "endpoint_image_ref": os.environ["ENDPOINT_REF"],
+              "image_metadata": {
+                  "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
+                  "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
+                  "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
+              }
+          })
+          contract["default_implementation_revision"] = implementation_revision
+          with open(path, "w", encoding="utf-8") as handle:
+              json.dump(catalog, handle, indent=2, sort_keys=False)
+              handle.write("\n")
+          PY
+
+      - name: Open Runtime Catalog update PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: runtime-catalog/${{ steps.recipe.outputs.contract_id }}-${{ steps.recipe.outputs.contract_version }}-${{ steps.recipe.outputs.implementation_revision }}
+          title: "chore(workers): catalog runtime ${{ steps.recipe.outputs.contract_id }} ${{ steps.recipe.outputs.implementation_revision }}"
+          commit-message: "chore(workers): catalog runtime implementation"
+          body: |
+            Updates `bundled/runtime-catalog.json` for the validated runtime recipe image pair.
+          labels: runtime-catalog

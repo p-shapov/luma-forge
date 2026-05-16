@@ -17,8 +17,6 @@ export const commands = {
 };
 
 /* Types */
-export type ComfyUiRuntimeSource = { source_type: "git"; repository_url: string; revision: string };
-
 export type CreateWorkspaceRequest = {
 	workspace_id: string,
 	name: string,
@@ -164,11 +162,40 @@ export type ProvisioningPodSnapshot = {
 	provisioner_status_url: string,
 };
 
+export type ResolvedRuntimeImplementationSnapshot = {
+	contract_id: string,
+	contract_version: string,
+	implementation_revision: string,
+	provisioner_image_ref: string,
+	endpoint_image_ref: string,
+	runtime_metadata: RuntimeMetadata,
+	image_metadata: RuntimeImageMetadata,
+};
+
 export type RunPodEndpointTemplateSnapshot = {
 	template_id: string,
 	provider_resource_status: ProviderResourceStatus,
 	endpoint_worker_image_ref: string,
 	mount_path: string,
+};
+
+export type RuntimeContractReference = {
+	id: string,
+	version: string,
+};
+
+export type RuntimeImageMetadata = {
+	provisioner_runtime_archive_path: string,
+	provisioner_runtime_metadata_path: string,
+	endpoint_runtime_contract_path: string,
+};
+
+export type RuntimeMetadata = {
+	environment_kind: string,
+	python_version: string,
+	platform: string,
+	comfyui_revision: string,
+	base_dependency_record_paths: string[],
 };
 
 export type ServerlessEndpointSnapshot = {
@@ -203,7 +230,7 @@ export type WorkflowPreset = {
 	name: string,
 	workflow_execution_type: WorkflowExecutionType,
 	required_base_volume_size_bytes: number,
-	required_comfyui_source: ComfyUiRuntimeSource,
+	required_runtime_contract: RuntimeContractReference,
 	required_model_assets: ModelAsset[],
 	required_custom_nodes: CustomNode[],
 };
@@ -214,6 +241,7 @@ export type Workspace = {
 	name: string,
 	lifecycle_state: WorkspaceLifecycleState,
 	placement_plan: PlacementPlan,
+	resolved_runtime_implementation: ResolvedRuntimeImplementationSnapshot,
 	persistent_storage_volume_snapshot: PersistentStorageVolumeSnapshot | null,
 	active_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
 	serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null,

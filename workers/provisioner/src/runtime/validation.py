@@ -12,10 +12,10 @@ def validate_prepared_environment(request: StartRequest, paths: RuntimePaths, *,
         raise PreparationError("ComfyUI entrypoint is missing")
     if not paths.python_path.is_file():
         raise PreparationError("Volume Python interpreter is missing")
-    if not paths.pip_freeze_path.is_file():
-        raise PreparationError("Dependency freeze record is missing")
-    if not paths.install_report_path.is_file():
-        raise PreparationError("Dependency install report is missing")
+    if request.resolved_runtime_implementation.contract_id != request.workflow_preset.required_runtime_contract.id:
+        raise PreparationError("Resolved runtime contract does not match Workflow Preset")
+    if request.resolved_runtime_implementation.contract_version != request.workflow_preset.required_runtime_contract.version:
+        raise PreparationError("Resolved runtime contract version does not match Workflow Preset")
 
     for node in request.workflow_preset.required_custom_nodes:
         target = safe_custom_node_child_path(

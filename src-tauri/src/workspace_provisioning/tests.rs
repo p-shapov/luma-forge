@@ -299,13 +299,14 @@ impl ProviderProvisioningGateway for FakeProvider {
             }
             assert_eq!(
                 input.provisioner_worker_image_ref,
-                "ghcr.io/luma-forge/provisioner-worker:test"
+                "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111"
             );
             assert_eq!(input.provisioner_worker_port, 8080);
             Ok(ProvisioningPodObservation {
                 provider_resource_id: "pod-1".to_string(),
                 datacenter_id: "EU-RO-1".to_string(),
                 selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+                provisioner_worker_image_ref: input.provisioner_worker_image_ref,
                 provider_resource_status: ProviderResourceStatus::Running,
                 provisioner_status_url: Some("http://203.0.113.10:30001/status".to_string()),
             })
@@ -347,6 +348,7 @@ impl ProviderProvisioningGateway for FakeProvider {
                 provider_resource_id: input.provider_resource_id,
                 datacenter_id: input.datacenter_id,
                 selected_gpu_id: input.selected_gpu_id,
+                provisioner_worker_image_ref: input.expected_provisioner_worker_image_ref,
                 provider_resource_status: ProviderResourceStatus::Running,
                 provisioner_status_url: self
                     .get_pod_status_url
@@ -2062,6 +2064,7 @@ fn discovered_pod(provider_resource_id: &str) -> ProvisioningPodObservation {
         provider_resource_id: provider_resource_id.to_string(),
         datacenter_id: "EU-RO-1".to_string(),
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        provisioner_worker_image_ref: "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
         provider_resource_status: ProviderResourceStatus::Running,
         provisioner_status_url: Some(format!(
             "https://{provider_resource_id}-8080.proxy.runpod.net/status"
@@ -2141,9 +2144,7 @@ fn worker_token_map(workspace_id: &str) -> Arc<Mutex<HashMap<String, String>>> {
 
 fn test_config() -> WorkspaceProvisioningConfig {
     WorkspaceProvisioningConfig {
-        provisioner_worker_image_ref: "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
         provisioner_worker_port: 8080,
-        runpod_endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
         runpod_endpoint_worker_port: 8080,
         volume_mount_path: "/workspace".to_string(),
     }

@@ -270,6 +270,13 @@ where
                         &input.selected_gpu_id,
                     )
                     .await
+                    .and_then(|observation| {
+                        if observation.image_name == input.expected_provisioner_worker_image_ref {
+                            Ok(observation)
+                        } else {
+                            Err(ProviderClientError::ResponseInvalid)
+                        }
+                    })
                     .map(runpod_pod_observation)
                     .map_err(provisioning_error_from_client_error),
             }
@@ -297,6 +304,7 @@ where
                         &input.network_volume_id,
                         &input.datacenter_id,
                         &input.selected_gpu_id,
+                        &input.expected_provisioner_worker_image_ref,
                     )
                     .await
                     .map(|observations| {
@@ -633,6 +641,7 @@ fn runpod_pod_observation(observation: RunPodPodObservation) -> ProvisioningPodO
         provider_resource_id: observation.id,
         datacenter_id: observation.data_center_id,
         selected_gpu_id: observation.selected_gpu_id,
+        provisioner_worker_image_ref: observation.image_name,
         provider_resource_status: observation.status,
         provisioner_status_url: observation.provisioner_status_url,
     }

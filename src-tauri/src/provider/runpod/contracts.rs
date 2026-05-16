@@ -123,6 +123,7 @@ pub(super) struct RunPodPodResponse {
     pub gpu: Option<RunPodPodGpuResponse>,
     pub machine: Option<RunPodPodMachineResponse>,
     pub network_volume_id: Option<String>,
+    pub image_name: Option<String>,
     pub ports: Option<Vec<String>>,
     pub public_ip: Option<String>,
     pub port_mappings: Option<HashMap<String, u16>>,
@@ -146,6 +147,7 @@ pub struct RunPodPodObservation {
     pub id: String,
     pub data_center_id: String,
     pub selected_gpu_id: String,
+    pub image_name: String,
     pub status: ProviderResourceStatus,
     pub provisioner_status_url: Option<String>,
 }

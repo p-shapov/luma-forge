@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::runtime::RuntimeContractReference;
+
 pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,22 +74,13 @@ pub enum WorkflowExecutionType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "source_type", rename_all = "snake_case")]
-pub enum ComfyUiRuntimeSource {
-    Git {
-        repository_url: String,
-        revision: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowPreset {
     pub id: String,
     pub version: String,
     pub name: String,
     pub workflow_execution_type: WorkflowExecutionType,
     pub required_base_volume_size_bytes: u64,
-    pub required_comfyui_source: ComfyUiRuntimeSource,
+    pub required_runtime_contract: RuntimeContractReference,
     pub required_model_assets: Vec<ModelAsset>,
     pub required_custom_nodes: Vec<CustomNode>,
 }

@@ -10,6 +10,7 @@ from auxiliary.git import GitCheckout
 from auxiliary.paths import safe_child_path, safe_custom_node_child_path
 from runtime.python_environment import PythonEnvironment
 from runtime.manifest import build_manifest, runtime_paths, write_manifest
+from runtime.materializer import RuntimeMaterializer
 from app.schemas import CustomNode, ModelAsset, StartRequest
 
 ProgressCallback = Callable[[str, int | None, str | None], None]
@@ -39,6 +40,7 @@ class Provisioner:
             self.command_runner,
             self.config.dependency_timeout_seconds,
         )
+        self.runtime_materializer = RuntimeMaterializer(self.config)
 
     def prepare(self, request: StartRequest, progress: ProgressCallback, cancel_event: Event) -> None:
         workspace_root = self.config.workspace_mount_path.resolve(strict=False)
@@ -47,23 +49,8 @@ class Provisioner:
         comfyui_root = paths.comfyui_root
 
         self._check_cancelled(cancel_event)
-        progress("installing_comfyui", 5, "Preparing ComfyUI")
-        self.git_checkout.checkout(request.workflow_preset.required_comfyui_source, comfyui_root, cancel_event)
-
-        self._check_cancelled(cancel_event)
-        progress("installing_comfyui", 20, "Preparing volume Python environment")
-        self.python_environment.ensure_volume_venv(paths.venv_dir, cancel_event)
-
-        self._check_cancelled(cancel_event)
-        progress("installing_comfyui", 25, "Installing ComfyUI dependencies into volume environment")
-        self.python_environment.install_requirements(
-            comfyui_root / "requirements.txt",
-            cwd=comfyui_root,
-            python_path=paths.python_path,
-            report_label="comfyui",
-            metadata_dir=paths.metadata_dir,
-            cancel_event=cancel_event,
-        )
+        progress("materializing_runtime", 5, "Materializing image-baked ComfyUI runtime")
+        self.runtime_materializer.materialize(request.resolved_runtime_implementation, paths, cancel_event)
 
         self._install_custom_nodes(
             request.workflow_preset.required_custom_nodes,
@@ -78,7 +65,6 @@ class Provisioner:
         self._check_cancelled(cancel_event)
         progress("validating_environment", 90, "Recording prepared runtime environment")
         python_version = self.python_environment.capture_python_version(paths.python_path, cancel_event)
-        self.python_environment.write_dependency_records(paths, cancel_event)
         validate_prepared_environment(request, paths, include_manifest=False)
         write_manifest(
             build_manifest(

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::{placement::PlacementPlan, provider_setup::GpuCloudProviderId};
+use super::{
+    placement::PlacementPlan, provider_setup::GpuCloudProviderId,
+    runtime::ResolvedRuntimeImplementationSnapshot,
+};
 
 pub mod validator;
 
@@ -157,6 +160,7 @@ pub struct Workspace {
     pub name: String,
     pub lifecycle_state: WorkspaceLifecycleState,
     pub placement_plan: PlacementPlan,
+    pub resolved_runtime_implementation: ResolvedRuntimeImplementationSnapshot,
     pub persistent_storage_volume_snapshot: Option<PersistentStorageVolumeSnapshot>,
     pub active_provisioning_pod_snapshot: Option<ProvisioningPodSnapshot>,
     pub serverless_endpoint_snapshot: Option<ServerlessEndpointSnapshot>,
@@ -177,6 +181,7 @@ impl Workspace {
         id: String,
         name: String,
         placement_plan: PlacementPlan,
+        resolved_runtime_implementation: ResolvedRuntimeImplementationSnapshot,
     ) -> Result<Self, WorkspaceValidationError> {
         if id.trim().is_empty()
             || name.trim().is_empty()
@@ -191,6 +196,7 @@ impl Workspace {
             name,
             lifecycle_state: WorkspaceLifecycleState::Draft,
             placement_plan,
+            resolved_runtime_implementation,
             persistent_storage_volume_snapshot: None,
             active_provisioning_pod_snapshot: None,
             serverless_endpoint_snapshot: None,

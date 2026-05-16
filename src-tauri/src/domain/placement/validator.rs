@@ -1,5 +1,8 @@
 use crate::domain::{
-    provider_setup::GpuCloudProviderId, validation::is_blank, workflow::WorkflowCatalog,
+    provider_setup::GpuCloudProviderId,
+    runtime::{validator as runtime_validator, RuntimeCatalog},
+    validation::is_blank,
+    workflow::WorkflowCatalog,
 };
 
 use super::PlacementPlan;
@@ -19,6 +22,7 @@ pub fn validate_placement_plan(
     provider_id: GpuCloudProviderId,
     placement_plan: &PlacementPlan,
     workflow_catalog: &WorkflowCatalog,
+    runtime_catalog: &RuntimeCatalog,
 ) -> Result<(), PlacementValidationError> {
     let PlacementPlan::Runpod {
         selected_datacenter_id,
@@ -46,6 +50,11 @@ pub fn validate_placement_plan(
     if preset != selected_workflow_preset {
         return Err(PlacementValidationError::WorkflowPresetStale);
     }
+    runtime_validator::validate_runtime_contract_reference(
+        &selected_workflow_preset.required_runtime_contract,
+        runtime_catalog,
+    )
+    .map_err(|_| PlacementValidationError::WorkflowPresetStale)?;
 
     if *persistent_storage_volume_size_bytes < preset.required_base_volume_size_bytes {
         return Err(PlacementValidationError::StorageSizeBelowPresetMinimum);

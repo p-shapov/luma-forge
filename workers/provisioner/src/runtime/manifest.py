@@ -8,7 +8,7 @@ from app.errors import PreparationError
 from auxiliary.paths import safe_child_path
 from app.schemas import CustomNode, StartRequest
 
-ENVIRONMENT_KIND = "volume_venv"
+ENVIRONMENT_KIND = "image_baked_comfyui_runtime"
 METADATA_DIR = ".luma-forge"
 RUNTIME_MANIFEST = "runtime.json"
 PIP_FREEZE = "pip-freeze.txt"
@@ -36,9 +36,13 @@ class PreparedRuntimeManifest:
     python_version: str
     platform: str
     comfyui_revision: str
+    runtime_contract_id: str
+    runtime_contract_version: str
+    implementation_revision: str
+    provisioner_image_ref: str
+    endpoint_image_ref: str
     custom_node_revisions: list[dict[str, str]]
-    pip_freeze_path: str
-    install_report_path: str
+    base_dependency_record_paths: list[str]
     prepared_at: str
 
     def to_json(self) -> str:
@@ -72,11 +76,18 @@ def build_manifest(
         python_path=str(paths.python_path),
         comfyui_root=str(paths.comfyui_root),
         python_version=python_version.strip(),
-        platform=platform.platform(),
-        comfyui_revision=request.workflow_preset.required_comfyui_source.revision,
+        platform=request.resolved_runtime_implementation.runtime_metadata.platform or platform.platform(),
+        comfyui_revision=request.resolved_runtime_implementation.runtime_metadata.comfyui_revision,
+        runtime_contract_id=request.resolved_runtime_implementation.contract_id,
+        runtime_contract_version=request.resolved_runtime_implementation.contract_version,
+        implementation_revision=request.resolved_runtime_implementation.implementation_revision,
+        provisioner_image_ref=request.resolved_runtime_implementation.provisioner_image_ref,
+        endpoint_image_ref=request.resolved_runtime_implementation.endpoint_image_ref,
         custom_node_revisions=_custom_node_revisions(request.workflow_preset.required_custom_nodes),
-        pip_freeze_path=str(paths.pip_freeze_path),
-        install_report_path=str(paths.install_report_path),
+        base_dependency_record_paths=[
+            path.as_posix()
+            for path in request.resolved_runtime_implementation.runtime_metadata.base_dependency_record_paths
+        ],
         prepared_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
     )
 
@@ -98,9 +109,13 @@ def load_manifest(path: Path) -> PreparedRuntimeManifest:
             python_version=_required_string(payload, "python_version"),
             platform=_required_string(payload, "platform"),
             comfyui_revision=_required_string(payload, "comfyui_revision"),
+            runtime_contract_id=_required_string(payload, "runtime_contract_id"),
+            runtime_contract_version=_required_string(payload, "runtime_contract_version"),
+            implementation_revision=_required_string(payload, "implementation_revision"),
+            provisioner_image_ref=_required_string(payload, "provisioner_image_ref"),
+            endpoint_image_ref=_required_string(payload, "endpoint_image_ref"),
             custom_node_revisions=_custom_node_revision_payload(payload),
-            pip_freeze_path=_required_string(payload, "pip_freeze_path"),
-            install_report_path=_required_string(payload, "install_report_path"),
+            base_dependency_record_paths=_string_list(payload, "base_dependency_record_paths"),
             prepared_at=_required_string(payload, "prepared_at"),
         )
     except OSError as error:
@@ -116,6 +131,8 @@ def validate_manifest(manifest: PreparedRuntimeManifest, *, paths: RuntimePaths)
         raise PreparationError("Prepared runtime Python path is invalid.")
     if Path(manifest.comfyui_root).resolve(strict=False) != paths.comfyui_root.resolve(strict=False):
         raise PreparationError("Prepared runtime ComfyUI path is invalid.")
+    if not manifest.runtime_contract_id or not manifest.implementation_revision:
+        raise PreparationError("Prepared runtime contract metadata is invalid.")
 
 
 def _custom_node_revisions(custom_nodes: list[CustomNode]) -> list[dict[str, str]]:
@@ -150,3 +167,10 @@ def _custom_node_revision_payload(payload: dict[str, object]) -> list[dict[str, 
             }
         )
     return revisions
+
+
+def _string_list(payload: dict[str, object], key: str) -> list[str]:
+    value = payload.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        raise ValueError(f"{key} is required")
+    return value

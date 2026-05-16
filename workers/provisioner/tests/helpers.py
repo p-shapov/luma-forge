@@ -1,4 +1,7 @@
 import json
+import os
+import tarfile
+import tempfile
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -21,10 +24,9 @@ def sample_preset() -> dict[str, Any]:
         "name": "ComfyUI Text to Image Basic",
         "workflow_execution_type": "t2i",
         "required_base_volume_size_bytes": 1,
-        "required_comfyui_source": {
-            "source_type": "git",
-            "repository_url": "https://example.test/ComfyUI.git",
-            "revision": COMMIT_REVISION,
+        "required_runtime_contract": {
+            "id": "comfyui-python312-cu121",
+            "version": "1.0.0",
         },
         "required_model_assets": [
             {
@@ -46,10 +48,33 @@ def sample_preset() -> dict[str, Any]:
     }
 
 
+def sample_runtime_implementation() -> dict[str, Any]:
+    return {
+        "contract_id": "comfyui-python312-cu121",
+        "contract_version": "1.0.0",
+        "implementation_revision": "2026.05.16-001",
+        "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime_metadata": {
+            "environment_kind": "image_baked_comfyui_runtime",
+            "python_version": "3.12",
+            "platform": "linux-x86_64-cuda",
+            "comfyui_revision": COMMIT_REVISION,
+            "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"],
+        },
+        "image_metadata": {
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar",
+            "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
+            "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json",
+        },
+    }
+
+
 def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "job_id": job_id,
         "workflow_preset": preset or sample_preset(),
+        "resolved_runtime_implementation": sample_runtime_implementation(),
     }
 
 
@@ -105,7 +130,37 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
         ),
         download_timeout_seconds=overrides.get("download_timeout_seconds", config.download_timeout_seconds),
         workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
+        runtime_archive_path=overrides.get("runtime_archive_path", _runtime_archive_fixture()),
+        runtime_contract_id=overrides.get("runtime_contract_id", config.runtime_contract_id),
+        runtime_contract_version=overrides.get("runtime_contract_version", config.runtime_contract_version),
+        runtime_implementation_revision=overrides.get(
+            "runtime_implementation_revision",
+            config.runtime_implementation_revision,
+        ),
+        provisioner_image_ref=overrides.get("provisioner_image_ref", config.provisioner_image_ref),
     )
+
+
+def _runtime_archive_fixture() -> Path:
+    archive_file = tempfile.NamedTemporaryFile(prefix="luma-forge-runtime-", suffix=".tar", delete=False)
+    archive_path = Path(archive_file.name)
+    archive_file.close()
+    tempdir = tempfile.TemporaryDirectory()
+    root = Path(tempdir.name)
+    comfyui = root / "ComfyUI"
+    custom_nodes = comfyui / "custom_nodes"
+    venv_bin = root / ".venv" / "bin"
+    custom_nodes.mkdir(parents=True)
+    venv_bin.mkdir(parents=True)
+    (comfyui / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
+    (custom_nodes / "websocket_image_save.py").write_text("# upstream ComfyUI node\n", encoding="utf-8")
+    (venv_bin / "python").write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    os.chmod(venv_bin / "python", 0o755)
+    with tarfile.open(archive_path, "w") as archive:
+        archive.add(comfyui, arcname="ComfyUI")
+        archive.add(root / ".venv", arcname=".venv")
+    tempdir.cleanup()
+    return archive_path
 
 
 class ServerFixture:
