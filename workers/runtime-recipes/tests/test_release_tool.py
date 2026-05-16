@@ -12,6 +12,8 @@ TOOL_PATH = ROOT / "workers/runtime-recipes/release_tool.py"
 RECIPE_PATH = ROOT / "workers/runtime-recipes/comfyui-python312-cu121.yaml"
 SCHEMA_PATH = ROOT / "workers/runtime-recipes/schema.json"
 DOCKERFILE_PATH = ROOT / "workers/Dockerfile"
+CATALOG_PATH = ROOT / "bundled/runtime-catalog.json"
+WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runtime-recipe.yml"
 
 spec = importlib.util.spec_from_file_location("runtime_recipe_release_tool", TOOL_PATH)
 release_tool = importlib.util.module_from_spec(spec)
@@ -100,6 +102,31 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
         self.assertNotIn("-r /workspace/ComfyUI/requirements.txt", dockerfile)
 
+    def test_manual_dispatch_requires_revision_without_stale_default(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        implementation_revision_section = workflow.split("implementation_revision:", maxsplit=1)[1].split(
+            "\n\npermissions:",
+            maxsplit=1,
+        )[0]
+
+        self.assertIn("required: true", implementation_revision_section)
+        self.assertNotIn("default:", implementation_revision_section)
+        self.assertNotIn("2026.05.16-001", implementation_revision_section)
+
+    def test_catalog_validation_runs_before_build_or_publish(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        validate_catalog_index = workflow.index("Validate runtime catalog compatibility")
+        validate_workers_index = workflow.index("Validate workers")
+        build_provisioner_index = workflow.index("Build provisioner image")
+        publish_index = workflow.index("Publish image pair")
+        catalog_pr_index = workflow.index("Open Runtime Catalog update PR")
+
+        self.assertLess(validate_catalog_index, validate_workers_index)
+        self.assertLess(validate_catalog_index, build_provisioner_index)
+        self.assertLess(validate_catalog_index, publish_index)
+        self.assertLess(validate_catalog_index, catalog_pr_index)
+
     def test_accepts_compatible_existing_contract_append(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
         catalog = _catalog_with_contract(recipe, implementation_revision="2026.05.16-001")
@@ -137,6 +164,30 @@ class ReleaseToolTests(unittest.TestCase):
                 catalog=catalog,
                 implementation_revision="2026.05.16-001",
             )
+
+    def test_bundled_catalog_rejects_cataloged_implementation_revision(self):
+        recipe = release_tool.load_recipe(RECIPE_PATH)
+        catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+
+        with self.assertRaisesRegex(
+            release_tool.ReleaseToolError,
+            "implementation revision already exists: 2026.05.16-001",
+        ):
+            release_tool.validate_catalog_compatibility(
+                recipe=recipe,
+                catalog=catalog,
+                implementation_revision="2026.05.16-001",
+            )
+
+    def test_bundled_catalog_accepts_fresh_implementation_revision(self):
+        recipe = release_tool.load_recipe(RECIPE_PATH)
+        catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+
+        release_tool.validate_catalog_compatibility(
+            recipe=recipe,
+            catalog=catalog,
+            implementation_revision="2026.05.17-001",
+        )
 
     def test_update_catalog_creates_new_contract_from_recipe_metadata(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)

@@ -16,7 +16,6 @@ on:
       implementation_revision:
         description: Runtime implementation revision
         required: true
-        default: 2026.05.16-001
 
 permissions:
   contents: write
