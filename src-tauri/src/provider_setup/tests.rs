@@ -11,7 +11,7 @@ use crate::{
         GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey, ProviderIdentity,
     },
     provider_setup::ProviderSetupCoordinator,
-    secrets::{SecretStore, SecretStoreError},
+    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
 };
 
 use super::*;
@@ -111,6 +111,25 @@ impl SecretStore for MemorySecretStore {
 
         *self.key.lock().expect("memory store lock") = None;
         Ok(())
+    }
+
+    fn write_provisioner_worker_token(
+        &self,
+        _workspace_id: &str,
+        _token: &ProvisionerWorkerBearerToken,
+    ) -> Result<(), SecretStoreError> {
+        unimplemented!("provider setup tests do not write provisioner tokens")
+    }
+
+    fn read_provisioner_worker_token(
+        &self,
+        _workspace_id: &str,
+    ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
+        unimplemented!("provider setup tests do not read provisioner tokens")
+    }
+
+    fn delete_provisioner_worker_token(&self, _workspace_id: &str) -> Result<(), SecretStoreError> {
+        unimplemented!("provider setup tests do not delete provisioner tokens")
     }
 }
 

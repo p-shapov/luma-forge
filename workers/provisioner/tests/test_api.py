@@ -1,10 +1,12 @@
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from copy import deepcopy
 from io import StringIO
+import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from threading import Event
 
 from helpers import BlockingProvisioner, ImmediateProvisioner, RecordingProvisioner, ServerFixture, start_payload, test_config
 from app.errors import (
@@ -114,32 +116,13 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["reason_code"], "active_job_exists")
         self.assertEqual(payload["context"], {"active_job_id": "job-1"})
 
-    def test_cancel_active_job(self):
-        provisioner = BlockingProvisioner()
-        with tempfile.TemporaryDirectory() as directory, ServerFixture(
-            provisioner,
-            workspace_mount_path=Path(directory),
-        ) as server:
-            server.request("POST", "/start", start_payload())
-            self.assertTrue(provisioner.started.wait(2))
-            status, payload = server.request("POST", "/cancel", {"job_id": "job-1"})
-            for _ in range(50):
-                _, latest = server.request("GET", "/status")
-                if latest["status"] == "cancelled":
-                    break
-                time.sleep(0.02)
-
-        self.assertEqual(status, 202)
-        self.assertEqual(payload["status"], "cancelling")
-        self.assertEqual(latest["status"], "cancelled")
-
-    def test_cancel_unmatched_job_is_rejected(self):
+    def test_cancel_endpoint_is_not_available(self):
         with ServerFixture(ImmediateProvisioner()) as server:
-            status, payload = server.request("POST", "/cancel", {"job_id": "unknown"})
+            status, payload = server.request("POST", "/cancel", {"job_id": "job-1"})
 
-        self.assertEqual(status, 400)
-        self.assertEqual(payload["code"], "invalid_request")
-        self.assertEqual(payload["reason_code"], "no_matching_active_job")
+        self.assertEqual(status, 404)
+        self.assertEqual(payload["code"], "not_found")
+        self.assertEqual(payload["reason_code"], "endpoint_not_found")
 
     def test_success_status_after_job_finishes(self):
         with tempfile.TemporaryDirectory() as directory, ServerFixture(
@@ -185,6 +168,55 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(payload["error"]["code"], expected_code)
                 self.assertEqual(payload["error"]["reason_code"], expected_reason)
                 self.assertEqual(payload["error"]["message"], error.message)
+
+    def test_running_status_does_not_include_console_output(self):
+        raw_output = "raw-pip-output-with-credential-url"
+        provisioner = ConsoleOutputProvisioner(raw_output)
+        stdout = StringIO()
+        stderr = StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with tempfile.TemporaryDirectory() as directory, ServerFixture(
+                provisioner,
+                workspace_mount_path=Path(directory),
+            ) as server:
+                server.request("POST", "/start", start_payload())
+                self.assertTrue(provisioner.started.wait(2))
+                _, payload = server.request("GET", "/status")
+                provisioner.release.set()
+
+        self.assertIn(raw_output, stdout.getvalue())
+        self.assertIn(raw_output, stderr.getvalue())
+        self.assertEqual(payload["status"], "running")
+        self.assertEqual(payload["phase"], "installing_comfyui")
+        self.assertEqual(payload["progress_percent"], 25)
+        self.assertEqual(payload["diagnostic_message"], "Installing ComfyUI dependencies into volume environment")
+        self.assertNotIn(raw_output, str(payload))
+
+    def test_failed_status_does_not_include_console_output(self):
+        raw_output = "raw-pip-failure-output-with-credential-url"
+        provisioner = ConsoleOutputProvisioner(
+            raw_output,
+            error=DependencyInstallError("Command failed: python -m"),
+        )
+        stdout = StringIO()
+        stderr = StringIO()
+
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with tempfile.TemporaryDirectory() as directory, ServerFixture(
+                provisioner,
+                workspace_mount_path=Path(directory),
+            ) as server:
+                server.request("POST", "/start", start_payload())
+                payload = _wait_for_status(server, "failed")
+
+        self.assertIn(raw_output, stdout.getvalue())
+        self.assertIn(raw_output, stderr.getvalue())
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "dependency_install_failed")
+        self.assertEqual(payload["error"]["reason_code"], "dependency_install_failed")
+        self.assertEqual(payload["diagnostic_message"], "Command failed: python -m")
+        self.assertNotIn(raw_output, str(payload))
 
     def test_unexpected_job_error_is_sanitized(self):
         secret = "secret-token-0123456789abcdef"
@@ -388,6 +420,28 @@ def _wait_for_status(server: ServerFixture, status: str) -> dict:
             return payload
         time.sleep(0.02)
     return payload
+
+
+class ConsoleOutputProvisioner:
+    def __init__(self, raw_output: str, error: Exception | None = None):
+        self.raw_output = raw_output
+        self.error = error
+        self.started = Event()
+        self.release = Event()
+
+    def prepare(self, request, progress, cancel_event):
+        progress(
+            "installing_comfyui",
+            25,
+            "Installing ComfyUI dependencies into volume environment",
+        )
+        print(self.raw_output, flush=True)
+        print(self.raw_output, file=sys.stderr, flush=True)
+        self.started.set()
+        if self.error is not None:
+            raise self.error
+        while not self.release.is_set() and not cancel_event.is_set():
+            self.release.wait(0.01)
 
 
 def _custom_node(comfyui_custom_nodes_relative_path: str) -> dict:

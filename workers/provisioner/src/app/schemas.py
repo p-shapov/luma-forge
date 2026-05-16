@@ -67,11 +67,6 @@ class StartRequest:
     workflow_preset: WorkflowPreset
 
 
-@dataclass(frozen=True)
-class CancelRequest:
-    job_id: str
-
-
 def parse_start_request(payload: Any) -> StartRequest:
     data = _object(payload, "request")
     job_id = _non_empty_string(data.get("job_id"), "job_id")
@@ -80,11 +75,6 @@ def parse_start_request(payload: Any) -> StartRequest:
         job_id=job_id,
         workflow_preset=workflow_preset,
     )
-
-
-def parse_cancel_request(payload: Any) -> CancelRequest:
-    data = _object(payload, "request")
-    return CancelRequest(job_id=_non_empty_string(data.get("job_id"), "job_id"))
 
 
 def _parse_workflow_preset(payload: Any) -> WorkflowPreset:

@@ -2,8 +2,13 @@ import type {
   GpuCloudProviderSetup,
   NativeCommandError,
   ProviderInventory,
+  ProviderPlacementCapabilities,
   WorkflowCatalog,
+  Workspace,
   WorkspaceCatalog,
+  WorkspaceProvisioningFailure,
+  WorkspaceProvisioningProgress,
+  WorkspaceProvisioningResponse,
 } from "@/generated/commands";
 import {
   Add01Icon,
@@ -12,6 +17,9 @@ import {
   DatabaseSyncIcon,
   Delete02Icon,
   Key01Icon,
+  PlayIcon,
+  RefreshIcon,
+  StopIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@shared/components/ui/badge";
@@ -36,9 +44,10 @@ import {
   NativeSelect,
   NativeSelectOption,
 } from "@shared/components/ui/native-select";
+import { Progress } from "@shared/components/ui/progress";
 import { Separator } from "@shared/components/ui/separator";
 import { Slider } from "@shared/components/ui/slider";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { commands } from "@/generated/commands";
 import {
@@ -49,6 +58,10 @@ import {
 const GIB = 1024 ** 3;
 const MIN_STORAGE_SIZE_GB = 1;
 const DEFAULT_MAX_STORAGE_SIZE_GB = 100;
+const DEFAULT_ENDPOINT_KEEP_ALIVE_SECONDS = 5;
+const MIN_ENDPOINT_KEEP_ALIVE_SECONDS = 5;
+const MAX_ENDPOINT_KEEP_ALIVE_SECONDS = 3600;
+const PROVISIONING_SYNC_INTERVAL_MS = 10_000;
 
 type CommandResult<T>
   = | { status: "ok"; data: T }
@@ -78,9 +91,9 @@ const COMMAND_TOAST_COPY = {
     loading: "Loading workflow catalog...",
     success: "Workflow catalog loaded",
   },
-  getProviderInventory: {
-    loading: "Loading provider inventory...",
-    success: "Provider inventory loaded",
+  getProviderPlacementOptions: {
+    loading: "Loading placement options...",
+    success: "Placement options loaded",
   },
   getWorkspaceCatalog: {
     loading: "Loading workspace catalog...",
@@ -89,6 +102,18 @@ const COMMAND_TOAST_COPY = {
   createWorkspace: {
     loading: "Creating workspace...",
     success: "Workspace created",
+  },
+  initiateWorkspaceProvisioning: {
+    loading: "Starting workspace provisioning...",
+    success: "Workspace provisioning started",
+  },
+  syncWorkspaceProvisioning: {
+    loading: "Syncing workspace provisioning...",
+    success: "Workspace provisioning synced",
+  },
+  cancelWorkspaceProvisioning: {
+    loading: "Cancelling workspace provisioning...",
+    success: "Workspace provisioning cancelled",
   },
 } satisfies Record<string, {
   loading: string;
@@ -132,28 +157,175 @@ function toastErrorPayload(error: unknown) {
   };
 }
 
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function endpointKeepAliveRange(capabilities: ProviderPlacementCapabilities | null) {
+  const capability = capabilities?.endpoint_keep_alive;
+
+  if (capability?.supported === "true") {
+    return {
+      supported: true,
+      defaultSeconds: capability.default_seconds,
+      minSeconds: capability.min_seconds,
+      maxSeconds: capability.max_seconds,
+    };
+  }
+
+  return {
+    supported: false,
+    defaultSeconds: DEFAULT_ENDPOINT_KEEP_ALIVE_SECONDS,
+    minSeconds: MIN_ENDPOINT_KEEP_ALIVE_SECONDS,
+    maxSeconds: MAX_ENDPOINT_KEEP_ALIVE_SECONDS,
+  };
+}
+
+function gpuAvailabilityLabel(score: number) {
+  if (score >= 80) {
+    return "High availability";
+  }
+  if (score >= 50) {
+    return "Medium availability";
+  }
+  if (score > 0) {
+    return "Low availability";
+  }
+
+  return "Unavailable";
+}
+
+function gpuOptionLabel(gpu: { name: string; availability_score: number }) {
+  return `${gpu.name} - ${gpuAvailabilityLabel(gpu.availability_score)}`;
+}
+
+function isGpuAvailable(gpu: { availability_score: number } | undefined) {
+  return gpu !== undefined && gpu.availability_score > 0;
+}
+
+function workspacePlacementGpu(
+  providerInventory: ProviderInventory | null,
+  workspace: Workspace | undefined,
+) {
+  if (workspace === undefined) {
+    return undefined;
+  }
+
+  const datacenter = providerInventory?.datacenters.find(
+    ({ id }) => id === workspace.placement_plan.selected_datacenter_id,
+  );
+
+  return datacenter?.gpu_options.find(
+    ({ id }) => id === workspace.placement_plan.selected_gpu_id,
+  );
+}
+
+function upsertWorkspace(catalog: WorkspaceCatalog | null, workspace: Workspace): WorkspaceCatalog {
+  return {
+    workspaces: [
+      workspace,
+      ...(catalog?.workspaces.filter(({ id }) => id !== workspace.id) ?? []),
+    ],
+  };
+}
+
+function isTerminalProvisioningResponse(response: WorkspaceProvisioningResponse) {
+  return response.progress.status === "idle"
+    || response.progress.status === "completed"
+    || response.progress.status === "failed"
+    || response.workspace.lifecycle_state === "draft"
+    || response.workspace.lifecycle_state === "ready"
+    || response.workspace.lifecycle_state === "failed";
+}
+
+function formatProvisioningLabel(value: string) {
+  return value
+    .split("_")
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function provisioningFailureText(failure: WorkspaceProvisioningFailure | null) {
+  if (failure === null) {
+    return null;
+  }
+
+  return [
+    `${formatProvisioningLabel(failure.source)} failure`,
+    formatProvisioningLabel(failure.code),
+    provisioningRecoveryHint(failure.recovery_action),
+  ].join(" - ");
+}
+
+function provisioningRecoveryHint(recoveryAction: WorkspaceProvisioningFailure["recovery_action"]) {
+  switch (recoveryAction) {
+    case "retry":
+      return "Retry when the provider is available.";
+    case "recover_provider_setup":
+      return "Recover provider setup before retrying.";
+    case "reselect_placement":
+      return "Reselect placement before retrying.";
+    case "cleanup_workspace_resources":
+      return "Clean up workspace resources before retrying.";
+    case "inspect_workspace_provisioning":
+      return "Inspect provisioning state before retrying.";
+  }
+}
+
+function provisioningProgressValue(
+  progress: WorkspaceProvisioningProgress | undefined,
+  workspace: Workspace | undefined,
+) {
+  if (typeof progress?.percent === "number") {
+    return clampNumber(progress.percent, 0, 100);
+  }
+
+  if (progress?.status === "completed" || workspace?.lifecycle_state === "ready") {
+    return 100;
+  }
+
+  return 0;
+}
+
 export function HomePage() {
   const [providerApiKey, setProviderApiKey] = useState("");
   const [providerSetup, setProviderSetup] = useState<GpuCloudProviderSetup | null>(null);
   const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowCatalog | null>(null);
   const [providerInventory, setProviderInventory] = useState<ProviderInventory | null>(null);
+  const [providerPlacementCapabilities, setProviderPlacementCapabilities]
+    = useState<ProviderPlacementCapabilities | null>(null);
   const [workspaceCatalog, setWorkspaceCatalog] = useState<WorkspaceCatalog | null>(null);
   const [workspaceName, setWorkspaceName] = useState("Default workspace");
   const [additionalStorageSizeGb, setAdditionalStorageSizeGb] = useState(0);
+  const [endpointKeepAliveSeconds, setEndpointKeepAliveSeconds]
+    = useState(DEFAULT_ENDPOINT_KEEP_ALIVE_SECONDS);
   const [workflowPresetId, setWorkflowPresetId] = useState("");
   const [datacenterId, setDatacenterId] = useState("");
   const [gpuId, setGpuId] = useState("");
+  const [provisioningWorkspaceId, setProvisioningWorkspaceId] = useState("");
+  const [autoSyncWorkspaceId, setAutoSyncWorkspaceId] = useState<string | null>(null);
+  const [provisioningProgressByWorkspaceId, setProvisioningProgressByWorkspaceId]
+    = useState<Record<string, WorkspaceProvisioningProgress>>({});
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
+  const autoSyncInFlightRef = useRef(false);
 
   const workflowPresets = workflowCatalog?.workflow_presets ?? [];
   const datacenters = providerInventory?.datacenters ?? [];
+  const workspaces = workspaceCatalog?.workspaces ?? [];
   const selectedWorkflowPreset = workflowPresets.find(({ id }) => id === workflowPresetId)
     ?? workflowPresets[0];
   const selectedDatacenter = datacenters.find(({ id }) => id === datacenterId)
     ?? datacenters[0];
   const selectedGpu = selectedDatacenter?.gpu_options.find(({ id }) => id === gpuId)
     ?? selectedDatacenter?.gpu_options[0];
+  const selectedGpuAvailable = isGpuAvailable(selectedGpu);
+  const keepAliveRange = endpointKeepAliveRange(providerPlacementCapabilities);
+  const selectedEndpointKeepAliveSeconds = clampNumber(
+    endpointKeepAliveSeconds,
+    keepAliveRange.minSeconds,
+    keepAliveRange.maxSeconds,
+  );
   const maxTotalStorageSizeGb = providerInventory?.max_persistent_storage_volume_size_bytes !== null
     && providerInventory?.max_persistent_storage_volume_size_bytes !== undefined
     ? Math.max(
@@ -174,10 +346,33 @@ export function HomePage() {
     && selectedWorkflowPreset !== undefined
     && selectedDatacenter !== undefined
     && selectedGpu !== undefined
+    && selectedGpuAvailable
     && selectedAdditionalStorageSizeGb >= 0
     && requestedStorageSizeBytes >= requiredBaseStorageSizeBytes
-    && requestedStorageSizeGb <= maxTotalStorageSizeGb,
+    && requestedStorageSizeGb <= maxTotalStorageSizeGb
+    && keepAliveRange.supported
+    && selectedEndpointKeepAliveSeconds >= keepAliveRange.minSeconds
+    && selectedEndpointKeepAliveSeconds <= keepAliveRange.maxSeconds,
   );
+  const selectedProvisioningWorkspaceId = provisioningWorkspaceId || workspaces[0]?.id || "";
+  const canRunProvisioningCommand = selectedProvisioningWorkspaceId.trim().length > 0;
+  const selectedProvisioningWorkspace = workspaces.find(({ id }) => id === selectedProvisioningWorkspaceId);
+  const selectedProvisioningGpu = workspacePlacementGpu(providerInventory, selectedProvisioningWorkspace);
+  const selectedProvisioningPlacementChecked = providerInventory !== null
+    && selectedProvisioningWorkspace !== undefined;
+  const selectedProvisioningGpuUnavailable = selectedProvisioningPlacementChecked
+    && !isGpuAvailable(selectedProvisioningGpu);
+  const canStartProvisioningCommand = canRunProvisioningCommand && !selectedProvisioningGpuUnavailable;
+  const selectedProvisioningProgress = provisioningProgressByWorkspaceId[selectedProvisioningWorkspaceId];
+  const selectedProvisioningFailureText = provisioningFailureText(
+    selectedProvisioningProgress?.failure ?? selectedProvisioningWorkspace?.last_provisioning_failure ?? null,
+  );
+  const selectedProvisioningProgressValue = provisioningProgressValue(
+    selectedProvisioningProgress,
+    selectedProvisioningWorkspace,
+  );
+  const autoSyncWorkspace = workspaces.find(({ id }) => id === autoSyncWorkspaceId);
+  const autoSyncActive = autoSyncWorkspaceId !== null;
 
   const latestEntry = logEntries[0];
   const latestPayload = useMemo(() => latestEntry?.payload ?? {
@@ -187,6 +382,104 @@ export function HomePage() {
     && isNativeCommandError(latestEntry.payload)
     ? presentNativeCommandError(latestEntry.payload)
     : null;
+
+  function rememberProvisioningResponse(response: WorkspaceProvisioningResponse) {
+    setWorkspaceCatalog(catalog => upsertWorkspace(catalog, response.workspace));
+    setProvisioningProgressByWorkspaceId(progressByWorkspaceId => ({
+      ...progressByWorkspaceId,
+      [response.workspace.id]: response.progress,
+    }));
+  }
+
+  useEffect(() => {
+    if (autoSyncWorkspaceId === null) {
+      return;
+    }
+
+    let disposed = false;
+
+    async function syncOnce() {
+      if (autoSyncInFlightRef.current || autoSyncWorkspaceId === null) {
+        return;
+      }
+
+      autoSyncInFlightRef.current = true;
+
+      try {
+        const result = await commands.syncWorkspaceProvisioning({
+          workspace_id: autoSyncWorkspaceId,
+        });
+
+        if (disposed) {
+          return;
+        }
+
+        if (result.status === "ok") {
+          setWorkspaceCatalog(catalog => upsertWorkspace(catalog, result.data.workspace));
+          setProvisioningProgressByWorkspaceId(progressByWorkspaceId => ({
+            ...progressByWorkspaceId,
+            [result.data.workspace.id]: result.data.progress,
+          }));
+          setLogEntries(entries => [
+            {
+              id: Date.now(),
+              label: "syncWorkspaceProvisioning",
+              status: "ok",
+              payload: result.data,
+            },
+            ...entries,
+          ]);
+
+          if (isTerminalProvisioningResponse(result.data)) {
+            setAutoSyncWorkspaceId(null);
+          }
+
+          return;
+        }
+
+        setLogEntries(entries => [
+          {
+            id: Date.now(),
+            label: "syncWorkspaceProvisioning",
+            status: "error",
+            payload: result.error,
+          },
+          ...entries,
+        ]);
+
+        if (!result.error.retryable) {
+          setAutoSyncWorkspaceId(null);
+        }
+      }
+      catch (error) {
+        if (!disposed) {
+          setLogEntries(entries => [
+            {
+              id: Date.now(),
+              label: "syncWorkspaceProvisioning",
+              status: "error",
+              payload: errorPayload(error),
+            },
+            ...entries,
+          ]);
+          setAutoSyncWorkspaceId(null);
+        }
+      }
+      finally {
+        autoSyncInFlightRef.current = false;
+      }
+    }
+
+    void syncOnce();
+    const intervalId = window.setInterval(() => {
+      void syncOnce();
+    }, PROVISIONING_SYNC_INTERVAL_MS);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [autoSyncWorkspaceId]);
 
   async function runCommand<T>(
     label: CommandLabel,
@@ -279,11 +572,23 @@ export function HomePage() {
     );
   }
 
-  function fetchProviderInventory() {
+  function fetchProviderPlacementOptions() {
     void runCommand(
-      "getProviderInventory",
-      async () => commands.getProviderInventory({ gpu_cloud_provider_id: "runpod" }),
-      ({ provider_inventory }) => setProviderInventory(provider_inventory),
+      "getProviderPlacementOptions",
+      async () => commands.getProviderPlacementOptions({ gpu_cloud_provider_id: "runpod" }),
+      ({ provider_inventory, placement_capabilities }) => {
+        setProviderInventory(provider_inventory);
+        setProviderPlacementCapabilities(placement_capabilities);
+
+        const range = endpointKeepAliveRange(placement_capabilities);
+        setEndpointKeepAliveSeconds(value =>
+          clampNumber(
+            value || range.defaultSeconds,
+            range.minSeconds,
+            range.maxSeconds,
+          ),
+        );
+      },
     );
   }
 
@@ -315,15 +620,58 @@ export function HomePage() {
           selected_datacenter_id: selectedDatacenter.id,
           selected_gpu_id: selectedGpu.id,
           persistent_storage_volume_size_bytes: requestedStorageSizeBytes,
+          endpoint_keep_alive_seconds: selectedEndpointKeepAliveSeconds,
           selected_workflow_preset: selectedWorkflowPreset,
         },
       }),
-      ({ workspace }) => setWorkspaceCatalog(catalog => ({
-        workspaces: [
-          workspace,
-          ...(catalog?.workspaces.filter(({ id }) => id !== workspace.id) ?? []),
-        ],
-      })),
+      ({ workspace }) => {
+        setWorkspaceCatalog(catalog => upsertWorkspace(catalog, workspace));
+        setProvisioningWorkspaceId(workspace.id);
+      },
+    );
+  }
+
+  function runProvisioningCommand(
+    label: Extract<
+      CommandLabel,
+      "initiateWorkspaceProvisioning"
+      | "syncWorkspaceProvisioning"
+      | "cancelWorkspaceProvisioning"
+    >,
+  ) {
+    const workspaceId = selectedProvisioningWorkspaceId.trim();
+
+    if (!workspaceId) {
+      return;
+    }
+
+    const action = {
+      initiateWorkspaceProvisioning: commands.initiateWorkspaceProvisioning,
+      syncWorkspaceProvisioning: commands.syncWorkspaceProvisioning,
+      cancelWorkspaceProvisioning: commands.cancelWorkspaceProvisioning,
+    }[label];
+
+    void runCommand(
+      label,
+      async () => {
+        if (label === "cancelWorkspaceProvisioning") {
+          setAutoSyncWorkspaceId(null);
+        }
+
+        return action({ workspace_id: workspaceId });
+      },
+      (response) => {
+        rememberProvisioningResponse(response);
+
+        if (isTerminalProvisioningResponse(response)) {
+          setAutoSyncWorkspaceId(null);
+          return;
+        }
+
+        if (label === "initiateWorkspaceProvisioning") {
+          setAutoSyncWorkspaceId(response.workspace.id);
+        }
+      },
     );
   }
 
@@ -401,9 +749,9 @@ export function HomePage() {
                   <HugeiconsIcon icon={DatabaseSyncIcon} strokeWidth={2} data-icon="inline-start" />
                   Workflows
                 </Button>
-                <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchProviderInventory}>
+                <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchProviderPlacementOptions}>
                   <HugeiconsIcon icon={CloudServerIcon} strokeWidth={2} data-icon="inline-start" />
-                  Provider inventory
+                  Placement options
                 </Button>
                 <Button variant="outline" disabled={pendingCommand !== null} onClick={fetchWorkspaceCatalog}>
                   <HugeiconsIcon icon={DatabaseSyncIcon} strokeWidth={2} data-icon="inline-start" />
@@ -416,7 +764,7 @@ export function HomePage() {
               <CardHeader>
                 <CardTitle>Create workspace</CardTitle>
                 <CardDescription>
-                  Uses loaded workflow and inventory objects to build a placement plan.
+                  Uses loaded workflow and placement objects to build a placement plan.
                 </CardDescription>
                 <CardAction>
                   <Badge variant="secondary">
@@ -514,6 +862,58 @@ export function HomePage() {
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <Field>
+                      <FieldLabel htmlFor="endpoint-keep-alive">Endpoint keep-alive, seconds</FieldLabel>
+                      <div className="flex items-center gap-3">
+                        <Slider
+                          id="endpoint-keep-alive"
+                          min={keepAliveRange.minSeconds}
+                          max={keepAliveRange.maxSeconds}
+                          step={5}
+                          value={[selectedEndpointKeepAliveSeconds]}
+                          disabled={!keepAliveRange.supported || pendingCommand !== null}
+                          onValueChange={([value]) => {
+                            setEndpointKeepAliveSeconds(value ?? keepAliveRange.defaultSeconds);
+                          }}
+                        />
+                        <Input
+                          className="w-24"
+                          type="number"
+                          min={keepAliveRange.minSeconds}
+                          max={keepAliveRange.maxSeconds}
+                          value={selectedEndpointKeepAliveSeconds}
+                          disabled={!keepAliveRange.supported || pendingCommand !== null}
+                          aria-label="Endpoint keep-alive seconds"
+                          onChange={(event) => {
+                            const nextValue = Number(event.target.value);
+
+                            if (!Number.isNaN(nextValue)) {
+                              setEndpointKeepAliveSeconds(clampNumber(
+                                nextValue,
+                                keepAliveRange.minSeconds,
+                                keepAliveRange.maxSeconds,
+                              ));
+                            }
+                          }}
+                        />
+                      </div>
+                      <FieldDescription>
+                        Range:
+                        {" "}
+                        {keepAliveRange.minSeconds}
+                        -
+                        {keepAliveRange.maxSeconds}
+                        {" "}
+                        seconds. Default:
+                        {" "}
+                        {keepAliveRange.defaultSeconds}
+                        {" "}
+                        seconds.
+                      </FieldDescription>
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field>
                       <FieldLabel htmlFor="datacenter">Datacenter</FieldLabel>
                       <NativeSelect
                         id="datacenter"
@@ -525,7 +925,7 @@ export function HomePage() {
                           setGpuId("");
                         }}
                       >
-                        {datacenters.length === 0 && <NativeSelectOption value="">Load inventory first</NativeSelectOption>}
+                        {datacenters.length === 0 && <NativeSelectOption value="">Load placement options first</NativeSelectOption>}
                         {datacenters.map(datacenter => (
                           <NativeSelectOption key={datacenter.id} value={datacenter.id}>
                             {datacenter.name}
@@ -543,14 +943,29 @@ export function HomePage() {
                         onChange={event => setGpuId(event.target.value)}
                       >
                         {(selectedDatacenter?.gpu_options.length ?? 0) === 0 && (
-                          <NativeSelectOption value="">Load inventory first</NativeSelectOption>
+                          <NativeSelectOption value="">Load placement options first</NativeSelectOption>
                         )}
                         {selectedDatacenter?.gpu_options.map(gpu => (
                           <NativeSelectOption key={gpu.id} value={gpu.id}>
-                            {gpu.name}
+                            {gpuOptionLabel(gpu)}
                           </NativeSelectOption>
                         ))}
                       </NativeSelect>
+                      {selectedGpu !== undefined && (
+                        <FieldDescription>
+                          {gpuAvailabilityLabel(selectedGpu.availability_score)}
+                          {" "}
+                          (
+                          {selectedGpu.availability_score}
+                          /100).
+                          {!selectedGpuAvailable && (
+                            <>
+                              {" "}
+                              Workspace creation is disabled until this GPU is available.
+                            </>
+                          )}
+                        </FieldDescription>
+                      )}
                     </Field>
                   </div>
 
@@ -558,6 +973,140 @@ export function HomePage() {
                     <HugeiconsIcon icon={Add01Icon} strokeWidth={2} data-icon="inline-start" />
                     Create workspace
                   </Button>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Provision workspace</CardTitle>
+                <CardDescription>
+                  Starts, syncs, or cancels native-owned workspace provisioning.
+                </CardDescription>
+                <CardAction>
+                  <Badge variant={autoSyncActive ? "default" : "secondary"}>
+                    {autoSyncActive ? "Auto-sync active" : "Manual sync"}
+                  </Badge>
+                </CardAction>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="provisioning-workspace">Workspace</FieldLabel>
+                    <NativeSelect
+                      id="provisioning-workspace"
+                      className="w-full"
+                      value={selectedProvisioningWorkspaceId}
+                      disabled={workspaces.length === 0 || pendingCommand !== null}
+                      onChange={(event) => {
+                        setProvisioningWorkspaceId(event.target.value);
+                        setAutoSyncWorkspaceId(null);
+                      }}
+                    >
+                      {workspaces.length === 0 && (
+                        <NativeSelectOption value="">Load or create a workspace first</NativeSelectOption>
+                      )}
+                      {workspaces.map(workspace => (
+                        <NativeSelectOption key={workspace.id} value={workspace.id}>
+                          {workspace.name}
+                          {" - "}
+                          {workspace.lifecycle_state}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                    <FieldDescription>
+                      Commands use the selected workspace ID and return the authoritative workspace snapshot.
+                      {selectedProvisioningGpu !== undefined && (
+                        <>
+                          {" "}
+                          GPU:
+                          {" "}
+                          {gpuAvailabilityLabel(selectedProvisioningGpu.availability_score)}
+                          {" "}
+                          (
+                          {selectedProvisioningGpu.availability_score}
+                          /100).
+                        </>
+                      )}
+                      {selectedProvisioningGpuUnavailable && (
+                        <>
+                          {" "}
+                          Start is disabled until the selected workspace GPU is available in loaded placement options.
+                        </>
+                      )}
+                      {autoSyncWorkspace !== undefined && (
+                        <>
+                          {" "}
+                          Syncing:
+                          {" "}
+                          {autoSyncWorkspace.name}
+                          .
+                        </>
+                      )}
+                    </FieldDescription>
+                  </Field>
+
+                  <Field>
+                    <div className="flex items-center justify-between gap-3">
+                      <FieldLabel>Provisioning progress</FieldLabel>
+                      <Badge variant={selectedProvisioningProgress?.status === "failed" ? "destructive" : "secondary"}>
+                        {formatProvisioningLabel(
+                          selectedProvisioningProgress?.status
+                          ?? selectedProvisioningWorkspace?.lifecycle_state
+                          ?? "idle",
+                        )}
+                      </Badge>
+                    </div>
+                    <Progress
+                      value={selectedProvisioningProgressValue}
+                      aria-label="Provisioning progress"
+                    />
+                    <FieldDescription>
+                      {selectedProvisioningProgress === undefined
+                        ? "Run or sync provisioning to load progress."
+                        : (
+                            <>
+                              {formatProvisioningLabel(selectedProvisioningProgress.phase)}
+                              {" - "}
+                              {selectedProvisioningProgress.percent === null
+                                ? "Progress pending"
+                                : `${selectedProvisioningProgressValue}%`}
+                              {selectedProvisioningFailureText !== null && (
+                                <>
+                                  {" - "}
+                                  {selectedProvisioningFailureText}
+                                </>
+                              )}
+                            </>
+                          )}
+                    </FieldDescription>
+                  </Field>
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      disabled={!canStartProvisioningCommand || pendingCommand !== null}
+                      onClick={() => runProvisioningCommand("initiateWorkspaceProvisioning")}
+                    >
+                      <HugeiconsIcon icon={PlayIcon} strokeWidth={2} data-icon="inline-start" />
+                      Start
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!canRunProvisioningCommand || pendingCommand !== null}
+                      onClick={() => runProvisioningCommand("syncWorkspaceProvisioning")}
+                    >
+                      <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} data-icon="inline-start" />
+                      Sync
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={!canRunProvisioningCommand || pendingCommand !== null}
+                      onClick={() => runProvisioningCommand("cancelWorkspaceProvisioning")}
+                    >
+                      <HugeiconsIcon icon={StopIcon} strokeWidth={2} data-icon="inline-start" />
+                      Cancel
+                    </Button>
+                  </div>
                 </FieldGroup>
               </CardContent>
             </Card>

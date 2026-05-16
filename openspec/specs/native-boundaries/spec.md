@@ -63,6 +63,118 @@ The provider registry SHALL adapt provider-local client errors into the use-case
 - **THEN** the provider registry SHALL call the provider client
 - **AND** the provider registry SHALL map provider-local failures into `WorkspaceSetupError`
 
+### Requirement: Provider registry maps provisioning provider errors
+
+The provider registry SHALL adapt provider-local provisioning failures into Workspace Provisioning use-case errors while keeping provider clients independent from Workspace Provisioning modules.
+
+#### Scenario: Workspace Provisioning creates RunPod resources
+
+- **WHEN** Workspace Provisioning asks the provider registry to create, observe, or delete RunPod provisioning resources
+- **THEN** the provider registry SHALL call the RunPod client
+- **AND** the provider registry SHALL map provider-local failures into Workspace Provisioning errors
+- **AND** the RunPod client MUST NOT return Workspace Provisioning error types
+
+#### Scenario: Provider API Key is required for provisioning
+
+- **WHEN** Workspace Provisioning asks the provider registry to perform a RunPod provider mutation
+- **THEN** the provider registry SHALL read the RunPod Provider API Key through the secret store
+- **AND** the provider registry SHALL reject the operation with a Workspace Provisioning setup-prerequisite error when the key is missing or unreadable
+- **AND** the provider registry MUST NOT expose the Provider API Key to Workspace Provisioning response DTOs or Workspace metadata
+
+### Requirement: Provider-local errors expose stable LumaForge-owned failure variants
+
+Provider client implementations SHALL classify provider failures into stable LumaForge-owned provider errors and SHALL keep provider-specific response interpretation inside the provider implementation boundary.
+
+#### Scenario: RunPod REST response is classified
+
+- **WHEN** the RunPod provider implementation receives a REST response for a provisioning resource operation
+- **THEN** it SHALL classify the response into a provider-local error when the response is not successful
+- **AND** `401` and `403` SHALL map to authorization failure
+- **AND** `404` SHALL map to provider resource not found
+- **AND** `429` SHALL map to provider rate limiting
+- **AND** `409` SHALL map to provider operation conflict
+- **AND** `408` and `504` SHALL map to provider operation indeterminate
+- **AND** other `4xx` statuses SHALL map to provider request rejection
+- **AND** other non-success statuses SHALL map to provider API unavailability
+- **AND** downstream modules MUST NOT inspect RunPod-specific error codes, message strings, or response envelopes
+- **AND** the provider-local failure MUST NOT include Provider API Keys, bearer headers, raw request bodies, or raw response bodies
+
+#### Scenario: RunPod GraphQL error is classified
+
+- **WHEN** the RunPod provider implementation receives GraphQL errors from identity or inventory requests
+- **THEN** obvious authentication-related errors SHALL map to authorization failure
+- **AND** other GraphQL errors SHALL map to provider request rejection
+- **AND** domain and command modules MUST NOT depend on RunPod GraphQL error message strings
+
+#### Scenario: RunPod inventory HTTP status is classified
+
+- **WHEN** the RunPod provider implementation receives a non-success HTTP status while fetching Provider Inventory
+- **THEN** authorization statuses SHALL map to authorization failure
+- **AND** rate limiting SHALL map to provider rate limiting
+- **AND** non-authentication `4xx` statuses SHALL map to provider request rejection
+- **AND** other non-success statuses SHALL map to provider API unavailability
+
+### Requirement: Provider registry maps provider errors to stable recovery semantics
+
+The provider registry SHALL map provider-local errors into use-case errors for Provider Setup, Workspace Setup, and Workspace Provisioning without leaking provider transport details.
+
+#### Scenario: Provider setup and workspace setup map provider errors
+
+- **WHEN** Provider Setup or Workspace Setup receives a provider-local failure through the provider registry
+- **THEN** the registry SHALL map the provider-local error into the corresponding use-case error
+- **AND** unauthorized provider keys SHALL remain non-retryable setup recovery failures
+- **AND** provider API unavailability and rate limiting SHALL remain retryable provider availability failures
+- **AND** provider request rejection SHALL remain distinct from provider API unavailability
+
+#### Scenario: Workspace Provisioning maps provider errors
+
+- **WHEN** Workspace Provisioning receives a provider-local failure through the provider registry
+- **THEN** the registry SHALL map rate limiting to a provider rate-limited provisioning error
+- **AND** the registry SHALL map request rejection to a provider request-rejected provisioning error
+- **AND** the mapped error MUST NOT expose provider transport details, Provider API Keys, bearer headers, raw provider payloads, or provider-specific error codes as domain contracts
+
+### Requirement: Command errors expose stable UI-safe provider recovery metadata
+
+The Tauri command boundary SHALL map provider-related use-case errors into stable UI-safe command error metadata that reflects provider recovery semantics.
+
+#### Scenario: Provider request is rejected
+
+- **WHEN** a native command fails because the Provider rejected a UI-controlled request value or placement selection
+- **THEN** the command error SHALL use the stable LumaForge-owned `provider_request_rejected` code or reason
+- **AND** the command error SHALL mark retrying the same request as not retryable
+- **AND** the recovery action SHALL guide the Client to change or reselect the invalid request value when applicable
+- **AND** the command error MUST NOT expose provider-specific error codes or raw provider response details
+
+#### Scenario: Provider is rate limited
+
+- **WHEN** a native command fails because the Provider reports rate limiting
+- **THEN** the command error SHALL use the stable LumaForge-owned `provider_rate_limited` code or reason
+- **AND** the command error SHALL mark the failure as retryable when repeating the same command is safe
+- **AND** the command error SHALL expose only UI-safe code, message, retryability, reason, field, and recovery action metadata
+
+#### Scenario: Provider is unavailable
+
+- **WHEN** a native command fails because the Provider is unavailable, timed out, or temporarily unable to complete a safe operation
+- **THEN** the command error SHALL mark the failure as retryable when repeating the same command is safe
+- **AND** the command error SHALL expose only UI-safe code, message, retryability, reason, field, and recovery action metadata
+
+### Requirement: RunPod provisioning transport stays inside provider boundary
+
+RunPod provisioning request and response shapes SHALL remain inside the RunPod provider implementation boundary.
+
+#### Scenario: RunPod REST response is parsed
+
+- **WHEN** the Native Layer parses RunPod REST responses for network volumes, pods, templates, or endpoints
+- **THEN** provider response DTOs and mapping code SHALL remain inside `provider/runpod`
+- **AND** domain modules MUST NOT import RunPod REST response DTOs
+- **AND** Workspace Provisioning services MUST consume provider-neutral observations or domain snapshots instead of RunPod transport payloads
+
+#### Scenario: RunPod serverless template metadata is persisted
+
+- **WHEN** Workspace Provisioning persists a RunPod serverless template identifier for future cleanup
+- **THEN** the persisted domain metadata SHALL represent LumaForge provider-specific provisioning state
+- **AND** the persisted metadata MUST NOT contain raw RunPod HTTP request bodies, response payloads, Provider API Keys, or worker bearer tokens
+
 ### Requirement: Secret storage errors are use-case independent
 
 Secret storage abstractions SHALL return secret-storage-owned errors instead of depending on Provider Setup, Workspace Setup, Provisioning, or Cleanup use-case error types.
@@ -87,6 +199,29 @@ Secret storage abstractions SHALL return secret-storage-owned errors instead of 
 - **THEN** the secret store SHALL report a secret-storage-owned invalid stored key failure
 - **AND** use-case mappings SHALL preserve the current UI-safe `invalid_provider_api_key` command behavior
 - **AND** no command response, error, log, or diagnostic may include the stored secret value
+
+### Requirement: Secret store supports per-workspace provisioning tokens
+
+The secret store SHALL support per-workspace Provisioner Worker bearer tokens as a separate secret category from GPU Cloud Provider API Keys.
+
+#### Scenario: Provisioner token is written
+
+- **WHEN** Workspace Provisioning stores a Provisioner Worker bearer token for a Workspace
+- **THEN** the secret store SHALL write it to a keyring scope or account that is separate from Provider API Key entries
+- **AND** the secret store SHALL return secret-storage-owned failures
+- **AND** the secret store MUST NOT return Workspace Provisioning error types
+
+#### Scenario: Provisioner token is read
+
+- **WHEN** Workspace Provisioning reads a Provisioner Worker bearer token for a Workspace
+- **THEN** the secret store SHALL return the token only to native provisioning code
+- **AND** command DTOs, Workspace metadata, logs, and diagnostics MUST NOT include the token value
+
+#### Scenario: Provisioner token is deleted
+
+- **WHEN** Workspace Provisioning deletes a Provisioner Worker bearer token for a Workspace
+- **THEN** the secret store SHALL remove only that Workspace's provisioning token entry
+- **AND** the secret store MUST NOT delete the Provider API Key entry for the GPU Cloud Provider
 
 ### Requirement: Command DTOs own generated binding concerns
 
@@ -124,6 +259,23 @@ The Native Layer SHALL keep generated frontend binding concerns owned by the Tau
 - **AND** Workspace Setup domain models and services MUST NOT derive `specta::Type`
 - **AND** Workspace Setup command payload shape changes SHALL be reflected in generated TypeScript bindings and the corresponding Workspace Setup specification delta
 - **AND** generated Workspace Setup bindings MUST NOT expose Provisioning Profile or Endpoint Profile command types after profiles are removed
+
+### Requirement: Workspace Provisioning command DTOs own generated binding concerns
+
+Workspace Provisioning command request and response DTOs SHALL be owned by the command boundary and SHALL expose generated frontend bindings without making application services depend on command DTOs.
+
+#### Scenario: Provisioning command returns workspace and progress
+
+- **WHEN** a Workspace Provisioning command returns data to React
+- **THEN** the command response SHALL include authoritative Workspace metadata and derived Workspace Provisioning Progress
+- **AND** generated binding metadata SHALL be owned by the command boundary
+- **AND** Workspace Provisioning application services MUST NOT depend on command-owned DTO modules
+
+#### Scenario: Provisioning command maps an error
+
+- **WHEN** Workspace Provisioning returns a use-case error
+- **THEN** the Tauri command handler SHALL map it into a UI-safe command error response
+- **AND** the generated command error MUST NOT include provider transport details, Provider API Keys, Provisioner Worker bearer tokens, raw worker diagnostics, or provider request bodies
 
 ### Requirement: Shared provider command DTOs are not owned by Provider Setup
 
@@ -479,4 +631,3 @@ Native implementation boundaries SHALL preserve non-secret failure categories in
 - **WHEN** an internal error reaches a Tauri command handler
 - **THEN** the command handler or command-adjacent mapper SHALL convert it into the generated command error contract
 - **AND** the application service MUST NOT return the command-owned DTO directly
-

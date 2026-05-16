@@ -5,12 +5,18 @@ use crate::domain::{
 };
 
 use super::{Workspace, WorkspaceLifecycleState, WorkspaceValidationError};
+use super::{
+    WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
+    WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
+    WorkspaceProvisioningRecoveryAction,
+};
 
 fn placement_plan() -> PlacementPlan {
     PlacementPlan::Runpod {
         selected_datacenter_id: "EU-RO-1".to_string(),
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         persistent_storage_volume_size_bytes: 85899345920,
+        endpoint_keep_alive_seconds: 5,
         selected_workflow_preset: WorkflowPreset {
             id: "preset".to_string(),
             version: "1.0.0".to_string(),
@@ -43,7 +49,9 @@ fn creates_draft_workspace_with_empty_resource_snapshots() {
     assert!(workspace.active_provisioning_pod_snapshot.is_none());
     assert!(workspace.serverless_endpoint_snapshot.is_none());
     assert!(workspace.last_provisioning_pod_snapshot.is_none());
+    assert!(workspace.provider_provisioning_snapshot.is_none());
     assert_eq!(workspace.environment_prepared_at, None);
+    assert_eq!(workspace.last_provisioning_failure, None);
 }
 
 #[test]
@@ -73,4 +81,59 @@ fn placement_plan_carries_runpod_provider_identity() {
         placement_plan().gpu_cloud_provider_id(),
         GpuCloudProviderId::Runpod
     );
+}
+
+#[test]
+fn serializes_failed_workspace_with_provisioning_failure_detail() {
+    let mut workspace = Workspace::new_draft(
+        GpuCloudProviderId::Runpod,
+        "018f6a40-0000-7000-8000-000000000001".to_string(),
+        "Workspace".to_string(),
+        placement_plan(),
+    )
+    .expect("draft workspace should be valid");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+    workspace.last_provisioning_failure = Some(WorkspaceProvisioningFailure {
+        code: WorkspaceProvisioningFailureCode::ProviderResourceFailed,
+        phase: WorkspaceProvisioningPhase::CreatingVolume,
+        source: WorkspaceProvisioningFailureSource::ProviderResource,
+        retryable: false,
+        recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        diagnostic: None,
+    });
+
+    let value = serde_json::to_value(&workspace).expect("workspace should serialize");
+
+    assert_eq!(
+        value["last_provisioning_failure"]["code"],
+        "provider_resource_failed"
+    );
+    assert_eq!(
+        value["last_provisioning_failure"]["phase"],
+        "creating_volume"
+    );
+    assert_eq!(
+        value["last_provisioning_failure"]["recovery_action"],
+        "cleanup_workspace_resources"
+    );
+}
+
+#[test]
+fn deserializes_legacy_workspace_without_provisioning_failure_detail() {
+    let workspace = Workspace::new_draft(
+        GpuCloudProviderId::Runpod,
+        "018f6a40-0000-7000-8000-000000000001".to_string(),
+        "Workspace".to_string(),
+        placement_plan(),
+    )
+    .expect("draft workspace should be valid");
+    let mut value = serde_json::to_value(&workspace).expect("workspace should serialize");
+    value
+        .as_object_mut()
+        .expect("workspace json object")
+        .remove("last_provisioning_failure");
+
+    let decoded: Workspace = serde_json::from_value(value).expect("legacy workspace should decode");
+
+    assert_eq!(decoded.last_provisioning_failure, None);
 }

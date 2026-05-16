@@ -10,7 +10,17 @@ pub trait WorkspaceCatalogRepository: Send + Sync {
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>;
 
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Workspace>, WorkspaceSetupError>> + Send + 'a>>;
+
     fn insert_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>>;
+
+    fn update_workspace<'a>(
         &'a self,
         workspace: &'a Workspace,
     ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>>;
@@ -28,6 +38,21 @@ impl WorkspaceCatalogRepository for UnavailableWorkspaceCatalog {
     }
 
     fn insert_workspace<'a>(
+        &'a self,
+        _workspace: &'a Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
+    }
+
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Workspace>, WorkspaceSetupError>> + Send + 'a>>
+    {
+        Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
+    }
+
+    fn update_workspace<'a>(
         &'a self,
         _workspace: &'a Workspace,
     ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {

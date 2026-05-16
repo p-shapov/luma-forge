@@ -6,9 +6,6 @@ pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-// Workspace Provisioning will construct the non-Draft variants when lifecycle
-// transitions land; keep the domain vocabulary aligned with the flow specs.
-#[allow(dead_code)]
 pub enum WorkspaceLifecycleState {
     Draft,
     Provisioning,
@@ -18,9 +15,6 @@ pub enum WorkspaceLifecycleState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-// Workspace Provisioning will construct these statuses when Provider Resource
-// snapshots are updated from provider observations.
-#[allow(dead_code)]
 pub enum ProviderResourceStatus {
     Creating,
     Running,
@@ -61,6 +55,102 @@ pub struct ServerlessEndpointSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
+pub enum ProviderProvisioningSnapshot {
+    Runpod {
+        endpoint_template_snapshot: Option<RunPodEndpointTemplateSnapshot>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunPodEndpointTemplateSnapshot {
+    pub template_id: String,
+    pub provider_resource_status: ProviderResourceStatus,
+    pub endpoint_worker_image_ref: String,
+    pub mount_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningStatus {
+    Idle,
+    Running,
+    Cancelling,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningPhase {
+    NotStarted,
+    CreatingVolume,
+    StartingProvisioningPod,
+    PreparingEnvironment,
+    CreatingEndpointTemplate,
+    CreatingEndpoint,
+    ValidatingReadiness,
+    CleaningUp,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningFailureCode {
+    ProviderResourceFailed,
+    ProviderResourceTerminated,
+    ProviderResourceUnknown,
+    ProviderResourceMissing,
+    ProviderOperationIndeterminate,
+    ProvisionerWorkerTokenMissing,
+    ProvisionerWorkerTokenInvalid,
+    ProvisionerWorkerUnauthorized,
+    ProvisionerWorkerResponseInvalid,
+    ProvisionerWorkerFailed,
+    ReadinessValidationFailed,
+    CancellationCleanupFailed,
+    LegacyFailure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningFailureSource {
+    Native,
+    Provider,
+    ProviderResource,
+    ProvisionerWorker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProvisioningRecoveryAction {
+    Retry,
+    RecoverProviderSetup,
+    ReselectPlacement,
+    InspectWorkspaceProvisioning,
+    CleanupWorkspaceResources,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceProvisioningFailure {
+    pub code: WorkspaceProvisioningFailureCode,
+    pub phase: WorkspaceProvisioningPhase,
+    pub source: WorkspaceProvisioningFailureSource,
+    pub retryable: bool,
+    pub recovery_action: WorkspaceProvisioningRecoveryAction,
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceProvisioningProgress {
+    pub status: WorkspaceProvisioningStatus,
+    pub phase: WorkspaceProvisioningPhase,
+    pub percent: Option<u8>,
+    pub failure: Option<WorkspaceProvisioningFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub id: String,
@@ -71,7 +161,11 @@ pub struct Workspace {
     pub active_provisioning_pod_snapshot: Option<ProvisioningPodSnapshot>,
     pub serverless_endpoint_snapshot: Option<ServerlessEndpointSnapshot>,
     pub last_provisioning_pod_snapshot: Option<ProvisioningPodSnapshot>,
+    #[serde(default)]
+    pub provider_provisioning_snapshot: Option<ProviderProvisioningSnapshot>,
     pub environment_prepared_at: Option<String>,
+    #[serde(default)]
+    pub last_provisioning_failure: Option<WorkspaceProvisioningFailure>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +195,9 @@ impl Workspace {
             active_provisioning_pod_snapshot: None,
             serverless_endpoint_snapshot: None,
             last_provisioning_pod_snapshot: None,
+            provider_provisioning_snapshot: None,
             environment_prepared_at: None,
+            last_provisioning_failure: None,
         })
     }
 }

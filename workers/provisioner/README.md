@@ -135,24 +135,6 @@ curl -X POST http://127.0.0.1:8000/start \
   --data @start-request.json
 ```
 
-### `POST /cancel`
-
-Requests cancellation for the active job.
-Cancellation terminates active Git/pip subprocess work and interrupts asset downloads between chunks.
-
-```json
-{ "job_id": "workspace-id" }
-```
-
-Example:
-
-```bash
-curl -X POST http://127.0.0.1:8000/cancel \
-  -H "Authorization: Bearer local-token-0123456789abcdef0123" \
-  -H "Content-Type: application/json" \
-  --data '{"job_id":"workspace-id"}'
-```
-
 ### `GET /status`
 
 Returns the current worker status with UI-safe diagnostics.
@@ -192,7 +174,7 @@ During an active job:
 }
 ```
 
-Terminal states are `succeeded`, `failed`, and `cancelled`. Cancellation in progress reports `cancelling`.
+Terminal states are `succeeded` and `failed`.
 
 Failure responses include UI-safe error metadata:
 

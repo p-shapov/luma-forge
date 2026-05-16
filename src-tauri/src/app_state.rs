@@ -4,11 +4,17 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::OnceCell;
 
 use crate::{
+    app_config::NativeAppConfig,
     bundled_catalog::reader::BundledCatalogReader,
     provider::{runpod::RunPodClient, ProviderClientRegistry},
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
+    provisioner_worker::ProvisionerWorkerHttpGateway,
     secrets::KeyringSecretStore,
     workspace_catalog::{repository::UnavailableWorkspaceCatalog, sqlite::SqliteWorkspaceCatalog},
+    workspace_provisioning::{
+        WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
+        WorkspaceProvisioningService,
+    },
     workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupService},
 };
 
@@ -26,14 +32,23 @@ pub(crate) type WorkspaceSetupWriteService = WorkspaceSetupService<
     ProviderClientRegistry,
     SqliteWorkspaceCatalog,
 >;
+pub(crate) type ProductionWorkspaceProvisioningService = WorkspaceProvisioningService<
+    KeyringSecretStore,
+    ProviderClientRegistry,
+    SqliteWorkspaceCatalog,
+    ProvisionerWorkerHttpGateway,
+>;
 
 pub(crate) struct NativeAppState {
     workspace_catalog_source: WorkspaceCatalogSource,
     workspace_catalog: OnceCell<SqliteWorkspaceCatalog>,
     provider_setup_coordinator: ProviderSetupCoordinator,
+    workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator,
+    app_config: NativeAppConfig,
     catalogs: BundledCatalogReader,
     secrets: KeyringSecretStore,
     providers: ProviderClientRegistry,
+    provisioner_workers: ProvisionerWorkerHttpGateway,
     #[cfg(test)]
     workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize,
 }
@@ -69,6 +84,32 @@ impl NativeAppState {
         ))
     }
 
+    pub(crate) async fn workspace_provisioning_service(
+        &self,
+    ) -> Result<ProductionWorkspaceProvisioningService, WorkspaceProvisioningError> {
+        let workspace_catalog = self
+            .workspace_catalog()
+            .await
+            .map_err(|_| WorkspaceProvisioningError::WorkspaceCatalogUnavailable)?;
+        Ok(WorkspaceProvisioningService::new(
+            self.secrets.clone(),
+            self.providers.clone(),
+            workspace_catalog,
+            self.provisioner_workers.clone(),
+            self.workspace_provisioning_coordinator.clone(),
+            WorkspaceProvisioningConfig {
+                provisioner_worker_image_ref: self.app_config.provisioner_worker_image_ref.clone(),
+                provisioner_worker_port: self.app_config.provisioner_worker_port,
+                runpod_endpoint_worker_image_ref: self
+                    .app_config
+                    .runpod_endpoint_worker_image_ref
+                    .clone(),
+                runpod_endpoint_worker_port: self.app_config.runpod_endpoint_worker_port,
+                volume_mount_path: "/workspace".to_string(),
+            },
+        ))
+    }
+
     pub(crate) fn provider_setup_coordinator(&self) -> &ProviderSetupCoordinator {
         &self.provider_setup_coordinator
     }
@@ -97,9 +138,12 @@ impl NativeAppState {
             workspace_catalog_source,
             workspace_catalog: OnceCell::new(),
             provider_setup_coordinator: ProviderSetupCoordinator::default(),
+            workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator::default(),
+            app_config: NativeAppConfig::from_build_environment(),
             catalogs: BundledCatalogReader,
             secrets,
             providers,
+            provisioner_workers: ProvisionerWorkerHttpGateway::default(),
             #[cfg(test)]
             workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize::new(0),
         }

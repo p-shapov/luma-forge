@@ -2,7 +2,7 @@ use sqlx::{Row, SqliteTransaction};
 
 use crate::workspace_setup::error::WorkspaceSetupError;
 
-pub(crate) const CURRENT_PERSISTENCE_VERSION: i64 = 1;
+pub(crate) const CURRENT_PERSISTENCE_VERSION: i64 = 2;
 pub(crate) const PERSISTENCE_VERSION_KEY: &str = "persistence_version";
 
 pub(super) async fn run(

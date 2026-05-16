@@ -133,6 +133,14 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
         })
     }
 
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Workspace>, WorkspaceSetupError>> + Send + 'a>>
+    {
+        Box::pin(async move { self.find_workspace(id).await })
+    }
+
     fn insert_workspace<'a>(
         &'a self,
         workspace: &'a Workspace,
@@ -188,6 +196,89 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             self.find_workspace(&workspace.id)
                 .await?
                 .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
+        })
+    }
+
+    fn update_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async move {
+            workspace_validator::validate_workspace(workspace)
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+
+            let mut transaction = self
+                .pool
+                .begin()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+            let now = time::OffsetDateTime::now_utc()
+                .format(&time::format_description::well_known::Rfc3339)
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+            let workspace_json = serde_json::to_string(workspace)
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+            let lifecycle_state = lifecycle_state_value(&workspace.lifecycle_state);
+
+            let result = sqlx::query(
+                r#"
+                UPDATE workspaces
+                SET
+                    name = ?,
+                    gpu_cloud_provider_id = ?,
+                    lifecycle_state = ?,
+                    workflow_preset_id = ?,
+                    updated_at = ?,
+                    workspace_json = ?
+                WHERE id = ?
+                "#,
+            )
+            .bind(&workspace.name)
+            .bind(gpu_cloud_provider_id_value(
+                &workspace.gpu_cloud_provider_id,
+            ))
+            .bind(lifecycle_state)
+            .bind(&workspace.placement_plan.selected_workflow_preset().id)
+            .bind(&now)
+            .bind(workspace_json)
+            .bind(&workspace.id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+            if result.rows_affected() != 1 {
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+                return Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed);
+            }
+
+            let row = sqlx::query(
+                r#"
+                SELECT
+                    id,
+                    name,
+                    gpu_cloud_provider_id,
+                    lifecycle_state,
+                    workflow_preset_id,
+                    workspace_json
+                FROM workspaces
+                WHERE id = ?
+                "#,
+            )
+            .bind(&workspace.id)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            let updated = decode_workspace_row(&row)?;
+
+            transaction
+                .commit()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+            Ok(updated)
         })
     }
 }

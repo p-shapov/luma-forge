@@ -6,4 +6,6 @@ pub enum SecretStoreError {
     SecureKeyringUnavailable,
     #[error("invalid stored provider api key")]
     InvalidStoredProviderApiKey,
+    #[error("invalid stored provisioner worker token")]
+    InvalidStoredProvisionerWorkerToken,
 }

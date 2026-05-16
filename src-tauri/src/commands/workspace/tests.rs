@@ -11,7 +11,7 @@ use super::*;
 
 #[test]
 fn maps_inventory_request_to_domain_provider_id() {
-    let request = GetProviderInventoryRequest {
+    let request = GetProviderPlacementOptionsRequest {
         gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
     };
 
@@ -21,11 +21,36 @@ fn maps_inventory_request_to_domain_provider_id() {
     );
 }
 
+#[test]
+fn maps_provider_placement_options_response_to_command_contract() {
+    let response = GetProviderPlacementOptionsResponse::from(
+        crate::workspace_setup::contracts::ProviderPlacementOptions {
+            provider_inventory: crate::domain::provider_inventory::ProviderInventory {
+                gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+                fetched_at: "2026-05-08T00:00:00Z".to_string(),
+                max_persistent_storage_volume_size_bytes: Some(100),
+                datacenters: vec![],
+            },
+            placement_capabilities: domain_placement::ProviderPlacementCapabilities::runpod(),
+        },
+    );
+
+    assert_eq!(
+        response.provider_inventory.gpu_cloud_provider_id,
+        DomainGpuCloudProviderId::Runpod
+    );
+    assert!(matches!(
+        response.placement_capabilities.endpoint_keep_alive,
+        domain_placement::EndpointKeepAliveCapability::Supported { .. }
+    ));
+}
+
 fn command_placement_plan() -> domain_placement::PlacementPlan {
     domain_placement::PlacementPlan::Runpod {
         selected_datacenter_id: "EU-RO-1".to_string(),
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         persistent_storage_volume_size_bytes: 85899345920,
+        endpoint_keep_alive_seconds: 5,
         selected_workflow_preset: domain_workflow::WorkflowPreset {
             id: "preset".to_string(),
             version: "1".to_string(),
@@ -86,7 +111,9 @@ fn maps_workspace_response_to_command_contract() {
         active_provisioning_pod_snapshot: None,
         serverless_endpoint_snapshot: None,
         last_provisioning_pod_snapshot: None,
+        provider_provisioning_snapshot: None,
         environment_prepared_at: None,
+        last_provisioning_failure: None,
     });
 
     assert_eq!(

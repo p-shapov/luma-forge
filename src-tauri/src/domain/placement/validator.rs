@@ -3,6 +3,7 @@ use crate::domain::{
 };
 
 use super::PlacementPlan;
+use super::{RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS, RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementValidationError {
@@ -11,6 +12,7 @@ pub enum PlacementValidationError {
     GpuRequired,
     WorkflowPresetStale,
     StorageSizeBelowPresetMinimum,
+    EndpointKeepAliveOutOfRange,
 }
 
 pub fn validate_placement_plan(
@@ -22,6 +24,7 @@ pub fn validate_placement_plan(
         selected_datacenter_id,
         selected_gpu_id,
         persistent_storage_volume_size_bytes,
+        endpoint_keep_alive_seconds,
         selected_workflow_preset,
     } = placement_plan;
 
@@ -46,6 +49,11 @@ pub fn validate_placement_plan(
 
     if *persistent_storage_volume_size_bytes < preset.required_base_volume_size_bytes {
         return Err(PlacementValidationError::StorageSizeBelowPresetMinimum);
+    }
+    if !(RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS..=RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS)
+        .contains(endpoint_keep_alive_seconds)
+    {
+        return Err(PlacementValidationError::EndpointKeepAliveOutOfRange);
     }
 
     Ok(())

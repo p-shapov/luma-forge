@@ -1,4 +1,13 @@
-use crate::workspace_setup::tests::sample_workspace;
+use crate::{
+    domain::{
+        provider_setup::GpuCloudProviderId,
+        workspace::{
+            PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
+            RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
+        },
+    },
+    workspace_setup::tests::sample_workspace,
+};
 
 use serde_json::json;
 use sqlx::{Row, SqlitePool};
@@ -36,6 +45,112 @@ async fn inserts_and_rereads_workspace() {
 }
 
 #[tokio::test]
+async fn finds_workspace_by_id() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    assert_eq!(
+        catalog
+            .find_workspace_by_id(&workspace.id)
+            .await
+            .expect("find"),
+        Some(workspace)
+    );
+    assert_eq!(
+        catalog
+            .find_workspace_by_id("018f6a40-0000-7000-8000-000000000002")
+            .await
+            .expect("find missing"),
+        None
+    );
+}
+
+#[tokio::test]
+async fn updates_workspace_lifecycle_and_indexed_columns_transactionally() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    workspace.name = "Provisioning workspace".to_string();
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    let updated = catalog
+        .update_workspace(&workspace)
+        .await
+        .expect("update workspace");
+
+    assert_eq!(updated, workspace);
+    let row =
+        sqlx::query("SELECT name, lifecycle_state, workspace_json FROM workspaces WHERE id = ?")
+            .bind(&workspace.id)
+            .fetch_one(&catalog.pool)
+            .await
+            .expect("updated row");
+    assert_eq!(
+        row.try_get::<String, _>("name").expect("name"),
+        "Provisioning workspace"
+    );
+    assert_eq!(
+        row.try_get::<String, _>("lifecycle_state")
+            .expect("lifecycle"),
+        "provisioning"
+    );
+    let stored_workspace: Workspace =
+        serde_json::from_str(&row.try_get::<String, _>("workspace_json").expect("json"))
+            .expect("workspace json");
+    assert_eq!(
+        stored_workspace.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+}
+
+#[tokio::test]
+async fn persists_runpod_snapshots_and_keep_alive_values() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
+    workspace.persistent_storage_volume_snapshot = Some(volume_snapshot());
+    workspace.provider_provisioning_snapshot = Some(runpod_template_snapshot());
+    workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+
+    let updated = catalog
+        .update_workspace(&workspace)
+        .await
+        .expect("persist ready workspace");
+
+    assert_eq!(updated, workspace);
+    let stored = catalog
+        .find_workspace_by_id(&workspace.id)
+        .await
+        .expect("find")
+        .expect("workspace");
+    let crate::domain::placement::PlacementPlan::Runpod {
+        endpoint_keep_alive_seconds,
+        ..
+    } = stored.placement_plan;
+    assert_eq!(endpoint_keep_alive_seconds, 5);
+    assert!(stored.provider_provisioning_snapshot.is_some());
+}
+
+#[tokio::test]
+async fn rejects_update_for_invalid_lifecycle_transition_payload() {
+    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+
+    workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
+    let error = catalog
+        .update_workspace(&workspace)
+        .await
+        .expect_err("ready without snapshots should fail");
+
+    assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogCorrupt);
+}
+
+#[tokio::test]
 async fn already_current_catalog_is_reused_without_rewriting_workspace_json() {
     let path = temp_catalog_path("already-current");
     let catalog = SqliteWorkspaceCatalog::connect(&path)
@@ -57,6 +172,50 @@ async fn already_current_catalog_is_reused_without_rewriting_workspace_json() {
     assert_eq!(
         workspace_json(&reopened.pool, &workspace.id).await,
         original_json
+    );
+
+    reopened.pool.close().await;
+    std::fs::remove_file(path).ok();
+}
+
+#[tokio::test]
+async fn migrates_v1_workspace_json_to_current_optional_shape() {
+    let path = temp_catalog_path("v1-shape");
+    let catalog = SqliteWorkspaceCatalog::connect(&path)
+        .await
+        .expect("catalog");
+    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let mut payload = serde_json::to_value(&workspace).expect("workspace json value");
+    payload
+        .as_object_mut()
+        .expect("workspace object")
+        .remove("provider_provisioning_snapshot");
+    sqlx::query("UPDATE workspaces SET workspace_json = ? WHERE id = ?")
+        .bind(payload.to_string())
+        .bind(&workspace.id)
+        .execute(&catalog.pool)
+        .await
+        .expect("write v1 payload");
+    set_persistence_version(&catalog.pool, 1).await;
+    catalog.pool.close().await;
+
+    let reopened = SqliteWorkspaceCatalog::connect(&path)
+        .await
+        .expect("reopened catalog");
+
+    assert_eq!(
+        reopened.persistence_version().await,
+        CURRENT_PERSISTENCE_VERSION
+    );
+    assert_eq!(
+        reopened
+            .find_workspace_by_id(&workspace.id)
+            .await
+            .expect("find")
+            .expect("workspace")
+            .provider_provisioning_snapshot,
+        None
     );
 
     reopened.pool.close().await;
@@ -334,4 +493,37 @@ async fn set_persistence_version(pool: &SqlitePool, version: i64) {
     .execute(pool)
     .await
     .expect("set persistence version");
+}
+
+fn volume_snapshot() -> PersistentStorageVolumeSnapshot {
+    PersistentStorageVolumeSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "volume-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+        provisioned_size_bytes: 85899345920,
+        mount_path: "/workspace".to_string(),
+    }
+}
+
+fn endpoint_snapshot() -> ServerlessEndpointSnapshot {
+    ServerlessEndpointSnapshot {
+        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+        provider_resource_id: "endpoint-1".to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+        selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        endpoint_invoke_url: "https://example.invalid/run".to_string(),
+    }
+}
+
+fn runpod_template_snapshot() -> ProviderProvisioningSnapshot {
+    ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
+            template_id: "template-1".to_string(),
+            provider_resource_status: ProviderResourceStatus::Ready,
+            endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
+            mount_path: "/workspace".to_string(),
+        }),
+    }
 }

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     future::Future,
     pin::Pin,
     sync::{
@@ -11,13 +12,13 @@ use std::{
 use crate::{
     bundled_catalog::reader::BundledCatalogReader,
     domain::{
-        placement::PlacementPlan,
+        placement::{EndpointKeepAliveCapability, PlacementPlan, ProviderPlacementCapabilities},
         provider_inventory::ProviderInventory,
         provider_setup::{GpuCloudProviderId as DomainGpuCloudProviderId, ProviderApiKey},
         workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
     provider_setup::ProviderSetupCoordinator,
-    secrets::{SecretStore, SecretStoreError},
+    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_setup::contracts::CreateWorkspaceInput,
 };
@@ -27,18 +28,21 @@ use super::*;
 #[derive(Debug, Clone)]
 struct MemorySecretStore {
     key: Arc<Mutex<Option<String>>>,
+    provisioner_tokens: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl MemorySecretStore {
     fn with_key(key: &str) -> Self {
         Self {
             key: Arc::new(Mutex::new(Some(key.to_string()))),
+            provisioner_tokens: Arc::default(),
         }
     }
 
     fn empty() -> Self {
         Self {
             key: Arc::new(Mutex::new(None)),
+            provisioner_tokens: Arc::default(),
         }
     }
 
@@ -86,6 +90,40 @@ impl SecretStore for MemorySecretStore {
     ) -> Result<(), SecretStoreError> {
         unimplemented!("workspace setup tests do not delete secrets")
     }
+
+    fn write_provisioner_worker_token(
+        &self,
+        workspace_id: &str,
+        token: &ProvisionerWorkerBearerToken,
+    ) -> Result<(), SecretStoreError> {
+        self.provisioner_tokens
+            .lock()
+            .expect("secret lock")
+            .insert(workspace_id.to_string(), token.expose_secret().to_string());
+        Ok(())
+    }
+
+    fn read_provisioner_worker_token(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
+        self.provisioner_tokens
+            .lock()
+            .expect("secret lock")
+            .get(workspace_id)
+            .cloned()
+            .map(ProvisionerWorkerBearerToken::new)
+            .transpose()
+            .map_err(|_| SecretStoreError::InvalidStoredProvisionerWorkerToken)
+    }
+
+    fn delete_provisioner_worker_token(&self, workspace_id: &str) -> Result<(), SecretStoreError> {
+        self.provisioner_tokens
+            .lock()
+            .expect("secret lock")
+            .remove(workspace_id);
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -95,12 +133,13 @@ struct MemoryProvider {
     inventory: Option<ProviderInventory>,
 }
 
-impl ProviderInventoryGateway for MemoryProvider {
-    fn fetch_inventory<'a>(
+impl ProviderPlacementOptionsGateway for MemoryProvider {
+    fn fetch_placement_options<'a>(
         &'a self,
         provider_id: &'a DomainGpuCloudProviderId,
-    ) -> Pin<Box<dyn Future<Output = Result<ProviderInventory, WorkspaceSetupError>> + Send + 'a>>
-    {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<ProviderPlacementOptions, WorkspaceSetupError>> + Send + 'a>,
+    > {
         Box::pin(async move {
             if self.setup_missing {
                 return Err(WorkspaceSetupError::ProviderSetupIncomplete);
@@ -108,12 +147,17 @@ impl ProviderInventoryGateway for MemoryProvider {
             if self.fail {
                 return Err(WorkspaceSetupError::ProviderApiUnavailable);
             }
-            Ok(self.inventory.clone().unwrap_or(ProviderInventory {
-                gpu_cloud_provider_id: *provider_id,
-                fetched_at: "2026-05-08T00:00:00Z".to_string(),
-                max_persistent_storage_volume_size_bytes: None,
-                datacenters: vec![],
-            }))
+            Ok(ProviderPlacementOptions {
+                provider_inventory: self.inventory.clone().unwrap_or(ProviderInventory {
+                    gpu_cloud_provider_id: *provider_id,
+                    fetched_at: "2026-05-08T00:00:00Z".to_string(),
+                    max_persistent_storage_volume_size_bytes: None,
+                    datacenters: vec![],
+                }),
+                placement_capabilities: match provider_id {
+                    DomainGpuCloudProviderId::Runpod => ProviderPlacementCapabilities::runpod(),
+                },
+            })
         })
     }
 }
@@ -138,6 +182,22 @@ impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
         })
     }
 
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Workspace>, WorkspaceSetupError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            Ok(self
+                .workspaces
+                .lock()
+                .expect("catalog lock")
+                .iter()
+                .find(|workspace| workspace.id == id)
+                .cloned())
+        })
+    }
+
     fn insert_workspace<'a>(
         &'a self,
         workspace: &'a Workspace,
@@ -158,6 +218,21 @@ impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
                 return Err(WorkspaceSetupError::WorkspaceAlreadyExists);
             }
             workspaces.push(workspace.clone());
+            Ok(workspace.clone())
+        })
+    }
+
+    fn update_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut workspaces = self.workspaces.lock().expect("catalog lock");
+            let existing = workspaces
+                .iter_mut()
+                .find(|existing| existing.id == workspace.id)
+                .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            *existing = workspace.clone();
             Ok(workspace.clone())
         })
     }
@@ -196,6 +271,7 @@ pub(crate) fn sample_placement_plan() -> PlacementPlan {
         selected_datacenter_id: "EU-RO-1".to_string(),
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         persistent_storage_volume_size_bytes: 85899345920,
+        endpoint_keep_alive_seconds: 5,
         selected_workflow_preset: reader
             .workflow_catalog()
             .expect("workflow catalog")
@@ -215,7 +291,9 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
         active_provisioning_pod_snapshot: None,
         serverless_endpoint_snapshot: None,
         last_provisioning_pod_snapshot: None,
+        provider_provisioning_snapshot: None,
         environment_prepared_at: None,
+        last_provisioning_failure: None,
     }
 }
 
@@ -281,7 +359,7 @@ async fn rejects_inventory_when_setup_is_missing() {
     );
 
     let error = service
-        .get_provider_inventory(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("missing key should fail");
 
@@ -301,7 +379,7 @@ async fn maps_provider_inventory_failure() {
     );
 
     let error = service
-        .get_provider_inventory(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("provider should fail");
 
@@ -326,11 +404,35 @@ async fn maps_invalid_provider_inventory_to_provider_inventory_invalid() {
     );
 
     let error = service
-        .get_provider_inventory(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
         .await
         .expect_err("invalid provider inventory should fail");
 
     assert_eq!(error, WorkspaceSetupError::ProviderInventoryInvalid);
+}
+
+#[tokio::test]
+async fn returns_runpod_placement_capabilities_with_default_keep_alive() {
+    let service = WorkspaceSetupService::new(
+        BundledCatalogReader,
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryProvider::default(),
+        MemoryWorkspaceCatalog::default(),
+    );
+
+    let response = service
+        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
+        .await
+        .expect("placement options");
+
+    assert_eq!(
+        response.placement_capabilities.endpoint_keep_alive,
+        EndpointKeepAliveCapability::Supported {
+            default_seconds: 5,
+            min_seconds: 5,
+            max_seconds: 3600,
+        }
+    );
 }
 
 #[tokio::test]
@@ -607,6 +709,32 @@ async fn rejects_insufficient_storage() {
         .expect_err("small storage should fail");
 
     assert_eq!(error, WorkspaceSetupError::StorageSizeBelowPresetMinimum);
+}
+
+#[tokio::test]
+async fn rejects_endpoint_keep_alive_outside_runpod_range() {
+    let service = service(
+        MemorySecretStore::with_key("rp_123_secret"),
+        MemoryWorkspaceCatalog::default(),
+    );
+    let mut placement_plan = sample_placement_plan();
+    let PlacementPlan::Runpod {
+        endpoint_keep_alive_seconds,
+        ..
+    } = &mut placement_plan;
+    *endpoint_keep_alive_seconds = 4;
+
+    let error = service
+        .create_workspace(CreateWorkspaceInput {
+            workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+            name: "Workspace".to_string(),
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            placement_plan,
+        })
+        .await
+        .expect_err("invalid keep-alive should fail");
+
+    assert_eq!(error, WorkspaceSetupError::EndpointKeepAliveOutOfRange);
 }
 
 #[tokio::test]

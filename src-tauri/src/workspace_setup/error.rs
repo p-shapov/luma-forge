@@ -13,6 +13,10 @@ pub enum WorkspaceSetupError {
     StoredProviderApiKeyInvalid,
     #[error("provider api unavailable")]
     ProviderApiUnavailable,
+    #[error("provider rate limited")]
+    ProviderRateLimited,
+    #[error("provider request rejected")]
+    ProviderRequestRejected,
     #[error("provider response invalid")]
     ProviderResponseInvalid,
     #[error("provider inventory invalid")]
@@ -43,6 +47,8 @@ pub enum WorkspaceSetupError {
     WorkflowPresetStale,
     #[error("storage size below preset minimum")]
     StorageSizeBelowPresetMinimum,
+    #[error("endpoint keep-alive outside provider range")]
+    EndpointKeepAliveOutOfRange,
     #[error("workspace already exists")]
     WorkspaceAlreadyExists,
     #[error("invalid workspace id")]
@@ -58,6 +64,7 @@ impl From<SecretStoreError> for WorkspaceSetupError {
         match error {
             SecretStoreError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
             SecretStoreError::InvalidStoredProviderApiKey => Self::StoredProviderApiKeyInvalid,
+            SecretStoreError::InvalidStoredProvisionerWorkerToken => Self::SecureKeyringUnavailable,
         }
     }
 }
@@ -71,6 +78,9 @@ impl From<PlacementValidationError> for WorkspaceSetupError {
             PlacementValidationError::WorkflowPresetStale => Self::WorkflowPresetStale,
             PlacementValidationError::StorageSizeBelowPresetMinimum => {
                 Self::StorageSizeBelowPresetMinimum
+            }
+            PlacementValidationError::EndpointKeepAliveOutOfRange => {
+                Self::EndpointKeepAliveOutOfRange
             }
         }
     }

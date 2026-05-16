@@ -7,7 +7,6 @@ use crate::{
     domain::{
         placement::validator as placement_validator,
         provider_inventory::validator as provider_inventory_validator,
-        provider_inventory::ProviderInventory,
         provider_setup::GpuCloudProviderId,
         workflow::WorkflowCatalog,
         workspace::{Workspace, WorkspaceCatalog},
@@ -16,14 +15,16 @@ use crate::{
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
-use contracts::CreateWorkspaceInput;
+use contracts::{CreateWorkspaceInput, ProviderPlacementOptions};
 use error::WorkspaceSetupError;
 
-pub trait ProviderInventoryGateway: Send + Sync {
-    fn fetch_inventory<'a>(
+pub trait ProviderPlacementOptionsGateway: Send + Sync {
+    fn fetch_placement_options<'a>(
         &'a self,
         provider_id: &'a GpuCloudProviderId,
-    ) -> Pin<Box<dyn Future<Output = Result<ProviderInventory, WorkspaceSetupError>> + Send + 'a>>;
+    ) -> Pin<
+        Box<dyn Future<Output = Result<ProviderPlacementOptions, WorkspaceSetupError>> + Send + 'a>,
+    >;
 }
 
 pub trait WorkspaceSetupCatalogReader: Send + Sync {
@@ -52,21 +53,24 @@ impl<C, S, P, W> WorkspaceSetupService<C, S, P, W>
 where
     C: WorkspaceSetupCatalogReader,
     S: SecretStore,
-    P: ProviderInventoryGateway,
+    P: ProviderPlacementOptionsGateway,
     W: WorkspaceCatalogRepository,
 {
     pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError> {
         self.catalogs.workflow_catalog()
     }
 
-    pub async fn get_provider_inventory(
+    pub async fn get_provider_placement_options(
         &self,
         provider_id: GpuCloudProviderId,
-    ) -> Result<ProviderInventory, WorkspaceSetupError> {
-        let provider_inventory = self.providers.fetch_inventory(&provider_id).await?;
-        provider_inventory_validator::validate_provider_inventory(provider_id, &provider_inventory)
-            .map_err(|_| WorkspaceSetupError::ProviderInventoryInvalid)?;
-        Ok(provider_inventory)
+    ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
+        let options = self.providers.fetch_placement_options(&provider_id).await?;
+        provider_inventory_validator::validate_provider_inventory(
+            provider_id,
+            &options.provider_inventory,
+        )
+        .map_err(|_| WorkspaceSetupError::ProviderInventoryInvalid)?;
+        Ok(options)
     }
 
     pub async fn get_workspace_catalog(&self) -> Result<WorkspaceCatalog, WorkspaceSetupError> {
