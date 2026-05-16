@@ -102,16 +102,59 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
         self.assertNotIn("-r /workspace/ComfyUI/requirements.txt", dockerfile)
 
-    def test_manual_dispatch_requires_revision_without_stale_default(self):
+    def test_manual_dispatch_allows_optional_auto_revision_without_stale_default(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         implementation_revision_section = workflow.split("implementation_revision:", maxsplit=1)[1].split(
             "\n\npermissions:",
             maxsplit=1,
         )[0]
 
-        self.assertIn("required: true", implementation_revision_section)
+        self.assertIn("required: false", implementation_revision_section)
         self.assertNotIn("default:", implementation_revision_section)
         self.assertNotIn("2026.05.16-001", implementation_revision_section)
+        self.assertIn("--catalog bundled/runtime-catalog.json", workflow)
+
+    def test_resolves_first_auto_implementation_revision_for_today(self):
+        recipe = release_tool.load_recipe(RECIPE_PATH)
+        catalog = _catalog_with_contract(recipe, implementation_revision="2026.05.16-001")
+
+        revision = release_tool.resolve_implementation_revision(
+            recipe=recipe,
+            catalog=catalog,
+            requested_revision="auto",
+            today=release_tool.dt.date(2026, 5, 17),
+        )
+
+        self.assertEqual("2026.05.17-001", revision)
+
+    def test_resolves_next_auto_implementation_revision_for_today(self):
+        recipe = release_tool.load_recipe(RECIPE_PATH)
+        catalog = _catalog_with_contract(
+            recipe,
+            implementation_revision=["2026.05.17-001", "2026.05.17-002", "manual-hotfix"],
+        )
+
+        revision = release_tool.resolve_implementation_revision(
+            recipe=recipe,
+            catalog=catalog,
+            requested_revision="",
+            today=release_tool.dt.date(2026, 5, 17),
+        )
+
+        self.assertEqual("2026.05.17-003", revision)
+
+    def test_explicit_implementation_revision_is_preserved(self):
+        recipe = release_tool.load_recipe(RECIPE_PATH)
+        catalog = _catalog_with_contract(recipe, implementation_revision="2026.05.17-001")
+
+        revision = release_tool.resolve_implementation_revision(
+            recipe=recipe,
+            catalog=catalog,
+            requested_revision="manual-hotfix",
+            today=release_tool.dt.date(2026, 5, 17),
+        )
+
+        self.assertEqual("manual-hotfix", revision)
 
     def test_catalog_validation_runs_before_build_or_publish(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -244,8 +287,35 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             self.assertIn("pytorch_packages_json=", output_path.read_text(encoding="utf-8"))
 
+    def test_cli_resolves_auto_implementation_revision_from_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "github-output"
+
+            exit_code = release_tool.main(
+                [
+                    "resolve",
+                    "--recipe",
+                    str(RECIPE_PATH),
+                    "--catalog",
+                    str(CATALOG_PATH),
+                    "--implementation-revision",
+                    "auto",
+                    "--github-output",
+                    str(output_path),
+                ]
+            )
+
+            self.assertEqual(0, exit_code)
+            self.assertRegex(
+                output_path.read_text(encoding="utf-8"),
+                r"implementation_revision=\d{4}\.\d{2}\.\d{2}-\d{3}",
+            )
+
 
 def _catalog_with_contract(recipe, *, implementation_revision):
+    implementation_revisions = (
+        implementation_revision if isinstance(implementation_revision, list) else [implementation_revision]
+    )
     return {
         "id": "luma-forge-runtimes",
         "version": "2026.05.16",
@@ -257,7 +327,7 @@ def _catalog_with_contract(recipe, *, implementation_revision):
                 "runtime_metadata": release_tool.runtime_metadata_from_recipe(recipe),
                 "implementation_revisions": [
                     {
-                        "revision": implementation_revision,
+                        "revision": revision,
                         "provisioner_image_ref": _image_ref("1"),
                         "endpoint_image_ref": _image_ref("2"),
                         "image_metadata": {
@@ -266,8 +336,9 @@ def _catalog_with_contract(recipe, *, implementation_revision):
                             "endpoint_runtime_contract_path": release_tool.ENDPOINT_RUNTIME_CONTRACT_PATH,
                         },
                     }
+                    for revision in implementation_revisions
                 ],
-                "default_implementation_revision": implementation_revision,
+                "default_implementation_revision": implementation_revisions[-1],
             }
         ],
     }

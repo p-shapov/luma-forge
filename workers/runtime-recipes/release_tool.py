@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import re
 import sys
@@ -18,6 +19,8 @@ BASE_DEPENDENCY_RECORD_PATHS = [
 PROVISIONER_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar.gz"
 PROVISIONER_RUNTIME_METADATA_PATH = "/opt/luma-forge/runtime/runtime-metadata.json"
 ENDPOINT_RUNTIME_CONTRACT_PATH = "/opt/luma-forge/runtime/runtime-contract.json"
+AUTO_IMPLEMENTATION_REVISION_VALUES = ("", "auto")
+IMPLEMENTATION_REVISION_DATE_PATTERN = re.compile(r"^(?P<date>\d{4}\.\d{2}\.\d{2})-(?P<sequence>\d{3,})$")
 
 
 class ReleaseToolError(Exception):
@@ -115,6 +118,35 @@ def validate_catalog_compatibility(
             f"{contract_id} {contract_version}: {details}. "
             "Bump the runtime contract version or restore the recipe to the existing compatibility surface."
         )
+
+
+def resolve_implementation_revision(
+    *,
+    recipe: dict[str, Any],
+    catalog: dict[str, Any],
+    requested_revision: str | None,
+    today: dt.date | None = None,
+) -> str:
+    if requested_revision is not None and requested_revision.strip().lower() not in AUTO_IMPLEMENTATION_REVISION_VALUES:
+        return requested_revision.strip()
+
+    revision_date = today or dt.datetime.now(dt.timezone.utc).date()
+    prefix = revision_date.strftime("%Y.%m.%d")
+    highest_sequence = 0
+
+    contract = find_contract(catalog, recipe["contract"]["id"], recipe["contract"]["version"])
+    if contract is not None:
+        for revision in _list_value(contract, "implementation_revisions"):
+            if not isinstance(revision, dict):
+                raise ReleaseToolError("runtime catalog contains a malformed implementation revision")
+            revision_id = revision.get("revision")
+            if not isinstance(revision_id, str):
+                raise ReleaseToolError("runtime catalog contains an implementation revision without an id")
+            match = IMPLEMENTATION_REVISION_DATE_PATTERN.match(revision_id)
+            if match is not None and match.group("date") == prefix:
+                highest_sequence = max(highest_sequence, int(match.group("sequence")))
+
+    return f"{prefix}-{highest_sequence + 1:03d}"
 
 
 def update_catalog(
@@ -447,7 +479,16 @@ def _is_safe_relative_path(value: str) -> bool:
 def _cmd_resolve(args: argparse.Namespace) -> None:
     recipe_path = Path(args.recipe)
     recipe = load_recipe(recipe_path)
-    outputs = recipe_outputs(recipe, recipe_path, args.implementation_revision)
+    implementation_revision = args.implementation_revision
+    if implementation_revision is None or implementation_revision.strip().lower() in AUTO_IMPLEMENTATION_REVISION_VALUES:
+        if not args.catalog:
+            raise ReleaseToolError("catalog is required when implementation revision is automatic")
+        implementation_revision = resolve_implementation_revision(
+            recipe=recipe,
+            catalog=_load_json(Path(args.catalog)),
+            requested_revision=implementation_revision,
+        )
+    outputs = recipe_outputs(recipe, recipe_path, implementation_revision)
     if args.github_output:
         write_github_outputs(outputs, Path(args.github_output))
     else:
@@ -495,7 +536,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     resolve = subparsers.add_parser("resolve", help="resolve recipe outputs")
     resolve.add_argument("--recipe", required=True)
-    resolve.add_argument("--implementation-revision", required=True)
+    resolve.add_argument("--catalog")
+    resolve.add_argument("--implementation-revision")
     resolve.add_argument("--github-output")
     resolve.set_defaults(func=_cmd_resolve)
 

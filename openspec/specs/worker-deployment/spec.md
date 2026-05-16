@@ -59,10 +59,15 @@ Each runtime deployment workflow SHALL complete worker package validation, image
 ### Requirement: Select non-duplicate runtime implementation revisions
 The runtime recipe release workflow SHALL resolve an implementation revision that does not already exist in the selected runtime contract before it builds or publishes worker images.
 
-#### Scenario: Manual dispatch requires fresh implementation revision
+#### Scenario: Manual dispatch auto-selects fresh implementation revision
 - **WHEN** an authorized operator starts the runtime deployment workflow manually
-- **THEN** the workflow SHALL require an implementation revision that is not pre-filled with a known existing Runtime Catalog implementation revision
+- **THEN** the workflow SHALL allow the implementation revision to be omitted
+- **AND** when omitted or set to `auto`, the workflow SHALL select the next date-based implementation revision that does not already exist under the selected Runtime Catalog contract
 - **AND** the workflow SHALL use that revision for provisioner image metadata, endpoint image metadata, deterministic image tags, and the generated Runtime Catalog update
+
+#### Scenario: Manual dispatch accepts explicit fresh implementation revision
+- **WHEN** an authorized operator starts the runtime deployment workflow manually with an explicit implementation revision
+- **THEN** the workflow SHALL use that revision for provisioner image metadata, endpoint image metadata, deterministic image tags, and the generated Runtime Catalog update
 
 #### Scenario: Duplicate implementation revision is rejected before publication
 - **WHEN** the runtime deployment workflow resolves an implementation revision that already exists in the bundled Runtime Catalog entry for the selected recipe's runtime contract id and version
@@ -107,9 +112,9 @@ The repository SHALL document how to operate the runtime recipe release workflow
 - **WHEN** an operator needs to deploy or roll back worker images
 - **THEN** documentation SHALL describe the runtime recipe workflow triggers
 - **AND** documentation SHALL describe runtime recipe selection
+- **AND** documentation SHALL describe automatic implementation revision selection and explicit override behavior
 - **AND** documentation SHALL describe the GitHub Container Registry image paths for the provisioner and endpoint images
 - **AND** documentation SHALL describe produced immutable image tags and digest-pinned refs
-- **AND** documentation SHALL describe implementation revision increments for worker-only redeploys
 - **AND** documentation SHALL describe reviewed Runtime Catalog update PRs
 - **AND** documentation SHALL describe rollback by selecting previously published immutable image pairs from Runtime Catalog entries
 

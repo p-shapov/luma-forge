@@ -5,9 +5,9 @@ Provisioner and RunPod Endpoint Worker images are deployed as a compatible runti
 ## Triggers
 
 - Push a release tag matching `runtime-recipe-v*`.
-- Run the workflow manually and select one recipe, for example `workers/runtime-recipes/comfyui-python312-cu121.yaml`, plus an implementation revision.
+- Run the workflow manually and select one recipe, for example `workers/runtime-recipes/comfyui-python312-cu121.yaml`. Leave the implementation revision empty for the workflow to select the next date-based revision automatically.
 
-Manual releases require a new implementation revision that does not already exist under the selected Runtime Catalog contract. Use a fresh revision for worker-only redeploys, for example the next date-based sequence. The workflow validates the selected revision against `bundled/runtime-catalog.json` before worker validation, image builds, or publication, and rejects duplicate revisions.
+Manual releases use a new implementation revision that does not already exist under the selected Runtime Catalog contract. By default the workflow resolves the next date-based sequence, for example `2026.05.17-001`, from `bundled/runtime-catalog.json`. Operators may still provide an explicit revision when a release needs a specific identifier. The workflow validates the selected revision before worker validation, image builds, or publication, and rejects duplicate revisions.
 
 ## Registry
 

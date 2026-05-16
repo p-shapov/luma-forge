@@ -14,8 +14,8 @@ on:
           - workers/runtime-recipes/comfyui-python312-cu121.yaml
         default: workers/runtime-recipes/comfyui-python312-cu121.yaml
       implementation_revision:
-        description: Runtime implementation revision
-        required: true
+        description: Runtime implementation revision (optional; auto-increments when omitted)
+        required: false
 
 permissions:
   contents: write
@@ -47,10 +47,11 @@ jobs:
         id: recipe
         env:
           RECIPE: ${{ inputs.recipe || 'workers/runtime-recipes/comfyui-python312-cu121.yaml' }}
-          IMPLEMENTATION_REVISION: ${{ inputs.implementation_revision || github.ref_name }}
+          IMPLEMENTATION_REVISION: ${{ inputs.implementation_revision }}
         run: |
           python workers/runtime-recipes/release_tool.py resolve \
             --recipe "$RECIPE" \
+            --catalog bundled/runtime-catalog.json \
             --implementation-revision "$IMPLEMENTATION_REVISION" \
             --github-output "$GITHUB_OUTPUT"
 

@@ -59,6 +59,12 @@ Published runtime contract id/version pairs and their implementation revisions S
 - **AND** it MAY set that implementation revision as the default for future Workspaces
 - **AND** it MUST NOT mutate the image refs or verified metadata of an existing implementation revision
 
+#### Scenario: Runtime recipe release auto-selects an implementation revision
+- **WHEN** the runtime recipe release workflow prepares a new implementation revision for an existing runtime contract id/version without an explicit implementation revision
+- **THEN** it SHALL derive the implementation revision from the current UTC date and the next unused sequence for that date under the selected runtime contract
+- **AND** it SHALL format the derived implementation revision as `YYYY.MM.DD-NNN`
+- **AND** it SHALL validate that the derived implementation revision is not already present under the selected runtime contract before worker package validation, Docker image builds, registry publication, or Runtime Catalog PR creation
+
 #### Scenario: Runtime implementation is rolled back
 - **WHEN** operators need to roll back a runtime implementation
 - **THEN** they SHALL select a previously published immutable implementation revision from a Runtime Catalog entry as the default for future Workspaces or add a new reviewed runtime contract version
@@ -68,4 +74,3 @@ Published runtime contract id/version pairs and their implementation revisions S
 - **WHEN** the runtime recipe release workflow prepares to append an implementation revision under an existing runtime contract id/version
 - **THEN** it SHALL verify that the selected recipe's Python version, platform, ComfyUI revision, PyTorch index URL, PyTorch package list, base requirements, and runtime manifest compatibility metadata match the existing catalog contract
 - **AND** it SHALL reject the catalog update before image publication when any compatibility field differs
-
