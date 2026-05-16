@@ -48,8 +48,10 @@ class WorkerFixture:
         self.venv_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
         self.metadata_dir = self.workspace / ".luma-forge"
         self.metadata_dir.mkdir()
-        self.pip_freeze_path = self.metadata_dir / "pip-freeze.txt"
-        self.install_report_path = self.metadata_dir / "install-report.json"
+        self.base_runtime_dir = self.metadata_dir / "base-runtime"
+        self.base_runtime_dir.mkdir()
+        self.pip_freeze_path = self.base_runtime_dir / "pip-freeze.txt"
+        self.install_report_path = self.base_runtime_dir / "install-report.json"
         self.pip_freeze_path.write_text("", encoding="utf-8")
         self.install_report_path.write_text('{"reports":[]}\n', encoding="utf-8")
         (self.comfyui_root / "models/checkpoints").mkdir(parents=True)

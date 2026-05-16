@@ -123,6 +123,7 @@ pub(super) struct RunPodPodResponse {
     pub gpu: Option<RunPodPodGpuResponse>,
     pub machine: Option<RunPodPodMachineResponse>,
     pub network_volume_id: Option<String>,
+    #[serde(alias = "image")]
     pub image_name: Option<String>,
     pub ports: Option<Vec<String>>,
     pub public_ip: Option<String>,

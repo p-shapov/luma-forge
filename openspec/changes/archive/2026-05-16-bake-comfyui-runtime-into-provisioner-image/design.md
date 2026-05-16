@@ -109,13 +109,13 @@ Rationale: extracting a deterministic base archive keeps provisioning from rebui
 
 Alternative considered: leave the existing git checkout path and only skip pip. That still makes ComfyUI source selection a runtime operation and weakens the image-declared contract.
 
-### Adopt only runtime-compatible provisioning pods
+### Recover provisioning pods by provider ownership identity
 
-When recovering from missing local pod state or indeterminate pod creation, Workspace Provisioning should treat a discovered RunPod provisioning pod as safe to adopt only if provider-visible metadata proves the stable Workspace-derived pod name, network volume id, and immutable Provisioner Worker image ref from the Workspace's runtime implementation snapshot. A live correlated pod with the wrong image, or one whose image cannot be proven, should fail closed with UI-safe provider metadata rather than being adopted or replaced blindly.
+When recovering from missing local pod state or indeterminate pod creation, Workspace Provisioning should treat stable Workspace-derived pod name, network volume id, and placement metadata as the provider ownership identity for temporary provisioning pods. Native should create new provisioning pods with the immutable Provisioner Worker image ref from the Workspace's runtime implementation snapshot, but it should not compare provider-reported pod image metadata against that snapshot when adopting or refreshing an already correlated pod.
 
-Rationale: once provisioner images become runtime-specific, pod name plus volume id are no longer sufficient correlation keys. Adopting a stale pod running a different runtime implementation can prepare the wrong environment or fail after Native has already persisted the wrong active pod.
+Rationale: RunPod pod image metadata is provider response data, not an ownership key. Filtering or failing adoption on that field creates duplicate-pod and orphaning edge cases when provider discovery omits or reports image identity differently from the create path. Runtime compatibility remains enforced by the Provisioner Worker start contract before materialization begins.
 
-Alternative considered: rely only on Provisioner Worker start-request validation to catch mismatches. That is a useful second line of defense, but it happens after adoption and makes recovery behavior less precise.
+Alternative considered: require provider-visible image metadata to match before adoption. That appears safer, but the real RunPod discovery path can filter mismatched or missing-image pods before Native sees them, which can cause duplicate provisioning pods for the same Workspace and volume.
 
 ### Runtime metadata records base runtime and Custom Node layers
 

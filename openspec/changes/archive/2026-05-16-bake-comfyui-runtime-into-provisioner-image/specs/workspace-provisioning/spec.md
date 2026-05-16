@@ -5,7 +5,7 @@ Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary R
 
 #### Scenario: Existing correlated provisioning pod is adopted before create
 - **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot and no active Provisioning Pod snapshot
-- **AND** provider discovery finds exactly one live RunPod pod correlated to the Workspace by stable Workspace-derived pod name, network volume id, and expected immutable Provisioner Worker image ref from the Workspace's resolved runtime contract implementation snapshot
+- **AND** provider discovery finds exactly one live RunPod pod correlated to the Workspace by stable Workspace-derived pod name and network volume id
 - **THEN** the Native Layer SHALL persist that pod as the active Provisioning Pod snapshot before contacting the Provisioner Worker
 - **AND** the Native Layer MUST NOT create another RunPod pod
 - **AND** the persisted snapshot SHALL include the provider pod id, selected data center id, selected GPU id, provider resource status, and Provisioner Worker status URL
@@ -29,7 +29,7 @@ Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary R
 
 #### Scenario: Provisioning pod create result is indeterminate
 - **WHEN** a RunPod provisioning pod creation request times out or returns an indeterminate response after the per-workspace Provisioner Worker bearer token is stored
-- **THEN** the Native Layer SHALL discover live RunPod pods correlated to the Workspace by stable Workspace-derived pod name, network volume id, and expected immutable Provisioner Worker image ref before retrying creation
+- **THEN** the Native Layer SHALL discover live RunPod pods correlated to the Workspace by stable Workspace-derived pod name and network volume id before retrying creation
 - **AND** the Native Layer SHALL persist the active Provisioning Pod snapshot when exactly one safe matching pod exists
 - **AND** the Native Layer SHALL mark the Workspace `failed` when zero or multiple safe matching pods exist
 - **AND** the Native Layer SHALL retain known Persistent Storage Volume metadata
@@ -45,7 +45,6 @@ Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary R
 - **WHEN** a provisioning Workspace has an active Provisioning Pod snapshot
 - **THEN** the Native Layer SHALL observe the RunPod pod status before contacting the Provisioner Worker
 - **AND** the Native Layer SHALL update the active Provisioning Pod snapshot from the provider observation
-- **AND** the Native Layer SHALL verify that any provider-visible image metadata still matches the immutable Provisioner Worker image ref from the Workspace's resolved runtime contract implementation snapshot before continuing
 - **AND** the Native Layer SHALL preserve the existing Provisioner Worker status URL when a later provider observation omits direct connectivity metadata
 - **AND** the Native Layer SHALL mark the Workspace `failed` if the pod is failed, terminated unexpectedly, missing, or unreachable in a way that prevents safe continuation
 
@@ -202,23 +201,23 @@ Workspace Provisioning SHALL create, discover, adopt, or observe one RunPod Serv
 
 ## ADDED Requirements
 
-### Requirement: Adopt only runtime-compatible provisioning pods
-Workspace Provisioning SHALL consider a discovered provisioning pod safe to adopt only when provider-visible metadata proves that it belongs to the Workspace and uses the expected runtime implementation image.
+### Requirement: Recover provisioning pods by provider ownership identity
+Workspace Provisioning SHALL consider a discovered provisioning pod safe to adopt when provider-visible ownership metadata proves that it belongs to the Workspace, without using provider-reported image identity as an adoption key.
 
-#### Scenario: Discovered provisioning pod matches expected runtime image
-- **WHEN** provider discovery reports a live RunPod pod with the stable Workspace-derived pod name, the Workspace network volume id, and the immutable Provisioner Worker image ref from the Workspace's resolved runtime contract implementation snapshot
-- **THEN** Workspace Provisioning MAY treat that pod as a safe matching pod for adoption when all other provider safety checks pass
+#### Scenario: Discovered provisioning pod matches Workspace ownership identity
+- **WHEN** provider discovery reports a live RunPod pod with the stable Workspace-derived pod name and the Workspace network volume id
+- **THEN** Workspace Provisioning MAY treat that pod as a safe matching pod for adoption when all other provider ownership and placement checks pass
 
-#### Scenario: Discovered provisioning pod has a different runtime image
-- **WHEN** provider discovery reports a live RunPod pod with the stable Workspace-derived pod name and Workspace network volume id but a different Provisioner Worker image ref than the Workspace's resolved runtime contract implementation snapshot
-- **THEN** Workspace Provisioning SHALL treat that pod as unsafe to adopt
-- **AND** it SHALL mark the Workspace `failed` with UI-safe provider resource mismatch detail rather than contacting that Provisioner Worker
-- **AND** it MUST NOT create a replacement provisioning pod while the mismatched pod is live and correlated to the Workspace
+#### Scenario: Provider reports a different provisioning pod image
+- **WHEN** provider discovery reports a live RunPod pod with the stable Workspace-derived pod name and Workspace network volume id
+- **AND** the provider-reported image identity differs from the Workspace's resolved runtime contract implementation snapshot
+- **THEN** Workspace Provisioning SHALL NOT reject the pod solely because of the provider-reported image value
+- **AND** runtime compatibility SHALL be validated by the Provisioner Worker start contract before materialization begins
 
-#### Scenario: Provider cannot prove provisioning pod runtime image
-- **WHEN** provider discovery cannot report enough image metadata to prove that a live correlated provisioning pod uses the expected immutable Provisioner Worker image ref
-- **THEN** Workspace Provisioning SHALL fail closed with UI-safe provider metadata detail
-- **AND** it MUST NOT adopt the pod, contact the Provisioner Worker, or create a duplicate provisioning pod
+#### Scenario: Provider omits provisioning pod image identity
+- **WHEN** provider discovery cannot report a usable image identity for a live correlated provisioning pod
+- **THEN** Workspace Provisioning SHALL treat the provider response as invalid provider data
+- **AND** it MUST NOT create a duplicate provisioning pod while the previous create outcome is unresolved
 
 ### Requirement: Keep base runtime dependency installation out of Workspace Provisioning
 Workspace Provisioning SHALL treat base Python/PyTorch/ComfyUI runtime dependency installation as a Docker image build concern, not a provisioning concern.

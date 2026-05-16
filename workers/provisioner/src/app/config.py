@@ -33,11 +33,10 @@ RUNTIME_CONTRACT_VERSION_ENV = "LUMA_FORGE_RUNTIME_CONTRACT_VERSION"
 RUNTIME_IMPLEMENTATION_REVISION_ENV = "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION"
 PROVISIONER_IMAGE_REF_ENV = "LUMA_FORGE_PROVISIONER_IMAGE_REF"
 
-DEFAULT_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar"
+DEFAULT_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar.gz"
 DEFAULT_RUNTIME_CONTRACT_ID = "comfyui-python312-cu121"
 DEFAULT_RUNTIME_CONTRACT_VERSION = "1.0.0"
 DEFAULT_RUNTIME_IMPLEMENTATION_REVISION = "2026.05.16-001"
-DEFAULT_PROVISIONER_IMAGE_REF = "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -130,7 +129,7 @@ class WorkerConfig:
                 RUNTIME_IMPLEMENTATION_REVISION_ENV,
                 DEFAULT_RUNTIME_IMPLEMENTATION_REVISION,
             ),
-            provisioner_image_ref=_configured_or_default(source, PROVISIONER_IMAGE_REF_ENV, DEFAULT_PROVISIONER_IMAGE_REF),
+            provisioner_image_ref=_required_configured_value(source, PROVISIONER_IMAGE_REF_ENV),
         )
 
 
@@ -243,6 +242,17 @@ def _configured_or_default(env: Mapping[str, str], name: str, default: str) -> s
     raw = env.get(name)
     if raw is None:
         return default
+    return _non_blank_configured_value(name, raw)
+
+
+def _required_configured_value(env: Mapping[str, str], name: str) -> str:
+    raw = env.get(name)
+    if raw is None:
+        raise ConfigurationError(name, "missing_required_value", "value is required")
+    return _non_blank_configured_value(name, raw)
+
+
+def _non_blank_configured_value(name: str, raw: str) -> str:
     value = raw.strip()
     if value == "":
         raise ConfigurationError(name, "blank_value", "value must not be blank")

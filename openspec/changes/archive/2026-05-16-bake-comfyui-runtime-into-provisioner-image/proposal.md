@@ -29,7 +29,7 @@ Provisioning currently installs the deterministic ComfyUI base Python runtime on
 - `provisioner-worker`: Change preparation from Git/venv/pip base runtime installation to runtime archive extraction, Workflow Preset Custom Node preparation, verification, and workspace asset download.
 - `endpoint-worker`: Continue forbidding repair/install behavior while validating and running the materialized image-baked runtime from the mounted workspace.
 - `worker-deployment`: Replace independent worker image publishing with runtime-recipe-oriented builds that publish compatible image pairs and update the Runtime Catalog through review.
-- `workspace-provisioning`: Resolve provisioning image refs from the Workspace's resolved runtime contract implementation snapshot, adopt only runtime-compatible provisioning pods, and clarify that preparation means materializing and verifying the baked base runtime, Custom Nodes, and assets.
+- `workspace-provisioning`: Resolve provisioning image refs from the Workspace's resolved runtime contract implementation snapshot, recover provisioning pods by provider ownership identity, and clarify that preparation means materializing and verifying the baked base runtime, Custom Nodes, and assets.
 - `workspace-setup`: Resolve Workflow Preset runtime contract references through the bundled runtime catalog, persist the resolved runtime implementation snapshot, and clarify that GPU placement validation does not select runtime dependencies.
 
 ## Impact

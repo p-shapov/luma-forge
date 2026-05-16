@@ -13,7 +13,7 @@
 - [x] 2.1 Update Workspace creation to persist the resolved runtime contract implementation snapshot when creating a Draft Workspace.
 - [x] 2.2 Update Workspace Provisioning config and provider calls so provisioning pod and endpoint template image refs come from the Workspace's resolved runtime implementation snapshot.
 - [x] 2.3 Update Native build configuration so it validates only remaining non-image worker configuration values and no longer requires global worker image refs.
-- [x] 2.4 Update provisioning pod discovery/adoption to require the expected immutable Provisioner Worker image ref from the Workspace runtime implementation snapshot before a pod is considered safe to adopt.
+- [x] 2.4 Keep provisioning pod discovery/adoption keyed by stable Workspace pod name and network volume identity rather than provider-reported image identity.
 - [x] 2.5 Update Provisioner Worker start request contracts to include resolved runtime contract and implementation metadata needed for worker-side validation.
 - [x] 2.6 Update native provisioning progress mapping and tests to treat worker preparation as runtime materialization plus asset verification.
 - [x] 2.7 Ensure native Workspace Provisioning never passes selected GPU information to base runtime or Custom Node dependency installation logic.

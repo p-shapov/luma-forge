@@ -5,53 +5,48 @@
 Defines how LumaForge deploys worker container images from Git through repository automation.
 ## Requirements
 ### Requirement: Deploy Worker Images from Git
+The repository SHALL provide a runtime recipe release workflow that deploys compatible worker container image pairs from tracked Git source, runtime recipe input, and the shared worker Dockerfile.
 
-The repository SHALL provide separate GitHub Actions workflows that deploy worker container images from tracked Git source and the shared worker Dockerfile.
+#### Scenario: Runtime recipe release deploys image pair
+- **WHEN** a release tag or authorized workflow dispatch selects a runtime recipe
+- **THEN** the runtime deployment workflow SHALL validate the Provisioner Worker and RunPod Endpoint Worker
+- **AND** the runtime deployment workflow SHALL build the provisioner image for the recipe-declared runtime contract id/version and release-assigned implementation revision from the shared worker Dockerfile
+- **AND** the runtime deployment workflow SHALL build the endpoint image compatible with the recipe-declared runtime contract id/version and release-assigned implementation revision from the shared worker Dockerfile
+- **AND** the runtime deployment workflow SHALL publish both images to GitHub Container Registry only after pair validation succeeds
 
-#### Scenario: Provisioner release tag deploys provisioner image
-- **WHEN** a release tag matching the provisioner worker deployment trigger is pushed
-- **THEN** the provisioner workflow SHALL validate the Provisioner Worker
-- **AND** the provisioner workflow SHALL build the provisioner container image from the shared worker Dockerfile
-- **AND** the provisioner workflow SHALL publish the provisioner image to GitHub Container Registry
+#### Scenario: Manual dispatch deploys one runtime recipe
+- **WHEN** an authorized operator starts the runtime deployment workflow manually
+- **THEN** that workflow SHALL require a runtime recipe selection
+- **AND** that workflow SHALL build, validate, publish, and catalog only the selected runtime recipe image pair
+- **AND** that workflow SHALL publish immutable image refs for both worker images
 
-#### Scenario: Endpoint release tag deploys endpoint image
-- **WHEN** a release tag matching the RunPod endpoint worker deployment trigger is pushed
-- **THEN** the endpoint workflow SHALL validate the RunPod Endpoint Worker
-- **AND** the endpoint workflow SHALL build the endpoint container image from the shared worker Dockerfile
-- **AND** the endpoint workflow SHALL publish the endpoint image to GitHub Container Registry
-
-#### Scenario: Manual dispatch deploys one worker image
-- **WHEN** an authorized operator starts one worker deployment workflow manually
-- **THEN** that workflow SHALL validate only the selected worker
-- **AND** that workflow SHALL build only the selected worker image from the selected Git ref and shared worker Dockerfile
-- **AND** that workflow SHALL publish only the selected worker image to GitHub Container Registry using an immutable commit SHA tag
-
-#### Scenario: Manual dispatch selects endpoint provider
-- **WHEN** an authorized operator starts the endpoint worker deployment workflow manually
-- **THEN** the workflow SHALL require an endpoint provider selection
-- **AND** the workflow SHALL map the selected provider to that provider's worker package, shared Dockerfile target, and image name
-- **AND** the workflow SHALL fail before publishing when the selected provider is not supported
+#### Scenario: Runtime catalog update is proposed
+- **WHEN** a runtime deployment workflow publishes a validated image pair for a runtime recipe
+- **THEN** it SHALL generate a new bundled Runtime Catalog entry or append a new implementation revision to an existing compatible entry from verified image metadata
+- **AND** when appending an implementation revision for a non-rollback release, it SHALL preserve existing implementation revisions unchanged and advance the default implementation revision for future Workspaces
+- **AND** it SHALL open a reviewed repository change for `bundled/runtime-catalog.json`
+- **AND** it MUST NOT silently push runtime catalog changes directly to the main branch
 
 ### Requirement: Validate worker before publishing
-
-Each worker deployment workflow SHALL complete that worker's validation successfully before publishing its image.
+Each runtime deployment workflow SHALL complete worker package validation, image build validation, and image-pair compatibility validation before publishing runtime recipe images.
 
 #### Scenario: Worker validation passes
-- **WHEN** a workflow is preparing to publish a worker image
-- **THEN** it SHALL run the test command for that worker package
-- **AND** it SHALL run the Docker build for that worker image using the shared worker Dockerfile
-- **AND** it SHALL continue to registry publication only after validation succeeds for that image
+- **WHEN** a workflow is preparing to publish a runtime recipe image pair
+- **THEN** it SHALL run the test command for the Provisioner Worker package
+- **AND** it SHALL run the test command for the RunPod Endpoint Worker package
+- **AND** it SHALL run Docker builds for both worker images using the shared worker Dockerfile
+- **AND** it SHALL continue to registry publication only after validation succeeds for the image pair
 
-#### Scenario: Provisioner image smoke validation passes
-- **WHEN** the provisioner worker deployment workflow has built the provisioner container image
-- **THEN** it SHALL run the provisioner container smoke test against that built image before registry authentication or publication
-- **AND** it SHALL verify the container starts, accepts authorized `GET /status`, returns `idle`, and contains its runtime Python dependencies
-- **AND** it SHALL continue to registry publication only after the smoke test succeeds
+#### Scenario: Endpoint compatibility validation passes
+- **WHEN** the runtime deployment workflow has built both worker images
+- **THEN** it SHALL verify the image pair declares the same runtime contract id, version, and implementation revision
+- **AND** it SHALL continue only after pair compatibility validation succeeds
 
 #### Scenario: Worker validation fails
-- **WHEN** any required worker validation step fails
+- **WHEN** any required worker validation, image build validation, or image-pair compatibility step fails
 - **THEN** the workflow SHALL fail the deployment
 - **AND** the workflow MUST NOT publish or update any worker image tag
+- **AND** the workflow MUST NOT propose a Runtime Catalog update for the failed image pair
 
 ### Requirement: Tag published worker images deterministically
 
@@ -81,14 +76,30 @@ The worker deployment workflow SHALL keep registry credentials and deployment se
 - **THEN** logs MUST NOT print registry passwords, access tokens, provider API keys, or worker bearer tokens
 
 ### Requirement: Document worker deployment operation
-
-The repository SHALL document how to operate the worker deployment workflows.
+The repository SHALL document how to operate the runtime recipe release workflow.
 
 #### Scenario: Operator reads deployment documentation
 - **WHEN** an operator needs to deploy or roll back worker images
-- **THEN** documentation SHALL describe the workflow triggers
-- **AND** documentation SHALL describe manual endpoint provider selection
+- **THEN** documentation SHALL describe the runtime recipe workflow triggers
+- **AND** documentation SHALL describe runtime recipe selection
 - **AND** documentation SHALL describe the GitHub Container Registry image paths for the provisioner and endpoint images
-- **AND** documentation SHALL describe produced image tags
-- **AND** documentation SHALL describe rollback by selecting previously published immutable commit SHA tags for the affected worker images
+- **AND** documentation SHALL describe produced immutable image tags and digest-pinned refs
+- **AND** documentation SHALL describe implementation revision increments for worker-only redeploys
+- **AND** documentation SHALL describe reviewed Runtime Catalog update PRs
+- **AND** documentation SHALL describe rollback by selecting previously published immutable image pairs from Runtime Catalog entries
+
+### Requirement: Build deterministic ComfyUI runtime in provisioner image
+The provisioner worker Docker build SHALL construct the deterministic ComfyUI base runtime archive for the selected runtime recipe before the image can be published.
+
+#### Scenario: Runtime archive is built
+- **WHEN** the provisioner worker image is built for a runtime recipe
+- **THEN** the Docker build SHALL install the fixed Python runtime, PyTorch/CUDA-compatible dependencies, ComfyUI, ComfyUI frontend/docs/templates, and ComfyUI base requirements into the runtime archive
+- **AND** the Docker build SHALL produce metadata describing the runtime contract, implementation revision, and included base runtime revisions
+- **AND** the Docker build MUST NOT install Workflow Preset Custom Nodes or their Python dependencies into the runtime archive
+- **AND** base runtime dependency installation MUST happen during Docker build rather than container startup or workspace provisioning
+
+#### Scenario: Runtime archive build fails
+- **WHEN** the Docker build cannot install or verify any deterministic ComfyUI runtime dependency
+- **THEN** the Docker build SHALL fail
+- **AND** no runtime recipe release workflow SHALL publish that image pair
 

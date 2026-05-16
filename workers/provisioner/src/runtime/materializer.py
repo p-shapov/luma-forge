@@ -55,15 +55,29 @@ class RuntimeMaterializer:
 
         staged_comfyui = staging_root / "ComfyUI"
         staged_venv = staging_root / ".venv"
+        staged_base_runtime = staging_root / ".luma-forge" / "base-runtime"
         self._validate_staged_runtime(staged_comfyui, staged_venv)
         self._publish(staged_comfyui, paths.comfyui_root, cancel_event)
         self._publish(staged_venv, paths.venv_dir, cancel_event)
+        self._publish(staged_base_runtime, paths.metadata_dir / "base-runtime", cancel_event)
+        self._validate_dependency_records(resolved, paths)
 
     def _validate_staged_runtime(self, staged_comfyui: Path, staged_venv: Path) -> None:
         if not (staged_comfyui / "main.py").is_file():
             raise PreparationError("Image-baked ComfyUI entrypoint is missing.")
         if not (staged_venv / "bin" / "python").is_file():
             raise PreparationError("Image-baked Python interpreter is missing.")
+        if not (staged_comfyui.parent / ".luma-forge" / "base-runtime").is_dir():
+            raise PreparationError("Image-baked base runtime records are missing.")
+
+    def _validate_dependency_records(self, resolved: ResolvedRuntimeImplementation, paths: RuntimePaths) -> None:
+        workspace = paths.workspace_root.resolve(strict=False)
+        for record_path in resolved.runtime_metadata.base_dependency_record_paths:
+            target = (workspace / record_path).resolve(strict=False)
+            if target != workspace and workspace not in target.parents:
+                raise PreparationError("Image-baked base dependency record path is invalid.")
+            if not target.is_file():
+                raise PreparationError("Image-baked base dependency record is missing.")
 
     def _publish(self, source: Path, target: Path, cancel_event: Event) -> None:
         self._check_cancelled(cancel_event)

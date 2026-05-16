@@ -118,6 +118,8 @@ def _validate_runtime_manifest(config: EndpointConfig, manifest: PreparedRuntime
         resolved = path.resolve(strict=False)
         if resolved != workspace and workspace not in resolved.parents:
             raise PreparedRuntimeError(f"Prepared runtime {field_name} is outside the workspace.")
+        if field_name.startswith("base_dependency_record_paths") and not resolved.is_file():
+            raise PreparedEnvironmentError("Prepared runtime dependency record is missing.")
 
 
 def _required_string(payload: dict[str, object], key: str) -> str:

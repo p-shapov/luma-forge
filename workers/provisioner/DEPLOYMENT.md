@@ -22,7 +22,9 @@ The release workflow validates both worker packages, builds the provisioner imag
 
 ## Runtime Catalog Update
 
-After publishing a validated image pair, create a reviewed PR that updates `bundled/runtime-catalog.json` with digest-pinned provisioner and endpoint image refs. New runtime compatibility requires a new runtime contract version. Worker-only redeploys append a new immutable implementation revision under the existing contract and may advance `default_implementation_revision`.
+After publishing a validated image pair, the workflow opens a reviewed PR that updates `bundled/runtime-catalog.json` with digest-pinned provisioner and endpoint image refs. Worker redeploys append a new immutable implementation revision under the existing contract and may advance `default_implementation_revision`.
+
+Native must pass the selected immutable provisioner image ref into the temporary provisioning pod as `LUMA_FORGE_PROVISIONER_IMAGE_REF`. The value is not secret; it lets the Provisioner Worker verify that a start request matches the running image identity. The Provisioner Worker rejects startup configuration when this value is missing or blank.
 
 ## Rollback
 

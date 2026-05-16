@@ -76,6 +76,8 @@ The Provisioner Worker SHALL validate the materialized ComfyUI environment and m
 - **THEN** the Provisioner Worker SHALL report the job as `failed`
 - **AND** the Provisioner Worker MUST NOT report terminal success
 
+## ADDED Requirements
+
 ### Requirement: Validate resolved runtime contract before materialization
 The Provisioner Worker SHALL reject preparation requests whose resolved runtime contract or implementation revision does not match the runtime contract implementation declared by the Provisioner Worker image.
 
@@ -88,6 +90,8 @@ The Provisioner Worker SHALL reject preparation requests whose resolved runtime 
 - **WHEN** a start request omits resolved runtime contract metadata or declares a runtime contract id, version, implementation revision, or image identity that does not match the Provisioner Worker image runtime metadata
 - **THEN** the Provisioner Worker SHALL reject the start request with `invalid_request`
 - **AND** the Provisioner Worker MUST NOT clone, fetch, checkout, create virtual environments, or install dependencies for that request
+
+## MODIFIED Requirements
 
 ### Requirement: Bound external provisioning steps
 The Provisioner Worker SHALL apply configured timeouts to external runtime materialization, Custom Node preparation, runtime verification, and model download work.

@@ -52,7 +52,7 @@ fn runtime_snapshot() -> ResolvedRuntimeImplementationSnapshot {
             base_dependency_record_paths: vec![".luma-forge/base-runtime/pip-freeze.txt".to_string()],
         },
         image_metadata: RuntimeImageMetadata {
-            provisioner_runtime_archive_path: "/opt/luma-forge/runtime/base-runtime.tar.zst".to_string(),
+            provisioner_runtime_archive_path: "/opt/luma-forge/runtime/base-runtime.tar.gz".to_string(),
             provisioner_runtime_metadata_path: "/opt/luma-forge/runtime/runtime-metadata.json".to_string(),
             endpoint_runtime_contract_path: "/opt/luma-forge/runtime/runtime-contract.json".to_string(),
         },

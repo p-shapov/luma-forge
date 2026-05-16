@@ -303,7 +303,6 @@ impl RunPodClient {
         network_volume_id: &str,
         data_center_id: &str,
         selected_gpu_id: &str,
-        expected_image_name: &str,
     ) -> Result<Vec<RunPodPodObservation>, ProviderClientError> {
         let context = RunPodPodResponseContext {
             data_center_id: data_center_id.to_string(),
@@ -317,13 +316,7 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         let payloads = parse_rest_response::<Vec<RunPodPodResponse>>(response).await?;
-        pods_by_name_and_volume(
-            payloads,
-            name,
-            network_volume_id,
-            expected_image_name,
-            context,
-        )
+        pods_by_name_and_volume(payloads, name, network_volume_id, context)
     }
 
     pub async fn delete_pod(
@@ -507,7 +500,6 @@ fn pods_by_name_and_volume(
     payloads: Vec<RunPodPodResponse>,
     name: &str,
     network_volume_id: &str,
-    expected_image_name: &str,
     context: RunPodPodResponseContext,
 ) -> Result<Vec<RunPodPodObservation>, ProviderClientError> {
     payloads
@@ -515,7 +507,6 @@ fn pods_by_name_and_volume(
         .filter(|payload| {
             payload.name.as_deref() == Some(name)
                 && payload.network_volume_id.as_deref() == Some(network_volume_id)
-                && payload.image_name.as_deref() == Some(expected_image_name)
         })
         .filter(|payload| !pod_response_is_deleted(payload))
         .map(|payload| pod_from_response_with_context(payload, Some(context.clone())))

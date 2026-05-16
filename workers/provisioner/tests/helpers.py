@@ -15,6 +15,10 @@ from orchestration.preparation_job import JobManager
 
 COMMIT_REVISION = "0123456789abcdef0123456789abcdef01234567"
 TEST_BEARER_TOKEN = "test-token-0123456789abcdef012345"
+TEST_PROVISIONER_IMAGE_REF = (
+    "ghcr.io/luma-forge/provisioner-worker@sha256:"
+    "1111111111111111111111111111111111111111111111111111111111111111"
+)
 
 
 def sample_preset() -> dict[str, Any]:
@@ -53,7 +57,7 @@ def sample_runtime_implementation() -> dict[str, Any]:
         "contract_id": "comfyui-python312-cu121",
         "contract_version": "1.0.0",
         "implementation_revision": "2026.05.16-001",
-        "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "provisioner_image_ref": TEST_PROVISIONER_IMAGE_REF,
         "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
         "runtime_metadata": {
             "environment_kind": "image_baked_comfyui_runtime",
@@ -63,7 +67,7 @@ def sample_runtime_implementation() -> dict[str, Any]:
             "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"],
         },
         "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar",
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json",
         },
@@ -115,6 +119,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": bearer_token,
             "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
             "LUMA_FORGE_PROVISIONER_PORT": "8000",
+            "LUMA_FORGE_PROVISIONER_IMAGE_REF": TEST_PROVISIONER_IMAGE_REF,
             "LUMA_FORGE_WORKSPACE_MOUNT_PATH": str(workspace_mount_path or Path("/workspace")),
         }
     )
@@ -142,7 +147,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
 
 
 def _runtime_archive_fixture() -> Path:
-    archive_file = tempfile.NamedTemporaryFile(prefix="luma-forge-runtime-", suffix=".tar", delete=False)
+    archive_file = tempfile.NamedTemporaryFile(prefix="luma-forge-runtime-", suffix=".tar.gz", delete=False)
     archive_path = Path(archive_file.name)
     archive_file.close()
     tempdir = tempfile.TemporaryDirectory()
@@ -150,15 +155,20 @@ def _runtime_archive_fixture() -> Path:
     comfyui = root / "ComfyUI"
     custom_nodes = comfyui / "custom_nodes"
     venv_bin = root / ".venv" / "bin"
+    base_runtime = root / ".luma-forge" / "base-runtime"
     custom_nodes.mkdir(parents=True)
     venv_bin.mkdir(parents=True)
+    base_runtime.mkdir(parents=True)
     (comfyui / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
     (custom_nodes / "websocket_image_save.py").write_text("# upstream ComfyUI node\n", encoding="utf-8")
     (venv_bin / "python").write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    (base_runtime / "pip-freeze.txt").write_text("torch==2.5.1\n", encoding="utf-8")
+    (base_runtime / "install-report.json").write_text('{"reports":[]}\n', encoding="utf-8")
     os.chmod(venv_bin / "python", 0o755)
-    with tarfile.open(archive_path, "w") as archive:
+    with tarfile.open(archive_path, "w:gz") as archive:
         archive.add(comfyui, arcname="ComfyUI")
         archive.add(root / ".venv", arcname=".venv")
+        archive.add(base_runtime, arcname=".luma-forge/base-runtime")
     tempdir.cleanup()
     return archive_path
 

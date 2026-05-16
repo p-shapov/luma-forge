@@ -223,27 +223,35 @@ where
         Box::pin(async move {
             let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
             match input.gpu_cloud_provider_id {
-                GpuCloudProviderId::Runpod => self
-                    .runpod
-                    .create_pod(
-                        &api_key,
-                        &RunPodCreatePodRequest {
-                            name: provider_resource_name(&input.workspace_id, "provisioner"),
-                            image_name: input.provisioner_worker_image_ref,
-                            gpu_type_ids: vec![input.selected_gpu_id],
-                            data_center_ids: vec![input.datacenter_id],
-                            network_volume_id: input.network_volume_id,
-                            volume_mount_path: input.mount_path,
-                            env: HashMap::from([(
-                                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-                                input.bearer_token.expose_secret().to_string(),
-                            )]),
-                            ports: vec![format!("{}/http", input.provisioner_worker_port)],
-                        },
-                    )
-                    .await
-                    .map(runpod_pod_observation)
-                    .map_err(provisioning_error_from_client_error),
+                GpuCloudProviderId::Runpod => {
+                    let provisioner_image_ref = input.provisioner_worker_image_ref;
+                    self.runpod
+                        .create_pod(
+                            &api_key,
+                            &RunPodCreatePodRequest {
+                                name: provider_resource_name(&input.workspace_id, "provisioner"),
+                                image_name: provisioner_image_ref.clone(),
+                                gpu_type_ids: vec![input.selected_gpu_id],
+                                data_center_ids: vec![input.datacenter_id],
+                                network_volume_id: input.network_volume_id,
+                                volume_mount_path: input.mount_path,
+                                env: HashMap::from([
+                                    (
+                                        "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+                                        input.bearer_token.expose_secret().to_string(),
+                                    ),
+                                    (
+                                        "LUMA_FORGE_PROVISIONER_IMAGE_REF".to_string(),
+                                        provisioner_image_ref,
+                                    ),
+                                ]),
+                                ports: vec![format!("{}/http", input.provisioner_worker_port)],
+                            },
+                        )
+                        .await
+                        .map(runpod_pod_observation)
+                        .map_err(provisioning_error_from_client_error)
+                }
             }
         })
     }
@@ -270,13 +278,6 @@ where
                         &input.selected_gpu_id,
                     )
                     .await
-                    .and_then(|observation| {
-                        if observation.image_name == input.expected_provisioner_worker_image_ref {
-                            Ok(observation)
-                        } else {
-                            Err(ProviderClientError::ResponseInvalid)
-                        }
-                    })
                     .map(runpod_pod_observation)
                     .map_err(provisioning_error_from_client_error),
             }
@@ -304,7 +305,6 @@ where
                         &input.network_volume_id,
                         &input.datacenter_id,
                         &input.selected_gpu_id,
-                        &input.expected_provisioner_worker_image_ref,
                     )
                     .await
                     .map(|observations| {
@@ -641,7 +641,6 @@ fn runpod_pod_observation(observation: RunPodPodObservation) -> ProvisioningPodO
         provider_resource_id: observation.id,
         datacenter_id: observation.data_center_id,
         selected_gpu_id: observation.selected_gpu_id,
-        provisioner_worker_image_ref: observation.image_name,
         provider_resource_status: observation.status,
         provisioner_status_url: observation.provisioner_status_url,
     }

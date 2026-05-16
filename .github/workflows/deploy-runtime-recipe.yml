@@ -175,7 +175,10 @@ jobs:
                       "python_version": "3.12",
                       "platform": "linux-x86_64-cuda",
                       "comfyui_revision": os.environ["COMFYUI_REVISION"],
-                      "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"]
+                      "base_dependency_record_paths": [
+                          ".luma-forge/base-runtime/pip-freeze.txt",
+                          ".luma-forge/base-runtime/install-report.json"
+                      ]
                   },
                   "implementation_revisions": [],
                   "default_implementation_revision": implementation_revision,
@@ -188,7 +191,7 @@ jobs:
               "provisioner_image_ref": os.environ["PROVISIONER_REF"],
               "endpoint_image_ref": os.environ["ENDPOINT_REF"],
               "image_metadata": {
-                  "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
+                  "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
                   "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
                   "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
               }

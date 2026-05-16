@@ -51,7 +51,6 @@ pub struct DiscoverProvisioningPodsInput {
     pub datacenter_id: String,
     pub selected_gpu_id: String,
     pub network_volume_id: String,
-    pub expected_provisioner_worker_image_ref: String,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +59,6 @@ pub struct ObserveProvisioningPodInput {
     pub provider_resource_id: String,
     pub datacenter_id: String,
     pub selected_gpu_id: String,
-    pub expected_provisioner_worker_image_ref: String,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +66,6 @@ pub struct ProvisioningPodObservation {
     pub provider_resource_id: String,
     pub datacenter_id: String,
     pub selected_gpu_id: String,
-    pub provisioner_worker_image_ref: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub provisioner_status_url: Option<String>,
 }

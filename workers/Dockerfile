@@ -31,14 +31,22 @@ RUN /workspace/.venv/bin/python -m pip install --no-cache-dir -r /workspace/Comf
 
 RUN mkdir -p /opt/luma-forge/runtime /workspace/.luma-forge/base-runtime \
     && /workspace/.venv/bin/python -m pip freeze > /workspace/.luma-forge/base-runtime/pip-freeze.txt \
+    && printf '{"reports":[]}\n' > /workspace/.luma-forge/base-runtime/install-report.json \
     && printf '{"contract_id":"%s","contract_version":"%s","implementation_revision":"%s","comfyui_revision":"%s"}\n' "$LUMA_FORGE_RUNTIME_CONTRACT_ID" "$LUMA_FORGE_RUNTIME_CONTRACT_VERSION" "$LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION" "$LUMA_FORGE_COMFYUI_REVISION" > /opt/luma-forge/runtime/runtime-metadata.json \
-    && tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner -C /workspace -I 'zstd -3' -cf /opt/luma-forge/runtime/base-runtime.tar.zst .venv ComfyUI .luma-forge/base-runtime
+    && tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner -C /workspace -czf /opt/luma-forge/runtime/base-runtime.tar.gz .venv ComfyUI .luma-forge/base-runtime
 
 FROM worker-base AS provisioner
 
+ARG LUMA_FORGE_RUNTIME_CONTRACT_ID=comfyui-python312-cu121
+ARG LUMA_FORGE_RUNTIME_CONTRACT_VERSION=1.0.0
+ARG LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION=2026.05.16-001
+
 ENV LUMA_FORGE_PROVISIONER_HOST=0.0.0.0 \
     LUMA_FORGE_PROVISIONER_PORT=8000 \
-    LUMA_FORGE_RUNTIME_ARCHIVE_PATH=/opt/luma-forge/runtime/base-runtime.tar.zst
+    LUMA_FORGE_RUNTIME_ARCHIVE_PATH=/opt/luma-forge/runtime/base-runtime.tar.gz \
+    LUMA_FORGE_RUNTIME_CONTRACT_ID=$LUMA_FORGE_RUNTIME_CONTRACT_ID \
+    LUMA_FORGE_RUNTIME_CONTRACT_VERSION=$LUMA_FORGE_RUNTIME_CONTRACT_VERSION \
+    LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION=$LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \

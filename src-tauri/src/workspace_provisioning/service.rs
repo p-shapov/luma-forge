@@ -313,7 +313,7 @@ where
                 .as_ref()
                 .expect("volume checked above");
             let network_volume_id = volume.provider_resource_id.clone();
-            let expected_provisioner_worker_image_ref = workspace
+            let provisioner_worker_image_ref = workspace
                 .resolved_runtime_implementation
                 .provisioner_image_ref
                 .clone();
@@ -330,8 +330,6 @@ where
                     datacenter_id: selected_datacenter_id.clone(),
                     selected_gpu_id: selected_gpu_id.clone(),
                     network_volume_id: network_volume_id.clone(),
-                    expected_provisioner_worker_image_ref: expected_provisioner_worker_image_ref
-                        .clone(),
                 })
                 .await?;
             match discovered_pods.as_slice() {
@@ -364,7 +362,7 @@ where
                 .create_provisioning_pod(CreateProvisioningPodInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    provisioner_worker_image_ref: expected_provisioner_worker_image_ref.clone(),
+                    provisioner_worker_image_ref: provisioner_worker_image_ref.clone(),
                     provisioner_worker_port: self.config.provisioner_worker_port,
                     datacenter_id: selected_datacenter_id.clone(),
                     selected_gpu_id: selected_gpu_id.clone(),
@@ -384,8 +382,6 @@ where
                             datacenter_id: selected_datacenter_id.clone(),
                             selected_gpu_id: selected_gpu_id.clone(),
                             network_volume_id,
-                            expected_provisioner_worker_image_ref:
-                                expected_provisioner_worker_image_ref.clone(),
                         })
                         .await?;
                     match discovered_pods.as_slice() {
@@ -429,10 +425,6 @@ where
                 provider_resource_id: active_pod.provider_resource_id.clone(),
                 datacenter_id: active_pod.datacenter_id.clone(),
                 selected_gpu_id: active_pod.selected_gpu_id.clone(),
-                expected_provisioner_worker_image_ref: workspace
-                    .resolved_runtime_implementation
-                    .provisioner_image_ref
-                    .clone(),
             })
             .await
         {
@@ -447,20 +439,6 @@ where
             }
             Err(error) => return Err(error),
         };
-        if observation.provisioner_worker_image_ref
-            != workspace
-                .resolved_runtime_implementation
-                .provisioner_image_ref
-        {
-            failure::fail_workspace(
-                workspace,
-                failure::readiness_validation_failed(
-                    WorkspaceProvisioningPhase::StartingProvisioningPod,
-                ),
-            );
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
         let observed_pod = observed_provisioning_pod_snapshot(workspace, &active_pod, observation);
         if is_terminal_provider_resource_status(&observed_pod.provider_resource_status) {
             let failure = failure::provider_resource_failure(

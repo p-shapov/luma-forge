@@ -85,7 +85,7 @@ def build_manifest(
         endpoint_image_ref=request.resolved_runtime_implementation.endpoint_image_ref,
         custom_node_revisions=_custom_node_revisions(request.workflow_preset.required_custom_nodes),
         base_dependency_record_paths=[
-            path.as_posix()
+            str((paths.workspace_root / path).resolve(strict=False))
             for path in request.resolved_runtime_implementation.runtime_metadata.base_dependency_record_paths
         ],
         prepared_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
