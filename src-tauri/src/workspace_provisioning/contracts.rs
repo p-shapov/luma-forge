@@ -24,6 +24,14 @@ pub struct NetworkVolumeObservation {
 }
 
 #[derive(Debug, Clone)]
+pub struct DiscoverNetworkVolumesInput {
+    pub gpu_cloud_provider_id: GpuCloudProviderId,
+    pub workspace_id: String,
+    pub datacenter_id: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateProvisioningPodInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
@@ -80,6 +88,15 @@ pub struct EndpointTemplateObservation {
 }
 
 #[derive(Debug, Clone)]
+pub struct DiscoverEndpointTemplatesInput {
+    pub gpu_cloud_provider_id: GpuCloudProviderId,
+    pub workspace_id: String,
+    pub endpoint_worker_image_ref: String,
+    pub endpoint_worker_port: u16,
+    pub mount_path: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateServerlessEndpointInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
@@ -97,6 +114,17 @@ pub struct ServerlessEndpointObservation {
     pub selected_gpu_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub endpoint_invoke_url: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscoverServerlessEndpointsInput {
+    pub gpu_cloud_provider_id: GpuCloudProviderId,
+    pub workspace_id: String,
+    pub template_id: String,
+    pub datacenter_id: String,
+    pub selected_gpu_id: String,
+    pub network_volume_id: String,
+    pub endpoint_keep_alive_seconds: u32,
 }
 
 #[derive(Debug, Clone)]

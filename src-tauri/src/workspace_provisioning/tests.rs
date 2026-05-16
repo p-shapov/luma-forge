@@ -168,18 +168,31 @@ struct FakeProvider {
     create_volume_count: Arc<AtomicUsize>,
     get_volume_count: Arc<AtomicUsize>,
     delete_volume_count: Arc<AtomicUsize>,
+    discover_volumes_count: Arc<AtomicUsize>,
     discover_pods_count: Arc<AtomicUsize>,
     create_pod_count: Arc<AtomicUsize>,
     get_pod_count: Arc<AtomicUsize>,
     delete_pod_count: Arc<AtomicUsize>,
+    discover_templates_count: Arc<AtomicUsize>,
     create_template_count: Arc<AtomicUsize>,
     get_template_count: Arc<AtomicUsize>,
     delete_template_count: Arc<AtomicUsize>,
+    discover_endpoints_count: Arc<AtomicUsize>,
     create_endpoint_count: Arc<AtomicUsize>,
     get_endpoint_count: Arc<AtomicUsize>,
     delete_endpoint_count: Arc<AtomicUsize>,
     create_volume_error: Option<WorkspaceProvisioningError>,
+    create_pod_error: Option<WorkspaceProvisioningError>,
+    create_template_error: Option<WorkspaceProvisioningError>,
+    create_endpoint_error: Option<WorkspaceProvisioningError>,
+    get_volume_error: Option<WorkspaceProvisioningError>,
+    get_pod_error: Option<WorkspaceProvisioningError>,
+    get_template_error: Option<WorkspaceProvisioningError>,
+    get_endpoint_error: Option<WorkspaceProvisioningError>,
+    discovered_volumes: Vec<NetworkVolumeObservation>,
     discovered_pods: Vec<ProvisioningPodObservation>,
+    discovered_templates: Vec<EndpointTemplateObservation>,
+    discovered_endpoints: Vec<ServerlessEndpointObservation>,
     get_volume_status: Option<ProviderResourceStatus>,
     get_pod_status_url: Option<Option<String>>,
     get_template_status: Option<ProviderResourceStatus>,
@@ -226,6 +239,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.get_volume_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.get_volume_error {
+                return Err(error.clone());
+            }
             Ok(NetworkVolumeObservation {
                 provider_resource_id: _volume_id.to_string(),
                 datacenter_id: "EU-RO-1".to_string(),
@@ -236,6 +252,22 @@ impl ProviderProvisioningGateway for FakeProvider {
                     .unwrap_or(ProviderResourceStatus::Ready),
                 mount_path: "/workspace".to_string(),
             })
+        })
+    }
+
+    fn discover_network_volumes<'a>(
+        &'a self,
+        _input: DiscoverNetworkVolumesInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.discover_volumes_count.fetch_add(1, Ordering::SeqCst);
+            Ok(self.discovered_volumes.clone())
         })
     }
 
@@ -262,6 +294,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.create_pod_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.create_pod_error {
+                return Err(error.clone());
+            }
             assert_eq!(
                 input.provisioner_worker_image_ref,
                 "ghcr.io/luma-forge/provisioner-worker:test"
@@ -305,6 +340,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.get_pod_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.get_pod_error {
+                return Err(error.clone());
+            }
             Ok(ProvisioningPodObservation {
                 provider_resource_id: input.provider_resource_id,
                 datacenter_id: input.datacenter_id,
@@ -341,6 +379,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.create_template_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.create_template_error {
+                return Err(error.clone());
+            }
             assert_eq!(input.endpoint_worker_port, 8080);
             Ok(EndpointTemplateObservation {
                 template_id: "template-1".to_string(),
@@ -364,6 +405,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.get_template_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.get_template_error {
+                return Err(error.clone());
+            }
             Ok(EndpointTemplateObservation {
                 template_id: _template_id.to_string(),
                 endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
@@ -373,6 +417,23 @@ impl ProviderProvisioningGateway for FakeProvider {
                     .clone()
                     .unwrap_or(ProviderResourceStatus::Ready),
             })
+        })
+    }
+
+    fn discover_endpoint_templates<'a>(
+        &'a self,
+        _input: DiscoverEndpointTemplatesInput,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Vec<EndpointTemplateObservation>, WorkspaceProvisioningError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.discover_templates_count.fetch_add(1, Ordering::SeqCst);
+            Ok(self.discovered_templates.clone())
         })
     }
 
@@ -399,6 +460,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.create_endpoint_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.create_endpoint_error {
+                return Err(error.clone());
+            }
             Ok(ServerlessEndpointObservation {
                 provider_resource_id: "endpoint-1".to_string(),
                 datacenter_id: "EU-RO-1".to_string(),
@@ -422,6 +486,9 @@ impl ProviderProvisioningGateway for FakeProvider {
     > {
         Box::pin(async move {
             self.get_endpoint_count.fetch_add(1, Ordering::SeqCst);
+            if let Some(error) = &self.get_endpoint_error {
+                return Err(error.clone());
+            }
             Ok(ServerlessEndpointObservation {
                 provider_resource_id: _endpoint_id.to_string(),
                 datacenter_id: "EU-RO-1".to_string(),
@@ -432,6 +499,23 @@ impl ProviderProvisioningGateway for FakeProvider {
                     .unwrap_or(ProviderResourceStatus::Ready),
                 endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
             })
+        })
+    }
+
+    fn discover_serverless_endpoints<'a>(
+        &'a self,
+        _input: DiscoverServerlessEndpointsInput,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Vec<ServerlessEndpointObservation>, WorkspaceProvisioningError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            self.discover_endpoints_count.fetch_add(1, Ordering::SeqCst);
+            Ok(self.discovered_endpoints.clone())
         })
     }
 
@@ -1391,6 +1475,535 @@ async fn cancel_marks_failed_and_preserves_metadata_when_cleanup_fails() {
     assert!(result.workspace.provider_provisioning_snapshot.is_some());
 }
 
+#[tokio::test]
+async fn sync_adopts_single_discovered_network_volume_before_create() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_volumes: vec![discovered_volume("volume-existing")],
+        ..Default::default()
+    };
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    let volume = result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .expect("volume should be adopted");
+    assert_eq!(volume.provider_resource_id, "volume-existing");
+    assert_eq!(provider.discover_volumes_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_fails_closed_when_multiple_discovered_network_volumes_exist() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_volumes: vec![discovered_volume("volume-1"), discovered_volume("volume-2")],
+        ..Default::default()
+    };
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_failure(
+        &result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::CreatingVolume,
+    );
+    assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_adopts_single_discovered_endpoint_template_before_create() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_templates: vec![discovered_template("template-existing")],
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    let template = runpod_template_snapshot(&result.workspace).expect("template should be adopted");
+    assert_eq!(template.template_id, "template-existing");
+    assert_eq!(provider.discover_templates_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_template_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_fails_closed_when_multiple_discovered_endpoint_templates_exist() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_templates: vec![
+            discovered_template("template-1"),
+            discovered_template("template-2"),
+        ],
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_failure(
+        &result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+    );
+    assert_eq!(provider.create_template_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_adopts_single_discovered_serverless_endpoint_before_create() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_endpoints: vec![discovered_endpoint("endpoint-existing")],
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    let endpoint = result
+        .workspace
+        .serverless_endpoint_snapshot
+        .expect("endpoint should be adopted");
+    assert_eq!(endpoint.provider_resource_id, "endpoint-existing");
+    assert_eq!(provider.discover_endpoints_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn sync_fails_closed_when_multiple_discovered_serverless_endpoints_exist() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        discovered_endpoints: vec![
+            discovered_endpoint("endpoint-1"),
+            discovered_endpoint("endpoint-2"),
+        ],
+        ..Default::default()
+    };
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_failure(
+        &result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::CreatingEndpoint,
+    );
+    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn indeterminate_create_failures_do_not_retry_create_on_next_sync() {
+    let volume_catalog = MemoryWorkspaceCatalog::default();
+    let mut volume_workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    volume_workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    volume_catalog
+        .insert_workspace(&volume_workspace)
+        .await
+        .expect("insert");
+    let volume_provider = FakeProvider {
+        create_volume_error: Some(WorkspaceProvisioningError::ProviderOperationIndeterminate),
+        ..Default::default()
+    };
+    let volume_service = service(volume_catalog, volume_provider.clone());
+    let volume_result = volume_service
+        .sync(&volume_workspace.id)
+        .await
+        .expect("sync");
+    assert_failure(
+        &volume_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::CreatingVolume,
+    );
+    volume_service
+        .sync(&volume_workspace.id)
+        .await
+        .expect("second sync");
+    assert_eq!(
+        volume_provider.create_volume_count.load(Ordering::SeqCst),
+        1
+    );
+
+    let pod_catalog = MemoryWorkspaceCatalog::default();
+    let pod_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000002");
+    pod_catalog
+        .insert_workspace(&pod_workspace)
+        .await
+        .expect("insert");
+    let pod_provider = FakeProvider {
+        create_pod_error: Some(WorkspaceProvisioningError::ProviderOperationIndeterminate),
+        ..Default::default()
+    };
+    let pod_service = service(pod_catalog, pod_provider.clone());
+    let pod_result = pod_service.sync(&pod_workspace.id).await.expect("sync");
+    assert_failure(
+        &pod_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::StartingProvisioningPod,
+    );
+    pod_service
+        .sync(&pod_workspace.id)
+        .await
+        .expect("second sync");
+    assert_eq!(pod_provider.create_pod_count.load(Ordering::SeqCst), 1);
+
+    let template_catalog = MemoryWorkspaceCatalog::default();
+    let mut template_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000003");
+    template_workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    template_catalog
+        .insert_workspace(&template_workspace)
+        .await
+        .expect("insert");
+    let template_provider = FakeProvider {
+        create_template_error: Some(WorkspaceProvisioningError::ProviderOperationIndeterminate),
+        ..Default::default()
+    };
+    let template_service = service_with_parts(
+        template_catalog,
+        template_provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+    let template_result = template_service
+        .sync(&template_workspace.id)
+        .await
+        .expect("sync");
+    assert_failure(
+        &template_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+    );
+    template_service
+        .sync(&template_workspace.id)
+        .await
+        .expect("second sync");
+    assert_eq!(
+        template_provider
+            .create_template_count
+            .load(Ordering::SeqCst),
+        1
+    );
+
+    let endpoint_catalog = MemoryWorkspaceCatalog::default();
+    let mut endpoint_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000004");
+    endpoint_workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    endpoint_workspace.provider_provisioning_snapshot =
+        Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+        });
+    endpoint_catalog
+        .insert_workspace(&endpoint_workspace)
+        .await
+        .expect("insert");
+    let endpoint_provider = FakeProvider {
+        create_endpoint_error: Some(WorkspaceProvisioningError::ProviderOperationIndeterminate),
+        ..Default::default()
+    };
+    let endpoint_service = service_with_parts(
+        endpoint_catalog,
+        endpoint_provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+    let endpoint_result = endpoint_service
+        .sync(&endpoint_workspace.id)
+        .await
+        .expect("sync");
+    assert_failure(
+        &endpoint_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+        WorkspaceProvisioningPhase::CreatingEndpoint,
+    );
+    endpoint_service
+        .sync(&endpoint_workspace.id)
+        .await
+        .expect("second sync");
+    assert_eq!(
+        endpoint_provider
+            .create_endpoint_count
+            .load(Ordering::SeqCst),
+        1
+    );
+}
+
+#[tokio::test]
+async fn missing_tracked_resources_mark_workspace_failed_without_recreate() {
+    let volume_catalog = MemoryWorkspaceCatalog::default();
+    let mut volume_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    volume_workspace
+        .persistent_storage_volume_snapshot
+        .as_mut()
+        .expect("volume")
+        .provider_resource_status = ProviderResourceStatus::Creating;
+    volume_catalog
+        .insert_workspace(&volume_workspace)
+        .await
+        .expect("insert");
+    let volume_provider = FakeProvider {
+        get_volume_error: Some(WorkspaceProvisioningError::ProviderResourceNotFound),
+        ..Default::default()
+    };
+    let volume_service = service(volume_catalog, volume_provider.clone());
+    let volume_result = volume_service
+        .sync(&volume_workspace.id)
+        .await
+        .expect("sync");
+    assert_failure(
+        &volume_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderResourceMissing,
+        WorkspaceProvisioningPhase::CreatingVolume,
+    );
+    assert!(volume_result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_some());
+    assert_eq!(
+        volume_provider.create_volume_count.load(Ordering::SeqCst),
+        0
+    );
+
+    let pod_catalog = MemoryWorkspaceCatalog::default();
+    let mut pod_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000002");
+    pod_workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    pod_catalog
+        .insert_workspace(&pod_workspace)
+        .await
+        .expect("insert");
+    let pod_provider = FakeProvider {
+        get_pod_error: Some(WorkspaceProvisioningError::ProviderResourceNotFound),
+        ..Default::default()
+    };
+    let pod_service = service(pod_catalog, pod_provider.clone());
+    let pod_result = pod_service.sync(&pod_workspace.id).await.expect("sync");
+    assert_failure(
+        &pod_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderResourceMissing,
+        WorkspaceProvisioningPhase::StartingProvisioningPod,
+    );
+    assert!(pod_result
+        .workspace
+        .active_provisioning_pod_snapshot
+        .is_some());
+    assert_eq!(pod_provider.create_pod_count.load(Ordering::SeqCst), 0);
+
+    let template_catalog = MemoryWorkspaceCatalog::default();
+    let mut template_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000003");
+    template_workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    template_workspace.provider_provisioning_snapshot =
+        Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Creating)),
+        });
+    template_catalog
+        .insert_workspace(&template_workspace)
+        .await
+        .expect("insert");
+    let template_provider = FakeProvider {
+        get_template_error: Some(WorkspaceProvisioningError::ProviderResourceNotFound),
+        ..Default::default()
+    };
+    let template_service = service_with_parts(
+        template_catalog,
+        template_provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+    let template_result = template_service
+        .sync(&template_workspace.id)
+        .await
+        .expect("sync");
+    assert_failure(
+        &template_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderResourceMissing,
+        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+    );
+    assert!(runpod_template_snapshot(&template_result.workspace).is_some());
+    assert_eq!(
+        template_provider
+            .create_template_count
+            .load(Ordering::SeqCst),
+        0
+    );
+
+    let endpoint_catalog = MemoryWorkspaceCatalog::default();
+    let mut endpoint_workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000004");
+    endpoint_workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
+    endpoint_workspace.provider_provisioning_snapshot =
+        Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+        });
+    endpoint_workspace.serverless_endpoint_snapshot = Some(ServerlessEndpointSnapshot {
+        provider_resource_status: ProviderResourceStatus::Creating,
+        ..endpoint_snapshot()
+    });
+    endpoint_catalog
+        .insert_workspace(&endpoint_workspace)
+        .await
+        .expect("insert");
+    let endpoint_provider = FakeProvider {
+        get_endpoint_error: Some(WorkspaceProvisioningError::ProviderResourceNotFound),
+        ..Default::default()
+    };
+    let endpoint_service = service_with_parts(
+        endpoint_catalog,
+        endpoint_provider.clone(),
+        FakeWorker::idle(),
+        Arc::default(),
+    );
+    let endpoint_result = endpoint_service
+        .sync(&endpoint_workspace.id)
+        .await
+        .expect("sync");
+    assert_failure(
+        &endpoint_result.workspace,
+        WorkspaceProvisioningFailureCode::ProviderResourceMissing,
+        WorkspaceProvisioningPhase::CreatingEndpoint,
+    );
+    assert!(endpoint_result
+        .workspace
+        .serverless_endpoint_snapshot
+        .is_some());
+    assert_eq!(
+        endpoint_provider
+            .create_endpoint_count
+            .load(Ordering::SeqCst),
+        0
+    );
+}
+
+#[tokio::test]
+async fn cancel_deletes_worker_token_even_without_active_pod_snapshot() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let tokens = worker_token_map(&workspace.id);
+    let service = service_with_parts(
+        catalog,
+        provider.clone(),
+        FakeWorker::idle(),
+        tokens.clone(),
+    );
+
+    let result = service.cancel(&workspace.id).await.expect("cancel");
+
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Draft
+    );
+    assert_eq!(provider.delete_volume_count.load(Ordering::SeqCst), 1);
+    assert!(tokens.lock().expect("tokens").is_empty());
+}
+
+#[tokio::test]
+async fn cancel_conflict_returns_error_without_cleanup_side_effects() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    workspace.active_provisioning_pod_snapshot = Some(active_pod());
+    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+        endpoint_template_snapshot: Some(template_snapshot(ProviderResourceStatus::Ready)),
+    });
+    workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let tokens = worker_token_map(&workspace.id);
+    let coordinator = WorkspaceProvisioningCoordinator::default();
+    let _guard = coordinator.try_enter(&workspace.id).expect("enter");
+    let service = WorkspaceProvisioningService::new(
+        MemorySecretStore {
+            api_key: Some("rp_123_secret".to_string()),
+            worker_tokens: tokens.clone(),
+        },
+        provider.clone(),
+        catalog.clone(),
+        FakeWorker::idle(),
+        coordinator,
+        test_config(),
+    );
+
+    let error = service
+        .cancel(&workspace.id)
+        .await
+        .expect_err("cancel should conflict");
+
+    assert_eq!(error, WorkspaceProvisioningError::ProviderOperationConflict);
+    assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.delete_pod_count.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.delete_volume_count.load(Ordering::SeqCst), 0);
+    assert!(tokens.lock().expect("tokens").contains_key(&workspace.id));
+    let stored = catalog
+        .find_workspace_by_id(&workspace.id)
+        .await
+        .expect("find")
+        .expect("workspace");
+    assert_eq!(
+        stored.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+    assert!(stored.active_provisioning_pod_snapshot.is_some());
+    assert!(stored.serverless_endpoint_snapshot.is_some());
+}
+
 fn service(
     catalog: MemoryWorkspaceCatalog,
     provider: FakeProvider,
@@ -1456,12 +2069,41 @@ fn discovered_pod(provider_resource_id: &str) -> ProvisioningPodObservation {
     }
 }
 
+fn discovered_volume(provider_resource_id: &str) -> NetworkVolumeObservation {
+    NetworkVolumeObservation {
+        provider_resource_id: provider_resource_id.to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provisioned_size_bytes: 80 * 1024 * 1024 * 1024,
+        provider_resource_status: ProviderResourceStatus::Ready,
+        mount_path: "/workspace".to_string(),
+    }
+}
+
+fn discovered_template(template_id: &str) -> EndpointTemplateObservation {
+    EndpointTemplateObservation {
+        template_id: template_id.to_string(),
+        endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
+        mount_path: "/workspace".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+    }
+}
+
 fn template_snapshot(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
     RunPodEndpointTemplateSnapshot {
         template_id: "template-1".to_string(),
         endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
         mount_path: "/workspace".to_string(),
         provider_resource_status: status,
+    }
+}
+
+fn discovered_endpoint(provider_resource_id: &str) -> ServerlessEndpointObservation {
+    ServerlessEndpointObservation {
+        provider_resource_id: provider_resource_id.to_string(),
+        datacenter_id: "EU-RO-1".to_string(),
+        provider_resource_status: ProviderResourceStatus::Ready,
+        selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        endpoint_invoke_url: format!("https://api.runpod.ai/v2/{provider_resource_id}/runsync"),
     }
 }
 
@@ -1474,6 +2116,20 @@ fn endpoint_snapshot() -> ServerlessEndpointSnapshot {
         selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
     }
+}
+
+fn assert_failure(
+    workspace: &Workspace,
+    code: WorkspaceProvisioningFailureCode,
+    phase: WorkspaceProvisioningPhase,
+) {
+    assert_eq!(workspace.lifecycle_state, WorkspaceLifecycleState::Failed);
+    let failure = workspace
+        .last_provisioning_failure
+        .as_ref()
+        .expect("failure should be persisted");
+    assert_eq!(failure.code, code);
+    assert_eq!(failure.phase, phase);
 }
 
 fn worker_token_map(workspace_id: &str) -> Arc<Mutex<HashMap<String, String>>> {

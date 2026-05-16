@@ -11,9 +11,10 @@ use crate::{
 use super::{
     contracts::{
         CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, EndpointTemplateObservation,
-        NetworkVolumeObservation, ObserveProvisioningPodInput, ProvisioningPodObservation,
-        ServerlessEndpointObservation,
+        CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
+        DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
+        EndpointTemplateObservation, NetworkVolumeObservation, ObserveProvisioningPodInput,
+        ProvisioningPodObservation, ServerlessEndpointObservation,
     },
     WorkspaceProvisioningError,
 };
@@ -37,6 +38,17 @@ pub trait ProviderProvisioningGateway: Send + Sync {
     ) -> Pin<
         Box<
             dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    >;
+
+    fn discover_network_volumes<'a>(
+        &'a self,
+        input: DiscoverNetworkVolumesInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, WorkspaceProvisioningError>>
                 + Send
                 + 'a,
         >,
@@ -98,6 +110,18 @@ pub trait ProviderProvisioningGateway: Send + Sync {
         >,
     >;
 
+    fn discover_endpoint_templates<'a>(
+        &'a self,
+        input: DiscoverEndpointTemplatesInput,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Vec<EndpointTemplateObservation>, WorkspaceProvisioningError>,
+                > + Send
+                + 'a,
+        >,
+    >;
+
     fn get_endpoint_template<'a>(
         &'a self,
         provider_id: GpuCloudProviderId,
@@ -123,6 +147,18 @@ pub trait ProviderProvisioningGateway: Send + Sync {
         Box<
             dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceProvisioningError>>
                 + Send
+                + 'a,
+        >,
+    >;
+
+    fn discover_serverless_endpoints<'a>(
+        &'a self,
+        input: DiscoverServerlessEndpointsInput,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Vec<ServerlessEndpointObservation>, WorkspaceProvisioningError>,
+                > + Send
                 + 'a,
         >,
     >;

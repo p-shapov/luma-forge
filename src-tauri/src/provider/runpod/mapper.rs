@@ -149,6 +149,17 @@ pub(super) fn network_volume_from_response(
     })
 }
 
+pub(super) fn network_volume_from_list_response(
+    payload: RunPodNetworkVolumeResponse,
+) -> Result<RunPodNetworkVolumeObservation, ProviderClientError> {
+    Ok(RunPodNetworkVolumeObservation {
+        id: non_empty(payload.id)?,
+        data_center_id: non_empty(payload.data_center_id)?,
+        size_gb: payload.size.ok_or(ProviderClientError::ResponseInvalid)?,
+        status: resource_status_or_creating(payload.status.as_deref()),
+    })
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct RunPodPodResponseContext {
     pub data_center_id: String,
@@ -260,6 +271,13 @@ fn resource_status_or_ready(status: Option<&str>) -> ProviderResourceStatus {
     match status {
         Some(status) => resource_status(Some(status)),
         None => ProviderResourceStatus::Ready,
+    }
+}
+
+fn resource_status_or_creating(status: Option<&str>) -> ProviderResourceStatus {
+    match status {
+        Some(status) => resource_status(Some(status)),
+        None => ProviderResourceStatus::Creating,
     }
 }
 

@@ -9,7 +9,8 @@ mod snapshots;
 
 pub use contracts::{
     CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-    CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, EndpointTemplateObservation,
+    CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
+    DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput, EndpointTemplateObservation,
     NetworkVolumeObservation, ObserveProvisioningPodInput, ProvisioningPodObservation,
     ServerlessEndpointObservation, WorkspaceProvisioningResult,
 };

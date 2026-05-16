@@ -23,8 +23,8 @@ pub use contracts::{
 
 use mapper::{
     endpoint_from_response, identity_from_graphql_response, inventory_from_graphql_response,
-    network_volume_from_response, pod_from_response_with_context, template_from_response,
-    RunPodPodResponseContext,
+    network_volume_from_list_response, network_volume_from_response,
+    pod_from_response_with_context, template_from_response, RunPodPodResponseContext,
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
@@ -203,6 +203,24 @@ impl RunPodClient {
             .and_then(network_volume_from_response)
     }
 
+    pub async fn find_network_volumes_by_name(
+        &self,
+        api_key: &ProviderApiKey,
+        name: &str,
+        data_center_id: &str,
+        size_gb: u64,
+    ) -> Result<Vec<RunPodNetworkVolumeObservation>, ProviderClientError> {
+        let response = self
+            .http
+            .get(format!("{}/networkvolumes", self.rest_endpoint))
+            .bearer_auth(api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|_| ProviderClientError::ApiUnavailable)?;
+        let payloads = parse_rest_response::<Vec<RunPodNetworkVolumeResponse>>(response).await?;
+        network_volumes_by_name(payloads, name, data_center_id, size_gb)
+    }
+
     pub async fn delete_network_volume(
         &self,
         api_key: &ProviderApiKey,
@@ -345,6 +363,25 @@ impl RunPodClient {
             .and_then(template_from_response)
     }
 
+    pub async fn find_templates_by_name(
+        &self,
+        api_key: &ProviderApiKey,
+        name: &str,
+        image_name: &str,
+        http_port: u16,
+        volume_mount_path: &str,
+    ) -> Result<Vec<RunPodTemplateObservation>, ProviderClientError> {
+        let response = self
+            .http
+            .get(format!("{}/templates", self.rest_endpoint))
+            .bearer_auth(api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|_| ProviderClientError::ApiUnavailable)?;
+        let payloads = parse_rest_response::<Vec<RunPodTemplateResponse>>(response).await?;
+        templates_by_name(payloads, name, image_name, http_port, volume_mount_path)
+    }
+
     pub async fn delete_template(
         &self,
         api_key: &ProviderApiKey,
@@ -389,6 +426,22 @@ impl RunPodClient {
             .and_then(endpoint_from_response)
     }
 
+    pub async fn find_endpoints_by_name(
+        &self,
+        api_key: &ProviderApiKey,
+        input: &RunPodFindEndpointInput<'_>,
+    ) -> Result<Vec<RunPodEndpointObservation>, ProviderClientError> {
+        let response = self
+            .http
+            .get(format!("{}/endpoints", self.rest_endpoint))
+            .bearer_auth(api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|_| ProviderClientError::ApiUnavailable)?;
+        let payloads = parse_rest_response::<Vec<RunPodEndpointResponse>>(response).await?;
+        endpoints_by_name(payloads, input)
+    }
+
     pub async fn delete_endpoint(
         &self,
         api_key: &ProviderApiKey,
@@ -417,6 +470,32 @@ impl RunPodClient {
     }
 }
 
+pub struct RunPodFindEndpointInput<'a> {
+    pub name: &'a str,
+    pub template_id: &'a str,
+    pub network_volume_id: &'a str,
+    pub data_center_id: &'a str,
+    pub selected_gpu_id: &'a str,
+    pub idle_timeout: u32,
+}
+
+fn network_volumes_by_name(
+    payloads: Vec<RunPodNetworkVolumeResponse>,
+    name: &str,
+    data_center_id: &str,
+    size_gb: u64,
+) -> Result<Vec<RunPodNetworkVolumeObservation>, ProviderClientError> {
+    payloads
+        .into_iter()
+        .filter(|payload| {
+            payload.name.as_deref() == Some(name)
+                && payload.data_center_id.as_deref() == Some(data_center_id)
+                && payload.size == Some(size_gb)
+        })
+        .map(network_volume_from_list_response)
+        .collect()
+}
+
 fn pods_by_name_and_volume(
     payloads: Vec<RunPodPodResponse>,
     name: &str,
@@ -431,6 +510,56 @@ fn pods_by_name_and_volume(
         })
         .filter(|payload| !pod_response_is_deleted(payload))
         .map(|payload| pod_from_response_with_context(payload, Some(context.clone())))
+        .collect()
+}
+
+fn templates_by_name(
+    payloads: Vec<RunPodTemplateResponse>,
+    name: &str,
+    image_name: &str,
+    http_port: u16,
+    volume_mount_path: &str,
+) -> Result<Vec<RunPodTemplateObservation>, ProviderClientError> {
+    let expected_port = format!("{http_port}/http");
+    payloads
+        .into_iter()
+        .filter(|payload| {
+            payload.name.as_deref() == Some(name)
+                && payload.image_name.as_deref() == Some(image_name)
+                && payload.volume_mount_path.as_deref() == Some(volume_mount_path)
+                && payload.is_serverless == Some(true)
+                && payload
+                    .ports
+                    .as_ref()
+                    .is_some_and(|ports| ports.iter().any(|port| port == &expected_port))
+        })
+        .map(template_from_response)
+        .collect()
+}
+
+fn endpoints_by_name(
+    payloads: Vec<RunPodEndpointResponse>,
+    input: &RunPodFindEndpointInput<'_>,
+) -> Result<Vec<RunPodEndpointObservation>, ProviderClientError> {
+    payloads
+        .into_iter()
+        .filter(|payload| {
+            payload.name.as_deref() == Some(input.name)
+                && payload.template_id.as_deref() == Some(input.template_id)
+                && payload.network_volume_id.as_deref() == Some(input.network_volume_id)
+                && payload
+                    .data_center_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.iter().any(|id| id == input.data_center_id))
+                && payload
+                    .gpu_type_ids
+                    .as_ref()
+                    .is_some_and(|ids| ids.iter().any(|id| id == input.selected_gpu_id))
+                && payload
+                    .idle_timeout
+                    .is_none_or(|timeout| timeout == input.idle_timeout)
+        })
+        .map(endpoint_from_response)
         .collect()
 }
 

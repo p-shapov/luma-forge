@@ -68,14 +68,12 @@ where
         );
     }
 
-    if workspace.active_provisioning_pod_snapshot.is_some() {
-        remember_first_error(
-            &mut first_error,
-            secrets
-                .delete_provisioner_worker_token(&workspace.id)
-                .map_err(WorkspaceProvisioningError::from),
-        );
-    }
+    remember_first_error(
+        &mut first_error,
+        secrets
+            .delete_provisioner_worker_token(&workspace.id)
+            .map_err(WorkspaceProvisioningError::from),
+    );
 
     match first_error {
         Some(error) => Err(error),

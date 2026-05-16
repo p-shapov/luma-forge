@@ -10,16 +10,19 @@ use crate::{
         runpod::{
             RunPodClient, RunPodCreateEndpointRequest, RunPodCreateNetworkVolumeRequest,
             RunPodCreatePodRequest, RunPodCreateTemplateRequest, RunPodEndpointObservation,
-            RunPodNetworkVolumeObservation, RunPodPodObservation, RunPodTemplateObservation,
+            RunPodFindEndpointInput, RunPodNetworkVolumeObservation, RunPodPodObservation,
+            RunPodTemplateObservation,
         },
     },
     provider_setup::{ProviderIdentityGateway, ProviderSetupError},
     secrets::{KeyringSecretStore, SecretStore},
     workspace_provisioning::{
         CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, DiscoverProvisioningPodsInput, EndpointTemplateObservation,
-        NetworkVolumeObservation, ObserveProvisioningPodInput, ProviderProvisioningGateway,
-        ProvisioningPodObservation, ServerlessEndpointObservation, WorkspaceProvisioningError,
+        CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
+        DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
+        EndpointTemplateObservation, NetworkVolumeObservation, ObserveProvisioningPodInput,
+        ProviderProvisioningGateway, ProvisioningPodObservation, ServerlessEndpointObservation,
+        WorkspaceProvisioningError,
     },
     workspace_setup::{
         contracts::ProviderPlacementOptions, error::WorkspaceSetupError,
@@ -152,6 +155,39 @@ where
                     .get_network_volume(&api_key, volume_id)
                     .await
                     .map(runpod_network_volume_observation)
+                    .map_err(provisioning_error_from_client_error),
+            }
+        })
+    }
+
+    fn discover_network_volumes<'a>(
+        &'a self,
+        input: DiscoverNetworkVolumesInput,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, WorkspaceProvisioningError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+            match input.gpu_cloud_provider_id {
+                GpuCloudProviderId::Runpod => self
+                    .runpod
+                    .find_network_volumes_by_name(
+                        &api_key,
+                        &provider_resource_name(&input.workspace_id, "volume"),
+                        &input.datacenter_id,
+                        bytes_to_gib(input.size_bytes),
+                    )
+                    .await
+                    .map(|observations| {
+                        observations
+                            .into_iter()
+                            .map(runpod_network_volume_observation)
+                            .collect()
+                    })
                     .map_err(provisioning_error_from_client_error),
             }
         })
@@ -351,6 +387,41 @@ where
         })
     }
 
+    fn discover_endpoint_templates<'a>(
+        &'a self,
+        input: DiscoverEndpointTemplatesInput,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Vec<EndpointTemplateObservation>, WorkspaceProvisioningError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+            match input.gpu_cloud_provider_id {
+                GpuCloudProviderId::Runpod => self
+                    .runpod
+                    .find_templates_by_name(
+                        &api_key,
+                        &provider_resource_name(&input.workspace_id, "endpoint-template"),
+                        &input.endpoint_worker_image_ref,
+                        input.endpoint_worker_port,
+                        &input.mount_path,
+                    )
+                    .await
+                    .map(|observations| {
+                        observations
+                            .into_iter()
+                            .map(runpod_template_observation)
+                            .collect()
+                    })
+                    .map_err(provisioning_error_from_client_error),
+            }
+        })
+    }
+
     fn delete_endpoint_template<'a>(
         &'a self,
         provider_id: GpuCloudProviderId,
@@ -425,6 +496,47 @@ where
                     .await
                     .map(runpod_endpoint_observation)
                     .map_err(provisioning_error_from_client_error),
+            }
+        })
+    }
+
+    fn discover_serverless_endpoints<'a>(
+        &'a self,
+        input: DiscoverServerlessEndpointsInput,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<Vec<ServerlessEndpointObservation>, WorkspaceProvisioningError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+            match input.gpu_cloud_provider_id {
+                GpuCloudProviderId::Runpod => {
+                    let endpoint_name = provider_resource_name(&input.workspace_id, "endpoint");
+                    self.runpod
+                        .find_endpoints_by_name(
+                            &api_key,
+                            &RunPodFindEndpointInput {
+                                name: &endpoint_name,
+                                template_id: &input.template_id,
+                                network_volume_id: &input.network_volume_id,
+                                data_center_id: &input.datacenter_id,
+                                selected_gpu_id: &input.selected_gpu_id,
+                                idle_timeout: input.endpoint_keep_alive_seconds,
+                            },
+                        )
+                        .await
+                        .map(|observations| {
+                            observations
+                                .into_iter()
+                                .map(runpod_endpoint_observation)
+                                .collect()
+                        })
+                        .map_err(provisioning_error_from_client_error)
+                }
             }
         })
     }

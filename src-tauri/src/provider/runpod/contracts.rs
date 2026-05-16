@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::domain::workspace::ProviderResourceStatus;
 
@@ -84,6 +84,7 @@ pub struct RunPodCreateNetworkVolumeRequest {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RunPodNetworkVolumeResponse {
     pub id: Option<String>,
+    pub name: Option<String>,
     pub data_center_id: Option<String>,
     pub size: Option<u64>,
     pub status: Option<String>,
@@ -167,8 +168,10 @@ pub struct RunPodCreateTemplateRequest {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RunPodTemplateResponse {
     pub id: Option<String>,
+    pub name: Option<String>,
     pub image_name: Option<String>,
     pub is_serverless: Option<bool>,
+    pub ports: Option<Vec<String>>,
     pub volume_mount_path: Option<String>,
     pub status: Option<String>,
 }
@@ -200,10 +203,15 @@ pub struct RunPodCreateEndpointRequest {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RunPodEndpointResponse {
     pub id: Option<String>,
+    pub name: Option<String>,
+    pub template_id: Option<String>,
+    pub network_volume_id: Option<String>,
     pub status: Option<String>,
     pub gpu_type_ids: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "optional_string_list")]
     pub data_center_ids: Option<Vec<String>>,
     pub endpoint_url: Option<String>,
+    pub idle_timeout: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,4 +221,28 @@ pub struct RunPodEndpointObservation {
     pub selected_gpu_id: String,
     pub status: ProviderResourceStatus,
     pub endpoint_invoke_url: String,
+}
+
+fn optional_string_list<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringList {
+        Array(Vec<String>),
+        CommaSeparated(String),
+    }
+
+    Ok(
+        Option::<StringList>::deserialize(deserializer)?.map(|value| match value {
+            StringList::Array(values) => values,
+            StringList::CommaSeparated(value) => value
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect(),
+        }),
+    )
 }
