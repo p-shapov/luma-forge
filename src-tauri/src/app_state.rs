@@ -98,12 +98,7 @@ impl NativeAppState {
             self.provisioner_workers.clone(),
             self.workspace_provisioning_coordinator.clone(),
             WorkspaceProvisioningConfig {
-                provisioner_worker_image_ref: self.app_config.provisioner_worker_image_ref.clone(),
                 provisioner_worker_port: self.app_config.provisioner_worker_port,
-                runpod_endpoint_worker_image_ref: self
-                    .app_config
-                    .runpod_endpoint_worker_image_ref
-                    .clone(),
                 runpod_endpoint_worker_port: self.app_config.runpod_endpoint_worker_port,
                 volume_mount_path: "/workspace".to_string(),
             },

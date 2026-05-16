@@ -39,7 +39,7 @@ Provision one saved `Draft` Workspace into a `Ready` Workspace by creating requi
 - GPU Cloud Provider Setup is complete.
 - Provider API Key exists in the secure keyring.
 - Native Layer can read and write the Workspace Catalog.
-- Native app was built with non-empty provider-neutral Provisioner Worker image ref and port plus provider-specific Endpoint Worker image refs and ports available through build-time Native configuration.
+- Native Layer has non-image worker runtime configuration available through build-time configuration, and the Workspace contains a resolved runtime implementation snapshot with Provisioner Worker and Endpoint Worker image refs.
 
 ## Main Flow
 

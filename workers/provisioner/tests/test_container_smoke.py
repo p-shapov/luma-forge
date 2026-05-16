@@ -32,6 +32,8 @@ class ContainerSmokeTests(unittest.TestCase):
                 "-d",
                 "-e",
                 f"LUMA_FORGE_PROVISIONER_BEARER_TOKEN={token}",
+                "-e",
+                "LUMA_FORGE_PROVISIONER_IMAGE_REF=ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
                 "-p",
                 "127.0.0.1::8000",
                 image,

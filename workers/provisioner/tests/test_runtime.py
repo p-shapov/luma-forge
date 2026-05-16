@@ -40,6 +40,10 @@ class RuntimeTests(unittest.TestCase):
 
             self.assertEqual(loaded.environment_kind, ENVIRONMENT_KIND)
             self.assertEqual(loaded.python_path, str(paths.python_path))
+            self.assertEqual(
+                loaded.base_dependency_record_paths,
+                [str((Path(directory).resolve() / ".luma-forge/base-runtime/pip-freeze.txt"))],
+            )
             payload = json.loads(paths.runtime_manifest_path.read_text(encoding="utf-8"))
             self.assertNotIn("token", payload)
             self.assertNotIn("secret", payload)
@@ -70,9 +74,13 @@ class RuntimeTests(unittest.TestCase):
                 python_version=manifest.python_version,
                 platform=manifest.platform,
                 comfyui_revision=manifest.comfyui_revision,
+                runtime_contract_id=manifest.runtime_contract_id,
+                runtime_contract_version=manifest.runtime_contract_version,
+                implementation_revision=manifest.implementation_revision,
+                provisioner_image_ref=manifest.provisioner_image_ref,
+                endpoint_image_ref=manifest.endpoint_image_ref,
                 custom_node_revisions=manifest.custom_node_revisions,
-                pip_freeze_path=manifest.pip_freeze_path,
-                install_report_path=manifest.install_report_path,
+                base_dependency_record_paths=manifest.base_dependency_record_paths,
                 prepared_at=manifest.prepared_at,
             )
 

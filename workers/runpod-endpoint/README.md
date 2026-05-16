@@ -31,11 +31,11 @@ The prepared workspace must include the volume-local runtime environment:
   .venv/
   .luma-forge/
     runtime.json
-    pip-freeze.txt
-    install-report.json
+    base-runtime/
+      pip-freeze.txt
 ```
 
-The endpoint validates `/workspace/.luma-forge/runtime.json` and starts ComfyUI through the manifest-declared volume-local interpreter, normally `/workspace/.venv/bin/python`.
+The endpoint validates `/workspace/.luma-forge/runtime.json`, including resolved runtime contract metadata, and starts ComfyUI through the manifest-declared volume-local interpreter, normally `/workspace/.venv/bin/python`.
 
 ## Configuration
 

@@ -7,12 +7,13 @@ Container-side worker that prepares a mounted ComfyUI workspace after the native
 ```bash
 cd workers/provisioner
 LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
+  LUMA_FORGE_PROVISIONER_IMAGE_REF=ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   PYTHONPATH=src python -m app
 ```
 
-The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
+The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_IMAGE_REF` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
 
-During preparation, ComfyUI and Custom Node Python dependencies are installed into a virtual environment on the mounted workspace volume:
+During preparation, the image-baked ComfyUI base runtime archive is materialized onto the mounted workspace volume. Only Workflow Preset Custom Nodes and model assets are installed during provisioning:
 
 ```text
 /workspace/
@@ -20,11 +21,12 @@ During preparation, ComfyUI and Custom Node Python dependencies are installed in
   .venv/
   .luma-forge/
     runtime.json
-    pip-freeze.txt
-    install-report.json
+    base-runtime/
+      pip-freeze.txt
+      install-report.json
 ```
 
-The worker must not install ComfyUI runtime dependencies into the ephemeral provisioner container Python environment. The endpoint worker later starts ComfyUI through `/workspace/.venv/bin/python`.
+The worker must not create the base virtual environment, clone ComfyUI, or install ComfyUI base requirements during provisioning. The endpoint worker later starts ComfyUI through `/workspace/.venv/bin/python`.
 
 ## Test
 
@@ -47,6 +49,7 @@ cd workers/provisioner
 docker build -t luma-forge-provisioner:local -f ../Dockerfile --target provisioner ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
+  -e LUMA_FORGE_PROVISIONER_IMAGE_REF=ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   -p 8000:8000 \
   -v "$PWD/tmp-workspace:/workspace" \
   luma-forge-provisioner:local
@@ -92,6 +95,11 @@ The diagnostic never includes configured environment values or secrets.
 | `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
+| `LUMA_FORGE_RUNTIME_ARCHIVE_PATH` | `/opt/luma-forge/runtime/base-runtime.tar.gz` | Absolute normalized path to the image-baked runtime archive. |
+| `LUMA_FORGE_RUNTIME_CONTRACT_ID` | `comfyui-python312-cu121` | Runtime contract id declared by this image. |
+| `LUMA_FORGE_RUNTIME_CONTRACT_VERSION` | `1.0.0` | Runtime contract version declared by this image. |
+| `LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION` | `2026.05.16-001` | Runtime implementation revision declared by this image. |
+| `LUMA_FORGE_PROVISIONER_IMAGE_REF` | Required | Immutable provisioner image ref for the running pod, injected by Native from the Workspace runtime implementation snapshot. |
 
 ## API
 
@@ -115,13 +123,34 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
     "name": "ComfyUI Text to Image Basic",
     "workflow_execution_type": "t2i",
     "required_base_volume_size_bytes": 85899345920,
-    "required_comfyui_source": {
-      "source_type": "git",
-      "repository_url": "https://github.com/comfyanonymous/ComfyUI.git",
-      "revision": "master"
+    "required_runtime_contract": {
+      "id": "comfyui-python312-cu121",
+      "version": "1.0.0"
     },
     "required_model_assets": [],
     "required_custom_nodes": []
+  },
+  "resolved_runtime_implementation": {
+    "contract_id": "comfyui-python312-cu121",
+    "contract_version": "1.0.0",
+    "implementation_revision": "2026.05.16-001",
+    "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:...",
+    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:...",
+    "runtime_metadata": {
+      "environment_kind": "image_baked_comfyui_runtime",
+      "python_version": "3.12",
+      "platform": "linux-x86_64-cuda",
+      "comfyui_revision": "0123456789abcdef0123456789abcdef01234567",
+      "base_dependency_record_paths": [
+        ".luma-forge/base-runtime/pip-freeze.txt",
+        ".luma-forge/base-runtime/install-report.json"
+      ]
+    },
+    "image_metadata": {
+      "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+      "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
+      "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
+    }
   }
 }
 ```

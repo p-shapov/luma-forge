@@ -287,6 +287,7 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
         name: "Workspace".to_string(),
         lifecycle_state: WorkspaceLifecycleState::Draft,
         placement_plan: sample_placement_plan(),
+        resolved_runtime_implementation: sample_runtime_snapshot(),
         persistent_storage_volume_snapshot: None,
         active_provisioning_pod_snapshot: None,
         serverless_endpoint_snapshot: None,
@@ -295,6 +296,20 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
         environment_prepared_at: None,
         last_provisioning_failure: None,
     }
+}
+
+pub(crate) fn sample_runtime_snapshot(
+) -> crate::domain::runtime::ResolvedRuntimeImplementationSnapshot {
+    let reader = BundledCatalogReader;
+    let runtime_catalog = reader.runtime_catalog().expect("runtime catalog");
+    let workflow_preset = reader
+        .workflow_catalog()
+        .expect("workflow catalog")
+        .workflow_presets
+        .remove(0);
+    runtime_catalog
+        .resolve_default(&workflow_preset.required_runtime_contract)
+        .expect("runtime snapshot")
 }
 
 fn create_workspace_request(id: &str) -> CreateWorkspaceInput {

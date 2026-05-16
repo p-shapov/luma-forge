@@ -171,6 +171,7 @@ struct FakeProvider {
     discover_volumes_count: Arc<AtomicUsize>,
     discover_pods_count: Arc<AtomicUsize>,
     create_pod_count: Arc<AtomicUsize>,
+    create_pod_inputs: Arc<Mutex<Vec<CreateProvisioningPodInput>>>,
     get_pod_count: Arc<AtomicUsize>,
     delete_pod_count: Arc<AtomicUsize>,
     discover_templates_count: Arc<AtomicUsize>,
@@ -191,6 +192,7 @@ struct FakeProvider {
     get_endpoint_error: Option<WorkspaceProvisioningError>,
     discovered_volumes: Vec<NetworkVolumeObservation>,
     discovered_pods: Vec<ProvisioningPodObservation>,
+    subsequent_discovered_pods: Option<Vec<ProvisioningPodObservation>>,
     discovered_templates: Vec<EndpointTemplateObservation>,
     discovered_endpoints: Vec<ServerlessEndpointObservation>,
     get_volume_status: Option<ProviderResourceStatus>,
@@ -297,9 +299,13 @@ impl ProviderProvisioningGateway for FakeProvider {
             if let Some(error) = &self.create_pod_error {
                 return Err(error.clone());
             }
+            self.create_pod_inputs
+                .lock()
+                .expect("create pod inputs")
+                .push(input.clone());
             assert_eq!(
                 input.provisioner_worker_image_ref,
-                "ghcr.io/luma-forge/provisioner-worker:test"
+                "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111"
             );
             assert_eq!(input.provisioner_worker_port, 8080);
             Ok(ProvisioningPodObservation {
@@ -323,7 +329,12 @@ impl ProviderProvisioningGateway for FakeProvider {
         >,
     > {
         Box::pin(async move {
-            self.discover_pods_count.fetch_add(1, Ordering::SeqCst);
+            let count = self.discover_pods_count.fetch_add(1, Ordering::SeqCst);
+            if count > 0 {
+                if let Some(discovered_pods) = &self.subsequent_discovered_pods {
+                    return Ok(discovered_pods.clone());
+                }
+            }
             Ok(self.discovered_pods.clone())
         })
     }
@@ -838,7 +849,19 @@ async fn sync_creates_provisioning_pod_and_stores_worker_token() {
 
     assert!(result.workspace.active_provisioning_pod_snapshot.is_some());
     assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 1);
+    let create_pod_inputs = provider
+        .create_pod_inputs
+        .lock()
+        .expect("create pod inputs");
+    assert_eq!(create_pod_inputs.len(), 1);
+    assert_eq!(
+        create_pod_inputs[0].provisioner_worker_image_ref,
+        workspace
+            .resolved_runtime_implementation
+            .provisioner_image_ref
+    );
     assert_eq!(worker_tokens.lock().expect("tokens").len(), 1);
+    drop(create_pod_inputs);
 
     service.sync(&workspace.id).await.expect("second sync");
     assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 1);
@@ -865,6 +888,35 @@ async fn sync_adopts_single_discovered_provisioning_pod_before_create() {
     assert_eq!(active_pod.provider_resource_id, "pod-existing");
     assert_eq!(provider.discover_pods_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn indeterminate_pod_create_recovery_adopts_discovered_pod() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let workspace =
+        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider {
+        create_pod_error: Some(WorkspaceProvisioningError::ProviderOperationIndeterminate),
+        discovered_pods: Vec::new(),
+        subsequent_discovered_pods: Some(vec![discovered_pod("pod-existing")]),
+        ..Default::default()
+    };
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    let active_pod = result
+        .workspace
+        .active_provisioning_pod_snapshot
+        .expect("discovered pod should be tracked after indeterminate create");
+    assert_eq!(active_pod.provider_resource_id, "pod-existing");
+    assert_eq!(
+        result.workspace.lifecycle_state,
+        WorkspaceLifecycleState::Provisioning
+    );
+    assert_eq!(provider.discover_pods_count.load(Ordering::SeqCst), 2);
+    assert_eq!(provider.create_pod_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -2141,9 +2193,7 @@ fn worker_token_map(workspace_id: &str) -> Arc<Mutex<HashMap<String, String>>> {
 
 fn test_config() -> WorkspaceProvisioningConfig {
     WorkspaceProvisioningConfig {
-        provisioner_worker_image_ref: "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
         provisioner_worker_port: 8080,
-        runpod_endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:test".to_string(),
         runpod_endpoint_worker_port: 8080,
         volume_mount_path: "/workspace".to_string(),
     }

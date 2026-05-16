@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::{
     domain::{
+        runtime::ResolvedRuntimeImplementationSnapshot,
         workflow::WorkflowPreset,
         workspace::{
             WorkspaceProvisioningPhase, WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
@@ -81,6 +82,7 @@ impl ProvisionerWorkerHttpGateway {
 pub struct ProvisionerWorkerStartRequest {
     pub job_id: String,
     pub workflow_preset: WorkflowPreset,
+    pub resolved_runtime_implementation: ResolvedRuntimeImplementationSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,14 +265,16 @@ fn phase_from_response(
         Some("idle") => Ok(ProvisionerWorkerPhase::Idle),
         Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
         Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
-        Some("installing_runtime" | "installing_comfyui") => {
+        Some("materializing_runtime" | "installing_runtime" | "installing_comfyui") => {
             Ok(ProvisionerWorkerPhase::InstallingRuntime)
         }
         Some("installing_models" | "downloading_assets") => {
             Ok(ProvisionerWorkerPhase::InstallingModels)
         }
-        Some("installing_custom_nodes") => Ok(ProvisionerWorkerPhase::InstallingCustomNodes),
-        Some("writing_manifest" | "validating_environment") => {
+        Some("preparing_custom_nodes" | "installing_custom_nodes") => {
+            Ok(ProvisionerWorkerPhase::InstallingCustomNodes)
+        }
+        Some("writing_manifest" | "validating_environment" | "verifying_assets") => {
             Ok(ProvisionerWorkerPhase::WritingManifest)
         }
         Some("completed") => Ok(ProvisionerWorkerPhase::Completed),

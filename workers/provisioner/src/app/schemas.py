@@ -56,7 +56,7 @@ class WorkflowPreset:
     id: str
     version: str
     name: str
-    required_comfyui_source: GitSource
+    required_runtime_contract: "RuntimeContractReference"
     required_model_assets: list[ModelAsset]
     required_custom_nodes: list[CustomNode]
 
@@ -65,6 +65,40 @@ class WorkflowPreset:
 class StartRequest:
     job_id: str
     workflow_preset: WorkflowPreset
+    resolved_runtime_implementation: "ResolvedRuntimeImplementation"
+
+
+@dataclass(frozen=True)
+class RuntimeContractReference:
+    id: str
+    version: str
+
+
+@dataclass(frozen=True)
+class RuntimeMetadata:
+    environment_kind: str
+    python_version: str
+    platform: str
+    comfyui_revision: str
+    base_dependency_record_paths: list[Path]
+
+
+@dataclass(frozen=True)
+class RuntimeImageMetadata:
+    provisioner_runtime_archive_path: Path
+    provisioner_runtime_metadata_path: Path
+    endpoint_runtime_contract_path: Path
+
+
+@dataclass(frozen=True)
+class ResolvedRuntimeImplementation:
+    contract_id: str
+    contract_version: str
+    implementation_revision: str
+    provisioner_image_ref: str
+    endpoint_image_ref: str
+    runtime_metadata: RuntimeMetadata
+    image_metadata: RuntimeImageMetadata
 
 
 def parse_start_request(payload: Any) -> StartRequest:
@@ -74,6 +108,9 @@ def parse_start_request(payload: Any) -> StartRequest:
     return StartRequest(
         job_id=job_id,
         workflow_preset=workflow_preset,
+        resolved_runtime_implementation=_parse_resolved_runtime_implementation(
+            data.get("resolved_runtime_implementation"),
+        ),
     )
 
 
@@ -83,9 +120,9 @@ def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
         id=_safe_identifier(data.get("id"), "workflow_preset.id"),
         version=_non_empty_string(data.get("version"), "workflow_preset.version"),
         name=_display_name(data.get("name"), "workflow_preset.name"),
-        required_comfyui_source=_parse_git_source(
-            data.get("required_comfyui_source"),
-            "workflow_preset.required_comfyui_source",
+        required_runtime_contract=_parse_runtime_contract_reference(
+            data.get("required_runtime_contract"),
+            "workflow_preset.required_runtime_contract",
         ),
         required_model_assets=[
             _parse_model_asset(item, f"workflow_preset.required_model_assets[{index}]")
@@ -95,6 +132,60 @@ def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
             _parse_custom_node(item, f"workflow_preset.required_custom_nodes[{index}]")
             for index, item in enumerate(_list(data.get("required_custom_nodes"), "workflow_preset.required_custom_nodes"))
         ],
+    )
+
+
+def _parse_runtime_contract_reference(payload: Any, field: str) -> RuntimeContractReference:
+    data = _object(payload, field)
+    return RuntimeContractReference(
+        id=_safe_identifier(data.get("id"), f"{field}.id"),
+        version=_non_empty_string(data.get("version"), f"{field}.version"),
+    )
+
+
+def _parse_resolved_runtime_implementation(payload: Any) -> ResolvedRuntimeImplementation:
+    data = _object(payload, "resolved_runtime_implementation")
+    runtime_metadata = _object(data.get("runtime_metadata"), "resolved_runtime_implementation.runtime_metadata")
+    image_metadata = _object(data.get("image_metadata"), "resolved_runtime_implementation.image_metadata")
+    return ResolvedRuntimeImplementation(
+        contract_id=_safe_identifier(data.get("contract_id"), "resolved_runtime_implementation.contract_id"),
+        contract_version=_non_empty_string(data.get("contract_version"), "resolved_runtime_implementation.contract_version"),
+        implementation_revision=_non_empty_string(
+            data.get("implementation_revision"),
+            "resolved_runtime_implementation.implementation_revision",
+        ),
+        provisioner_image_ref=_immutable_image_ref(
+            data.get("provisioner_image_ref"),
+            "resolved_runtime_implementation.provisioner_image_ref",
+        ),
+        endpoint_image_ref=_immutable_image_ref(
+            data.get("endpoint_image_ref"),
+            "resolved_runtime_implementation.endpoint_image_ref",
+        ),
+        runtime_metadata=RuntimeMetadata(
+            environment_kind=_non_empty_string(runtime_metadata.get("environment_kind"), "runtime_metadata.environment_kind"),
+            python_version=_non_empty_string(runtime_metadata.get("python_version"), "runtime_metadata.python_version"),
+            platform=_non_empty_string(runtime_metadata.get("platform"), "runtime_metadata.platform"),
+            comfyui_revision=_immutable_revision(runtime_metadata.get("comfyui_revision"), "runtime_metadata.comfyui_revision"),
+            base_dependency_record_paths=[
+                safe_relative_path(path, field_name="runtime_metadata.base_dependency_record_paths[]")
+                for path in _list(runtime_metadata.get("base_dependency_record_paths"), "runtime_metadata.base_dependency_record_paths")
+            ],
+        ),
+        image_metadata=RuntimeImageMetadata(
+            provisioner_runtime_archive_path=_absolute_path(
+                image_metadata.get("provisioner_runtime_archive_path"),
+                "image_metadata.provisioner_runtime_archive_path",
+            ),
+            provisioner_runtime_metadata_path=_absolute_path(
+                image_metadata.get("provisioner_runtime_metadata_path"),
+                "image_metadata.provisioner_runtime_metadata_path",
+            ),
+            endpoint_runtime_contract_path=_absolute_path(
+                image_metadata.get("endpoint_runtime_contract_path"),
+                "image_metadata.endpoint_runtime_contract_path",
+            ),
+        ),
     )
 
 
@@ -199,3 +290,25 @@ def _display_name(value: Any, field: str) -> str:
 
 def _is_immutable_git_revision(value: str) -> bool:
     return re.fullmatch(r"[0-9a-f]{40}", value) is not None
+
+
+def _immutable_revision(value: Any, field: str) -> str:
+    revision = _non_empty_string(value, field)
+    if not _is_immutable_git_revision(revision):
+        raise ValidationError(f"{field} must be a full immutable commit hash")
+    return revision
+
+
+def _immutable_image_ref(value: Any, field: str) -> str:
+    image_ref = _non_empty_string(value, field)
+    if re.search(r"@sha256:[0-9a-f]{64}$", image_ref) is None:
+        raise ValidationError(f"{field} must be an immutable digest image ref")
+    return image_ref
+
+
+def _absolute_path(value: Any, field: str) -> Path:
+    raw = _non_empty_string(value, field)
+    path = Path(raw)
+    if not path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise ValidationError(f"{field} must be a normalized absolute path")
+    return path

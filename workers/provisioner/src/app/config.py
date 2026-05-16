@@ -27,6 +27,16 @@ GIT_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS"
 DEPENDENCY_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS"
 DOWNLOAD_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS"
 WORKSPACE_MOUNT_PATH_ENV = "LUMA_FORGE_WORKSPACE_MOUNT_PATH"
+RUNTIME_ARCHIVE_PATH_ENV = "LUMA_FORGE_RUNTIME_ARCHIVE_PATH"
+RUNTIME_CONTRACT_ID_ENV = "LUMA_FORGE_RUNTIME_CONTRACT_ID"
+RUNTIME_CONTRACT_VERSION_ENV = "LUMA_FORGE_RUNTIME_CONTRACT_VERSION"
+RUNTIME_IMPLEMENTATION_REVISION_ENV = "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION"
+PROVISIONER_IMAGE_REF_ENV = "LUMA_FORGE_PROVISIONER_IMAGE_REF"
+
+DEFAULT_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar.gz"
+DEFAULT_RUNTIME_CONTRACT_ID = "comfyui-python312-cu121"
+DEFAULT_RUNTIME_CONTRACT_VERSION = "1.0.0"
+DEFAULT_RUNTIME_IMPLEMENTATION_REVISION = "2026.05.16-001"
 
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -59,6 +69,11 @@ class WorkerConfig:
     dependency_timeout_seconds: float
     download_timeout_seconds: float
     workspace_mount_path: Path
+    runtime_archive_path: Path
+    runtime_contract_id: str
+    runtime_contract_version: str
+    runtime_implementation_revision: str
+    provisioner_image_ref: str
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -102,6 +117,19 @@ class WorkerConfig:
                 maximum=MAX_TIMEOUT_SECONDS,
             ),
             workspace_mount_path=_parse_workspace_mount_path(source),
+            runtime_archive_path=_parse_absolute_path(source, RUNTIME_ARCHIVE_PATH_ENV, DEFAULT_RUNTIME_ARCHIVE_PATH),
+            runtime_contract_id=_configured_or_default(source, RUNTIME_CONTRACT_ID_ENV, DEFAULT_RUNTIME_CONTRACT_ID),
+            runtime_contract_version=_configured_or_default(
+                source,
+                RUNTIME_CONTRACT_VERSION_ENV,
+                DEFAULT_RUNTIME_CONTRACT_VERSION,
+            ),
+            runtime_implementation_revision=_configured_or_default(
+                source,
+                RUNTIME_IMPLEMENTATION_REVISION_ENV,
+                DEFAULT_RUNTIME_IMPLEMENTATION_REVISION,
+            ),
+            provisioner_image_ref=_required_configured_value(source, PROVISIONER_IMAGE_REF_ENV),
         )
 
 
@@ -147,12 +175,16 @@ def _parse_host(env: Mapping[str, str]) -> str:
 
 
 def _parse_workspace_mount_path(env: Mapping[str, str]) -> Path:
-    raw = _configured_or_default(env, WORKSPACE_MOUNT_PATH_ENV, DEFAULT_WORKSPACE_MOUNT_PATH)
+    return _parse_absolute_path(env, WORKSPACE_MOUNT_PATH_ENV, DEFAULT_WORKSPACE_MOUNT_PATH)
+
+
+def _parse_absolute_path(env: Mapping[str, str], name: str, default: str) -> Path:
+    raw = _configured_or_default(env, name, default)
     path = Path(raw)
     if not path.is_absolute():
-        raise ConfigurationError(WORKSPACE_MOUNT_PATH_ENV, "path_not_absolute", "value must be an absolute path")
+        raise ConfigurationError(name, "path_not_absolute", "value must be an absolute path")
     if str(path) != raw or any(part in ("", ".", "..") for part in path.parts):
-        raise ConfigurationError(WORKSPACE_MOUNT_PATH_ENV, "path_not_normalized", "value must be normalized")
+        raise ConfigurationError(name, "path_not_normalized", "value must be normalized")
     return path.resolve(strict=False)
 
 
@@ -210,6 +242,17 @@ def _configured_or_default(env: Mapping[str, str], name: str, default: str) -> s
     raw = env.get(name)
     if raw is None:
         return default
+    return _non_blank_configured_value(name, raw)
+
+
+def _required_configured_value(env: Mapping[str, str], name: str) -> str:
+    raw = env.get(name)
+    if raw is None:
+        raise ConfigurationError(name, "missing_required_value", "value is required")
+    return _non_blank_configured_value(name, raw)
+
+
+def _non_blank_configured_value(name: str, raw: str) -> str:
     value = raw.strip()
     if value == "":
         raise ConfigurationError(name, "blank_value", "value must not be blank")

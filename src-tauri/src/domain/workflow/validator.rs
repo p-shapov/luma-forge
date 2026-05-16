@@ -2,12 +2,16 @@ use std::collections::HashSet;
 
 use crate::domain::{
     error::{DomainValidationError, DomainValidationResult},
+    runtime::{validator as runtime_validator, RuntimeCatalog},
     validation::{is_blank, is_safe_relative_path},
 };
 
-use super::{ComfyUiRuntimeSource, CustomNodeGitSource, ModelAssetSource, WorkflowCatalog};
+use super::{CustomNodeGitSource, ModelAssetSource, WorkflowCatalog};
 
-pub fn validate_workflow_catalog(catalog: &WorkflowCatalog) -> DomainValidationResult {
+pub fn validate_workflow_catalog(
+    catalog: &WorkflowCatalog,
+    runtime_catalog: &RuntimeCatalog,
+) -> DomainValidationResult {
     if is_blank(&catalog.id) || is_blank(&catalog.version) || catalog.workflow_presets.is_empty() {
         return Err(DomainValidationError);
     }
@@ -33,7 +37,12 @@ pub fn validate_workflow_catalog(catalog: &WorkflowCatalog) -> DomainValidationR
             }
         }
 
-        if !is_valid_comfyui_source(&preset.required_comfyui_source) {
+        if runtime_validator::validate_runtime_contract_reference(
+            &preset.required_runtime_contract,
+            runtime_catalog,
+        )
+        .is_err()
+        {
             return Err(DomainValidationError);
         }
 
@@ -50,15 +59,6 @@ pub fn validate_workflow_catalog(catalog: &WorkflowCatalog) -> DomainValidationR
     }
 
     Ok(())
-}
-
-fn is_valid_comfyui_source(source: &ComfyUiRuntimeSource) -> bool {
-    match source {
-        ComfyUiRuntimeSource::Git {
-            repository_url,
-            revision,
-        } => is_url_shaped(repository_url) && is_immutable_git_revision(revision),
-    }
 }
 
 fn is_valid_custom_node_source(source: &CustomNodeGitSource) -> bool {

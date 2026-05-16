@@ -502,10 +502,16 @@ fn serializes_pod_create_request_with_documented_shape() {
         data_center_ids: vec!["EU-RO-1".to_string()],
         network_volume_id: "volume-1".to_string(),
         volume_mount_path: "/workspace".to_string(),
-        env: HashMap::from([(
-            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-            "worker-token".to_string(),
-        )]),
+        env: HashMap::from([
+            (
+                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+                "worker-token".to_string(),
+            ),
+            (
+                "LUMA_FORGE_PROVISIONER_IMAGE_REF".to_string(),
+                "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
+            ),
+        ]),
         ports: vec!["8080/http".to_string()],
     })
     .expect("request should serialize");
@@ -520,7 +526,8 @@ fn serializes_pod_create_request_with_documented_shape() {
             "networkVolumeId": "volume-1",
             "volumeMountPath": "/workspace",
             "env": {
-                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "worker-token"
+                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "worker-token",
+                "LUMA_FORGE_PROVISIONER_IMAGE_REF": "ghcr.io/luma-forge/provisioner-worker:test"
             },
             "ports": ["8080/http"]
         })
@@ -531,6 +538,7 @@ fn serializes_pod_create_request_with_documented_shape() {
 fn parses_pod_response_and_derives_http_proxy_status_url() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
+        "image": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "desiredStatus": "RUNNING",
         "machine": {
             "dataCenterId": "EU-RO-1",
@@ -550,6 +558,10 @@ fn parses_pod_response_and_derives_http_proxy_status_url() {
 
     assert_eq!(observation.data_center_id, "EU-RO-1");
     assert_eq!(observation.selected_gpu_id, "NVIDIA GeForce RTX 4090");
+    assert_eq!(
+        observation.image_name,
+        "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    );
     assert_eq!(observation.status, ProviderResourceStatus::Running);
     assert_eq!(
         observation.provisioner_status_url.as_deref(),
@@ -558,9 +570,51 @@ fn parses_pod_response_and_derives_http_proxy_status_url() {
 }
 
 #[test]
+fn parses_legacy_pod_response_image_name_field() {
+    let response: RunPodPodResponse = serde_json::from_value(json!({
+        "id": "pod-1",
+        "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "desiredStatus": "RUNNING",
+        "machine": {
+            "dataCenterId": "EU-RO-1",
+            "gpuTypeId": "NVIDIA GeForce RTX 4090"
+        },
+        "ports": ["8080/http"]
+    }))
+    .expect("pod response should parse");
+
+    let observation = pod_from_response_with_context(response, None).expect("pod should map");
+
+    assert_eq!(
+        observation.image_name,
+        "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    );
+}
+
+#[test]
+fn rejects_pod_response_without_image_identity() {
+    let response: RunPodPodResponse = serde_json::from_value(json!({
+        "id": "pod-1",
+        "desiredStatus": "RUNNING",
+        "machine": {
+            "dataCenterId": "EU-RO-1",
+            "gpuTypeId": "NVIDIA GeForce RTX 4090"
+        },
+        "ports": ["8080/http"]
+    }))
+    .expect("pod response should parse");
+
+    let error =
+        pod_from_response_with_context(response, None).expect_err("image identity is required");
+
+    assert_eq!(error, ProviderClientError::ResponseInvalid);
+}
+
+#[test]
 fn parses_pod_response_with_request_context_when_provider_omits_placement_fields() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
+        "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "desiredStatus": "RUNNING",
         "publicIp": "",
         "ports": ["8000/http"],
@@ -590,6 +644,7 @@ fn parses_pod_response_with_request_context_when_provider_omits_placement_fields
 fn parses_direct_tcp_pod_response_with_public_ip_and_port_mapping() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
+        "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "desiredStatus": "RUNNING",
         "machine": {
             "dataCenterId": "EU-RO-1",
@@ -619,6 +674,7 @@ fn filters_pods_by_name_and_volume_for_discovery() {
         {
             "id": "pod-1",
             "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
             "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
@@ -626,6 +682,7 @@ fn filters_pods_by_name_and_volume_for_discovery() {
         {
             "id": "pod-wrong-volume",
             "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
             "networkVolumeId": "other-volume",
             "ports": ["8080/http"]
@@ -633,6 +690,7 @@ fn filters_pods_by_name_and_volume_for_discovery() {
         {
             "id": "pod-terminated",
             "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "TERMINATED",
             "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
@@ -660,11 +718,45 @@ fn filters_pods_by_name_and_volume_for_discovery() {
 }
 
 #[test]
+fn pod_discovery_returns_candidate_with_mismatched_image_identity() {
+    let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
+        {
+            "id": "pod-1",
+            "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "volume-1",
+            "ports": ["8080/http"]
+        }
+    ]))
+    .expect("pod list should parse");
+
+    let observations = pods_by_name_and_volume(
+        payloads,
+        "luma-forge-workspace-1-provisioner",
+        "volume-1",
+        RunPodPodResponseContext {
+            data_center_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        },
+    )
+    .expect("matching pods should map");
+
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].id, "pod-1");
+    assert_eq!(
+        observations[0].image_name,
+        "ghcr.io/luma-forge/provisioner@sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    );
+}
+
+#[test]
 fn pod_discovery_filter_returns_multiple_matches_when_provider_has_duplicates() {
     let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
         {
             "id": "pod-1",
             "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
             "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
@@ -672,6 +764,7 @@ fn pod_discovery_filter_returns_multiple_matches_when_provider_has_duplicates() 
         {
             "id": "pod-2",
             "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
             "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
@@ -699,6 +792,7 @@ fn pod_discovery_filter_returns_zero_matches_without_name_and_volume_match() {
         {
             "id": "pod-1",
             "name": "luma-forge-workspace-1-provisioner",
+            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
             "networkVolumeId": "other-volume",
             "ports": ["8080/http"]
@@ -718,6 +812,33 @@ fn pod_discovery_filter_returns_zero_matches_without_name_and_volume_match() {
     .expect("matching pods should map");
 
     assert!(observations.is_empty());
+}
+
+#[test]
+fn pod_discovery_rejects_candidate_without_image_identity() {
+    let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
+        {
+            "id": "pod-1",
+            "name": "luma-forge-workspace-1-provisioner",
+            "desiredStatus": "RUNNING",
+            "networkVolumeId": "volume-1",
+            "ports": ["8080/http"]
+        }
+    ]))
+    .expect("pod list should parse");
+
+    let error = pods_by_name_and_volume(
+        payloads,
+        "luma-forge-workspace-1-provisioner",
+        "volume-1",
+        RunPodPodResponseContext {
+            data_center_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
+        },
+    )
+    .expect_err("image identity is required");
+
+    assert_eq!(error, ProviderClientError::ResponseInvalid);
 }
 
 #[test]

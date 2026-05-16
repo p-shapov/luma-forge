@@ -64,16 +64,14 @@ workers/
 
 The native build requires worker configuration. Development builds can provide these values through real build environment variables or the project `.env` file:
 
-| Variable                                      | Purpose                                                              |
-| --------------------------------------------- | -------------------------------------------------------------------- |
-| `LUMA_FORGE_PROVISIONER_WORKER_IMAGE_REF`     | Provider-neutral Provisioner Worker container image ref.             |
-| `LUMA_FORGE_PROVISIONER_WORKER_PORT`          | Provisioner Worker HTTP port exposed by temporary provisioning pods. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_IMAGE_REF` | RunPod Endpoint Worker container image ref.                          |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT`      | RunPod Endpoint Worker container port.                               |
+| Variable                                 | Purpose                                                              |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| `LUMA_FORGE_PROVISIONER_WORKER_PORT`     | Provisioner Worker HTTP port exposed by temporary provisioning pods. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT` | RunPod Endpoint Worker container port.                               |
 
 Missing or blank values fail the native build. Values from the real build environment override `.env`. Changing `.env` requires rebuilding the native app.
 
-Worker images share a provider-neutral Docker base under `workers/Dockerfile`. The Provisioner Worker installs ComfyUI and Custom Node Python dependencies into `/workspace/.venv` on the mounted network volume and records metadata under `/workspace/.luma-forge`. The RunPod Endpoint Worker validates that metadata and starts ComfyUI with `/workspace/.venv/bin/python`.
+Worker images share a provider-neutral Docker base under `workers/Dockerfile`. Provisioner and endpoint image refs are selected from `bundled/runtime-catalog.json` through the Workspace-persisted resolved runtime implementation snapshot. The Provisioner Worker materializes the image-baked ComfyUI base runtime archive into `/workspace/.venv` and `/workspace/ComfyUI`, then installs only preset-declared Custom Nodes and model assets. The RunPod Endpoint Worker validates that metadata and starts ComfyUI with `/workspace/.venv/bin/python`.
 
 | Command                                                                                                | Purpose                                     |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------- |

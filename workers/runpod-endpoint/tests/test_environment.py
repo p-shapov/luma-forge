@@ -25,7 +25,18 @@ class EnvironmentTests(unittest.TestCase):
         with WorkerFixture() as fixture:
             payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
             fixture.config.runtime_manifest_path.write_text(
-                payload.replace('"volume_venv"', '"container_python"'),
+                payload.replace('"image_baked_comfyui_runtime"', '"container_python"'),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_runtime_contract_metadata_is_missing(self):
+        with WorkerFixture() as fixture:
+            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
+            fixture.config.runtime_manifest_path.write_text(
+                payload.replace('"runtime_contract_id": "comfyui-python312-cu121",', ""),
                 encoding="utf-8",
             )
 
@@ -66,6 +77,31 @@ class EnvironmentTests(unittest.TestCase):
 
             with self.assertRaises(PreparedEnvironmentError):
                 validate_prepared_environment(fixture.config)
+
+    def test_fails_when_dependency_record_path_escapes_workspace(self):
+        with WorkerFixture() as fixture:
+            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
+            escaped = Path(fixture.workspace).parent / "outside-pip-freeze.txt"
+            fixture.config.runtime_manifest_path.write_text(
+                payload.replace(str(fixture.pip_freeze_path), str(escaped)),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_dependency_record_is_missing(self):
+        with WorkerFixture() as fixture:
+            fixture.pip_freeze_path.unlink()
+
+            with self.assertRaises(PreparedEnvironmentError):
+                validate_prepared_environment(fixture.config)
+
+    def test_accepts_workspace_resolved_dependency_records(self):
+        with WorkerFixture() as fixture:
+            runtime = validate_prepared_environment(fixture.config)
+
+            self.assertEqual(runtime.base_dependency_record_paths[0], fixture.pip_freeze_path)
 
     def test_safe_child_path_rejects_parent_traversal(self):
         with self.assertRaises(ValidationError):

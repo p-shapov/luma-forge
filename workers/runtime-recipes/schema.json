@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["contract", "runtime", "metadata"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": {
+      "type": "object",
+      "required": ["id", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["python_version", "platform", "comfyui", "pytorch", "base_requirements"],
+      "additionalProperties": false,
+      "properties": {
+        "python_version": { "type": "string", "minLength": 1 },
+        "platform": { "type": "string", "minLength": 1 },
+        "comfyui": {
+          "type": "object",
+          "required": ["repository_url", "revision"],
+          "additionalProperties": false,
+          "properties": {
+            "repository_url": { "type": "string", "format": "uri" },
+            "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+          }
+        },
+        "pytorch": {
+          "type": "object",
+          "required": ["index_url", "packages"],
+          "additionalProperties": false,
+          "properties": {
+            "index_url": { "type": "string", "format": "uri" },
+            "packages": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "base_requirements": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["default_implementation_revision"],
+      "additionalProperties": false,
+      "properties": {
+        "default_implementation_revision": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

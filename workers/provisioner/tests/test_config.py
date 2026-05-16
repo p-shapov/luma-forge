@@ -23,11 +23,16 @@ from app.server import create_server, main
 
 
 VALID_TOKEN = "config-token-0123456789abcdef0123"
+VALID_PROVISIONER_IMAGE_REF = (
+    "ghcr.io/luma-forge/provisioner-worker@sha256:"
+    "1111111111111111111111111111111111111111111111111111111111111111"
+)
 
 
 def valid_env(**overrides):
     env = {
         "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": VALID_TOKEN,
+        "LUMA_FORGE_PROVISIONER_IMAGE_REF": VALID_PROVISIONER_IMAGE_REF,
     }
     env.update(overrides)
     return env
@@ -45,6 +50,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.dependency_timeout_seconds, DEFAULT_DEPENDENCY_TIMEOUT_SECONDS)
         self.assertEqual(config.download_timeout_seconds, DEFAULT_DOWNLOAD_TIMEOUT_SECONDS)
         self.assertEqual(config.workspace_mount_path, Path(DEFAULT_WORKSPACE_MOUNT_PATH).resolve(strict=False))
+        self.assertEqual(config.provisioner_image_ref, VALID_PROVISIONER_IMAGE_REF)
 
     def test_valid_config_accepts_explicit_values(self):
         config = WorkerConfig.from_env(
@@ -56,6 +62,7 @@ class ConfigTests(unittest.TestCase):
                 LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS="13.5",
                 LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS="14.5",
                 LUMA_FORGE_WORKSPACE_MOUNT_PATH="/workspace/custom",
+                LUMA_FORGE_PROVISIONER_IMAGE_REF="ghcr.io/luma-forge/provisioner-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             )
         )
 
@@ -66,6 +73,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.dependency_timeout_seconds, 13.5)
         self.assertEqual(config.download_timeout_seconds, 14.5)
         self.assertEqual(config.workspace_mount_path, Path("/workspace/custom").resolve(strict=False))
+        self.assertEqual(
+            config.provisioner_image_ref,
+            "ghcr.io/luma-forge/provisioner-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )
 
     def test_rejects_missing_bearer_token_without_leaking_value(self):
         with self.assertRaises(ConfigurationError) as context:
@@ -75,6 +86,27 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "configuration_error")
         self.assertEqual(context.exception.reason_code, "missing_required_value")
         self.assertNotIn(VALID_TOKEN, str(context.exception))
+
+    def test_rejects_missing_provisioner_image_ref(self):
+        env = valid_env()
+        del env["LUMA_FORGE_PROVISIONER_IMAGE_REF"]
+
+        with self.assertRaises(ConfigurationError) as context:
+            WorkerConfig.from_env(env)
+
+        self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_IMAGE_REF")
+        self.assertEqual(context.exception.code, "configuration_error")
+        self.assertEqual(context.exception.reason_code, "missing_required_value")
+
+    def test_rejects_blank_provisioner_image_ref(self):
+        for value in ["", "   "]:
+            with self.subTest(value=repr(value)):
+                with self.assertRaises(ConfigurationError) as context:
+                    WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_IMAGE_REF=value))
+
+                self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_IMAGE_REF")
+                self.assertEqual(context.exception.code, "configuration_error")
+                self.assertEqual(context.exception.reason_code, "blank_value")
 
     def test_rejects_malformed_bearer_tokens_without_leaking_value(self):
         invalid_values = [

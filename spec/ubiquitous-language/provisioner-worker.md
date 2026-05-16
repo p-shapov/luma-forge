@@ -7,18 +7,18 @@ The Provisioner Worker performs provisioning-time work required to prepare the r
 **Responsibilities:**
 
 - download models
-- download required ComfyUI version from the configured Git source
+- materialize the image-baked ComfyUI base runtime archive
 - download optional Custom Nodes from Git URLs
-- install ComfyUI dependencies into the mounted workspace virtual environment
+- verify the base runtime dependencies packaged with the Provisioner Worker image
 - install Custom Nodes dependencies into the mounted workspace virtual environment
 - report provisioning progress to the desktop application
 
 **Invariants:**
 
 - The Provisioner Worker runs inside a Provisioning Pod.
-- The Provisioner Worker image reference is supplied by Native build-time configuration.
+- The Provisioner Worker image reference is selected from the Workspace's resolved runtime implementation snapshot.
 - The Provisioner Worker prepares the remote environment for Workspace.
-- The Provisioner Worker must install ComfyUI runtime dependencies into the mounted network volume, not the ephemeral container filesystem.
+- The Provisioner Worker must materialize the image-baked ComfyUI runtime into the mounted network volume, not rebuild the base runtime in the ephemeral container filesystem.
 - The Provisioner Worker reports provisioning progress, but does not own Provider Resource lifecycle.
 - In v1, models are downloaded from Hugging Face.
 - In future versions, models may also be downloaded from CivitAI.

@@ -1,7 +1,7 @@
 use crate::domain::{
     placement as domain_placement,
     provider_setup::GpuCloudProviderId,
-    workflow as domain_workflow,
+    runtime as domain_runtime, workflow as domain_workflow,
     workspace::{
         Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
         WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
@@ -29,14 +29,15 @@ fn maps_provisioning_result_to_command_response_without_secret_fields() {
                     name: "Preset".to_string(),
                     workflow_execution_type: domain_workflow::WorkflowExecutionType::T2i,
                     required_base_volume_size_bytes: 85899345920,
-                    required_comfyui_source: domain_workflow::ComfyUiRuntimeSource::Git {
-                        repository_url: "https://github.com/comfyanonymous/ComfyUI.git".to_string(),
-                        revision: "main".to_string(),
+                    required_runtime_contract: domain_runtime::RuntimeContractReference {
+                        id: "comfyui-python312-cu121".to_string(),
+                        version: "1.0.0".to_string(),
                     },
                     required_model_assets: vec![],
                     required_custom_nodes: vec![],
                 },
             },
+            resolved_runtime_implementation: runtime_snapshot(),
             persistent_storage_volume_snapshot: None,
             active_provisioning_pod_snapshot: None,
             serverless_endpoint_snapshot: None,
@@ -60,4 +61,26 @@ fn maps_provisioning_result_to_command_response_without_secret_fields() {
     );
     assert!(payload.get("provider_api_key").is_none());
     assert!(payload.get("bearer_token").is_none());
+}
+
+fn runtime_snapshot() -> domain_runtime::ResolvedRuntimeImplementationSnapshot {
+    domain_runtime::ResolvedRuntimeImplementationSnapshot {
+        contract_id: "comfyui-python312-cu121".to_string(),
+        contract_version: "1.0.0".to_string(),
+        implementation_revision: "2026.05.16-001".to_string(),
+        provisioner_image_ref: "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
+        endpoint_image_ref: "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222".to_string(),
+        runtime_metadata: domain_runtime::RuntimeMetadata {
+            environment_kind: "image_baked_comfyui_runtime".to_string(),
+            python_version: "3.12".to_string(),
+            platform: "linux-x86_64-cuda".to_string(),
+            comfyui_revision: "aa9d2fc713664e9ffe37763f4c9240c0c3eda667".to_string(),
+            base_dependency_record_paths: vec![],
+        },
+        image_metadata: domain_runtime::RuntimeImageMetadata {
+            provisioner_runtime_archive_path: "/opt/luma-forge/runtime/base-runtime.tar.gz".to_string(),
+            provisioner_runtime_metadata_path: "/opt/luma-forge/runtime/runtime-metadata.json".to_string(),
+            endpoint_runtime_contract_path: "/opt/luma-forge/runtime/runtime-contract.json".to_string(),
+        },
+    }
 }

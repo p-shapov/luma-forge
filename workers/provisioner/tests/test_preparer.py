@@ -1,3 +1,5 @@
+import os
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -102,17 +104,29 @@ class PreparerTests(unittest.TestCase):
                 Event(),
             )
 
-            self.assertIn("installing_comfyui", phases)
+            self.assertIn("materializing_runtime", phases)
             self.assertIn("downloading_assets", phases)
             self.assertIn("validating_environment", phases)
             self.assertTrue((Path(directory) / "ComfyUI/models/checkpoints/model.safetensors").is_file())
             self.assertTrue((Path(directory) / ".venv/bin/python").is_file())
             self.assertTrue((Path(directory) / ".luma-forge/runtime.json").is_file())
-            self.assertTrue((Path(directory) / ".luma-forge/pip-freeze.txt").is_file())
 
     def test_rejects_mutable_git_revision(self):
         payload = start_payload()
-        payload["workflow_preset"]["required_comfyui_source"]["revision"] = "main"
+        payload["workflow_preset"]["required_custom_nodes"] = [
+            {
+                "id": "node",
+                "name": "Node",
+                "git_source": {
+                    "source_type": "git",
+                    "repository_url": "https://example.test/node.git",
+                    "revision": "main",
+                },
+                "install": {
+                    "comfyui_custom_nodes_relative_path": "custom_nodes/node",
+                },
+            }
+        ]
 
         with self.assertRaises(ValidationError):
             parse_start_request(payload)
@@ -336,7 +350,7 @@ class PreparerTests(unittest.TestCase):
             self.assertEqual(asset_progress[0], 55)
             self.assertEqual(asset_progress[-1], 90)
 
-    def test_installs_comfyui_requirements_through_volume_venv(self):
+    def test_does_not_install_base_comfyui_requirements_during_provisioning(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())
             runner = FakeCommandRunner()
@@ -352,62 +366,47 @@ class PreparerTests(unittest.TestCase):
             )
 
             venv_path = Path(directory) / ".venv"
-            venv_python = venv_path / "bin/python"
-            self.assertIn(
-                (["python", "-m", "venv", str(venv_path.resolve(strict=False))], None, 1800, DependencyInstallError),
-                runner.calls,
-            )
-            self.assertIn(
-                (
-                    [
-                        str(venv_python.resolve(strict=False)),
-                        "-m",
-                        "pip",
-                        "install",
-                        "--report",
-                        str((Path(directory) / ".luma-forge/comfyui-install-report.json").resolve()),
-                        "-r",
-                        str((Path(directory) / "ComfyUI/requirements.txt").resolve()),
-                    ],
-                    (Path(directory) / "ComfyUI").resolve(strict=False),
-                    1800,
-                    DependencyInstallError,
-                ),
-                runner.calls,
-            )
+            self.assertTrue((venv_path / "bin/python").is_file())
+            self.assertNotIn(["python", "-m", "venv", str(venv_path.resolve(strict=False))], [call[0] for call in runner.calls])
             self.assertNotIn(
-                ["python", "-m", "pip", "install", "-r", str(Path(directory) / "ComfyUI/requirements.txt")],
+                [
+                    str((venv_path / "bin/python").resolve(strict=False)),
+                    "-m",
+                    "pip",
+                    "install",
+                    "-r",
+                    str(Path(directory) / "ComfyUI/requirements.txt"),
+                ],
                 [call[0] for call in runner.calls],
             )
 
-    def test_fails_when_volume_venv_is_missing_during_validation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload())
-            runner = FakeCommandRunner()
+    def test_fails_when_materialized_venv_is_missing_during_validation(self):
+        archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
+        archive_path = Path(archive_file.name)
+        archive_file.close()
+        try:
+            with tempfile.TemporaryDirectory() as source_directory, tempfile.TemporaryDirectory() as directory:
+                source_root = Path(source_directory)
+                comfyui = source_root / "ComfyUI"
+                comfyui.mkdir(parents=True)
+                (comfyui / "main.py").write_text("", encoding="utf-8")
+                with tarfile.open(archive_path, "w") as archive:
+                    archive.add(comfyui, arcname="ComfyUI")
+                request = parse_start_request(start_payload())
+                runner = FakeCommandRunner()
 
-            def skip_venv(args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
-                runner.calls.append((args, cwd, timeout_seconds, error_type))
-                if args[0:2] == ["git", "clone"]:
-                    Path(args[3]).mkdir(parents=True, exist_ok=True)
-                    (Path(args[3]) / "main.py").write_text("", encoding="utf-8")
-                    (Path(args[3]) / "requirements.txt").write_text("", encoding="utf-8")
-                if "--report" in args:
-                    report_path = Path(args[args.index("--report") + 1])
-                    report_path.parent.mkdir(parents=True, exist_ok=True)
-                    report_path.write_text('{"install":[]}\n', encoding="utf-8")
-
-            runner.run = skip_venv
-
-            with self.assertRaises(PreparationError):
-                Provisioner(
-                    command_runner=runner,
-                    downloader=FakeDownloader(),
-                    config=test_config(workspace_mount_path=Path(directory)),
-                ).prepare(
-                    request,
-                    lambda phase, progress, message: None,
-                    Event(),
-                )
+                with self.assertRaises(PreparationError):
+                    Provisioner(
+                        command_runner=runner,
+                        downloader=FakeDownloader(),
+                        config=test_config(workspace_mount_path=Path(directory), runtime_archive_path=archive_path),
+                    ).prepare(
+                        request,
+                        lambda phase, progress, message: None,
+                        Event(),
+                    )
+        finally:
+            archive_path.unlink(missing_ok=True)
 
     def test_does_not_write_manifest_when_final_validation_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -471,7 +470,7 @@ class PreparerTests(unittest.TestCase):
             self.assertEqual(runner.calls, [])
             self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
 
-    def test_cancels_before_dependency_installation_without_manifest(self):
+    def test_cancels_before_runtime_materialization_without_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())
             runner = CancelAwareFakeCommandRunner()
@@ -481,7 +480,7 @@ class PreparerTests(unittest.TestCase):
 
             def progress(phase, progress_percent, message):
                 phases.append(phase)
-                if phase == "installing_comfyui" and progress_percent == 25:
+                if phase == "materializing_runtime" and progress_percent == 5:
                     cancel_event.set()
 
             with self.assertRaises(Cancelled):
@@ -491,7 +490,7 @@ class PreparerTests(unittest.TestCase):
                     config=test_config(workspace_mount_path=Path(directory)),
                 ).prepare(request, progress, cancel_event)
 
-            self.assertIn("installing_comfyui", phases)
+            self.assertIn("materializing_runtime", phases)
             self.assertFalse(any("--report" in call[0] for call in runner.calls))
             self.assertEqual(downloader.calls, [])
             self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())

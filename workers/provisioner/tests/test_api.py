@@ -75,8 +75,10 @@ class ApiTests(unittest.TestCase):
             ("unsafe custom node path", lambda payload: set_custom_node_path(payload, "models/node")),
             ("unsafe model path", lambda payload: set_model_path(payload, "../model.safetensors")),
             (
-                "mutable comfyui revision",
-                lambda payload: payload["workflow_preset"]["required_comfyui_source"].update({"revision": "main"}),
+                "mutable runtime image",
+                lambda payload: payload["resolved_runtime_implementation"].update(
+                    {"provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker:latest"}
+                ),
             ),
         ]
 
@@ -452,7 +454,7 @@ def _custom_node(comfyui_custom_nodes_relative_path: str) -> dict:
         "git_source": {
             "source_type": "git",
             "repository_url": "https://example.test/node.git",
-            "revision": payload["required_comfyui_source"]["revision"],
+            "revision": "0123456789abcdef0123456789abcdef01234567",
         },
         "install": {
             "comfyui_custom_nodes_relative_path": comfyui_custom_nodes_relative_path,

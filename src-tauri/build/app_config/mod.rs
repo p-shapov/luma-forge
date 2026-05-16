@@ -4,15 +4,11 @@ use std::path::Path;
 
 use parser::{AppConfigParseError, BuildEnvironment, NonEmptyEnvValue};
 
-const PROVISIONER_WORKER_IMAGE_REF_ENV: &str = "LUMA_FORGE_PROVISIONER_WORKER_IMAGE_REF";
 const PROVISIONER_WORKER_PORT_ENV: &str = "LUMA_FORGE_PROVISIONER_WORKER_PORT";
-const RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV: &str = "LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_IMAGE_REF";
 const RUNPOD_ENDPOINT_WORKER_PORT_ENV: &str = "LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT";
 
 pub(crate) struct AppConfig {
-    provisioner_worker_image_ref: NonEmptyEnvValue,
     provisioner_worker_port: NonEmptyEnvValue,
-    runpod_endpoint_worker_image_ref: NonEmptyEnvValue,
     runpod_endpoint_worker_port: NonEmptyEnvValue,
 }
 
@@ -25,34 +21,20 @@ impl AppConfig {
         let source = BuildEnvironment::new(&dotenv_path)?;
 
         source.emit_cargo_rerun_instructions(&[
-            PROVISIONER_WORKER_IMAGE_REF_ENV,
             PROVISIONER_WORKER_PORT_ENV,
-            RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV,
             RUNPOD_ENDPOINT_WORKER_PORT_ENV,
         ]);
 
         Ok(Self {
-            provisioner_worker_image_ref: source
-                .parse_non_empty(PROVISIONER_WORKER_IMAGE_REF_ENV)?,
             provisioner_worker_port: source.parse_non_empty(PROVISIONER_WORKER_PORT_ENV)?,
-            runpod_endpoint_worker_image_ref: source
-                .parse_non_empty(RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV)?,
             runpod_endpoint_worker_port: source.parse_non_empty(RUNPOD_ENDPOINT_WORKER_PORT_ENV)?,
         })
     }
 
     pub(crate) fn emit_cargo_env(&self) {
         emit_env(
-            PROVISIONER_WORKER_IMAGE_REF_ENV,
-            self.provisioner_worker_image_ref.as_str(),
-        );
-        emit_env(
             PROVISIONER_WORKER_PORT_ENV,
             self.provisioner_worker_port.as_str(),
-        );
-        emit_env(
-            RUNPOD_ENDPOINT_WORKER_IMAGE_REF_ENV,
-            self.runpod_endpoint_worker_image_ref.as_str(),
         );
         emit_env(
             RUNPOD_ENDPOINT_WORKER_PORT_ENV,

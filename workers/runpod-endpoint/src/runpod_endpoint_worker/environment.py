@@ -6,7 +6,7 @@ from runpod_endpoint_worker.config import EndpointConfig
 from runpod_endpoint_worker.errors import PreparedEnvironmentError, PreparedRuntimeError, ValidationError
 
 
-ENVIRONMENT_KIND = "volume_venv"
+ENVIRONMENT_KIND = "image_baked_comfyui_runtime"
 
 
 @dataclass(frozen=True)
@@ -17,8 +17,12 @@ class PreparedRuntimeManifest:
     python_version: str
     platform: str
     comfyui_revision: str
-    pip_freeze_path: Path
-    install_report_path: Path
+    runtime_contract_id: str
+    runtime_contract_version: str
+    implementation_revision: str
+    provisioner_image_ref: str
+    endpoint_image_ref: str
+    base_dependency_record_paths: list[Path]
 
 
 def validate_prepared_environment(config: EndpointConfig) -> PreparedRuntimeManifest:
@@ -68,8 +72,14 @@ def load_runtime_manifest(config: EndpointConfig) -> PreparedRuntimeManifest:
             python_version=_required_string(payload, "python_version"),
             platform=_required_string(payload, "platform"),
             comfyui_revision=_required_string(payload, "comfyui_revision"),
-            pip_freeze_path=Path(_required_string(payload, "pip_freeze_path")),
-            install_report_path=Path(_required_string(payload, "install_report_path")),
+            runtime_contract_id=_required_string(payload, "runtime_contract_id"),
+            runtime_contract_version=_required_string(payload, "runtime_contract_version"),
+            implementation_revision=_required_string(payload, "implementation_revision"),
+            provisioner_image_ref=_required_string(payload, "provisioner_image_ref"),
+            endpoint_image_ref=_required_string(payload, "endpoint_image_ref"),
+            base_dependency_record_paths=[
+                Path(path) for path in _string_list(payload, "base_dependency_record_paths")
+            ],
         )
     except (TypeError, ValueError) as error:
         raise PreparedRuntimeError("Prepared runtime manifest is invalid.") from error
@@ -100,16 +110,27 @@ def _validate_runtime_manifest(config: EndpointConfig, manifest: PreparedRuntime
     workspace = config.workspace_mount_path.resolve(strict=False)
     for field_name, path in (
         ("python_path", manifest.python_path),
-        ("pip_freeze_path", manifest.pip_freeze_path),
-        ("install_report_path", manifest.install_report_path),
+        *[
+            (f"base_dependency_record_paths[{index}]", path)
+            for index, path in enumerate(manifest.base_dependency_record_paths)
+        ],
     ):
         resolved = path.resolve(strict=False)
         if resolved != workspace and workspace not in resolved.parents:
             raise PreparedRuntimeError(f"Prepared runtime {field_name} is outside the workspace.")
+        if field_name.startswith("base_dependency_record_paths") and not resolved.is_file():
+            raise PreparedEnvironmentError("Prepared runtime dependency record is missing.")
 
 
 def _required_string(payload: dict[str, object], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or value.strip() == "":
+        raise ValueError(f"{key} is required")
+    return value
+
+
+def _string_list(payload: dict[str, object], key: str) -> list[str]:
+    value = payload.get(key)
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
         raise ValueError(f"{key} is required")
     return value

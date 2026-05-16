@@ -37,9 +37,7 @@ type SyncStepResult = Result<Option<WorkspaceProvisioningResult>, WorkspaceProvi
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceProvisioningConfig {
-    pub provisioner_worker_image_ref: String,
     pub provisioner_worker_port: u16,
-    pub runpod_endpoint_worker_image_ref: String,
     pub runpod_endpoint_worker_port: u16,
     pub volume_mount_path: String,
 }
@@ -315,6 +313,10 @@ where
                 .as_ref()
                 .expect("volume checked above");
             let network_volume_id = volume.provider_resource_id.clone();
+            let provisioner_worker_image_ref = workspace
+                .resolved_runtime_implementation
+                .provisioner_image_ref
+                .clone();
             let PlacementPlan::Runpod {
                 selected_datacenter_id,
                 selected_gpu_id,
@@ -360,7 +362,7 @@ where
                 .create_provisioning_pod(CreateProvisioningPodInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    provisioner_worker_image_ref: self.config.provisioner_worker_image_ref.clone(),
+                    provisioner_worker_image_ref: provisioner_worker_image_ref.clone(),
                     provisioner_worker_port: self.config.provisioner_worker_port,
                     datacenter_id: selected_datacenter_id.clone(),
                     selected_gpu_id: selected_gpu_id.clone(),
@@ -510,6 +512,9 @@ where
                                 .placement_plan
                                 .selected_workflow_preset()
                                 .clone(),
+                            resolved_runtime_implementation: workspace
+                                .resolved_runtime_implementation
+                                .clone(),
                         },
                     )
                     .await
@@ -576,12 +581,16 @@ where
 
         let template_snapshot = runpod_template_snapshot(workspace);
         if template_snapshot.is_none() {
+            let endpoint_worker_image_ref = workspace
+                .resolved_runtime_implementation
+                .endpoint_image_ref
+                .clone();
             let discovered_templates = self
                 .providers
                 .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    endpoint_worker_image_ref: self.config.runpod_endpoint_worker_image_ref.clone(),
+                    endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
                     endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                     mount_path: self.config.volume_mount_path.clone(),
                 })
@@ -609,7 +618,7 @@ where
                 .create_endpoint_template(CreateEndpointTemplateInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    endpoint_worker_image_ref: self.config.runpod_endpoint_worker_image_ref.clone(),
+                    endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
                     endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                     mount_path: self.config.volume_mount_path.clone(),
                 })
@@ -622,10 +631,7 @@ where
                         .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
-                            endpoint_worker_image_ref: self
-                                .config
-                                .runpod_endpoint_worker_image_ref
-                                .clone(),
+                            endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
                             endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                             mount_path: self.config.volume_mount_path.clone(),
                         })
