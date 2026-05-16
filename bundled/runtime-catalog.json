@@ -14,7 +14,18 @@
         "base_dependency_record_paths": [
           ".luma-forge/base-runtime/pip-freeze.txt",
           ".luma-forge/base-runtime/install-report.json"
-        ]
+        ],
+        "runtime_compatibility": {
+          "pytorch_index_url": "https://download.pytorch.org/whl/cu121",
+          "pytorch_packages": [
+            "torch==2.5.1",
+            "torchvision==0.20.1",
+            "torchaudio==2.5.1"
+          ],
+          "base_requirements": [
+            "requirements.txt"
+          ]
+        }
       },
       "implementation_revisions": [
         {

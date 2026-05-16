@@ -50,31 +50,22 @@ jobs:
           RECIPE: ${{ inputs.recipe || 'workers/runtime-recipes/comfyui-python312-cu121.yaml' }}
           IMPLEMENTATION_REVISION: ${{ inputs.implementation_revision || github.ref_name }}
         run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import os, re, yaml
-          from jsonschema import Draft202012Validator
-          recipe_path = os.environ["RECIPE"]
-          with open(recipe_path, "r", encoding="utf-8") as handle:
-              recipe = yaml.safe_load(handle)
-          with open("workers/runtime-recipes/schema.json", "r", encoding="utf-8") as handle:
-              schema = yaml.safe_load(handle)
-          Draft202012Validator(schema).validate(recipe)
-          contract = recipe["contract"]
-          runtime = recipe["runtime"]
-          revision = os.environ["IMPLEMENTATION_REVISION"]
-          if not re.fullmatch(r"[a-z][a-z0-9-]*", contract["id"]):
-              raise SystemExit("invalid contract id")
-          print(f"recipe={recipe_path}")
-          print(f"contract_id={contract['id']}")
-          print(f"contract_version={contract['version']}")
-          print(f"implementation_revision={revision}")
-          print(f"comfyui_repository={runtime['comfyui']['repository_url']}")
-          print(f"comfyui_revision={runtime['comfyui']['revision']}")
-          PY
+          python workers/runtime-recipes/release_tool.py resolve \
+            --recipe "$RECIPE" \
+            --implementation-revision "$IMPLEMENTATION_REVISION" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate runtime catalog compatibility
+        run: |
+          python workers/runtime-recipes/release_tool.py validate-catalog \
+            --recipe "${{ steps.recipe.outputs.recipe }}" \
+            --catalog bundled/runtime-catalog.json \
+            --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}"
 
       - name: Validate workers
         run: |
           python -m pip install workers/provisioner workers/runpod-endpoint pyyaml
+          python -m unittest discover -s workers/runtime-recipes/tests
           PYTHONPATH=workers/provisioner/src python -m unittest discover -s workers/provisioner/tests
           PYTHONPATH=workers/runpod-endpoint/src python -m unittest discover -s workers/runpod-endpoint/tests
 
@@ -98,8 +89,13 @@ jobs:
             --build-arg LUMA_FORGE_RUNTIME_CONTRACT_ID="${{ steps.recipe.outputs.contract_id }}" \
             --build-arg LUMA_FORGE_RUNTIME_CONTRACT_VERSION="${{ steps.recipe.outputs.contract_version }}" \
             --build-arg LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION="${{ steps.recipe.outputs.implementation_revision }}" \
+            --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
+            --build-arg LUMA_FORGE_RUNTIME_PLATFORM="${{ steps.recipe.outputs.runtime_platform }}" \
             --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
             --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.recipe.outputs.comfyui_revision }}" \
+            --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.recipe.outputs.pytorch_index_url }}" \
+            --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.recipe.outputs.pytorch_packages_json }}' \
+            --build-arg LUMA_FORGE_BASE_REQUIREMENTS_JSON='${{ steps.recipe.outputs.base_requirements_json }}' \
             --tag "${{ steps.image.outputs.provisioner_tag }}" .
 
       - name: Build endpoint image
@@ -117,14 +113,11 @@ jobs:
           docker cp "$provisioner:/opt/luma-forge/runtime/runtime-metadata.json" /tmp/provisioner-runtime.json
           docker cp "$endpoint:/opt/luma-forge/runtime/runtime-contract.json" /tmp/endpoint-runtime.json
           docker rm "$provisioner" "$endpoint"
-          python - <<'PY'
-          import json
-          provisioner = json.load(open("/tmp/provisioner-runtime.json", encoding="utf-8"))
-          endpoint = json.load(open("/tmp/endpoint-runtime.json", encoding="utf-8"))
-          keys = ("contract_id", "contract_version", "implementation_revision")
-          if {key: provisioner[key] for key in keys} != {key: endpoint[key] for key in keys}:
-              raise SystemExit("runtime image pair metadata mismatch")
-          PY
+          python workers/runtime-recipes/release_tool.py validate-image-metadata \
+            --recipe "${{ steps.recipe.outputs.recipe }}" \
+            --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}" \
+            --provisioner-runtime-metadata /tmp/provisioner-runtime.json \
+            --endpoint-runtime-metadata /tmp/endpoint-runtime.json
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -147,60 +140,13 @@ jobs:
           printf 'endpoint_ref=%s\n' "$endpoint_digest" >> "$GITHUB_OUTPUT"
 
       - name: Generate Runtime Catalog update
-        env:
-          CONTRACT_ID: ${{ steps.recipe.outputs.contract_id }}
-          CONTRACT_VERSION: ${{ steps.recipe.outputs.contract_version }}
-          IMPLEMENTATION_REVISION: ${{ steps.recipe.outputs.implementation_revision }}
-          COMFYUI_REVISION: ${{ steps.recipe.outputs.comfyui_revision }}
-          PROVISIONER_REF: ${{ steps.digest.outputs.provisioner_ref }}
-          ENDPOINT_REF: ${{ steps.digest.outputs.endpoint_ref }}
         run: |
-          python - <<'PY'
-          import json, os
-          path = "bundled/runtime-catalog.json"
-          with open(path, "r", encoding="utf-8") as handle:
-              catalog = json.load(handle)
-          contract_id = os.environ["CONTRACT_ID"]
-          contract_version = os.environ["CONTRACT_VERSION"]
-          implementation_revision = os.environ["IMPLEMENTATION_REVISION"]
-          contracts = catalog["runtime_contracts"]
-          contract = next((item for item in contracts if item["id"] == contract_id and item["version"] == contract_version), None)
-          if contract is None:
-              contract = {
-                  "id": contract_id,
-                  "version": contract_version,
-                  "display_name": f"{contract_id} {contract_version}",
-                  "runtime_metadata": {
-                      "environment_kind": "image_baked_comfyui_runtime",
-                      "python_version": "3.12",
-                      "platform": "linux-x86_64-cuda",
-                      "comfyui_revision": os.environ["COMFYUI_REVISION"],
-                      "base_dependency_record_paths": [
-                          ".luma-forge/base-runtime/pip-freeze.txt",
-                          ".luma-forge/base-runtime/install-report.json"
-                      ]
-                  },
-                  "implementation_revisions": [],
-                  "default_implementation_revision": implementation_revision,
-              }
-              contracts.append(contract)
-          if any(item["revision"] == implementation_revision for item in contract["implementation_revisions"]):
-              raise SystemExit(f"implementation revision already exists: {implementation_revision}")
-          contract["implementation_revisions"].append({
-              "revision": implementation_revision,
-              "provisioner_image_ref": os.environ["PROVISIONER_REF"],
-              "endpoint_image_ref": os.environ["ENDPOINT_REF"],
-              "image_metadata": {
-                  "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
-                  "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
-                  "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
-              }
-          })
-          contract["default_implementation_revision"] = implementation_revision
-          with open(path, "w", encoding="utf-8") as handle:
-              json.dump(catalog, handle, indent=2, sort_keys=False)
-              handle.write("\n")
-          PY
+          python workers/runtime-recipes/release_tool.py update-catalog \
+            --recipe "${{ steps.recipe.outputs.recipe }}" \
+            --catalog bundled/runtime-catalog.json \
+            --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}" \
+            --provisioner-ref "${{ steps.digest.outputs.provisioner_ref }}" \
+            --endpoint-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
       - name: Open Runtime Catalog update PR
         uses: peter-evans/create-pull-request@v8

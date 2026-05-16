@@ -1,9 +1,5 @@
-# worker-deployment Specification
+## MODIFIED Requirements
 
-## Purpose
-
-Defines how LumaForge deploys worker container images from Git through repository automation.
-## Requirements
 ### Requirement: Deploy Worker Images from Git
 The repository SHALL provide a runtime recipe release workflow that deploys compatible worker container image pairs from tracked Git source, runtime recipe input, and the shared worker Dockerfile.
 
@@ -56,46 +52,6 @@ Each runtime deployment workflow SHALL complete worker package validation, image
 - **AND** the workflow MUST NOT publish or update any worker image tag
 - **AND** the workflow MUST NOT propose a Runtime Catalog update for the failed image pair
 
-### Requirement: Tag published worker images deterministically
-
-Each worker deployment workflow SHALL publish deterministic image tags that identify the source Git revision.
-
-#### Scenario: Commit image tag is published
-- **WHEN** a workflow publishes a worker image
-- **THEN** it SHALL publish an immutable tag containing the source commit SHA
-- **AND** the image tag SHALL identify the exact Git commit used for the build
-
-#### Scenario: Release image tag is published
-- **WHEN** a workflow is triggered by a release tag
-- **THEN** it SHALL publish a version tag derived from that Git tag for the selected worker image
-- **AND** it SHALL also publish an immutable commit SHA tag for the selected worker image
-
-### Requirement: Protect registry credentials
-
-The worker deployment workflow SHALL keep registry credentials and deployment secrets in GitHub Actions secrets or built-in GitHub tokens.
-
-#### Scenario: Registry login uses GitHub token context
-- **WHEN** the workflow authenticates to GitHub Container Registry
-- **THEN** it SHALL read authentication from built-in GitHub token context
-- **AND** committed workflow and documentation files MUST NOT contain plaintext registry credentials
-
-#### Scenario: Deployment logs are emitted
-- **WHEN** the workflow runs validation, build, and publish steps
-- **THEN** logs MUST NOT print registry passwords, access tokens, provider API keys, or worker bearer tokens
-
-### Requirement: Document worker deployment operation
-The repository SHALL document how to operate the runtime recipe release workflow.
-
-#### Scenario: Operator reads deployment documentation
-- **WHEN** an operator needs to deploy or roll back worker images
-- **THEN** documentation SHALL describe the runtime recipe workflow triggers
-- **AND** documentation SHALL describe runtime recipe selection
-- **AND** documentation SHALL describe the GitHub Container Registry image paths for the provisioner and endpoint images
-- **AND** documentation SHALL describe produced immutable image tags and digest-pinned refs
-- **AND** documentation SHALL describe implementation revision increments for worker-only redeploys
-- **AND** documentation SHALL describe reviewed Runtime Catalog update PRs
-- **AND** documentation SHALL describe rollback by selecting previously published immutable image pairs from Runtime Catalog entries
-
 ### Requirement: Build deterministic ComfyUI runtime in provisioner image
 The provisioner worker Docker build SHALL construct the deterministic ComfyUI base runtime archive for the selected runtime recipe before the image can be published.
 
@@ -110,4 +66,3 @@ The provisioner worker Docker build SHALL construct the deterministic ComfyUI ba
 - **WHEN** the Docker build cannot install or verify any deterministic ComfyUI runtime dependency
 - **THEN** the Docker build SHALL fail
 - **AND** no runtime recipe release workflow SHALL publish that image pair
-
