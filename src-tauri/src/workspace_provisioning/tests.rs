@@ -305,7 +305,7 @@ impl ProviderProvisioningGateway for FakeProvider {
                 .push(input.clone());
             assert_eq!(
                 input.provisioner_worker_image_ref,
-                "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:af202cfc2a2b97ec970925d7e2d5abd5e9fb6a2dd5bededbf364f834bc0ab201"
             );
             assert_eq!(input.provisioner_worker_port, 8080);
             Ok(ProvisioningPodObservation {

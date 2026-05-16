@@ -50,7 +50,12 @@ class Provisioner:
 
         self._check_cancelled(cancel_event)
         progress("materializing_runtime", 5, "Materializing image-baked ComfyUI runtime")
-        self.runtime_materializer.materialize(request.resolved_runtime_implementation, paths, cancel_event)
+        self.runtime_materializer.materialize(
+            request.resolved_runtime_implementation,
+            paths,
+            cancel_event,
+            progress,
+        )
 
         self._install_custom_nodes(
             request.workflow_preset.required_custom_nodes,

@@ -67,7 +67,7 @@ def sample_runtime_implementation() -> dict[str, Any]:
             "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"],
         },
         "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json",
         },

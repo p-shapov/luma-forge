@@ -5,6 +5,7 @@ import argparse
 import datetime as dt
 import json
 import re
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -17,7 +18,7 @@ BASE_DEPENDENCY_RECORD_PATHS = [
     ".luma-forge/base-runtime/pip-freeze.txt",
     ".luma-forge/base-runtime/install-report.json",
 ]
-PROVISIONER_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar.gz"
+PROVISIONER_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar.zst"
 PROVISIONER_RUNTIME_METADATA_PATH = "/opt/luma-forge/runtime/runtime-metadata.json"
 ENDPOINT_RUNTIME_CONTRACT_PATH = "/opt/luma-forge/runtime/runtime-contract.json"
 AUTO_IMPLEMENTATION_REVISION_VALUES = ("", "auto")
@@ -236,12 +237,34 @@ def validate_image_metadata(
 def validate_runtime_archive(path: Path) -> None:
     if not path.is_file():
         raise ReleaseToolError(f"runtime archive is missing: {path}")
+    if path.name.endswith(".tar.zst"):
+        _validate_zstd_runtime_archive(path)
+        return
     try:
         with tarfile.open(path, mode="r:*") as archive:
             for member in archive:
                 tarfile.data_filter(member, "/tmp/luma-forge-runtime-archive-validation")
     except (OSError, tarfile.TarError) as error:
         raise ReleaseToolError(f"runtime archive is not safely extractable: {error}") from error
+
+
+def _validate_zstd_runtime_archive(path: Path) -> None:
+    try:
+        completed = subprocess.run(
+            ["tar", "--zstd", "-tf", str(path)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ReleaseToolError(f"runtime archive is not safely extractable: {error}") from error
+    for member_name in completed.stdout.splitlines():
+        if (
+            member_name.startswith("/")
+            or member_name == ""
+            or any(part in ("", ".", "..") for part in Path(member_name).parts)
+        ):
+            raise ReleaseToolError(f"runtime archive is not safely extractable: unsafe member {member_name}")
 
 
 def recipe_outputs(recipe: dict[str, Any], recipe_path: Path, implementation_revision: str) -> dict[str, str]:

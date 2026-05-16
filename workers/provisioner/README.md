@@ -95,7 +95,7 @@ The diagnostic never includes configured environment values or secrets.
 | `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
-| `LUMA_FORGE_RUNTIME_ARCHIVE_PATH` | `/opt/luma-forge/runtime/base-runtime.tar.gz` | Absolute normalized path to the image-baked runtime archive. |
+| `LUMA_FORGE_RUNTIME_ARCHIVE_PATH` | `/opt/luma-forge/runtime/base-runtime.tar.zst` | Absolute normalized path to the image-baked runtime archive. |
 | `LUMA_FORGE_RUNTIME_CONTRACT_ID` | `comfyui-python312-cu121` | Runtime contract id declared by this image. |
 | `LUMA_FORGE_RUNTIME_CONTRACT_VERSION` | `1.0.0` | Runtime contract version declared by this image. |
 | `LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION` | `2026.05.16-001` | Runtime implementation revision declared by this image. |
@@ -147,7 +147,7 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
       ]
     },
     "image_metadata": {
-      "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+      "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
       "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
       "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
     }

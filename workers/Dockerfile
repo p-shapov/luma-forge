@@ -38,7 +38,7 @@ RUN mkdir -p /opt/luma-forge/runtime /workspace/.luma-forge/base-runtime \
     && /workspace/.venv/bin/python -m pip freeze > /workspace/.luma-forge/base-runtime/pip-freeze.txt \
     && printf '{"reports":[]}\n' > /workspace/.luma-forge/base-runtime/install-report.json \
     && /workspace/.venv/bin/python -c 'import json, os; metadata = {"contract_id": os.environ["LUMA_FORGE_RUNTIME_CONTRACT_ID"], "contract_version": os.environ["LUMA_FORGE_RUNTIME_CONTRACT_VERSION"], "implementation_revision": os.environ["LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION"], "python_version": os.environ["LUMA_FORGE_RUNTIME_PYTHON_VERSION"], "platform": os.environ["LUMA_FORGE_RUNTIME_PLATFORM"], "comfyui_revision": os.environ["LUMA_FORGE_COMFYUI_REVISION"], "pytorch_index_url": os.environ["LUMA_FORGE_PYTORCH_INDEX_URL"], "pytorch_packages": json.loads(os.environ["LUMA_FORGE_PYTORCH_PACKAGES_JSON"]), "base_requirements": json.loads(os.environ["LUMA_FORGE_BASE_REQUIREMENTS_JSON"])}; open("/opt/luma-forge/runtime/runtime-metadata.json", "w", encoding="utf-8").write(json.dumps(metadata, sort_keys=True) + "\n")' \
-    && tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner -C /workspace -czf /opt/luma-forge/runtime/base-runtime.tar.gz .venv ComfyUI .luma-forge/base-runtime
+    && tar --sort=name --mtime='UTC 2026-01-01' --owner=0 --group=0 --numeric-owner -C /workspace --zstd -cf /opt/luma-forge/runtime/base-runtime.tar.zst .venv ComfyUI .luma-forge/base-runtime
 
 FROM worker-base AS provisioner
 
@@ -48,7 +48,7 @@ ARG LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION=2026.05.16-001
 
 ENV LUMA_FORGE_PROVISIONER_HOST=0.0.0.0 \
     LUMA_FORGE_PROVISIONER_PORT=8000 \
-    LUMA_FORGE_RUNTIME_ARCHIVE_PATH=/opt/luma-forge/runtime/base-runtime.tar.gz \
+    LUMA_FORGE_RUNTIME_ARCHIVE_PATH=/opt/luma-forge/runtime/base-runtime.tar.zst \
     LUMA_FORGE_RUNTIME_CONTRACT_ID=$LUMA_FORGE_RUNTIME_CONTRACT_ID \
     LUMA_FORGE_RUNTIME_CONTRACT_VERSION=$LUMA_FORGE_RUNTIME_CONTRACT_VERSION \
     LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION=$LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION

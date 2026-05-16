@@ -33,7 +33,7 @@
           "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
           "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
           "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
@@ -43,7 +43,7 @@
           "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b8f2935bc09ac9bc5d2a3e4efcc53225e1a3a8b02bb5e392bd5e5ba4bd389193",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:5fb986e81662216b3983db2104aa0a016cc393f33d262a6ee13206d562dbc1bf",
           "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
@@ -53,7 +53,7 @@
           "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:af202cfc2a2b97ec970925d7e2d5abd5e9fb6a2dd5bededbf364f834bc0ab201",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:e2ace526f37a07ea46c68ca355312135e37e33c65a232f0c3877335bfddb80df",
           "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
