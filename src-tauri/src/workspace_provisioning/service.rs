@@ -149,7 +149,6 @@ where
         match crate::workspace_resource_cleanup::cleanup_known_resources(
             &self.secrets,
             &self.providers,
-            &self.workers,
             &workspace,
         )
         .await

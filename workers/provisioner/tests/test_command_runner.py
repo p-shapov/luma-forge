@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import unittest
 from threading import Event, Timer
@@ -40,6 +41,26 @@ class CommandRunnerTests(unittest.TestCase):
                 ["missing-command-for-luma-forge-tests"],
                 error_type=GitCheckoutError,
             )
+
+    def test_run_emits_subprocess_stdout_and_stderr_to_console(self):
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "from auxiliary.command_runner import CommandRunner; "
+                    "CommandRunner().run([sys.executable, '-c', "
+                    "\"import sys; print('stdout-visible'); print('stderr-visible', file=sys.stderr)\"])"
+                ),
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
+        )
+
+        self.assertIn("stdout-visible", completed.stdout)
+        self.assertIn("stderr-visible", completed.stderr)
 
     def test_capture_drains_large_stdout(self):
         output = CommandRunner().capture(

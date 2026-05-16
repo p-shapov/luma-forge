@@ -5,11 +5,11 @@ from typing import TypedDict
 
 from app import __version__
 from app.config import WorkerConfig
-from app.errors import ConflictError, ValidationError, WorkerError, WorkerErrorPayload
+from app.errors import ConflictError, WorkerError, WorkerErrorPayload
 from orchestration.preparer import Cancelled, Provisioner
-from app.schemas import CancelRequest, StartRequest
+from app.schemas import StartRequest
 
-ACTIVE_STATUSES = {"running", "cancelling"}
+ACTIVE_STATUSES = {"running"}
 
 
 class JobSnapshotPayload(TypedDict):
@@ -91,20 +91,6 @@ class JobManager:
             self._thread.start()
             return _copy_snapshot(self._snapshot)
 
-    def cancel(self, request: CancelRequest) -> JobSnapshot:
-        with self._lock:
-            if self._snapshot.job_id != request.job_id or self._snapshot.status not in ACTIVE_STATUSES:
-                raise ValidationError(
-                    "No matching active job to cancel.",
-                    reason_code="no_matching_active_job",
-                    context={"field": "job_id"},
-                )
-            self._snapshot.status = "cancelling"
-            self._snapshot.diagnostic_message = "Cancellation requested"
-            self._snapshot.updated_at = _now()
-            self._cancel_event.set()
-            return _copy_snapshot(self._snapshot)
-
     def _run(self, request: StartRequest, cancel_event: Event) -> None:
         try:
             self._provisioner.prepare(request, self._progress, cancel_event)
@@ -131,8 +117,6 @@ class JobManager:
 
     def _progress(self, phase: str, progress_percent: int | None, message: str | None) -> None:
         with self._lock:
-            if self._snapshot.status == "cancelling":
-                return
             self._snapshot.status = "running"
             self._snapshot.phase = phase
             self._snapshot.progress_percent = progress_percent

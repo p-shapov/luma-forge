@@ -5,7 +5,7 @@ TBD - created by archiving change add-provisioner-worker. Update Purpose after a
 ## Requirements
 ### Requirement: Expose Provisioner Worker HTTP API
 
-The Provisioner Worker SHALL expose an HTTP API with `POST /start`, `POST /cancel`, and `GET /status` from inside the provisioner container.
+The Provisioner Worker SHALL expose an HTTP API with `POST /start` and `GET /status` from inside the provisioner container.
 
 #### Scenario: Worker starts idle
 
@@ -17,7 +17,8 @@ The Provisioner Worker SHALL expose an HTTP API with `POST /start`, `POST /cance
 #### Scenario: Worker API includes required endpoints
 
 - **WHEN** a client calls the worker API
-- **THEN** `POST /start`, `POST /cancel`, and `GET /status` SHALL be available
+- **THEN** `POST /start` and `GET /status` SHALL be available
+- **AND** `POST /cancel` MUST NOT be available
 - **AND** the worker API MUST NOT expose Provider API Keys or Hugging Face API keys in any response
 
 ### Requirement: Start provisioning from selected Workflow Preset
@@ -45,7 +46,7 @@ The Provisioner Worker SHALL start one provisioning job only after `POST /start`
 - **WHEN** `POST /start` is called while a provisioning job is active
 - **THEN** the Provisioner Worker SHALL reject the request with a conflict error
 - **AND** the Provisioner Worker MUST NOT start, queue, or replace a second job
-- **AND** the active job SHALL continue unless separately cancelled
+- **AND** the active job SHALL continue
 
 ### Requirement: Prepare ComfyUI environment
 
@@ -148,30 +149,6 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **AND** the response MAY include a UI-safe diagnostic message
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
-#### Scenario: Job is cancelling or cancelled
-
-- **WHEN** cancellation has been requested for an active job
-- **THEN** `GET /status` SHALL report `cancelling` until active work has stopped
-- **AND** the Provisioner Worker SHALL report `cancelled` after cancellation completes
-- **AND** terminal cancelled status MAY report no active phase
-
-### Requirement: Cancel active provisioning
-
-The Provisioner Worker SHALL support cancellation of the active provisioning job.
-
-#### Scenario: Active job is cancelled
-
-- **WHEN** `POST /cancel` is called with the active job identifier while provisioning work is active
-- **THEN** the Provisioner Worker SHALL request cancellation of the active job
-- **AND** `GET /status` SHALL report `cancelling` until active work has stopped
-- **AND** the Provisioner Worker SHALL report `cancelled` after cancellation completes
-
-#### Scenario: Cancel request has no matching active job
-
-- **WHEN** `POST /cancel` is called while the worker has no matching active job
-- **THEN** the Provisioner Worker SHALL reject the cancellation request
-- **AND** the Provisioner Worker MUST NOT change terminal job status solely because of the unmatched cancellation request
-
 ### Requirement: Validate prepared environment
 
 The Provisioner Worker SHALL validate the prepared ComfyUI environment and volume-local virtual environment before reporting terminal success.
@@ -224,30 +201,30 @@ The Provisioner Worker SHALL validate Custom Node checkout and requirements path
 The Provisioner Worker SHALL require bearer-token authorization for every HTTP endpoint.
 
 #### Scenario: Authorized request is accepted
-- **WHEN** the client calls `GET /status`, `POST /start`, or `POST /cancel` with `Authorization: Bearer <configured-token>`
+- **WHEN** the client calls `GET /status` or `POST /start` with `Authorization: Bearer <configured-token>`
 - **THEN** the Provisioner Worker SHALL process the request normally
 
 #### Scenario: Unauthorized request is rejected
 - **WHEN** the client omits the authorization header or provides a different token
 - **THEN** the Provisioner Worker SHALL reject the request with `unauthorized`
-- **AND** the Provisioner Worker MUST NOT start, cancel, or expose any provisioning job state mutation because of that request
+- **AND** the Provisioner Worker MUST NOT start or expose any provisioning job state mutation because of that request
 - **AND** the response MUST NOT include the configured token
 
 ### Requirement: Bound worker request bodies
 The Provisioner Worker SHALL enforce a configured maximum request body size before decoding request JSON.
 
 #### Scenario: Request body is within the limit
-- **WHEN** `POST /start` or `POST /cancel` includes a valid `Content-Length` that is less than or equal to the configured maximum
+- **WHEN** `POST /start` includes a valid `Content-Length` that is less than or equal to the configured maximum
 - **THEN** the Provisioner Worker MAY read and parse the request body
 
 #### Scenario: Request body is too large
-- **WHEN** `POST /start` or `POST /cancel` includes a `Content-Length` greater than the configured maximum
+- **WHEN** `POST /start` includes a `Content-Length` greater than the configured maximum
 - **THEN** the Provisioner Worker SHALL reject the request with `request_too_large`
 - **AND** the Provisioner Worker MUST NOT read the oversized body into memory
 - **AND** the Provisioner Worker MUST NOT mutate provisioning job state
 
 #### Scenario: Request body length is malformed
-- **WHEN** `POST /start` or `POST /cancel` includes a missing, negative, or non-integer `Content-Length`
+- **WHEN** `POST /start` includes a missing, negative, or non-integer `Content-Length`
 - **THEN** the Provisioner Worker SHALL reject the request with `invalid_request`
 - **AND** the Provisioner Worker MUST NOT mutate provisioning job state
 
@@ -347,7 +324,7 @@ The Provisioner Worker SHALL apply configured timeouts to external Git, virtual 
 The Provisioner Worker SHALL serialize runtime worker errors with a consistent UI-safe error payload shape.
 
 #### Scenario: Immediate worker API error is returned
-- **WHEN** `GET /status`, `POST /start`, or `POST /cancel` rejects a request before starting or changing provisioning work
+- **WHEN** `GET /status` or `POST /start` rejects a request before starting or changing provisioning work
 - **THEN** the HTTP response body SHALL include `code`, `reason_code`, and `message`
 - **AND** `code` SHALL remain the broad stable worker error classification
 - **AND** `reason_code` SHALL identify the specific stable reason within that classification
@@ -418,7 +395,7 @@ The Provisioner Worker SHALL preserve existing preparation behavior when the int
 
 #### Scenario: Preparation failure mapping remains equivalent
 
-- **WHEN** a Git checkout, virtual environment creation, dependency installation, public Hugging Face asset download, cancellation, timeout, or final validation failure occurs during preparation
+- **WHEN** a Git checkout, virtual environment creation, dependency installation, public Hugging Face asset download, timeout, or final validation failure occurs during preparation
 - **THEN** the Provisioner Worker SHALL map the failure to the same UI-safe worker error class, job status, and diagnostic contract used before the internal refactor
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
@@ -435,14 +412,14 @@ The Provisioner Worker SHALL preserve existing runtime behavior when its interna
 #### Scenario: Worker API behavior remains unchanged
 
 - **WHEN** the internal provisioner worker source layout is reorganized
-- **THEN** `GET /status`, `POST /start`, and `POST /cancel` SHALL preserve their existing authorization, request validation, status, success payload, and error payload behavior
+- **THEN** `GET /status` and `POST /start` SHALL preserve their existing authorization, request validation, status, success payload, and error payload behavior
 - **AND** the Provisioner Worker MUST NOT expose provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs because of the reorganization
 
 #### Scenario: Preparation behavior remains unchanged
 
 - **WHEN** the internal provisioner worker source layout is reorganized
 - **THEN** successful provisioning SHALL still prepare ComfyUI, Custom Nodes, model assets, dependency records, and runtime manifest outputs according to the existing preparation contract
-- **AND** failure, timeout, and cancellation cases SHALL map to the same worker job status and UI-safe error classifications as before the reorganization
+- **AND** failure and timeout cases SHALL map to the same worker job status and UI-safe error classifications as before the reorganization
 
 #### Scenario: Module ownership is visible from package paths
 
@@ -462,18 +439,18 @@ The Provisioner Worker SHALL determine whether an HTTP method and path target a 
 - **WHEN** a client calls an unsupported `POST` endpoint with valid authorization and a malformed JSON body
 - **THEN** the Provisioner Worker SHALL reject the request with the standard `not_found` worker error payload
 - **AND** the Provisioner Worker MUST NOT return `invalid_json` for the unsupported endpoint
-- **AND** the Provisioner Worker MUST NOT start, cancel, or otherwise mutate provisioning job state because of that request
+- **AND** the Provisioner Worker MUST NOT start or otherwise mutate provisioning job state because of that request
 
 #### Scenario: Unsupported POST endpoint has oversized body
 
 - **WHEN** a client calls an unsupported `POST` endpoint with valid authorization and a `Content-Length` greater than the configured request-body limit
 - **THEN** the Provisioner Worker SHALL reject the request with the standard `not_found` worker error payload
 - **AND** the Provisioner Worker MUST NOT read the oversized body into memory
-- **AND** the Provisioner Worker MUST NOT start, cancel, or otherwise mutate provisioning job state because of that request
+- **AND** the Provisioner Worker MUST NOT start or otherwise mutate provisioning job state because of that request
 
 #### Scenario: Supported POST endpoint still validates body
 
-- **WHEN** a client calls `POST /start` or `POST /cancel` with valid authorization
+- **WHEN** a client calls `POST /start` with valid authorization
 - **THEN** the Provisioner Worker SHALL enforce the configured request body size before decoding request JSON
 - **AND** the Provisioner Worker SHALL preserve existing malformed JSON, content-length, and payload validation error classifications for the supported endpoint
 
@@ -493,7 +470,7 @@ The Provisioner Worker SHALL reject unsupported HTTP methods with the standard w
 - **WHEN** a client calls any worker path with an unsupported HTTP method and valid authorization
 - **THEN** the Provisioner Worker SHALL reject the request with a standard worker error payload
 - **AND** the Provisioner Worker MUST NOT return an HTML error document
-- **AND** the Provisioner Worker MUST NOT start, cancel, or otherwise mutate provisioning job state because of that request
+- **AND** the Provisioner Worker MUST NOT start or otherwise mutate provisioning job state because of that request
 
 ### Requirement: Sanitize unexpected preparation failures
 
@@ -563,15 +540,15 @@ The Provisioner Worker SHALL preserve its public HTTP API behavior when its inte
 
 #### Scenario: Existing worker endpoints remain available
 
-- **WHEN** a client calls `GET /status`, `POST /start`, or `POST /cancel` with valid authorization and a valid request where a body is required
+- **WHEN** a client calls `GET /status` or `POST /start` with valid authorization and a valid request where a body is required
 - **THEN** the Provisioner Worker SHALL process the request according to the existing endpoint contract
 - **AND** the Provisioner Worker SHALL return the same status snapshot and error payload shapes defined for those endpoints
 
 #### Scenario: Unsupported endpoint is rejected
 
-- **WHEN** a client calls an endpoint other than `GET /status`, `POST /start`, or `POST /cancel`
+- **WHEN** a client calls an endpoint other than `GET /status` or `POST /start`
 - **THEN** the Provisioner Worker SHALL reject the request with the existing not-found worker error payload
-- **AND** the Provisioner Worker MUST NOT start, cancel, or otherwise mutate provisioning job state because of that request
+- **AND** the Provisioner Worker MUST NOT start or otherwise mutate provisioning job state because of that request
 
 #### Scenario: Shared HTTP safeguards are preserved
 
@@ -585,7 +562,7 @@ The Provisioner Worker SHALL keep its local HTTP API implementation dependency-l
 
 #### Scenario: Routing readability is improved for the current endpoint set
 
-- **WHEN** the worker API contains only `GET /status`, `POST /start`, and `POST /cancel`
+- **WHEN** the worker API contains only `GET /status` and `POST /start`
 - **THEN** the Provisioner Worker SHALL implement routing without adding a new web framework runtime dependency
 - **AND** the implementation SHALL keep endpoint-specific work separated from shared authorization, request parsing, and response serialization concerns
 
@@ -631,21 +608,28 @@ The Provisioner Worker test suite SHALL verify that path-safety checks reject pa
 - **WHEN** runtime metadata, virtual environment, model asset, or manifest paths would resolve outside the configured workspace through a symlink
 - **THEN** tests SHALL verify preparation or validation fails before reporting terminal success
 
-### Requirement: Cover real provisioner cancellation and partial outputs
-The Provisioner Worker test suite SHALL exercise cancellation against `Provisioner.prepare()` phase sequencing rather than only fake job-manager behavior.
+### Requirement: Emit subprocess output to provider-visible logs
 
-#### Scenario: Cancellation before a preparation phase stops later work
-- **WHEN** the cancellation event is set before a major preparation phase begins
-- **THEN** tests SHALL verify `Provisioner.prepare()` raises cancellation
-- **AND** tests SHALL verify later phase collaborators are not called
-- **AND** tests SHALL verify no runtime manifest is written
+The Provisioner Worker SHALL emit output from long-running provisioning subprocesses to the worker process console so the provider's container log system can show active command progress.
 
-#### Scenario: Cancellation during asset placement cleans partial file
-- **WHEN** cancellation occurs while a model asset file is being placed into the prepared ComfyUI tree
-- **THEN** tests SHALL verify the partial transfer is interrupted
-- **AND** tests SHALL verify temporary partial files are removed or not promoted to the final model asset path
+#### Scenario: Dependency installation writes provider-visible logs
 
-#### Scenario: Cancelled preparation does not report success artifacts
-- **WHEN** preparation is cancelled after some workspace files have been created
-- **THEN** tests SHALL verify the prepared runtime manifest is absent or invalid for success
-- **AND** tests SHALL verify final validation is not treated as successful
+- **WHEN** an active provisioning job installs ComfyUI or Custom Node dependencies through a subprocess
+- **THEN** the Provisioner Worker SHALL allow stdout and stderr from that subprocess to reach the worker process console
+- **AND** provider pod logs SHALL be able to show dependency tool output such as package collection, download, retry, build, and error messages
+- **AND** the Provisioner Worker SHALL continue enforcing cancellation and timeout behavior for that subprocess
+
+#### Scenario: Status response remains sanitized
+
+- **WHEN** a long-running subprocess emits output while a provisioning job is active
+- **THEN** `GET /status` SHALL continue to return only the stable worker status payload
+- **AND** `GET /status` MUST NOT include raw command output, request bodies, stack traces, environment dumps, provider secrets, bearer tokens, or credential-bearing URLs
+
+#### Scenario: Subprocess failure preserves structured error contract
+
+- **WHEN** a logged provisioning subprocess exits unsuccessfully
+- **THEN** the Provisioner Worker SHALL mark the active job `failed`
+- **AND** `GET /status` SHALL include UI-safe structured error metadata
+- **AND** the worker console logs MAY include the subprocess output that explains the command failure
+- **AND** the status payload MUST NOT copy raw subprocess output into the UI-safe diagnostic message
+

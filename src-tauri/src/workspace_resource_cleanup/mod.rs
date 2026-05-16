@@ -1,38 +1,19 @@
 use crate::{
     domain::workspace::{ProviderProvisioningSnapshot, Workspace},
     secrets::SecretStore,
-    workspace_provisioning::{
-        ProviderProvisioningGateway, ProvisionerWorkerGateway, WorkspaceProvisioningError,
-    },
+    workspace_provisioning::{ProviderProvisioningGateway, WorkspaceProvisioningError},
 };
 
-pub async fn cleanup_known_resources<S, P, R>(
+pub async fn cleanup_known_resources<S, P>(
     secrets: &S,
     providers: &P,
-    workers: &R,
     workspace: &Workspace,
 ) -> Result<(), WorkspaceProvisioningError>
 where
     S: SecretStore,
     P: ProviderProvisioningGateway,
-    R: ProvisionerWorkerGateway,
 {
     let mut first_error = None;
-
-    if let Some(active_pod) = &workspace.active_provisioning_pod_snapshot {
-        if let Some(token) = secrets
-            .read_provisioner_worker_token(&workspace.id)
-            .map_err(WorkspaceProvisioningError::from)?
-        {
-            remember_first_error(
-                &mut first_error,
-                workers
-                    .cancel(&active_pod.provisioner_status_url, &token)
-                    .await
-                    .map(|_| ()),
-            );
-        }
-    }
 
     if let Some(endpoint) = &workspace.serverless_endpoint_snapshot {
         remember_first_error(

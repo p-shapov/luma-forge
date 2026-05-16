@@ -8,6 +8,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use super::gateways::ProvisionerWorkerGateway;
+
 use crate::{
     domain::{
         provider_setup::{GpuCloudProviderId, ProviderApiKey},
@@ -451,11 +453,9 @@ impl ProviderProvisioningGateway for FakeProvider {
 #[derive(Debug, Clone)]
 struct FakeWorker {
     start_count: Arc<AtomicUsize>,
-    cancel_count: Arc<AtomicUsize>,
     start_requests: Arc<Mutex<Vec<ProvisionerWorkerStartRequest>>>,
     status: Arc<Mutex<ProvisionerWorkerStatus>>,
     status_error: Option<WorkspaceProvisioningError>,
-    cancel_error: Option<WorkspaceProvisioningError>,
 }
 
 impl FakeWorker {
@@ -470,7 +470,6 @@ impl FakeWorker {
     fn with_status(status: ProvisionerWorkerJobStatus) -> Self {
         Self {
             start_count: Arc::default(),
-            cancel_count: Arc::default(),
             start_requests: Arc::default(),
             status: Arc::new(Mutex::new(ProvisionerWorkerStatus {
                 phase: match status {
@@ -484,20 +483,12 @@ impl FakeWorker {
                 diagnostic: None,
             })),
             status_error: None,
-            cancel_error: None,
         }
     }
 
     fn with_status_error(error: WorkspaceProvisioningError) -> Self {
         Self {
             status_error: Some(error),
-            ..Self::idle()
-        }
-    }
-
-    fn with_cancel_error(error: WorkspaceProvisioningError) -> Self {
-        Self {
-            cancel_error: Some(error),
             ..Self::idle()
         }
     }
@@ -544,26 +535,6 @@ impl ProvisionerWorkerGateway for FakeWorker {
     > {
         Box::pin(async move {
             if let Some(error) = &self.status_error {
-                return Err(error.clone());
-            }
-            Ok(self.status.lock().expect("worker status").clone())
-        })
-    }
-
-    fn cancel<'a>(
-        &'a self,
-        _provisioner_status_url: &'a str,
-        _token: &'a ProvisionerWorkerBearerToken,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.cancel_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.cancel_error {
                 return Err(error.clone());
             }
             Ok(self.status.lock().expect("worker status").clone())
@@ -1334,7 +1305,6 @@ async fn cancel_cleans_known_resources_and_returns_workspace_to_draft() {
 
     let result = service.cancel(&workspace.id).await.expect("cancel");
 
-    assert_eq!(worker.cancel_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.delete_pod_count.load(Ordering::SeqCst), 1);
@@ -1352,7 +1322,7 @@ async fn cancel_cleans_known_resources_and_returns_workspace_to_draft() {
 }
 
 #[tokio::test]
-async fn cancel_continues_provider_cleanup_when_worker_cancel_fails() {
+async fn cancel_skips_worker_cancel_when_provider_cleanup_succeeds() {
     let catalog = MemoryWorkspaceCatalog::default();
     let mut workspace =
         provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
@@ -1364,14 +1334,12 @@ async fn cancel_continues_provider_cleanup_when_worker_cancel_fails() {
     workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider::default();
-    let worker =
-        FakeWorker::with_cancel_error(WorkspaceProvisioningError::ProvisionerWorkerUnavailable);
+    let worker = FakeWorker::idle();
     let tokens = worker_token_map(&workspace.id);
     let service = service_with_parts(catalog, provider.clone(), worker.clone(), tokens.clone());
 
     let result = service.cancel(&workspace.id).await.expect("cancel");
 
-    assert_eq!(worker.cancel_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.delete_pod_count.load(Ordering::SeqCst), 1);
@@ -1379,16 +1347,14 @@ async fn cancel_continues_provider_cleanup_when_worker_cancel_fails() {
     assert!(tokens.lock().expect("tokens").is_empty());
     assert_eq!(
         result.workspace.lifecycle_state,
-        WorkspaceLifecycleState::Failed
+        WorkspaceLifecycleState::Draft
     );
-    assert_eq!(
-        result
-            .workspace
-            .last_provisioning_failure
-            .expect("failure should be persisted")
-            .code,
-        WorkspaceProvisioningFailureCode::CancellationCleanupFailed
-    );
+    assert!(result.workspace.last_provisioning_failure.is_none());
+    assert!(result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_none());
+    assert!(result.workspace.provider_provisioning_snapshot.is_none());
 }
 
 #[tokio::test]

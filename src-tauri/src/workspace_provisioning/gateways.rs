@@ -171,18 +171,6 @@ pub trait ProvisionerWorkerGateway: Send + Sync {
                 + 'a,
         >,
     >;
-
-    fn cancel<'a>(
-        &'a self,
-        provisioner_status_url: &'a str,
-        token: &'a ProvisionerWorkerBearerToken,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
-                + Send
-                + 'a,
-        >,
-    >;
 }
 
 impl ProvisionerWorkerGateway for crate::provisioner_worker::ProvisionerWorkerHttpGateway {
@@ -218,24 +206,6 @@ impl ProvisionerWorkerGateway for crate::provisioner_worker::ProvisionerWorkerHt
     > {
         Box::pin(async move {
             self.status(provisioner_status_url, token)
-                .await
-                .map_err(worker_error)
-        })
-    }
-
-    fn cancel<'a>(
-        &'a self,
-        provisioner_status_url: &'a str,
-        token: &'a ProvisionerWorkerBearerToken,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProvisionerWorkerStatus, WorkspaceProvisioningError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.cancel(provisioner_status_url, token)
                 .await
                 .map_err(worker_error)
         })

@@ -15,7 +15,7 @@ pub use contracts::{
 };
 pub use coordinator::WorkspaceProvisioningCoordinator;
 pub use error::WorkspaceProvisioningError;
-pub use gateways::{ProviderProvisioningGateway, ProvisionerWorkerGateway};
+pub use gateways::ProviderProvisioningGateway;
 pub use service::{WorkspaceProvisioningConfig, WorkspaceProvisioningService};
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ from app.errors import (
     WorkerError,
 )
 from orchestration.preparation_job import JobManager
-from app.schemas import parse_cancel_request, parse_start_request
+from app.schemas import parse_start_request
 
 
 class ProvisionerRequestHandler(BaseHTTPRequestHandler):
@@ -34,7 +34,6 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
         self._handle_request(
             {
                 "/start": self._handle_start,
-                "/cancel": self._handle_cancel,
             },
             read_json=True,
             success_status=202,
@@ -80,9 +79,6 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_start(self, payload: Any) -> dict[str, Any]:
         return self._manager().start(parse_start_request(payload)).to_dict()
-
-    def _handle_cancel(self, payload: Any) -> dict[str, Any]:
-        return self._manager().cancel(parse_cancel_request(payload)).to_dict()
 
     def _read_json(self) -> Any:
         raw_content_length = self.headers.get("Content-Length")

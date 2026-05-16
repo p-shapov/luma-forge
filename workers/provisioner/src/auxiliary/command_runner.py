@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from subprocess import DEVNULL, PIPE, STDOUT, Popen, TimeoutExpired
+from subprocess import PIPE, STDOUT, Popen, TimeoutExpired
 from threading import Event
 from time import monotonic
 
@@ -23,7 +23,7 @@ class CommandRunner:
         error_type: type[PreparationError] = PreparationError,
     ) -> None:
         try:
-            process = Popen(args, cwd=cwd, stdout=DEVNULL, stderr=STDOUT, text=True)
+            process = Popen(args, cwd=cwd, text=True)
         except OSError as error:
             command = " ".join(args[:2])
             raise error_type(f"Command failed: {command}") from error

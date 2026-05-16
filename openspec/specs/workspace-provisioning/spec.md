@@ -268,11 +268,21 @@ Workspace Provisioning SHALL support user cancellation while a Workspace is in `
 
 - **WHEN** the Client cancels provisioning for a Workspace in `provisioning`
 - **THEN** the Native Layer SHALL invoke shared cleanup behavior for the Workspace-owned Provider Resources known from authoritative Workspace metadata
-- **AND** shared cleanup SHALL cancel the active Provisioner Worker job when a matching active pod and token exist
 - **AND** shared cleanup SHALL delete the Serverless Endpoint, RunPod endpoint template, Provisioning Pod, and Persistent Storage Volume resources known from Workspace metadata when they exist
+- **AND** shared cleanup MUST NOT call the Provisioner Worker `/cancel` endpoint during destructive Workspace Provisioning cancellation
 - **AND** the Native Layer SHALL tolerate already-missing provider resources
 - **AND** the Native Layer SHALL clear provisioning snapshots and return the Workspace lifecycle state to `draft` only after cleanup is confirmed
 - **AND** the Native Layer SHALL delete the stored Provisioner Worker bearer token when no active provisioning pod remains
+
+#### Scenario: Cancellation skips worker cancel even when worker metadata exists
+
+- **WHEN** the Client cancels provisioning for a Workspace with an active Provisioning Pod snapshot and Provisioner Worker token
+- **AND** the active Provisioning Pod snapshot contains a Provisioner Worker status URL
+- **AND** Native deletes or confirms missing all known Provider Resources
+- **AND** Native deletes the stored Provisioner Worker bearer token when no active provisioning pod remains
+- **THEN** the Native Layer SHALL return the Workspace lifecycle state to `draft`
+- **AND** the Native Layer MUST NOT call the Provisioner Worker `/cancel` endpoint
+- **AND** the Native Layer MUST NOT persist `cancellation_cleanup_failed` for any worker cancellation outcome because worker cancellation is not part of destructive cancellation cleanup
 
 #### Scenario: Cancellation cleanup is incomplete
 
@@ -293,9 +303,11 @@ The Native Layer SHALL centralize deletion of known Workspace-owned provisioning
 #### Scenario: Known resources are cleaned in dependency-safe order
 
 - **WHEN** shared cleanup receives Workspace metadata with known provisioning resources
-- **THEN** it SHALL attempt cleanup in dependency-safe order: active Provisioner Worker job, Serverless Endpoint, RunPod endpoint template, active Provisioning Pod, Persistent Storage Volume, and per-workspace Provisioner Worker bearer token
+- **THEN** it SHALL attempt provider cleanup in dependency-safe order: Serverless Endpoint, RunPod endpoint template, active Provisioning Pod, and Persistent Storage Volume
+- **AND** it MUST NOT attempt to cancel the active Provisioner Worker job during destructive Workspace Provisioning cancellation
+- **AND** it SHALL delete the per-workspace Provisioner Worker bearer token after the active Provisioning Pod is deleted or confirmed missing
 - **AND** it SHALL tolerate already-missing Provider Resources
-- **AND** it SHALL report cleanup success only after all known resources are deleted or confirmed missing
+- **AND** it SHALL report cleanup success only after all known Provider Resources are deleted or confirmed missing and required local cleanup succeeds
 
 #### Scenario: Cleanup final state is chosen by caller policy
 

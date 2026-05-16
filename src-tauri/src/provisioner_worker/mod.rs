@@ -75,21 +75,6 @@ impl ProvisionerWorkerHttpGateway {
             .map_err(|_| ProvisionerWorkerError::Unreachable)?;
         parse_worker_response(response).await
     }
-
-    pub async fn cancel(
-        &self,
-        provisioner_status_url: &str,
-        token: &ProvisionerWorkerBearerToken,
-    ) -> Result<ProvisionerWorkerStatus, ProvisionerWorkerError> {
-        let response = self
-            .http
-            .post(worker_url(provisioner_status_url, "cancel")?)
-            .bearer_auth(token.expose_secret())
-            .send()
-            .await
-            .map_err(|_| ProvisionerWorkerError::Unreachable)?;
-        parse_worker_response(response).await
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
