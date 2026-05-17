@@ -65,20 +65,23 @@ The provider registry SHALL adapt provider-local client errors into the use-case
 
 ### Requirement: Provider registry maps provisioning provider errors
 
-The provider registry SHALL adapt provider-local provisioning failures into Workspace Provisioning use-case errors while keeping provider clients independent from Workspace Provisioning modules.
+The provider registry SHALL adapt provider-local provisioning resource failures into provider-resource boundary errors while keeping provider clients and shared provider resource contracts independent from Workspace Provisioning modules.
 
 #### Scenario: Workspace Provisioning creates RunPod resources
 
-- **WHEN** Workspace Provisioning asks the provider registry to create, observe, or delete RunPod provisioning resources
+- **WHEN** Workspace Provisioning asks the provider registry through the provider resource gateway to create, observe, or delete RunPod provisioning resources
 - **THEN** the provider registry SHALL call the RunPod client
-- **AND** the provider registry SHALL map provider-local failures into Workspace Provisioning errors
+- **AND** the provider registry SHALL map provider-local failures into provider-resource boundary errors
+- **AND** Workspace Provisioning SHALL map provider-resource boundary errors into Workspace Provisioning errors at the use-case boundary
 - **AND** the RunPod client MUST NOT return Workspace Provisioning error types
+- **AND** the provider resource boundary MUST NOT depend on Workspace Provisioning modules
 
 #### Scenario: Provider API Key is required for provisioning
 
 - **WHEN** Workspace Provisioning asks the provider registry to perform a RunPod provider mutation
 - **THEN** the provider registry SHALL read the RunPod Provider API Key through the secret store
-- **AND** the provider registry SHALL reject the operation with a Workspace Provisioning setup-prerequisite error when the key is missing or unreadable
+- **AND** the provider registry SHALL reject the operation with a provider-resource setup-prerequisite error when the key is missing or unreadable
+- **AND** Workspace Provisioning SHALL map that provider-resource setup-prerequisite error to the existing Workspace Provisioning setup-prerequisite error
 - **AND** the provider registry MUST NOT expose the Provider API Key to Workspace Provisioning response DTOs or Workspace metadata
 
 ### Requirement: Provider-local errors expose stable LumaForge-owned failure variants
@@ -116,7 +119,7 @@ Provider client implementations SHALL classify provider failures into stable Lum
 
 ### Requirement: Provider registry maps provider errors to stable recovery semantics
 
-The provider registry SHALL map provider-local errors into use-case errors for Provider Setup, Workspace Setup, and Workspace Provisioning without leaking provider transport details.
+The provider registry SHALL map provider-local errors into boundary-appropriate errors for Provider Setup, Workspace Setup, and shared provider resource access without leaking provider transport details.
 
 #### Scenario: Provider setup and workspace setup map provider errors
 
@@ -126,11 +129,12 @@ The provider registry SHALL map provider-local errors into use-case errors for P
 - **AND** provider API unavailability and rate limiting SHALL remain retryable provider availability failures
 - **AND** provider request rejection SHALL remain distinct from provider API unavailability
 
-#### Scenario: Workspace Provisioning maps provider errors
+#### Scenario: Workspace Provisioning maps provider resource errors
 
-- **WHEN** Workspace Provisioning receives a provider-local failure through the provider registry
-- **THEN** the registry SHALL map rate limiting to a provider rate-limited provisioning error
-- **AND** the registry SHALL map request rejection to a provider request-rejected provisioning error
+- **WHEN** Workspace Provisioning receives a provider-resource boundary failure through the provider resource gateway
+- **THEN** Workspace Provisioning SHALL map rate limiting to a provider rate-limited provisioning error
+- **AND** Workspace Provisioning SHALL map request rejection to a provider request-rejected provisioning error
+- **AND** Workspace Provisioning SHALL preserve existing provider setup, authorization, availability, invalid response, not found, conflict, and indeterminate operation semantics
 - **AND** the mapped error MUST NOT expose provider transport details, Provider API Keys, bearer headers, raw provider payloads, or provider-specific error codes as domain contracts
 
 ### Requirement: Command errors expose stable UI-safe provider recovery metadata
@@ -649,3 +653,52 @@ The Native command boundary SHALL expose RunPod endpoint template metadata to Re
 - **WHEN** the command boundary maps a Workspace loaded from legacy metadata that included RunPod template runtime environment values
 - **THEN** the command response SHALL omit those runtime environment values
 - **AND** no command response, command error, log, or diagnostic SHALL expose the legacy values
+
+### Requirement: Provider resource contracts are use-case independent
+
+Provider resource contracts used to create, discover, observe, and delete GPU provider resources SHALL be owned by a native provider-resource boundary rather than by the Workspace Provisioning use case.
+
+#### Scenario: Workspace Provisioning mutates provider resources
+
+- **WHEN** Workspace Provisioning needs to create, observe, discover, or delete provider resources
+- **THEN** it SHALL depend on provider-neutral resource contracts and gateway traits outside the Workspace Provisioning module
+- **AND** Workspace Provisioning SHALL remain responsible for provisioning phase decisions, durable Workspace updates, and provisioning failure semantics
+- **AND** the provider resource boundary MUST NOT expose Provider API Keys, worker bearer tokens, raw RunPod transport payloads, or command DTOs
+
+#### Scenario: Workspace Resource Cleanup deletes provider resources
+
+- **WHEN** Workspace Resource Cleanup deletes known provider resources for a Workspace
+- **THEN** it SHALL depend on provider-neutral resource gateway traits outside the Workspace Provisioning module
+- **AND** it MUST NOT import Workspace Provisioning modules solely to access provider resource CRUD abstractions
+- **AND** cleanup SHALL preserve its existing tolerance for provider resources that are already missing
+
+#### Scenario: Provider registry implements provider resource access
+
+- **WHEN** the provider registry adapts RunPod resource operations for native use cases
+- **THEN** it SHALL implement the provider-neutral resource gateway without depending on Workspace Provisioning modules
+- **AND** it SHALL keep RunPod request/response DTOs, provider resource naming, fixed RunPod port values, and provider-local error interpretation inside the provider boundary
+
+### Requirement: Workspace Provisioning service remains an orchestration boundary
+
+The Workspace Provisioning application service SHALL orchestrate the provisioning lifecycle through smaller phase-specific components while preserving the externally visible Workspace Provisioning behavior.
+
+#### Scenario: Provisioning sync is refactored into phase modules
+
+- **WHEN** Workspace Provisioning sync implementation is split across internal modules
+- **THEN** the Native Layer SHALL preserve the existing phase order for network volume, provisioning pod, environment preparation, provisioning pod termination, endpoint template, serverless endpoint, and readiness validation
+- **AND** each sync call SHALL continue to perform at most one provider, worker, or catalog mutation before returning authoritative Workspace metadata and derived progress
+- **AND** concurrent sync behavior for the same Workspace SHALL remain read-only for the overlapping request
+
+#### Scenario: Domain state helpers are extracted
+
+- **WHEN** reusable Workspace lifecycle, readiness, failure-detail, cleanup-reset, or progress-derivation logic is moved out of the provisioning service
+- **THEN** extracted helpers SHALL preserve existing Workspace lifecycle states, failure codes, failure sources, recovery actions, progress phases, and persisted snapshot shapes
+- **AND** extracted helpers MUST NOT introduce dependencies from domain modules to Tauri commands, provider transport DTOs, secret storage implementations, or generated frontend binding concerns
+
+#### Scenario: Command contract remains stable
+
+- **WHEN** Workspace Provisioning internals are reorganized
+- **THEN** the Tauri Workspace Provisioning commands SHALL keep their existing request and response payload shape
+- **AND** generated TypeScript binding compatibility SHALL be preserved unless a separate spec change explicitly changes the command contract
+- **AND** no Provider API Key, Provisioner Worker bearer token, raw provider payload, or provider transport detail may be added to command responses, Workspace metadata, logs, or diagnostics
+

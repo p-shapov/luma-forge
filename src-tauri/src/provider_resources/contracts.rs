@@ -1,8 +1,5 @@
 use crate::{
-    domain::{
-        provider_setup::GpuCloudProviderId,
-        workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningProgress},
-    },
+    domain::{provider_setup::GpuCloudProviderId, workspace::ProviderResourceStatus},
     secrets::ProvisionerWorkerBearerToken,
 };
 
@@ -102,10 +99,4 @@ pub struct ServerlessEndpointObservation {
 pub struct DiscoverServerlessEndpointsInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkspaceProvisioningResult {
-    pub workspace: Workspace,
-    pub progress: WorkspaceProvisioningProgress,
 }

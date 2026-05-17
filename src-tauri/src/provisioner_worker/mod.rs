@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{future::Future, pin::Pin, time::Duration};
 
 use reqwest::{header::HeaderMap, header::CONTENT_TYPE, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -75,6 +75,68 @@ impl ProvisionerWorkerHttpGateway {
             .await
             .map_err(|_| ProvisionerWorkerError::Unreachable)?;
         parse_worker_response(response).await
+    }
+}
+
+pub trait ProvisionerWorkerGateway: Send + Sync {
+    fn start<'a>(
+        &'a self,
+        provisioner_status_url: &'a str,
+        token: &'a ProvisionerWorkerBearerToken,
+        request: &'a ProvisionerWorkerStartRequest,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>
+                + Send
+                + 'a,
+        >,
+    >;
+
+    fn status<'a>(
+        &'a self,
+        provisioner_status_url: &'a str,
+        token: &'a ProvisionerWorkerBearerToken,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>
+                + Send
+                + 'a,
+        >,
+    >;
+}
+
+impl ProvisionerWorkerGateway for ProvisionerWorkerHttpGateway {
+    fn start<'a>(
+        &'a self,
+        provisioner_status_url: &'a str,
+        token: &'a ProvisionerWorkerBearerToken,
+        request: &'a ProvisionerWorkerStartRequest,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            ProvisionerWorkerHttpGateway::start(self, provisioner_status_url, token, request).await
+        })
+    }
+
+    fn status<'a>(
+        &'a self,
+        provisioner_status_url: &'a str,
+        token: &'a ProvisionerWorkerBearerToken,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            ProvisionerWorkerHttpGateway::status(self, provisioner_status_url, token).await
+        })
     }
 }
 
