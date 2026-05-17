@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use super::runtime::RuntimeContractReference;
-
 pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,20 +72,24 @@ pub enum WorkflowExecutionType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeContractReference {
+    pub id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowPreset {
     pub id: String,
     pub version: String,
     pub name: String,
     pub workflow_execution_type: WorkflowExecutionType,
     pub required_base_volume_size_bytes: u64,
-    pub required_runtime_contract: RuntimeContractReference,
+    pub runtime_contract: RuntimeContractReference,
     pub required_model_assets: Vec<ModelAsset>,
     pub required_custom_nodes: Vec<CustomNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowCatalog {
-    pub id: String,
-    pub version: String,
     pub workflow_presets: Vec<WorkflowPreset>,
 }

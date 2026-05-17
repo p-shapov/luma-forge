@@ -76,10 +76,6 @@ pub struct CreateEndpointTemplateInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
     pub endpoint_worker_image_ref: String,
-    pub image_runtime_root_path: String,
-    pub runtime_contract_id: String,
-    pub runtime_contract_version: String,
-    pub runtime_implementation_revision: String,
     pub mount_path: String,
 }
 
@@ -97,10 +93,6 @@ pub struct DiscoverEndpointTemplatesInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
     pub endpoint_worker_image_ref: String,
-    pub image_runtime_root_path: String,
-    pub runtime_contract_id: String,
-    pub runtime_contract_version: String,
-    pub runtime_implementation_revision: String,
     pub mount_path: String,
 }
 

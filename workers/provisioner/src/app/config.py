@@ -27,16 +27,8 @@ GIT_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS"
 DEPENDENCY_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS"
 DOWNLOAD_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS"
 WORKSPACE_MOUNT_PATH_ENV = "LUMA_FORGE_WORKSPACE_MOUNT_PATH"
-IMAGE_RUNTIME_ROOT_ENV = "LUMA_FORGE_IMAGE_RUNTIME_ROOT"
-RUNTIME_CONTRACT_ID_ENV = "LUMA_FORGE_RUNTIME_CONTRACT_ID"
-RUNTIME_CONTRACT_VERSION_ENV = "LUMA_FORGE_RUNTIME_CONTRACT_VERSION"
-RUNTIME_IMPLEMENTATION_REVISION_ENV = "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION"
-PROVISIONER_IMAGE_REF_ENV = "LUMA_FORGE_PROVISIONER_IMAGE_REF"
 
 DEFAULT_IMAGE_RUNTIME_ROOT = "/opt/luma-forge/runtime"
-DEFAULT_RUNTIME_CONTRACT_ID = "comfyui-python312-cu121"
-DEFAULT_RUNTIME_CONTRACT_VERSION = "1.0.0"
-DEFAULT_RUNTIME_IMPLEMENTATION_REVISION = "2026.05.16-001"
 
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -70,10 +62,6 @@ class WorkerConfig:
     download_timeout_seconds: float
     workspace_mount_path: Path
     image_runtime_root_path: Path
-    runtime_contract_id: str
-    runtime_contract_version: str
-    runtime_implementation_revision: str
-    provisioner_image_ref: str
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -117,19 +105,7 @@ class WorkerConfig:
                 maximum=MAX_TIMEOUT_SECONDS,
             ),
             workspace_mount_path=_parse_workspace_mount_path(source),
-            image_runtime_root_path=_parse_absolute_path(source, IMAGE_RUNTIME_ROOT_ENV, DEFAULT_IMAGE_RUNTIME_ROOT),
-            runtime_contract_id=_configured_or_default(source, RUNTIME_CONTRACT_ID_ENV, DEFAULT_RUNTIME_CONTRACT_ID),
-            runtime_contract_version=_configured_or_default(
-                source,
-                RUNTIME_CONTRACT_VERSION_ENV,
-                DEFAULT_RUNTIME_CONTRACT_VERSION,
-            ),
-            runtime_implementation_revision=_configured_or_default(
-                source,
-                RUNTIME_IMPLEMENTATION_REVISION_ENV,
-                DEFAULT_RUNTIME_IMPLEMENTATION_REVISION,
-            ),
-            provisioner_image_ref=_required_configured_value(source, PROVISIONER_IMAGE_REF_ENV),
+            image_runtime_root_path=Path(DEFAULT_IMAGE_RUNTIME_ROOT),
         )
 
 

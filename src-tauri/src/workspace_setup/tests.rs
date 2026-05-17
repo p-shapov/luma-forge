@@ -287,7 +287,7 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
         name: "Workspace".to_string(),
         lifecycle_state: WorkspaceLifecycleState::Draft,
         placement_plan: sample_placement_plan(),
-        resolved_runtime_implementation: sample_runtime_snapshot(),
+        resolved_runtime_image: sample_runtime_snapshot(),
         persistent_storage_volume_snapshot: None,
         active_provisioning_pod_snapshot: None,
         serverless_endpoint_snapshot: None,
@@ -298,8 +298,7 @@ pub(crate) fn sample_workspace(id: &str) -> Workspace {
     }
 }
 
-pub(crate) fn sample_runtime_snapshot(
-) -> crate::domain::runtime::ResolvedRuntimeImplementationSnapshot {
+pub(crate) fn sample_runtime_snapshot() -> crate::domain::runtime::ResolvedRuntimeImageSnapshot {
     let reader = BundledCatalogReader;
     let runtime_catalog = reader.runtime_catalog().expect("runtime catalog");
     let workflow_preset = reader
@@ -308,7 +307,10 @@ pub(crate) fn sample_runtime_snapshot(
         .workflow_presets
         .remove(0);
     runtime_catalog
-        .resolve_default(&workflow_preset.required_runtime_contract)
+        .resolve(
+            &workflow_preset.runtime_contract.id,
+            &workflow_preset.runtime_contract.version,
+        )
         .expect("runtime snapshot")
 }
 
@@ -472,21 +474,7 @@ async fn creates_draft_workspace() {
     assert!(response.persistent_storage_volume_snapshot.is_none());
     assert!(response.active_provisioning_pod_snapshot.is_none());
     assert!(response.serverless_endpoint_snapshot.is_none());
-    assert_eq!(
-        response
-            .resolved_runtime_implementation
-            .image_metadata
-            .image_runtime_root_path,
-        "/opt/luma-forge/runtime"
-    );
-    assert_eq!(
-        response
-            .resolved_runtime_implementation
-            .runtime_metadata
-            .workspace_overlay_policy
-            .python_overlay_path,
-        ".luma-forge/python-overlay"
-    );
+    assert_eq!(response.resolved_runtime_image.contract_version, "1.0.0");
 }
 
 #[tokio::test]

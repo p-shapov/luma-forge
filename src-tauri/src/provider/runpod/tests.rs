@@ -39,28 +39,7 @@ fn parse_identity(
 }
 
 fn template_env() -> HashMap<String, String> {
-    HashMap::from([
-        (
-            "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
-            "/opt/luma-forge/runtime".to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
-            "comfyui-python312-cu121".to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
-            "1.0.0".to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
-            "2026.05.16-004".to_string(),
-        ),
-        (
-            "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
-            "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
-        ),
-    ])
+    HashMap::new()
 }
 
 fn template_env_json() -> serde_json::Value {
@@ -531,16 +510,10 @@ fn serializes_pod_create_request_with_documented_shape() {
         data_center_ids: vec!["EU-RO-1".to_string()],
         network_volume_id: "volume-1".to_string(),
         volume_mount_path: "/workspace".to_string(),
-        env: HashMap::from([
-            (
-                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-                "worker-token".to_string(),
-            ),
-            (
-                "LUMA_FORGE_PROVISIONER_IMAGE_REF".to_string(),
-                "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
-            ),
-        ]),
+        env: HashMap::from([(
+            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+            "worker-token".to_string(),
+        )]),
         ports: vec!["8000/http".to_string()],
     })
     .expect("request should serialize");
@@ -555,8 +528,7 @@ fn serializes_pod_create_request_with_documented_shape() {
             "networkVolumeId": "volume-1",
             "volumeMountPath": "/workspace",
             "env": {
-                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "worker-token",
-                "LUMA_FORGE_PROVISIONER_IMAGE_REF": "ghcr.io/luma-forge/provisioner-worker:test"
+                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "worker-token"
             },
             "ports": ["8000/http"]
         })
@@ -877,25 +849,7 @@ fn serializes_serverless_template_create_request_with_comfyui_http_port() {
         name: "lf-workspace-endpoint-template".to_string(),
         image_name: endpoint_ref.clone(),
         container_disk_in_gb: 10,
-        env: HashMap::from([
-            (
-                "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
-                "/opt/luma-forge/runtime".to_string(),
-            ),
-            (
-                "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
-                "comfyui-python312-cu121".to_string(),
-            ),
-            (
-                "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
-                "1.0.0".to_string(),
-            ),
-            (
-                "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
-                "2026.05.16-001".to_string(),
-            ),
-            ("LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(), endpoint_ref),
-        ]),
+        env: HashMap::new(),
         is_public: false,
         is_serverless: true,
         ports: vec!["8188/http".to_string()],
@@ -910,13 +864,7 @@ fn serializes_serverless_template_create_request_with_comfyui_http_port() {
             "name": "lf-workspace-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
             "containerDiskInGb": 10,
-            "env": {
-                "LUMA_FORGE_IMAGE_RUNTIME_ROOT": "/opt/luma-forge/runtime",
-                "LUMA_FORGE_RUNTIME_CONTRACT_ID": "comfyui-python312-cu121",
-                "LUMA_FORGE_RUNTIME_CONTRACT_VERSION": "1.0.0",
-                "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION": "2026.05.16-001",
-                "LUMA_FORGE_ENDPOINT_IMAGE_REF": "ghcr.io/luma-forge/endpoint-worker:dev"
-            },
+            "env": {},
             "isPublic": false,
             "isServerless": true,
             "ports": ["8188/http"],
@@ -1057,7 +1005,7 @@ fn template_discovery_returns_zero_without_required_match() {
 }
 
 #[test]
-fn template_discovery_rejects_missing_runtime_env() {
+fn template_discovery_accepts_missing_runtime_env_when_no_env_is_expected() {
     let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
         {
             "id": "template-1",
@@ -1080,7 +1028,7 @@ fn template_discovery_rejects_missing_runtime_env() {
     )
     .expect("matching templates should map");
 
-    assert!(observations.is_empty());
+    assert_eq!(observations.len(), 1);
 }
 
 #[test]

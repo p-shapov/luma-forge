@@ -71,25 +71,9 @@ class WorkerFixture:
             workspace_mount_path=self.workspace,
             image_runtime_root_path=self.image_runtime_root,
         )
-        self.write_image_runtime_contract()
         self.write_runtime_manifest()
         self.comfyui = comfyui or FakeComfyUiClient()
         self.service = GenerationService(config=self.config, comfyui=self.comfyui)
-
-    def write_image_runtime_contract(self):
-        (self.image_runtime_root / "runtime-contract.json").write_text(
-            json.dumps(
-                {
-                    "contract_id": self.config.runtime_contract_id,
-                    "contract_version": self.config.runtime_contract_version,
-                    "implementation_revision": self.config.runtime_implementation_revision,
-                    "image_runtime_root_path": str(self.image_runtime_root),
-                    "image_python_interpreter_path": str(self.venv_python),
-                    "image_comfyui_root_path": str(self.comfyui_root),
-                }
-            ),
-            encoding="utf-8",
-        )
 
     def write_runtime_manifest(self):
         (self.metadata_dir / "runtime-manifest.json").write_text(
@@ -101,19 +85,9 @@ class WorkerFixture:
                     "image_runtime_root": str(self.image_runtime_root),
                     "workspace_root": str(self.workspace),
                     "python_overlay_path": str(self.overlay_path),
-                    "python_version": "Python 3.12.0",
-                    "platform": "test-platform",
-                    "comfyui_revision": "0123456789abcdef0123456789abcdef01234567",
-                    "runtime_contract_id": self.config.runtime_contract_id,
-                    "runtime_contract_version": self.config.runtime_contract_version,
-                    "implementation_revision": self.config.runtime_implementation_revision,
-                    "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
-                    "endpoint_image_ref": self.config.endpoint_image_ref,
                     "custom_node_revisions": [],
-                    "image_base_dependency_record_paths": [str(self.pip_freeze_path), str(self.install_report_path)],
                     "overlay_dependency_record_paths": [str(self.overlay_report_path)],
                     "model_asset_paths": [str(self.workspace / "models/checkpoints/sd_xl_base_1.0.safetensors")],
-                    "protected_dependency_policy_version": "1",
                     "prepared_at": "2026-05-15T00:00:00+00:00",
                 }
             ),

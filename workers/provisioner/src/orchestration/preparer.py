@@ -49,21 +49,16 @@ class Provisioner:
     def prepare(self, request: StartRequest, progress: ProgressCallback, cancel_event: Event) -> None:
         workspace_root = self.config.workspace_mount_path.resolve(strict=False)
         workspace_root.mkdir(parents=True, exist_ok=True)
-        overlay_policy = request.resolved_runtime_implementation.runtime_metadata.workspace_overlay_policy
         paths = runtime_paths(
             workspace_root,
             self.config.image_runtime_root_path,
-            overlay_policy.python_overlay_path,
-            request.resolved_runtime_implementation.image_metadata.image_python_interpreter_path,
-            request.resolved_runtime_implementation.image_metadata.image_comfyui_root_path,
-            request.resolved_runtime_implementation.image_metadata.image_runtime_root_path,
         )
         comfyui_root = paths.comfyui_root
 
         self._check_cancelled(cancel_event)
         progress("materializing_runtime", 5, "Validating image-baked ComfyUI runtime")
         self.runtime_materializer.materialize(
-            request.resolved_runtime_implementation,
+            request.resolved_runtime_image,
             paths,
             cancel_event,
             progress,
@@ -75,8 +70,8 @@ class Provisioner:
             paths.python_path,
             paths.metadata_dir,
             paths.python_overlay_path,
-            overlay_policy.protected_package_names,
-            overlay_policy.protected_package_prefixes,
+            ["torch", "torchvision", "torchaudio"],
+            ["nvidia-"],
             progress,
             cancel_event,
         )

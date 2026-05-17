@@ -405,13 +405,6 @@ impl ProviderProvisioningGateway for FakeProvider {
                 input.endpoint_worker_image_ref,
                 sample_endpoint_worker_image_ref()
             );
-            assert_eq!(input.image_runtime_root_path, "/opt/luma-forge/runtime");
-            assert_eq!(input.runtime_contract_id, "comfyui-python312-cu121");
-            assert_eq!(input.runtime_contract_version, "1.0.0");
-            assert_eq!(
-                input.runtime_implementation_revision,
-                sample_runtime_implementation_revision()
-            );
             Ok(EndpointTemplateObservation {
                 template_id: "template-1".to_string(),
                 endpoint_worker_image_ref: input.endpoint_worker_image_ref,
@@ -879,9 +872,7 @@ async fn sync_creates_provisioning_pod_and_stores_worker_token() {
     assert_eq!(create_pod_inputs.len(), 1);
     assert_eq!(
         create_pod_inputs[0].provisioner_worker_image_ref,
-        workspace
-            .resolved_runtime_implementation
-            .provisioner_image_ref
+        workspace.resolved_runtime_image.provisioner_image_ref
     );
     assert_eq!(worker_tokens.lock().expect("tokens").len(), 1);
     drop(create_pod_inputs);
@@ -1653,7 +1644,7 @@ async fn sync_fails_closed_when_multiple_discovered_endpoint_templates_exist() {
 }
 
 #[tokio::test]
-async fn sync_replaces_ready_endpoint_template_when_runtime_env_is_missing() {
+async fn sync_reuses_ready_endpoint_template_without_runtime_env_and_creates_endpoint() {
     let catalog = MemoryWorkspaceCatalog::default();
     let mut workspace =
         provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
@@ -1668,10 +1659,7 @@ async fn sync_replaces_ready_endpoint_template_when_runtime_env_is_missing() {
         }),
     });
     catalog.insert_workspace(&workspace).await.expect("insert");
-    let provider = FakeProvider {
-        get_template_runtime_env: Some(HashMap::new()),
-        ..Default::default()
-    };
+    let provider = FakeProvider::default();
     let service = service_with_parts(
         catalog,
         provider.clone(),
@@ -1681,14 +1669,14 @@ async fn sync_replaces_ready_endpoint_template_when_runtime_env_is_missing() {
 
     let result = service.sync(&workspace.id).await.expect("sync");
 
-    assert!(runpod_template_snapshot(&result.workspace).is_none());
-    assert_eq!(provider.get_template_count.load(Ordering::SeqCst), 1);
-    assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 1);
-    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 0);
+    assert!(runpod_template_snapshot(&result.workspace).is_some());
+    assert_eq!(provider.get_template_count.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 0);
+    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
-async fn sync_removes_endpoint_before_replacing_mismatched_ready_template() {
+async fn sync_refreshes_mismatched_ready_template_before_replacing_it() {
     let catalog = MemoryWorkspaceCatalog::default();
     let mut workspace =
         provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
@@ -1696,7 +1684,7 @@ async fn sync_removes_endpoint_before_replacing_mismatched_ready_template() {
     workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
         endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
             template_id: "template-old".to_string(),
-            endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
+            endpoint_worker_image_ref: "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333".to_string(),
             runtime_env: HashMap::new(),
             mount_path: "/workspace".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
@@ -1717,10 +1705,10 @@ async fn sync_removes_endpoint_before_replacing_mismatched_ready_template() {
 
     let result = service.sync(&workspace.id).await.expect("sync");
 
-    assert!(result.workspace.serverless_endpoint_snapshot.is_none());
+    assert!(result.workspace.serverless_endpoint_snapshot.is_some());
     assert!(runpod_template_snapshot(&result.workspace).is_some());
     assert_eq!(provider.get_template_count.load(Ordering::SeqCst), 1);
-    assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 0);
     assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 0);
     assert_eq!(provider.create_template_count.load(Ordering::SeqCst), 0);
 }
@@ -2286,36 +2274,11 @@ fn template_snapshot(status: ProviderResourceStatus) -> RunPodEndpointTemplateSn
 }
 
 fn sample_template_runtime_env() -> HashMap<String, String> {
-    HashMap::from([
-        (
-            "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
-            "/opt/luma-forge/runtime".to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
-            "comfyui-python312-cu121".to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
-            "1.0.0".to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
-            sample_runtime_implementation_revision(),
-        ),
-        (
-            "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
-            sample_endpoint_worker_image_ref(),
-        ),
-    ])
+    HashMap::new()
 }
 
 fn sample_provisioner_worker_image_ref() -> String {
     sample_runtime_snapshot().provisioner_image_ref
-}
-
-fn sample_runtime_implementation_revision() -> String {
-    sample_runtime_snapshot().implementation_revision
 }
 
 fn sample_endpoint_worker_image_ref() -> String {

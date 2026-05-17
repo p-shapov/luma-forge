@@ -111,36 +111,6 @@ class PreparerTests(unittest.TestCase):
             self.assertFalse((Path(directory) / "ComfyUI").exists())
             self.assertTrue((Path(directory) / ".luma-forge/runtime-manifest.json").is_file())
 
-    def test_uses_catalog_declared_python_overlay_path(self):
-        with tempfile.TemporaryDirectory() as directory:
-            payload = start_payload(preset=start_payload()["workflow_preset"])
-            payload["resolved_runtime_implementation"]["runtime_metadata"]["workspace_overlay_policy"][
-                "python_overlay_path"
-            ] = ".luma-forge/custom-overlay"
-            request = parse_start_request(payload)
-            config = test_config(workspace_mount_path=Path(directory))
-            metadata_path = config.image_runtime_root_path / "runtime-metadata.json"
-            metadata_path.write_text(
-                metadata_path.read_text(encoding="utf-8").replace(
-                    ".luma-forge/python-overlay",
-                    ".luma-forge/custom-overlay",
-                ),
-                encoding="utf-8",
-            )
-
-            Provisioner(
-                command_runner=FakeCommandRunner(),
-                downloader=FakeDownloader(),
-                config=config,
-            ).prepare(
-                request,
-                lambda phase, progress, message: None,
-                Event(),
-            )
-
-            self.assertTrue((Path(directory) / ".luma-forge/custom-overlay").is_dir())
-            self.assertFalse((Path(directory) / ".luma-forge/python-overlay").exists())
-
     def test_rejects_mutable_git_revision(self):
         payload = start_payload()
         payload["workflow_preset"]["required_custom_nodes"] = [

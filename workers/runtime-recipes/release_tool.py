@@ -2,34 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-
-
-ENVIRONMENT_KIND = "image_baked_comfyui_runtime"
-IMAGE_RUNTIME_ROOT_PATH = "/opt/luma-forge/runtime"
-IMAGE_PYTHON_INTERPRETER_PATH = "/opt/luma-forge/runtime/.venv/bin/python"
-IMAGE_COMFYUI_ROOT_PATH = "/opt/luma-forge/runtime/ComfyUI"
-IMAGE_BASE_DEPENDENCY_RECORD_PATHS = [
-    "base-runtime/pip-freeze.txt",
-    "base-runtime/install-report.json",
-]
-PROVISIONER_RUNTIME_METADATA_PATH = "/opt/luma-forge/runtime/runtime-metadata.json"
-ENDPOINT_RUNTIME_CONTRACT_PATH = "/opt/luma-forge/runtime/runtime-contract.json"
-RUNTIME_MANIFEST_COMPATIBILITY = {"manifest_version": "1"}
-WORKSPACE_OVERLAY_POLICY = {
-    "python_overlay_path": ".luma-forge/python-overlay",
-    "import_path_precedence": "overlay_first",
-    "protected_package_names": ["torch", "torchvision", "torchaudio"],
-    "protected_package_prefixes": ["nvidia-"],
-}
-AUTO_IMPLEMENTATION_REVISION_VALUES = ("", "auto")
-IMPLEMENTATION_REVISION_DATE_PATTERN = re.compile(r"^(?P<date>\d{4}\.\d{2}\.\d{2})-(?P<sequence>\d{3,})$")
 
 
 class ReleaseToolError(Exception):
@@ -44,268 +22,84 @@ def load_recipe(path: Path) -> dict[str, Any]:
     return recipe
 
 
-def runtime_metadata_from_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
-    compatibility = compatibility_metadata_from_recipe(recipe)
-    return {
-        "environment_kind": ENVIRONMENT_KIND,
-        "python_version": compatibility["python_version"],
-        "platform": compatibility["platform"],
-        "comfyui_revision": compatibility["comfyui_revision"],
-        "runtime_manifest_compatibility": copy_json(RUNTIME_MANIFEST_COMPATIBILITY),
-        "workspace_overlay_policy": copy_json(WORKSPACE_OVERLAY_POLICY),
-        "runtime_compatibility": {
-            "pytorch_index_url": compatibility["pytorch_index_url"],
-            "pytorch_packages": list(compatibility["pytorch_packages"]),
-            "base_requirements": list(compatibility["base_requirements"]),
-        },
-    }
-
-
-def compatibility_metadata_from_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
-    runtime = recipe["runtime"]
-    return {
-        "environment_kind": ENVIRONMENT_KIND,
-        "python_version": runtime["python_version"],
-        "platform": runtime["platform"],
-        "comfyui_revision": runtime["comfyui"]["revision"],
-        "runtime_manifest_compatibility": copy_json(RUNTIME_MANIFEST_COMPATIBILITY),
-        "workspace_overlay_policy": copy_json(WORKSPACE_OVERLAY_POLICY),
-        "image_runtime_layout": image_runtime_layout_for_compatibility(),
-        "pytorch_index_url": runtime["pytorch"]["index_url"],
-        "pytorch_packages": list(runtime["pytorch"]["packages"]),
-        "base_requirements": list(runtime["base_requirements"]),
-    }
-
-
-def compatibility_metadata_from_contract(contract: dict[str, Any]) -> dict[str, Any]:
-    runtime_metadata = _dict_value(contract, "runtime_metadata")
-    runtime_compatibility = runtime_metadata.get("runtime_compatibility")
-    if not isinstance(runtime_compatibility, dict):
-        runtime_compatibility = {}
-    return {
-        "environment_kind": runtime_metadata.get("environment_kind"),
-        "python_version": runtime_metadata.get("python_version"),
-        "platform": runtime_metadata.get("platform"),
-        "comfyui_revision": runtime_metadata.get("comfyui_revision"),
-        "runtime_manifest_compatibility": runtime_metadata.get("runtime_manifest_compatibility"),
-        "workspace_overlay_policy": runtime_metadata.get("workspace_overlay_policy"),
-        "image_runtime_layout": _contract_image_runtime_layout(contract),
-        "pytorch_index_url": runtime_compatibility.get("pytorch_index_url"),
-        "pytorch_packages": runtime_compatibility.get("pytorch_packages"),
-        "base_requirements": runtime_compatibility.get("base_requirements"),
-    }
-
-
-def find_contract(catalog: dict[str, Any], contract_id: str, contract_version: str) -> dict[str, Any] | None:
-    contracts = _list_value(catalog, "runtime_contracts")
-    for contract in contracts:
+def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
+    for contract in _list_value(catalog, "contracts"):
         if not isinstance(contract, dict):
             raise ReleaseToolError("runtime catalog contains a malformed contract entry")
-        if contract.get("id") == contract_id and contract.get("version") == contract_version:
+        if contract.get("id") == contract_id:
             return contract
     return None
 
 
-def validate_catalog_compatibility(
-    *,
-    recipe: dict[str, Any],
-    catalog: dict[str, Any],
-    implementation_revision: str,
-) -> None:
+def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, Any] | None:
+    for revision in _list_value(contract, "revisions"):
+        if not isinstance(revision, dict):
+            raise ReleaseToolError("runtime catalog contains a malformed revision entry")
+        if revision.get("version") == contract_version:
+            return revision
+    return None
+
+
+def validate_catalog_compatibility(*, recipe: dict[str, Any], catalog: dict[str, Any]) -> None:
     contract_id = recipe["contract"]["id"]
     contract_version = recipe["contract"]["version"]
-    contract = find_contract(catalog, contract_id, contract_version)
+    contract = find_contract(catalog, contract_id)
     if contract is None:
         return
-
-    revisions = _list_value(contract, "implementation_revisions")
-    if any(isinstance(item, dict) and item.get("revision") == implementation_revision for item in revisions):
-        raise ReleaseToolError(f"implementation revision already exists: {implementation_revision}")
-
-    expected = compatibility_metadata_from_recipe(recipe)
-    actual = compatibility_metadata_from_contract(contract)
-    mismatches = [key for key in expected if actual.get(key) != expected[key]]
-    if mismatches:
-        details = ", ".join(mismatches)
-        raise ReleaseToolError(
-            "runtime contract compatibility mismatch for "
-            f"{contract_id} {contract_version}: {details}. "
-            "Bump the runtime contract version or restore the recipe to the existing compatibility surface."
-        )
-
-
-def resolve_implementation_revision(
-    *,
-    recipe: dict[str, Any],
-    catalog: dict[str, Any],
-    requested_revision: str | None,
-    today: dt.date | None = None,
-) -> str:
-    if requested_revision is not None and requested_revision.strip().lower() not in AUTO_IMPLEMENTATION_REVISION_VALUES:
-        return requested_revision.strip()
-
-    revision_date = today or dt.datetime.now(dt.timezone.utc).date()
-    prefix = revision_date.strftime("%Y.%m.%d")
-    highest_sequence = 0
-
-    contract = find_contract(catalog, recipe["contract"]["id"], recipe["contract"]["version"])
-    if contract is not None:
-        for revision in _list_value(contract, "implementation_revisions"):
-            if not isinstance(revision, dict):
-                raise ReleaseToolError("runtime catalog contains a malformed implementation revision")
-            revision_id = revision.get("revision")
-            if not isinstance(revision_id, str):
-                raise ReleaseToolError("runtime catalog contains an implementation revision without an id")
-            match = IMPLEMENTATION_REVISION_DATE_PATTERN.match(revision_id)
-            if match is not None and match.group("date") == prefix:
-                highest_sequence = max(highest_sequence, int(match.group("sequence")))
-
-    return f"{prefix}-{highest_sequence + 1:03d}"
+    _string_value(contract, "id")
+    revision = find_revision(contract, contract_version)
+    if revision is None:
+        return
+    _string_value(revision, "version")
+    _validate_image_ref(_string_value(revision, "provisioner_image_ref"))
+    _validate_image_ref(_string_value(revision, "endpoint_image_ref"))
 
 
 def update_catalog(
     *,
     recipe: dict[str, Any],
     catalog: dict[str, Any],
-    implementation_revision: str,
     provisioner_ref: str,
     endpoint_ref: str,
 ) -> dict[str, Any]:
-    validate_catalog_compatibility(
-        recipe=recipe,
-        catalog=catalog,
-        implementation_revision=implementation_revision,
-    )
-
-    contracts = _list_value(catalog, "runtime_contracts")
+    validate_catalog_compatibility(recipe=recipe, catalog=catalog)
+    _validate_image_ref(provisioner_ref)
+    _validate_image_ref(endpoint_ref)
+    contracts = _list_value(catalog, "contracts")
     contract_id = recipe["contract"]["id"]
     contract_version = recipe["contract"]["version"]
-    contract = find_contract(catalog, contract_id, contract_version)
+    contract = find_contract(catalog, contract_id)
     if contract is None:
-        contract = {
-            "id": contract_id,
-            "version": contract_version,
-            "display_name": f"{contract_id} {contract_version}",
-            "runtime_metadata": runtime_metadata_from_recipe(recipe),
-            "implementation_revisions": [],
-            "default_implementation_revision": implementation_revision,
-        }
-        contracts.append(contract)
-
-    contract["implementation_revisions"].append(
-        {
-            "revision": implementation_revision,
-            "provisioner_image_ref": provisioner_ref,
-            "endpoint_image_ref": endpoint_ref,
-            "image_metadata": image_metadata_for_catalog(),
-        }
-    )
-    contract["default_implementation_revision"] = implementation_revision
+        contracts.append(
+            {
+                "id": contract_id,
+                "revisions": [
+                    {
+                        "version": contract_version,
+                        "provisioner_image_ref": provisioner_ref,
+                        "endpoint_image_ref": endpoint_ref,
+                    }
+                ],
+            }
+        )
+    else:
+        revisions = _list_value(contract, "revisions")
+        revision = find_revision(contract, contract_version)
+        if revision is None:
+            revisions.append(
+                {
+                    "version": contract_version,
+                    "provisioner_image_ref": provisioner_ref,
+                    "endpoint_image_ref": endpoint_ref,
+                }
+            )
+        else:
+            revision["provisioner_image_ref"] = provisioner_ref
+            revision["endpoint_image_ref"] = endpoint_ref
     return catalog
 
 
-def validate_image_metadata(
-    *,
-    recipe: dict[str, Any],
-    implementation_revision: str,
-    provisioner_metadata: dict[str, Any],
-    endpoint_metadata: dict[str, Any],
-) -> None:
-    contract = recipe["contract"]
-    compatibility = compatibility_metadata_from_recipe(recipe)
-    expected_identity = {
-        "contract_id": contract["id"],
-        "contract_version": contract["version"],
-        "implementation_revision": implementation_revision,
-    }
-    for key, value in expected_identity.items():
-        if provisioner_metadata.get(key) != value:
-            raise ReleaseToolError(f"provisioner runtime metadata mismatch: {key}")
-        if endpoint_metadata.get(key) != value:
-            raise ReleaseToolError(f"endpoint runtime metadata mismatch: {key}")
-
-    expected_provisioner = {
-        "environment_kind": ENVIRONMENT_KIND,
-        "python_version": compatibility["python_version"],
-        "platform": compatibility["platform"],
-        "comfyui_revision": compatibility["comfyui_revision"],
-        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
-        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
-        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
-        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
-        "runtime_manifest_compatibility": copy_json(RUNTIME_MANIFEST_COMPATIBILITY),
-        "workspace_overlay_policy": copy_json(WORKSPACE_OVERLAY_POLICY),
-        "pytorch_index_url": compatibility["pytorch_index_url"],
-        "pytorch_packages": compatibility["pytorch_packages"],
-        "base_requirements": compatibility["base_requirements"],
-    }
-    mismatches = [
-        key for key, value in expected_provisioner.items() if provisioner_metadata.get(key) != value
-    ]
-    if mismatches:
-        raise ReleaseToolError(
-            "provisioner runtime metadata does not match selected recipe: "
-            + ", ".join(mismatches)
-        )
-    endpoint_expected = {
-        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
-        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
-        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
-        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
-    }
-    endpoint_mismatches = [
-        key for key, value in endpoint_expected.items() if endpoint_metadata.get(key) != value
-    ]
-    if endpoint_mismatches:
-        raise ReleaseToolError(
-            "endpoint runtime metadata does not match selected recipe: "
-            + ", ".join(endpoint_mismatches)
-        )
-
-
-def image_metadata_for_catalog() -> dict[str, Any]:
-    return {
-        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
-        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
-        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
-        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
-        "provisioner_runtime_metadata_path": PROVISIONER_RUNTIME_METADATA_PATH,
-        "endpoint_runtime_contract_path": ENDPOINT_RUNTIME_CONTRACT_PATH,
-    }
-
-
-def image_runtime_layout_for_compatibility() -> dict[str, Any]:
-    return {
-        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
-        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
-        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
-        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
-    }
-
-
-def _contract_image_runtime_layout(contract: dict[str, Any]) -> dict[str, Any] | None:
-    revisions = contract.get("implementation_revisions")
-    if not isinstance(revisions, list) or not revisions:
-        return None
-    first = revisions[0]
-    if not isinstance(first, dict):
-        return None
-    image_metadata = first.get("image_metadata")
-    if not isinstance(image_metadata, dict):
-        return None
-    return {
-        "image_runtime_root_path": image_metadata.get("image_runtime_root_path"),
-        "image_python_interpreter_path": image_metadata.get("image_python_interpreter_path"),
-        "image_comfyui_root_path": image_metadata.get("image_comfyui_root_path"),
-        "image_base_dependency_record_paths": image_metadata.get("image_base_dependency_record_paths"),
-    }
-
-
-def copy_json(value: Any) -> Any:
-    return json.loads(json.dumps(value))
-
-
-def recipe_outputs(recipe: dict[str, Any], recipe_path: Path, implementation_revision: str) -> dict[str, str]:
+def recipe_outputs(recipe: dict[str, Any], recipe_path: Path) -> dict[str, str]:
     runtime = recipe["runtime"]
     packages_json = json.dumps(runtime["pytorch"]["packages"], separators=(",", ":"))
     requirements_json = json.dumps(runtime["base_requirements"], separators=(",", ":"))
@@ -313,7 +107,6 @@ def recipe_outputs(recipe: dict[str, Any], recipe_path: Path, implementation_rev
         "recipe": str(recipe_path),
         "contract_id": recipe["contract"]["id"],
         "contract_version": recipe["contract"]["version"],
-        "implementation_revision": implementation_revision,
         "runtime_python_version": runtime["python_version"],
         "runtime_platform": runtime["platform"],
         "comfyui_repository": runtime["comfyui"]["repository_url"],
@@ -386,9 +179,7 @@ def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) ->
         if schema.get("additionalProperties") is False:
             extra = sorted(set(value) - set(properties))
             if extra:
-                raise ReleaseToolError(
-                    f"recipe schema validation failed at {path}.{extra[0]}: unsupported property"
-                )
+                raise ReleaseToolError(f"recipe schema validation failed at {path}.{extra[0]}: unsupported property")
         for key, nested_schema in properties.items():
             if key in value:
                 _validate_schema_subset(value[key], nested_schema, path=f"{path}.{key}")
@@ -411,9 +202,7 @@ def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) ->
             raise ReleaseToolError(f"recipe schema validation failed at {path}: expected string")
         min_length = schema.get("minLength")
         if isinstance(min_length, int) and len(value) < min_length:
-            raise ReleaseToolError(
-                f"recipe schema validation failed at {path}: expected at least {min_length} characters"
-            )
+            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected at least {min_length} characters")
         pattern = schema.get("pattern")
         if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
             raise ReleaseToolError(f"recipe schema validation failed at {path}: pattern mismatch")
@@ -464,9 +253,7 @@ def _parse_yaml_block(lines: list[tuple[int, str]], index: int, indent: int) -> 
     mapping: dict[str, Any] = {}
     while index < len(lines):
         current_indent, text = lines[index]
-        if current_indent < indent:
-            break
-        if current_indent != indent or text.startswith("- "):
+        if current_indent < indent or current_indent != indent or text.startswith("- "):
             break
         key, separator, raw_value = text.partition(":")
         if separator != ":" or not key:
@@ -490,7 +277,6 @@ def _parse_scalar(value: str) -> str:
 def _validate_recipe(recipe: dict[str, Any]) -> None:
     contract = _dict_value(recipe, "contract")
     runtime = _dict_value(recipe, "runtime")
-    _dict_value(recipe, "metadata")
 
     contract_id = _string_value(contract, "id")
     contract_version = _string_value(contract, "version")
@@ -549,19 +335,15 @@ def _is_safe_relative_path(value: str) -> bool:
     return bool(path.parts) and not path.is_absolute() and all(part not in ("", ".", "..") for part in path.parts)
 
 
+def _validate_image_ref(value: str) -> None:
+    if re.fullmatch(r"[^:@\s]+(?:/[^:@\s]+)*@sha256:[0-9a-f]{64}", value) is None:
+        raise ReleaseToolError(f"worker image ref must be digest-pinned: {value}")
+
+
 def _cmd_resolve(args: argparse.Namespace) -> None:
     recipe_path = Path(args.recipe)
     recipe = load_recipe(recipe_path)
-    implementation_revision = args.implementation_revision
-    if implementation_revision is None or implementation_revision.strip().lower() in AUTO_IMPLEMENTATION_REVISION_VALUES:
-        if not args.catalog:
-            raise ReleaseToolError("catalog is required when implementation revision is automatic")
-        implementation_revision = resolve_implementation_revision(
-            recipe=recipe,
-            catalog=_load_json(Path(args.catalog)),
-            requested_revision=implementation_revision,
-        )
-    outputs = recipe_outputs(recipe, recipe_path, implementation_revision)
+    outputs = recipe_outputs(recipe, recipe_path)
     if args.github_output:
         write_github_outputs(outputs, Path(args.github_output))
     else:
@@ -570,37 +352,19 @@ def _cmd_resolve(args: argparse.Namespace) -> None:
 
 
 def _cmd_validate_catalog(args: argparse.Namespace) -> None:
-    recipe = load_recipe(Path(args.recipe))
-    catalog = _load_json(Path(args.catalog))
-    validate_catalog_compatibility(
-        recipe=recipe,
-        catalog=catalog,
-        implementation_revision=args.implementation_revision,
-    )
+    validate_catalog_compatibility(recipe=load_recipe(Path(args.recipe)), catalog=_load_json(Path(args.catalog)))
 
 
 def _cmd_update_catalog(args: argparse.Namespace) -> None:
     recipe = load_recipe(Path(args.recipe))
     catalog_path = Path(args.catalog)
-    catalog = _load_json(catalog_path)
     updated = update_catalog(
         recipe=recipe,
-        catalog=catalog,
-        implementation_revision=args.implementation_revision,
+        catalog=_load_json(catalog_path),
         provisioner_ref=args.provisioner_ref,
         endpoint_ref=args.endpoint_ref,
     )
     _write_json(catalog_path, updated)
-
-
-def _cmd_validate_image_metadata(args: argparse.Namespace) -> None:
-    recipe = load_recipe(Path(args.recipe))
-    validate_image_metadata(
-        recipe=recipe,
-        implementation_revision=args.implementation_revision,
-        provisioner_metadata=_load_json(Path(args.provisioner_runtime_metadata)),
-        endpoint_metadata=_load_json(Path(args.endpoint_runtime_metadata)),
-    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -610,30 +374,20 @@ def build_parser() -> argparse.ArgumentParser:
     resolve = subparsers.add_parser("resolve", help="resolve recipe outputs")
     resolve.add_argument("--recipe", required=True)
     resolve.add_argument("--catalog")
-    resolve.add_argument("--implementation-revision")
     resolve.add_argument("--github-output")
     resolve.set_defaults(func=_cmd_resolve)
 
-    validate_catalog = subparsers.add_parser("validate-catalog", help="validate catalog compatibility")
+    validate_catalog = subparsers.add_parser("validate-catalog", help="validate catalog shape")
     validate_catalog.add_argument("--recipe", required=True)
     validate_catalog.add_argument("--catalog", required=True)
-    validate_catalog.add_argument("--implementation-revision", required=True)
     validate_catalog.set_defaults(func=_cmd_validate_catalog)
 
-    update = subparsers.add_parser("update-catalog", help="append an implementation revision")
+    update = subparsers.add_parser("update-catalog", help="upsert a runtime contract image pair")
     update.add_argument("--recipe", required=True)
     update.add_argument("--catalog", required=True)
-    update.add_argument("--implementation-revision", required=True)
     update.add_argument("--provisioner-ref", required=True)
     update.add_argument("--endpoint-ref", required=True)
     update.set_defaults(func=_cmd_update_catalog)
-
-    validate_image = subparsers.add_parser("validate-image-metadata", help="validate built image metadata")
-    validate_image.add_argument("--recipe", required=True)
-    validate_image.add_argument("--implementation-revision", required=True)
-    validate_image.add_argument("--provisioner-runtime-metadata", required=True)
-    validate_image.add_argument("--endpoint-runtime-metadata", required=True)
-    validate_image.set_defaults(func=_cmd_validate_image_metadata)
 
     return parser
 

@@ -51,7 +51,8 @@ pub fn validate_placement_plan(
         return Err(PlacementValidationError::WorkflowPresetStale);
     }
     runtime_validator::validate_runtime_contract_reference(
-        &selected_workflow_preset.required_runtime_contract,
+        &selected_workflow_preset.runtime_contract.id,
+        &selected_workflow_preset.runtime_contract.version,
         runtime_catalog,
     )
     .map_err(|_| PlacementValidationError::WorkflowPresetStale)?;

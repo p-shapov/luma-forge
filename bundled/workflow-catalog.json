@@ -1,6 +1,4 @@
 {
-  "id": "luma-forge-workflows",
-  "version": "2026.05.08",
   "workflow_presets": [
     {
       "id": "comfyui-t2i-basic",
@@ -8,7 +6,7 @@
       "name": "ComfyUI Text to Image Basic",
       "workflow_execution_type": "t2i",
       "required_base_volume_size_bytes": 85899345920,
-      "required_runtime_contract": {
+      "runtime_contract": {
         "id": "comfyui-python312-cu121",
         "version": "1.0.0"
       },

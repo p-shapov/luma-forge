@@ -12,7 +12,7 @@ pub fn validate_workflow_catalog(
     catalog: &WorkflowCatalog,
     runtime_catalog: &RuntimeCatalog,
 ) -> DomainValidationResult {
-    if is_blank(&catalog.id) || is_blank(&catalog.version) || catalog.workflow_presets.is_empty() {
+    if catalog.workflow_presets.is_empty() {
         return Err(DomainValidationError);
     }
 
@@ -38,7 +38,8 @@ pub fn validate_workflow_catalog(
         }
 
         if runtime_validator::validate_runtime_contract_reference(
-            &preset.required_runtime_contract,
+            &preset.runtime_contract.id,
+            &preset.runtime_contract.version,
             runtime_catalog,
         )
         .is_err()

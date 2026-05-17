@@ -15,5 +15,3 @@ runtime:
       - torchaudio==2.5.1
   base_requirements:
     - requirements.txt
-metadata:
-  default_implementation_revision: "2026.05.16-001"

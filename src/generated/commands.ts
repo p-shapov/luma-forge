@@ -162,14 +162,11 @@ export type ProvisioningPodSnapshot = {
 	provisioner_status_url: string,
 };
 
-export type ResolvedRuntimeImplementationSnapshot = {
+export type ResolvedRuntimeImageSnapshot = {
 	contract_id: string,
 	contract_version: string,
-	implementation_revision: string,
 	provisioner_image_ref: string,
 	endpoint_image_ref: string,
-	runtime_metadata: RuntimeMetadata,
-	image_metadata: RuntimeImageMetadata,
 };
 
 export type RunPodEndpointTemplateSnapshot = {
@@ -183,28 +180,6 @@ export type RunPodEndpointTemplateSnapshot = {
 export type RuntimeContractReference = {
 	id: string,
 	version: string,
-};
-
-export type RuntimeImageMetadata = {
-	image_runtime_root_path: string,
-	image_python_interpreter_path: string,
-	image_comfyui_root_path: string,
-	image_base_dependency_record_paths: string[],
-	provisioner_runtime_metadata_path: string,
-	endpoint_runtime_contract_path: string,
-};
-
-export type RuntimeManifestCompatibility = {
-	manifest_version: string,
-};
-
-export type RuntimeMetadata = {
-	environment_kind: string,
-	python_version: string,
-	platform: string,
-	comfyui_revision: string,
-	runtime_manifest_compatibility: RuntimeManifestCompatibility,
-	workspace_overlay_policy: WorkspaceOverlayPolicy,
 };
 
 export type ServerlessEndpointSnapshot = {
@@ -226,8 +201,6 @@ export type SetupGpuCloudProviderResponse = {
 };
 
 export type WorkflowCatalog = {
-	id: string,
-	version: string,
 	workflow_presets: WorkflowPreset[],
 };
 
@@ -239,7 +212,7 @@ export type WorkflowPreset = {
 	name: string,
 	workflow_execution_type: WorkflowExecutionType,
 	required_base_volume_size_bytes: number,
-	required_runtime_contract: RuntimeContractReference,
+	runtime_contract: RuntimeContractReference,
 	required_model_assets: ModelAsset[],
 	required_custom_nodes: CustomNode[],
 };
@@ -250,7 +223,7 @@ export type Workspace = {
 	name: string,
 	lifecycle_state: WorkspaceLifecycleState,
 	placement_plan: PlacementPlan,
-	resolved_runtime_implementation: ResolvedRuntimeImplementationSnapshot,
+	resolved_runtime_image: ResolvedRuntimeImageSnapshot,
 	persistent_storage_volume_snapshot: PersistentStorageVolumeSnapshot | null,
 	active_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
 	serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null,
@@ -265,13 +238,6 @@ export type WorkspaceCatalog = {
 };
 
 export type WorkspaceLifecycleState = "draft" | "provisioning" | "ready" | "failed";
-
-export type WorkspaceOverlayPolicy = {
-	python_overlay_path: string,
-	import_path_precedence: string,
-	protected_package_names: string[],
-	protected_package_prefixes: string[],
-};
 
 export type WorkspaceProvisioningFailure = {
 	code: WorkspaceProvisioningFailureCode,

@@ -14,6 +14,9 @@ RUNTIME_MANIFEST = "runtime-manifest.json"
 PIP_FREEZE = "pip-freeze.txt"
 INSTALL_REPORT = "install-report.json"
 PYTHON_OVERLAY_DIR = ".luma-forge/python-overlay"
+IMAGE_RUNTIME_ROOT = Path("/opt/luma-forge/runtime")
+IMAGE_PYTHON_PATH = IMAGE_RUNTIME_ROOT / ".venv" / "bin" / "python"
+IMAGE_COMFYUI_ROOT = IMAGE_RUNTIME_ROOT / "ComfyUI"
 
 
 @dataclass(frozen=True)
@@ -39,19 +42,9 @@ class PreparedRuntimeManifest:
     image_runtime_root: str
     workspace_root: str
     python_overlay_path: str
-    python_version: str
-    platform: str
-    comfyui_revision: str
-    runtime_contract_id: str
-    runtime_contract_version: str
-    implementation_revision: str
-    provisioner_image_ref: str
-    endpoint_image_ref: str
     custom_node_revisions: list[dict[str, str]]
-    image_base_dependency_record_paths: list[str]
     overlay_dependency_record_paths: list[str]
     model_asset_paths: list[str]
-    protected_dependency_policy_version: str
     prepared_at: str
 
     def to_json(self) -> str:
@@ -62,28 +55,12 @@ def runtime_paths(
     workspace_root: Path,
     image_runtime_root: Path | None = None,
     python_overlay_path: Path | None = None,
-    image_python_interpreter_path: Path | None = None,
-    image_comfyui_root_path: Path | None = None,
-    declared_image_runtime_root_path: Path | None = None,
 ) -> RuntimePaths:
     workspace = workspace_root.resolve(strict=False)
     metadata_dir = safe_child_path(workspace, METADATA_DIR, field_name="runtime_metadata_path")
-    image_root = (image_runtime_root or Path("/opt/luma-forge/runtime")).resolve(strict=False)
-    declared_image_root = (declared_image_runtime_root_path or image_root).resolve(strict=False)
-    image_python = _image_runtime_child_path(
-        image_root,
-        declared_image_root,
-        image_python_interpreter_path,
-        Path(".venv/bin/python"),
-        field_name="image_python_interpreter_path",
-    )
-    image_comfyui = _image_runtime_child_path(
-        image_root,
-        declared_image_root,
-        image_comfyui_root_path,
-        Path("ComfyUI"),
-        field_name="image_comfyui_root_path",
-    )
+    image_root = (image_runtime_root or IMAGE_RUNTIME_ROOT).resolve(strict=False)
+    image_python = (image_root / ".venv" / "bin" / "python").resolve(strict=False)
+    image_comfyui = (image_root / "ComfyUI").resolve(strict=False)
     overlay = safe_child_path(
         workspace,
         (python_overlay_path or Path(PYTHON_OVERLAY_DIR)).as_posix(),
@@ -104,27 +81,6 @@ def runtime_paths(
     )
 
 
-def _image_runtime_child_path(
-    image_root: Path,
-    declared_image_root: Path,
-    declared_path: Path | None,
-    default_relative_path: Path,
-    *,
-    field_name: str,
-) -> Path:
-    if declared_path is None:
-        return (image_root / default_relative_path).resolve(strict=False)
-
-    resolved_declared_path = declared_path.resolve(strict=False)
-    if resolved_declared_path == declared_image_root:
-        relative_path = Path()
-    elif declared_image_root in resolved_declared_path.parents:
-        relative_path = resolved_declared_path.relative_to(declared_image_root)
-    else:
-        raise PreparationError(f"{field_name} must be under image_runtime_root_path.")
-    return (image_root / relative_path).resolve(strict=False)
-
-
 def build_manifest(
     *,
     request: StartRequest,
@@ -138,19 +94,7 @@ def build_manifest(
         image_runtime_root=str(paths.image_runtime_root),
         workspace_root=str(paths.workspace_root),
         python_overlay_path=str(paths.python_overlay_path),
-        python_version=python_version.strip(),
-        platform=request.resolved_runtime_implementation.runtime_metadata.platform or platform.platform(),
-        comfyui_revision=request.resolved_runtime_implementation.runtime_metadata.comfyui_revision,
-        runtime_contract_id=request.resolved_runtime_implementation.contract_id,
-        runtime_contract_version=request.resolved_runtime_implementation.contract_version,
-        implementation_revision=request.resolved_runtime_implementation.implementation_revision,
-        provisioner_image_ref=request.resolved_runtime_implementation.provisioner_image_ref,
-        endpoint_image_ref=request.resolved_runtime_implementation.endpoint_image_ref,
         custom_node_revisions=_custom_node_revisions(request.workflow_preset.required_custom_nodes),
-        image_base_dependency_record_paths=[
-            str((paths.image_runtime_root / path).resolve(strict=False))
-            for path in request.resolved_runtime_implementation.image_metadata.image_base_dependency_record_paths
-        ],
         overlay_dependency_record_paths=[
             str(path)
             for path in sorted(paths.metadata_dir.glob("custom-node-*-install-report.json"))
@@ -159,10 +103,6 @@ def build_manifest(
             str((paths.workspace_root / asset.install.comfyui_relative_path).resolve(strict=False))
             for asset in request.workflow_preset.required_model_assets
         ],
-        protected_dependency_policy_version=request.resolved_runtime_implementation.runtime_metadata.runtime_manifest_compatibility.get(
-            "manifest_version",
-            "1",
-        ),
         prepared_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
     )
 
@@ -184,19 +124,9 @@ def load_manifest(path: Path) -> PreparedRuntimeManifest:
             image_runtime_root=_required_string(payload, "image_runtime_root"),
             workspace_root=_required_string(payload, "workspace_root"),
             python_overlay_path=_required_string(payload, "python_overlay_path"),
-            python_version=_required_string(payload, "python_version"),
-            platform=_required_string(payload, "platform"),
-            comfyui_revision=_required_string(payload, "comfyui_revision"),
-            runtime_contract_id=_required_string(payload, "runtime_contract_id"),
-            runtime_contract_version=_required_string(payload, "runtime_contract_version"),
-            implementation_revision=_required_string(payload, "implementation_revision"),
-            provisioner_image_ref=_required_string(payload, "provisioner_image_ref"),
-            endpoint_image_ref=_required_string(payload, "endpoint_image_ref"),
             custom_node_revisions=_custom_node_revision_payload(payload),
-            image_base_dependency_record_paths=_string_list(payload, "image_base_dependency_record_paths"),
             overlay_dependency_record_paths=_string_list(payload, "overlay_dependency_record_paths"),
             model_asset_paths=_string_list(payload, "model_asset_paths"),
-            protected_dependency_policy_version=_required_string(payload, "protected_dependency_policy_version"),
             prepared_at=_required_string(payload, "prepared_at"),
         )
     except OSError as error:
@@ -216,8 +146,6 @@ def validate_manifest(manifest: PreparedRuntimeManifest, *, paths: RuntimePaths)
         raise PreparationError("Prepared runtime workspace path is invalid.")
     if Path(manifest.python_overlay_path).resolve(strict=False) != paths.python_overlay_path.resolve(strict=False):
         raise PreparationError("Prepared runtime overlay path is invalid.")
-    if not manifest.runtime_contract_id or not manifest.implementation_revision:
-        raise PreparationError("Prepared runtime contract metadata is invalid.")
 
 
 def _custom_node_revisions(custom_nodes: list[CustomNode]) -> list[dict[str, str]]:

@@ -76,7 +76,7 @@ class ApiTests(unittest.TestCase):
             ("unsafe model path", lambda payload: set_model_path(payload, "../model.safetensors")),
             (
                 "mutable runtime image",
-                lambda payload: payload["resolved_runtime_implementation"].update(
+                lambda payload: payload["resolved_runtime_image"].update(
                     {"provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker:latest"}
                 ),
             ),
