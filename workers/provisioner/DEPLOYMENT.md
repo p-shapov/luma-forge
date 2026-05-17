@@ -5,9 +5,9 @@ Provisioner and RunPod Endpoint Worker images are deployed as a compatible runti
 ## Triggers
 
 - Push a release tag matching `runtime-recipe-v*`.
-- Run the workflow manually and select one recipe, for example `workers/runtime-recipes/comfyui-python312-cu121.yaml`. Leave the implementation revision empty for the workflow to select the next date-based revision automatically.
+- Run the workflow manually and select one recipe, for example `workers/runtime-recipes/comfyui-python312-cu121.yaml`.
 
-Manual releases use a new implementation revision that does not already exist under the selected Runtime Catalog contract. By default the workflow resolves the next date-based sequence, for example `2026.05.17-001`, from `bundled/runtime-catalog.json`. Operators may still provide an explicit revision when a release needs a specific identifier. The workflow validates the selected revision before worker validation, image builds, or publication, and rejects duplicate revisions.
+Manual releases append a new Runtime Catalog revision under the selected runtime contract id. The workflow resolves the next patch version from `bundled/runtime-catalog.json`, for example `1.0.0` to `1.0.1`, before worker validation, image builds, or publication. If the recipe declares a higher SemVer version than the next patch, the workflow uses the recipe version instead.
 
 ## Registry
 
@@ -24,10 +24,10 @@ The release workflow validates both worker packages, builds the provisioner imag
 
 ## Runtime Catalog Update
 
-After publishing a validated image pair, the workflow opens a reviewed PR that upserts the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with digest-pinned provisioner and endpoint image refs.
+After publishing a validated image pair, the workflow opens a reviewed PR that appends the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with digest-pinned provisioner and endpoint image refs. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that runtime contract id point at the new revision.
 
 Native selects the immutable provisioner image ref as the pod image and injects only the per-pod bearer token needed for worker authorization.
 
 ## Rollback
 
-Rollback by selecting a previously published immutable implementation revision from `bundled/runtime-catalog.json` as the default for future Workspaces, or by adding a reviewed replacement implementation revision. Do not rerun the release workflow with an implementation revision that already exists in the Runtime Catalog. Existing Workspaces remain pinned to their persisted runtime implementation snapshot.
+Rollback by updating `bundled/workflow-catalog.json` to point Workflow Presets back to a previously published Runtime Catalog revision, or by publishing a new reviewed revision. Existing Workspaces remain pinned to their persisted runtime image snapshot.

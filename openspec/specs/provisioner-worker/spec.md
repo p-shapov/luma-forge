@@ -49,12 +49,12 @@ The Provisioner Worker SHALL start one provisioning job only after `POST /start`
 - **AND** the active job SHALL continue
 
 ### Requirement: Prepare ComfyUI environment
-The Provisioner Worker SHALL validate the image-baked ComfyUI runtime declared by the selected Workflow Preset's resolved runtime contract and SHALL prepare workspace-specific runtime directories without creating a base runtime copy on the mounted volume.
+The Provisioner Worker SHALL use the fixed image-baked ComfyUI runtime and SHALL prepare workspace-specific runtime directories without creating a base runtime copy on the mounted volume.
 
 #### Scenario: ComfyUI runtime is prepared
 
-- **WHEN** an active job contains a Workflow Preset with a resolved runtime contract implementation matching the running Provisioner Worker image
-- **THEN** the Provisioner Worker SHALL validate the image-baked Python interpreter, image-baked ComfyUI root, runtime identity metadata, and base dependency records
+- **WHEN** an active job contains a Workflow Preset and resolved runtime image snapshot accepted by the Native Layer
+- **THEN** the Provisioner Worker SHALL use the fixed image-baked Python interpreter and fixed image-baked ComfyUI root
 - **AND** the Provisioner Worker SHALL create or reuse workspace-specific directories for models, Custom Nodes, output, and `.luma-forge` metadata
 - **AND** the Provisioner Worker SHALL reset and recreate `.luma-forge/python-overlay` plus stale Custom Node overlay install reports before installing Custom Node dependencies
 - **AND** the Provisioner Worker MUST NOT clone ComfyUI, create a base virtual environment, extract a base runtime archive, or install ComfyUI base requirements during workspace provisioning
@@ -62,7 +62,7 @@ The Provisioner Worker SHALL validate the image-baked ComfyUI runtime declared b
 
 #### Scenario: ComfyUI preparation fails
 
-- **WHEN** image runtime validation, workspace directory creation, or base runtime compatibility validation fails
+- **WHEN** fixed image runtime access or workspace directory creation fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include a UI-safe diagnostic message
 - **AND** the diagnostic message MUST NOT include secrets
@@ -148,17 +148,17 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
 ### Requirement: Validate prepared environment
-The Provisioner Worker SHALL validate the image runtime contract, workspace-specific files, overlay metadata, and runtime manifest before reporting terminal success.
+The Provisioner Worker SHALL validate workspace-specific files, overlay metadata, and the runtime manifest before reporting terminal success.
 
 #### Scenario: Prepared environment is valid
 
-- **WHEN** all required image runtime metadata, Custom Node directories, overlay dependency records, runtime manifest fields, model asset files, and workspace output paths are present after preparation
+- **WHEN** required Custom Node directories, overlay dependency records, runtime manifest fields, model asset files, and workspace output paths are present after preparation
 - **THEN** the Provisioner Worker SHALL report the job as `succeeded`
-- **AND** the prepared workspace SHALL be usable by the future Endpoint Worker with the matching image-baked runtime environment
+- **AND** the prepared workspace SHALL be usable by the Endpoint Worker with the fixed image-baked runtime environment
 
 #### Scenario: Prepared environment is incomplete
 
-- **WHEN** final validation finds a missing image runtime metadata field, missing Custom Node, missing model asset, missing overlay record, missing runtime manifest data, missing workspace output path, or unsafe filesystem state
+- **WHEN** final validation finds a missing Custom Node, missing model asset, missing overlay record, missing runtime manifest data, missing workspace output path, or unsafe filesystem state
 - **THEN** the Provisioner Worker SHALL report the job as `failed`
 - **AND** the Provisioner Worker MUST NOT report terminal success
 
@@ -229,24 +229,24 @@ The Provisioner Worker SHALL enforce a configured maximum request body size befo
 The Provisioner Worker SHALL map expected failure classes to stable UI-safe error codes, reason codes, and messages.
 
 #### Scenario: Git checkout fails
-- **WHEN** a ComfyUI or Custom Node Git clone, fetch, or checkout operation fails
+- **WHEN** a Custom Node Git clone, fetch, or checkout operation fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `git_checkout_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the Git checkout failure
 - **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Dependency installation fails
-- **WHEN** ComfyUI or Custom Node dependency installation into the volume-local virtual environment fails
+- **WHEN** Custom Node dependency installation into the workspace overlay fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the dependency installation failure
 - **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
 
-#### Scenario: Volume environment creation fails
-- **WHEN** the Provisioner Worker cannot create or validate the volume-local virtual environment
+#### Scenario: Workspace overlay creation fails
+- **WHEN** the Provisioner Worker cannot create or validate the workspace overlay directory
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
-- **AND** `GET /status` SHALL include a stable `reason_code` for the volume environment failure
+- **AND** `GET /status` SHALL include a stable `reason_code` for the workspace overlay failure
 - **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Model download fails
@@ -297,11 +297,11 @@ The Provisioner Worker SHALL map expected failure classes to stable UI-safe erro
 The Provisioner Worker SHALL reject worker-prepared Git sources that do not specify immutable commit revisions.
 
 #### Scenario: Git source revision is immutable
-- **WHEN** a selected Workflow Preset declares ComfyUI or Custom Node Git sources with full 40-character lowercase hexadecimal commit revisions
+- **WHEN** a selected Workflow Preset declares Custom Node Git sources with full 40-character lowercase hexadecimal commit revisions
 - **THEN** the Provisioner Worker MAY use those revisions for checkout
 
 #### Scenario: Git source revision is mutable
-- **WHEN** a selected Workflow Preset declares a ComfyUI or Custom Node Git source revision as a branch name, tag name, blank value, or non-commit value
+- **WHEN** a selected Workflow Preset declares a Custom Node Git source revision as a branch name, tag name, blank value, or non-commit value
 - **THEN** the Provisioner Worker SHALL reject the start request with `invalid_request`
 - **AND** the Provisioner Worker MUST NOT clone, fetch, checkout, or install dependencies for that request
 
@@ -387,12 +387,12 @@ The Provisioner Worker SHALL preserve existing preparation behavior when the int
 #### Scenario: Preparation sequence remains equivalent
 
 - **WHEN** a valid start request is accepted and preparation succeeds
-- **THEN** the Provisioner Worker SHALL validate the image-baked runtime contract, create workspace-specific runtime directories, install declared Custom Nodes and allowed overlay dependencies, download declared model assets, write dependency and overlay records, write the prepared runtime manifest, validate the prepared environment, and report terminal success according to the existing preparation contract
+- **THEN** the Provisioner Worker SHALL use the fixed image-baked runtime paths, create workspace-specific runtime directories, install declared Custom Nodes and allowed overlay dependencies, download declared model assets, write dependency and overlay records, write the prepared runtime manifest, validate the prepared environment, and report terminal success according to the existing preparation contract
 - **AND** the Provisioner Worker SHALL preserve the existing progress phases and terminal job status behavior
 
 #### Scenario: Preparation failure mapping remains equivalent
 
-- **WHEN** a Git checkout, overlay dependency installation, public Hugging Face asset download, image runtime validation, timeout, or final validation failure occurs during preparation
+- **WHEN** a Git checkout, overlay dependency installation, public Hugging Face asset download, fixed image runtime access, timeout, or final validation failure occurs during preparation
 - **THEN** the Provisioner Worker SHALL map the failure to the same UI-safe worker error class, job status, and diagnostic contract used before the internal refactor
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
@@ -630,50 +630,6 @@ The Provisioner Worker SHALL emit output from long-running provisioning subproce
 - **AND** the worker console logs MAY include the subprocess output that explains the command failure
 - **AND** the status payload MUST NOT copy raw subprocess output into the UI-safe diagnostic message
 
-### Requirement: Validate resolved runtime contract before materialization
-The Provisioner Worker SHALL reject preparation requests whose resolved runtime contract or implementation revision does not match the runtime contract implementation declared by the Provisioner Worker image.
-
-#### Scenario: Resolved runtime contract matches image
-- **WHEN** a start request includes a resolved runtime contract id, version, implementation revision, and image identity matching the Provisioner Worker image runtime metadata
-- **THEN** the Provisioner Worker SHALL accept the runtime contract implementation for workspace preparation
-- **AND** it MUST NOT perform a ComfyUI Git checkout, base virtual environment creation, or base runtime archive extraction during provisioning
-
-#### Scenario: Resolved runtime contract is missing or mismatched
-- **WHEN** a start request omits resolved runtime contract metadata or declares a runtime contract id, version, implementation revision, or image identity that does not match the Provisioner Worker image runtime metadata
-- **THEN** the Provisioner Worker SHALL reject the start request with `invalid_request`
-- **AND** the Provisioner Worker MUST NOT clone, fetch, checkout, create virtual environments, install dependencies, or write terminal runtime metadata for that request
-
-### Requirement: Validate resolved runtime against provisioner image identity
-The Provisioner Worker SHALL validate incoming resolved runtime implementation metadata against runtime identity provided by its running container configuration before preparing the workspace.
-
-#### Scenario: Provisioner image identity configuration is required
-- **WHEN** the running Provisioner Worker configuration lacks `LUMA_FORGE_PROVISIONER_IMAGE_REF` or provides it as a blank value
-- **THEN** the Provisioner Worker SHALL reject startup configuration with a UI-safe configuration error
-- **AND** it MUST NOT fall back to a development placeholder image identity
-
-#### Scenario: Matching runtime implementation is accepted
-- **WHEN** `POST /start` contains a resolved runtime implementation whose contract id, contract version, implementation revision, and provisioner image ref match the running Provisioner Worker configuration
-- **THEN** the Provisioner Worker SHALL continue workspace preparation
-- **AND** it SHALL record the accepted runtime identity in the prepared runtime manifest after successful preparation
-
-#### Scenario: Mismatched provisioner image ref is rejected
-- **WHEN** `POST /start` contains a resolved runtime implementation whose provisioner image ref differs from the running Provisioner Worker configuration
-- **THEN** the Provisioner Worker SHALL reject or fail the preparation job with a UI-safe runtime mismatch error
-- **AND** it MUST NOT prepare workspace runtime metadata or report terminal success
-
-### Requirement: Publish image-baked base runtime records
-The Provisioner Worker SHALL validate all image-baked base runtime dependency records declared by the resolved runtime metadata and SHALL publish only workspace-local records required by the prepared runtime manifest.
-
-#### Scenario: Base runtime records are validated
-- **WHEN** image runtime validation succeeds
-- **THEN** the Provisioner Worker SHALL verify that declared image-baked base runtime dependency records exist under the configured image runtime root
-- **AND** the prepared runtime manifest SHALL identify the image base runtime records separately from workspace overlay records
-
-#### Scenario: Missing declared base runtime record fails validation
-- **WHEN** a declared base runtime dependency record is absent from the image runtime root during validation
-- **THEN** the Provisioner Worker SHALL fail final validation
-- **AND** it MUST NOT report terminal success
-
 ### Requirement: Install Custom Node dependencies into workspace overlay
 The Provisioner Worker SHALL install Custom Node Python dependency deltas into the workspace overlay and SHALL preserve the image-baked base virtual environment unchanged.
 
@@ -694,4 +650,3 @@ The Provisioner Worker SHALL install Custom Node Python dependency deltas into t
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the overlay installation failure
-

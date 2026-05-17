@@ -41,13 +41,13 @@ The RunPod Endpoint Worker SHALL accept a minimal generation request containing 
 - **AND** it MUST NOT submit a prompt to ComfyUI for that request
 
 ### Requirement: Execute generation through prepared ComfyUI
-The RunPod Endpoint Worker SHALL execute accepted generation requests by using the image-baked ComfyUI runtime and the prepared workspace mounted in the endpoint worker environment.
+The RunPod Endpoint Worker SHALL execute accepted generation requests by using the fixed image-baked ComfyUI runtime and the prepared workspace mounted in the endpoint worker environment.
 
 #### Scenario: ComfyUI starts lazily before generation
 - **WHEN** a valid generation request is accepted
 - **AND** the configured ComfyUI HTTP endpoint is not already ready
 - **THEN** the RunPod Endpoint Worker SHALL validate the prepared runtime manifest before starting ComfyUI
-- **AND** it SHALL start the ComfyUI process from the image-baked ComfyUI root using the image-baked Python interpreter declared by the runtime manifest
+- **AND** it SHALL start the ComfyUI process from the fixed image-baked ComfyUI root using the fixed image-baked Python interpreter
 - **AND** it SHALL configure workspace model paths, Custom Node paths, output paths, and Python overlay paths from the runtime manifest
 - **AND** it SHALL wait for `/system_stats` before submitting the workflow
 - **AND** it MUST NOT start a separate ComfyUI process per request
@@ -67,12 +67,12 @@ The RunPod Endpoint Worker SHALL execute accepted generation requests by using t
 
 #### Scenario: Prepared runtime manifest is invalid
 - **WHEN** a valid generation request is accepted
-- **AND** the prepared runtime manifest is missing, invalid, or does not declare the Workspace's resolved runtime contract implementation, image-baked base runtime, endpoint image identity, workspace overlay policy, and workspace-specific prepared paths
+- **AND** the prepared runtime manifest is missing, invalid, or does not declare required workspace-specific prepared paths
 - **THEN** the RunPod Endpoint Worker SHALL fail the request with a stable UI-safe prepared runtime error
 - **AND** it MUST NOT attempt to repair the prepared environment by creating a virtual environment, running pip, downloading assets, cloning repositories, or extracting runtime archives
 
 #### Scenario: Prepared environment is missing
-- **WHEN** the image-baked ComfyUI runtime, image-baked Python interpreter, required workflow definition, required model file, required Custom Node file, or declared overlay path is missing from the runtime environment
+- **WHEN** the fixed image-baked ComfyUI runtime, fixed image-baked Python interpreter, required workflow definition, required model file, required Custom Node file, or declared overlay path is missing from the runtime environment
 - **THEN** the RunPod Endpoint Worker SHALL fail the request with a stable UI-safe error code
 - **AND** it MUST NOT attempt to repair the environment by downloading or installing missing assets
 
@@ -127,30 +127,4 @@ Workspace Provisioning SHALL NOT invoke the Endpoint Worker generation contract 
 - **AND** the user's first generation request fails in the Endpoint Worker
 - **THEN** the failure SHALL be treated as a generation/runtime failure
 - **AND** it MUST NOT retroactively mean that Workspace Provisioning submitted or should have submitted a hidden generation job
-
-### Requirement: Validate workspace-resolved runtime record paths
-The RunPod Endpoint Worker SHALL validate prepared runtime manifest workspace record paths as mounted-workspace paths before accepting the prepared runtime environment, and SHALL validate image base runtime record paths against the configured image runtime root.
-
-#### Scenario: Dependency record paths are valid
-- **WHEN** the prepared runtime manifest contains workspace dependency record paths that resolve under the configured workspace mount
-- **AND** each referenced workspace record file exists
-- **AND** the prepared runtime manifest contains image base runtime record paths that resolve under the configured image runtime root
-- **AND** each referenced image record file exists
-- **THEN** the Endpoint Worker SHALL accept those paths as valid prepared runtime metadata
-
-#### Scenario: Dependency record path escapes workspace
-- **WHEN** the prepared runtime manifest contains a workspace dependency record path that resolves outside the configured workspace mount
-- **THEN** the Endpoint Worker SHALL reject the prepared runtime environment with a stable UI-safe prepared runtime error
-- **AND** it MUST NOT start ComfyUI
-
-#### Scenario: Dependency record file is missing
-- **WHEN** the prepared runtime manifest contains a dependency record path under the configured workspace mount or image runtime root
-- **AND** the referenced file does not exist
-- **THEN** the Endpoint Worker SHALL reject the prepared runtime environment with a stable UI-safe missing environment error
-- **AND** it MUST NOT repair the environment by installing dependencies
-
-#### Scenario: Image dependency record path escapes image runtime root
-- **WHEN** the prepared runtime manifest contains an image base dependency record path that resolves outside the configured image runtime root
-- **THEN** the Endpoint Worker SHALL reject the prepared runtime environment with a stable UI-safe prepared runtime error
-- **AND** it MUST NOT start ComfyUI
 

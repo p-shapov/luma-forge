@@ -40,6 +40,21 @@ def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, 
     return None
 
 
+def next_contract_version(*, recipe: dict[str, Any], catalog: dict[str, Any]) -> str:
+    recipe_version = _parse_semver(recipe["contract"]["version"])
+    contract = find_contract(catalog, recipe["contract"]["id"])
+    if contract is None:
+        return _format_semver(recipe_version)
+
+    revisions = _list_value(contract, "revisions")
+    if not revisions:
+        return _format_semver(recipe_version)
+
+    latest = max(_parse_semver(_string_value(revision, "version")) for revision in revisions)
+    next_patch = (latest[0], latest[1], latest[2] + 1)
+    return _format_semver(max(recipe_version, next_patch))
+
+
 def validate_catalog_compatibility(*, recipe: dict[str, Any], catalog: dict[str, Any]) -> None:
     contract_id = recipe["contract"]["id"]
     contract_version = recipe["contract"]["version"]
@@ -61,13 +76,15 @@ def update_catalog(
     catalog: dict[str, Any],
     provisioner_ref: str,
     endpoint_ref: str,
+    contract_version: str | None = None,
 ) -> dict[str, Any]:
     validate_catalog_compatibility(recipe=recipe, catalog=catalog)
     _validate_image_ref(provisioner_ref)
     _validate_image_ref(endpoint_ref)
     contracts = _list_value(catalog, "contracts")
     contract_id = recipe["contract"]["id"]
-    contract_version = recipe["contract"]["version"]
+    resolved_contract_version = contract_version or next_contract_version(recipe=recipe, catalog=catalog)
+    _parse_semver(resolved_contract_version)
     contract = find_contract(catalog, contract_id)
     if contract is None:
         contracts.append(
@@ -75,7 +92,7 @@ def update_catalog(
                 "id": contract_id,
                 "revisions": [
                     {
-                        "version": contract_version,
+                        "version": resolved_contract_version,
                         "provisioner_image_ref": provisioner_ref,
                         "endpoint_image_ref": endpoint_ref,
                     }
@@ -84,29 +101,56 @@ def update_catalog(
         )
     else:
         revisions = _list_value(contract, "revisions")
-        revision = find_revision(contract, contract_version)
-        if revision is None:
-            revisions.append(
-                {
-                    "version": contract_version,
-                    "provisioner_image_ref": provisioner_ref,
-                    "endpoint_image_ref": endpoint_ref,
-                }
-            )
-        else:
-            revision["provisioner_image_ref"] = provisioner_ref
-            revision["endpoint_image_ref"] = endpoint_ref
+        revision = find_revision(contract, resolved_contract_version)
+        if revision is not None:
+            raise ReleaseToolError(f"runtime catalog revision already exists: {contract_id} {resolved_contract_version}")
+        revisions.append(
+            {
+                "version": resolved_contract_version,
+                "provisioner_image_ref": provisioner_ref,
+                "endpoint_image_ref": endpoint_ref,
+            }
+        )
     return catalog
 
 
-def recipe_outputs(recipe: dict[str, Any], recipe_path: Path) -> dict[str, str]:
+def update_workflow_catalog(
+    *,
+    catalog: dict[str, Any],
+    contract_id: str,
+    contract_version: str,
+) -> dict[str, Any]:
+    workflow_presets = _list_value(catalog, "workflow_presets")
+    updated = False
+    for preset in workflow_presets:
+        if not isinstance(preset, dict):
+            raise ReleaseToolError("workflow catalog contains a malformed preset entry")
+        runtime_contract = _dict_value(preset, "runtime_contract")
+        if runtime_contract.get("id") == contract_id:
+            runtime_contract["version"] = contract_version
+            updated = True
+    if not updated:
+        raise ReleaseToolError(f"workflow catalog does not reference runtime contract: {contract_id}")
+    return catalog
+
+
+def recipe_outputs(
+    recipe: dict[str, Any],
+    recipe_path: Path,
+    catalog: dict[str, Any] | None = None,
+) -> dict[str, str]:
     runtime = recipe["runtime"]
     packages_json = json.dumps(runtime["pytorch"]["packages"], separators=(",", ":"))
     requirements_json = json.dumps(runtime["base_requirements"], separators=(",", ":"))
+    contract_version = (
+        next_contract_version(recipe=recipe, catalog=catalog)
+        if catalog is not None
+        else recipe["contract"]["version"]
+    )
     return {
         "recipe": str(recipe_path),
         "contract_id": recipe["contract"]["id"],
-        "contract_version": recipe["contract"]["version"],
+        "contract_version": contract_version,
         "runtime_python_version": runtime["python_version"],
         "runtime_platform": runtime["platform"],
         "comfyui_repository": runtime["comfyui"]["repository_url"],
@@ -282,8 +326,7 @@ def _validate_recipe(recipe: dict[str, Any]) -> None:
     contract_version = _string_value(contract, "version")
     if not re.fullmatch(r"[a-z][a-z0-9-]*", contract_id):
         raise ReleaseToolError("invalid contract id")
-    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", contract_version):
-        raise ReleaseToolError("invalid contract version")
+    _parse_semver(contract_version)
 
     _string_value(runtime, "python_version")
     _string_value(runtime, "platform")
@@ -340,10 +383,29 @@ def _validate_image_ref(value: str) -> None:
         raise ReleaseToolError(f"worker image ref must be digest-pinned: {value}")
 
 
+def _parse_semver(value: str) -> tuple[int, int, int]:
+    if not isinstance(value, str):
+        raise ReleaseToolError("invalid contract version")
+    parts = value.split(".")
+    if len(parts) != 3:
+        raise ReleaseToolError("invalid contract version")
+    parsed = []
+    for part in parts:
+        if not part.isdigit() or (len(part) > 1 and part.startswith("0")):
+            raise ReleaseToolError("invalid contract version")
+        parsed.append(int(part))
+    return (parsed[0], parsed[1], parsed[2])
+
+
+def _format_semver(value: tuple[int, int, int]) -> str:
+    return f"{value[0]}.{value[1]}.{value[2]}"
+
+
 def _cmd_resolve(args: argparse.Namespace) -> None:
     recipe_path = Path(args.recipe)
     recipe = load_recipe(recipe_path)
-    outputs = recipe_outputs(recipe, recipe_path)
+    catalog = _load_json(Path(args.catalog)) if args.catalog else None
+    outputs = recipe_outputs(recipe, recipe_path, catalog)
     if args.github_output:
         write_github_outputs(outputs, Path(args.github_output))
     else:
@@ -358,13 +420,26 @@ def _cmd_validate_catalog(args: argparse.Namespace) -> None:
 def _cmd_update_catalog(args: argparse.Namespace) -> None:
     recipe = load_recipe(Path(args.recipe))
     catalog_path = Path(args.catalog)
+    runtime_catalog = _load_json(catalog_path)
+    contract_version = args.contract_version or next_contract_version(recipe=recipe, catalog=runtime_catalog)
     updated = update_catalog(
         recipe=recipe,
-        catalog=_load_json(catalog_path),
+        catalog=runtime_catalog,
         provisioner_ref=args.provisioner_ref,
         endpoint_ref=args.endpoint_ref,
+        contract_version=contract_version,
     )
+    updated_workflow_catalog = None
+    if args.workflow_catalog:
+        workflow_catalog_path = Path(args.workflow_catalog)
+        updated_workflow_catalog = update_workflow_catalog(
+            catalog=_load_json(workflow_catalog_path),
+            contract_id=recipe["contract"]["id"],
+            contract_version=contract_version,
+        )
     _write_json(catalog_path, updated)
+    if args.workflow_catalog and updated_workflow_catalog is not None:
+        _write_json(Path(args.workflow_catalog), updated_workflow_catalog)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -387,6 +462,8 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--catalog", required=True)
     update.add_argument("--provisioner-ref", required=True)
     update.add_argument("--endpoint-ref", required=True)
+    update.add_argument("--contract-version")
+    update.add_argument("--workflow-catalog")
     update.set_defaults(func=_cmd_update_catalog)
 
     return parser

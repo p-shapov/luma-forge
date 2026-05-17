@@ -4,76 +4,62 @@
 TBD - created by archiving change bake-comfyui-runtime-into-provisioner-image. Update Purpose after archive.
 ## Requirements
 ### Requirement: Provide bundled Runtime Catalog
-The Native Layer SHALL read a bundled Runtime Catalog that defines exact runtime contract versions and their verified worker image implementations, including image-baked runtime metadata and workspace overlay policy.
+The Native Layer SHALL read a bundled Runtime Catalog that maps runtime contract ids and versions to the immutable worker image refs used by new Workspaces.
 
 #### Scenario: Runtime Catalog is available
-- **WHEN** the Client or Workspace Setup needs runtime contract data
+- **WHEN** Workspace Setup needs runtime contract data
 - **THEN** the Native Layer SHALL read the bundled Runtime Catalog from the current application build
-- **AND** each runtime contract SHALL include a stable id, exact version, display name, runtime metadata, a non-empty list of immutable implementation revisions, and a default implementation revision
-- **AND** each implementation revision SHALL include a stable revision identifier, immutable provisioner image ref, immutable endpoint image ref, verified image metadata, image runtime root metadata, image Python interpreter metadata, image ComfyUI root metadata, base dependency record metadata, runtime manifest compatibility metadata, and workspace overlay policy metadata
-- **AND** the Runtime Catalog response MUST NOT include provider secrets, registry credentials, or worker bearer tokens
+- **AND** each runtime contract entry SHALL include a stable runtime contract id and one or more revision entries
+- **AND** each revision entry SHALL include a contract version, immutable Provisioner Worker image ref, and immutable Endpoint Worker image ref
+- **AND** each runtime contract entry MUST NOT include display name, implementation revision, default implementation revision, runtime metadata, image metadata, runtime manifest compatibility metadata, workspace overlay policy metadata, release compatibility metadata, provider secrets, registry credentials, or worker bearer tokens
 
-#### Scenario: Runtime Catalog is invalid
-- **WHEN** the bundled Runtime Catalog is missing, unreadable, empty, internally inconsistent, references mutable image tags, contains malformed runtime contract data, contains duplicate implementation revisions, points a default implementation revision at a missing implementation, omits required image runtime metadata, or omits required overlay policy metadata
-- **THEN** the Native Layer SHALL reject Runtime Catalog reads and dependent Workspace Setup operations with a UI-safe catalog error
-- **AND** the Native Layer MUST NOT create or update Workspace records from invalid runtime contract data
+#### Scenario: Runtime Catalog is unavailable
+- **WHEN** the bundled Runtime Catalog cannot be read by the current application build
+- **THEN** dependent Workspace Setup operations SHALL fail with a UI-safe catalog error
+- **AND** the Native Layer MUST NOT create or update Workspace records from unavailable runtime catalog data
 
 ### Requirement: Workflow Presets reference runtime contracts
-Workflow Presets SHALL require an exact runtime contract id and version from the bundled Runtime Catalog instead of selecting a ComfyUI Git revision for provisioning-time installation.
+Workflow Presets SHALL require an exact runtime contract id and version from the bundled Runtime Catalog instead of selecting a ComfyUI Git revision or implementation revision for provisioning-time installation.
 
-#### Scenario: Workflow Preset runtime contract exists
-- **WHEN** a bundled Workflow Preset declares a `required_runtime_contract` whose id and version exist in the bundled Runtime Catalog
-- **THEN** the Native Layer SHALL treat the runtime requirement as valid catalog data when all other Workflow Preset validation passes
+#### Scenario: Workflow Preset runtime contract reference exists
+- **WHEN** a bundled Workflow Preset declares a `runtime_contract` object with an `id` and `version` pair that exists in the bundled Runtime Catalog
+- **THEN** the Native Layer SHALL treat the runtime requirement as resolvable catalog data when all other Workflow Preset rules pass
 
-#### Scenario: Workflow Preset runtime contract is missing
-- **WHEN** a bundled Workflow Preset declares a missing, blank, malformed, or unknown runtime contract reference
-- **THEN** the Native Layer SHALL treat the bundled catalog set as invalid
-- **AND** the Native Layer SHALL reject Workflow Catalog reads and Workspace creation before persisting a Workspace
+#### Scenario: Workflow Preset runtime contract reference is missing
+- **WHEN** a bundled Workflow Preset declares a runtime contract id/version pair that cannot be resolved through the bundled Runtime Catalog
+- **THEN** the Native Layer SHALL reject Workflow Catalog reads and Workspace creation before persisting a Workspace
 
 ### Requirement: Persist resolved runtime contract implementation snapshots
-Workspace Setup SHALL persist the resolved runtime contract implementation snapshot selected for a Draft Workspace.
+Workspace Setup SHALL persist the resolved runtime image snapshot selected for a Draft Workspace.
 
 #### Scenario: Draft Workspace is created
-- **WHEN** Workspace Setup creates a Draft Workspace from a Workflow Preset with a valid runtime contract reference
-- **THEN** it SHALL resolve the runtime contract through the bundled Runtime Catalog
-- **AND** it SHALL select the contract's default implementation revision
-- **AND** it SHALL persist the resolved runtime contract implementation snapshot with the Workspace
-- **AND** the snapshot SHALL include the runtime contract id, version, selected implementation revision, immutable provisioner image ref, immutable endpoint image ref, runtime metadata needed by provisioning and endpoint validation, image-baked runtime root metadata, image Python interpreter metadata, image ComfyUI root metadata, base dependency record metadata, runtime manifest compatibility metadata, workspace overlay policy metadata, and verified image metadata
+- **WHEN** Workspace Setup creates a Draft Workspace from a Workflow Preset with a resolvable runtime contract id/version pair
+- **THEN** it SHALL resolve that id/version pair through the bundled Runtime Catalog
+- **AND** it SHALL persist the resolved runtime snapshot with the Workspace
+- **AND** the snapshot SHALL include only the runtime contract id, runtime contract version, immutable Provisioner Worker image ref, and immutable Endpoint Worker image ref
 
 #### Scenario: Runtime Catalog changes later
-- **WHEN** a later application build adds newer runtime contract versions or newer implementation revisions
-- **THEN** existing Workspace records SHALL remain pinned to their persisted resolved runtime contract implementation snapshots
-- **AND** existing Workspace records MUST NOT silently retarget to newer implementation revisions or worker image refs
+- **WHEN** a later application build changes image refs for a runtime contract id/version pair or adds newer runtime contract versions
+- **THEN** existing Workspace records SHALL remain pinned to their persisted resolved runtime image snapshots
+- **AND** existing Workspace records MUST NOT silently retarget to newer worker image refs
 
 ### Requirement: Runtime contract versions and implementations are immutable
-Published runtime contract id/version pairs and their implementation revisions SHALL retain stable meaning.
+Published runtime contract id/version pairs SHALL retain stable meaning for Workflow Presets and persisted Workspace snapshots.
 
 #### Scenario: Runtime compatibility changes
-- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, base runtime requirement set, workspace overlay policy, runtime manifest contract, or image runtime layout changes the base runtime compatibility surface
-- **THEN** the Runtime Catalog SHALL add a new runtime contract version
-- **AND** it MUST NOT mutate an existing runtime contract version in a way that changes the meaning of persisted Workspace snapshots
+- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, base runtime requirement set, workspace overlay behavior, runtime manifest shape, or image runtime layout changes the base runtime compatibility surface
+- **THEN** the Runtime Catalog SHALL use a new runtime contract version under the relevant contract id for future Workspaces
+- **AND** it MUST NOT mutate an existing runtime contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
 
-#### Scenario: Worker implementation changes without runtime compatibility change
-- **WHEN** a new Provisioner Worker or Endpoint Worker image pair is published for an existing runtime contract id/version without changing the base runtime compatibility surface
-- **THEN** the Runtime Catalog SHALL append a new immutable implementation revision under that runtime contract
-- **AND** it MAY set that implementation revision as the default for future Workspaces
-- **AND** it MUST NOT mutate the image refs or verified metadata of an existing implementation revision
-
-#### Scenario: Runtime recipe release auto-selects an implementation revision
-- **WHEN** the runtime recipe release workflow prepares a new implementation revision for an existing runtime contract id/version without an explicit implementation revision
-- **THEN** it SHALL derive the implementation revision from the current UTC date and the next unused sequence for that date under the selected runtime contract
-- **AND** it SHALL format the derived implementation revision as `YYYY.MM.DD-NNN`
-- **AND** it SHALL validate that the derived implementation revision is not already present under the selected runtime contract before worker package validation, Docker image builds, registry publication, or Runtime Catalog PR creation
+#### Scenario: Worker image pair changes during development
+- **WHEN** a new Provisioner Worker or Endpoint Worker image pair is published for the current runtime compatibility surface
+- **THEN** the Runtime Catalog SHALL point the relevant runtime contract id/version pair at the new immutable image refs for future Workspaces
+- **AND** existing Workspace records MUST remain pinned to their persisted image refs
 
 #### Scenario: Runtime implementation is rolled back
-- **WHEN** operators need to roll back a runtime implementation
-- **THEN** they SHALL select a previously published immutable implementation revision from a Runtime Catalog entry as the default for future Workspaces or add a new reviewed runtime contract version
-- **AND** they MUST NOT repoint an existing persisted runtime contract implementation snapshot by mutating its implementation revision or image refs in place
-
-#### Scenario: Runtime recipe release reuses an existing contract version
-- **WHEN** the runtime recipe release workflow prepares to append an implementation revision under an existing runtime contract id/version
-- **THEN** it SHALL verify that the selected recipe's Python version, platform, ComfyUI revision, PyTorch index URL, PyTorch package list, base requirements, runtime manifest compatibility metadata, image runtime layout, and workspace overlay policy match the existing catalog contract
-- **AND** it SHALL reject the catalog update before image publication when any compatibility field differs
+- **WHEN** developers need to roll back a runtime image pair during development
+- **THEN** they SHALL update the Runtime Catalog contract id/version entry to point future Workspaces at the selected immutable image refs
+- **AND** they MUST NOT repoint existing persisted Workspace runtime snapshots
 
 ### Requirement: Runtime Catalog update PRs contain only catalog changes
 The runtime recipe release workflow SHALL ensure automated Runtime Catalog update PRs contain only the intended bundled Runtime Catalog file.
@@ -92,4 +78,3 @@ The runtime recipe release workflow SHALL ensure automated Runtime Catalog updat
 - **AND** the repository has changed tracked or untracked paths other than `bundled/runtime-catalog.json`
 - **THEN** the workflow SHALL fail before creating or updating the PR
 - **AND** the workflow SHALL report the unexpected changed paths for diagnosis
-
