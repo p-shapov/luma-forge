@@ -38,7 +38,6 @@ pub struct CreateProvisioningPodInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
     pub provisioner_worker_image_ref: String,
-    pub provisioner_worker_port: u16,
     pub datacenter_id: String,
     pub selected_gpu_id: String,
     pub network_volume_id: String,
@@ -81,7 +80,6 @@ pub struct CreateEndpointTemplateInput {
     pub runtime_contract_id: String,
     pub runtime_contract_version: String,
     pub runtime_implementation_revision: String,
-    pub endpoint_worker_port: u16,
     pub mount_path: String,
 }
 
@@ -103,7 +101,6 @@ pub struct DiscoverEndpointTemplatesInput {
     pub runtime_contract_id: String,
     pub runtime_contract_version: String,
     pub runtime_implementation_revision: String,
-    pub endpoint_worker_port: u16,
     pub mount_path: String,
 }
 

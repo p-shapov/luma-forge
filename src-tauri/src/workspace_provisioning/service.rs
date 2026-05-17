@@ -38,8 +38,6 @@ type SyncStepResult = Result<Option<WorkspaceProvisioningResult>, WorkspaceProvi
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceProvisioningConfig {
-    pub provisioner_worker_port: u16,
-    pub runpod_endpoint_worker_port: u16,
     pub volume_mount_path: String,
 }
 
@@ -364,7 +362,6 @@ where
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
                     provisioner_worker_image_ref: provisioner_worker_image_ref.clone(),
-                    provisioner_worker_port: self.config.provisioner_worker_port,
                     datacenter_id: selected_datacenter_id.clone(),
                     selected_gpu_id: selected_gpu_id.clone(),
                     network_volume_id: network_volume_id.clone(),
@@ -667,7 +664,6 @@ where
                     runtime_contract_id: runtime_contract_id.clone(),
                     runtime_contract_version: runtime_contract_version.clone(),
                     runtime_implementation_revision: runtime_implementation_revision.clone(),
-                    endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                     mount_path: self.config.volume_mount_path.clone(),
                 })
                 .await?;
@@ -699,7 +695,6 @@ where
                     runtime_contract_id: runtime_contract_id.clone(),
                     runtime_contract_version: runtime_contract_version.clone(),
                     runtime_implementation_revision: runtime_implementation_revision.clone(),
-                    endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                     mount_path: self.config.volume_mount_path.clone(),
                 })
                 .await
@@ -717,7 +712,6 @@ where
                             runtime_contract_version: runtime_contract_version.clone(),
                             runtime_implementation_revision: runtime_implementation_revision
                                 .clone(),
-                            endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                             mount_path: self.config.volume_mount_path.clone(),
                         })
                         .await?;

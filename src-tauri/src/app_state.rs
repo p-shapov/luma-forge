@@ -4,7 +4,6 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::OnceCell;
 
 use crate::{
-    app_config::NativeAppConfig,
     bundled_catalog::reader::BundledCatalogReader,
     provider::{runpod::RunPodClient, ProviderClientRegistry},
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
@@ -44,7 +43,6 @@ pub(crate) struct NativeAppState {
     workspace_catalog: OnceCell<SqliteWorkspaceCatalog>,
     provider_setup_coordinator: ProviderSetupCoordinator,
     workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator,
-    app_config: NativeAppConfig,
     catalogs: BundledCatalogReader,
     secrets: KeyringSecretStore,
     providers: ProviderClientRegistry,
@@ -98,8 +96,6 @@ impl NativeAppState {
             self.provisioner_workers.clone(),
             self.workspace_provisioning_coordinator.clone(),
             WorkspaceProvisioningConfig {
-                provisioner_worker_port: self.app_config.provisioner_worker_port,
-                runpod_endpoint_worker_port: self.app_config.runpod_endpoint_worker_port,
                 volume_mount_path: "/workspace".to_string(),
             },
         ))
@@ -134,7 +130,6 @@ impl NativeAppState {
             workspace_catalog: OnceCell::new(),
             provider_setup_coordinator: ProviderSetupCoordinator::default(),
             workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator::default(),
-            app_config: NativeAppConfig::from_build_environment(),
             catalogs: BundledCatalogReader,
             secrets,
             providers,

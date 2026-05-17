@@ -312,7 +312,6 @@ impl ProviderProvisioningGateway for FakeProvider {
                 input.provisioner_worker_image_ref,
                 sample_provisioner_worker_image_ref()
             );
-            assert_eq!(input.provisioner_worker_port, 8080);
             Ok(ProvisioningPodObservation {
                 provider_resource_id: "pod-1".to_string(),
                 datacenter_id: "EU-RO-1".to_string(),
@@ -402,7 +401,6 @@ impl ProviderProvisioningGateway for FakeProvider {
                 .lock()
                 .expect("create template inputs")
                 .push(input.clone());
-            assert_eq!(input.endpoint_worker_port, 8080);
             assert_eq!(
                 input.endpoint_worker_image_ref,
                 sample_endpoint_worker_image_ref()
@@ -2368,8 +2366,6 @@ fn worker_token_map(workspace_id: &str) -> Arc<Mutex<HashMap<String, String>>> {
 
 fn test_config() -> WorkspaceProvisioningConfig {
     WorkspaceProvisioningConfig {
-        provisioner_worker_port: 8080,
-        runpod_endpoint_worker_port: 8080,
         volume_mount_path: "/workspace".to_string(),
     }
 }
