@@ -1,5 +1,4 @@
 import tempfile
-import tarfile
 import unittest
 from pathlib import Path
 from threading import Event
@@ -20,7 +19,7 @@ class MaterializerTests(unittest.TestCase):
             with self.assertRaises(PreparationError):
                 RuntimeMaterializer(config).materialize(
                     request.resolved_runtime_implementation,
-                    runtime_paths(Path(directory)),
+                    runtime_paths(Path(directory), config.image_runtime_root_path),
                     Event(),
                 )
 
@@ -35,43 +34,15 @@ class MaterializerTests(unittest.TestCase):
             with self.assertRaises(PreparationError):
                 RuntimeMaterializer(config).materialize(
                     request.resolved_runtime_implementation,
-                    runtime_paths(Path(directory)),
+                    runtime_paths(Path(directory), config.image_runtime_root_path),
                     Event(),
                 )
 
-    def test_materializes_upstream_comfyui_custom_nodes_from_archive(self):
+    def test_validates_image_runtime_and_prepares_workspace_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())
-            paths = runtime_paths(Path(directory))
-
-            RuntimeMaterializer(test_config(workspace_mount_path=Path(directory))).materialize(
-                request.resolved_runtime_implementation,
-                paths,
-                Event(),
-            )
-
-            self.assertTrue((paths.comfyui_root / "custom_nodes" / "websocket_image_save.py").is_file())
-            self.assertTrue((paths.metadata_dir / "base-runtime/pip-freeze.txt").is_file())
-
-    def test_rejects_archive_missing_declared_base_dependency_record(self):
-        with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload())
-            archive_path = _runtime_archive_without_base_records()
-            config = test_config(workspace_mount_path=Path(directory), runtime_archive_path=archive_path)
-
-            with self.assertRaises(PreparationError):
-                RuntimeMaterializer(config).materialize(
-                    request.resolved_runtime_implementation,
-                    runtime_paths(Path(directory)),
-                    Event(),
-                )
-
-    def test_reads_gzip_runtime_archive_format(self):
-        with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload())
-            archive_path = _runtime_archive_with_base_records()
-            paths = runtime_paths(Path(directory))
-            config = test_config(workspace_mount_path=Path(directory), runtime_archive_path=archive_path)
+            config = test_config(workspace_mount_path=Path(directory))
+            paths = runtime_paths(Path(directory), config.image_runtime_root_path)
 
             RuntimeMaterializer(config).materialize(
                 request.resolved_runtime_implementation,
@@ -79,39 +50,67 @@ class MaterializerTests(unittest.TestCase):
                 Event(),
             )
 
-            self.assertTrue((paths.metadata_dir / "base-runtime/pip-freeze.txt").is_file())
+            self.assertTrue((paths.image_comfyui_root / "custom_nodes" / "websocket_image_save.py").is_file())
+            self.assertTrue((paths.image_runtime_root / "base-runtime/pip-freeze.txt").is_file())
+            self.assertTrue((Path(directory) / "models").is_dir())
+            self.assertTrue((Path(directory) / "custom_nodes").is_dir())
+            self.assertTrue((Path(directory) / "output").is_dir())
+            self.assertTrue((Path(directory) / ".luma-forge/python-overlay").is_dir())
+            self.assertFalse((Path(directory) / ".venv").exists())
+            self.assertFalse((Path(directory) / "ComfyUI").exists())
 
-def _runtime_archive_with_base_records() -> Path:
-    return _runtime_archive(include_base_records=True)
+    def test_resets_stale_python_overlay_and_install_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            config = test_config(workspace_mount_path=Path(directory))
+            paths = runtime_paths(Path(directory), config.image_runtime_root_path)
+            stale_package = paths.python_overlay_path / "stale_package.py"
+            stale_package.parent.mkdir(parents=True)
+            stale_package.write_text("stale = True\n", encoding="utf-8")
+            stale_report = paths.metadata_dir / "custom-node-stale-install-report.json"
+            stale_report.parent.mkdir(parents=True, exist_ok=True)
+            stale_report.write_text('{"install":["stale"]}\n', encoding="utf-8")
 
+            RuntimeMaterializer(config).materialize(
+                request.resolved_runtime_implementation,
+                paths,
+                Event(),
+            )
 
-def _runtime_archive_without_base_records() -> Path:
-    return _runtime_archive(include_base_records=False)
+            self.assertTrue(paths.python_overlay_path.is_dir())
+            self.assertFalse(stale_package.exists())
+            self.assertFalse(stale_report.exists())
 
+    def test_rejects_missing_declared_base_dependency_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            config = test_config(workspace_mount_path=Path(directory))
+            (config.image_runtime_root_path / "base-runtime/pip-freeze.txt").unlink()
 
-def _runtime_archive(*, include_base_records: bool) -> Path:
-    archive_file = tempfile.NamedTemporaryFile(prefix="luma-forge-runtime-test-", suffix=".tar.gz", delete=False)
-    archive_path = Path(archive_file.name)
-    archive_file.close()
-    with tempfile.TemporaryDirectory() as source_directory:
-        root = Path(source_directory)
-        comfyui = root / "ComfyUI"
-        custom_nodes = comfyui / "custom_nodes"
-        venv_bin = root / ".venv/bin"
-        custom_nodes.mkdir(parents=True)
-        venv_bin.mkdir(parents=True)
-        (comfyui / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
-        (custom_nodes / "websocket_image_save.py").write_text("# node\n", encoding="utf-8")
-        (venv_bin / "python").write_text("#!/usr/bin/env python\n", encoding="utf-8")
-        with tarfile.open(archive_path, "w:gz") as archive:
-            archive.add(comfyui, arcname="ComfyUI")
-            archive.add(root / ".venv", arcname=".venv")
-            if include_base_records:
-                base_runtime = root / ".luma-forge/base-runtime"
-                base_runtime.mkdir(parents=True)
-                (base_runtime / "pip-freeze.txt").write_text("torch==2.5.1\n", encoding="utf-8")
-                archive.add(base_runtime, arcname=".luma-forge/base-runtime")
-    return archive_path
+            with self.assertRaises(PreparationError):
+                RuntimeMaterializer(config).materialize(
+                    request.resolved_runtime_implementation,
+                    runtime_paths(Path(directory), config.image_runtime_root_path),
+                    Event(),
+                )
+
+    def test_rejects_mismatched_image_runtime_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            config = test_config(workspace_mount_path=Path(directory))
+            metadata_path = config.image_runtime_root_path / "runtime-metadata.json"
+            payload = metadata_path.read_text(encoding="utf-8")
+            metadata_path.write_text(
+                payload.replace('"implementation_revision": "2026.05.16-001"', '"implementation_revision": "wrong"'),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparationError):
+                RuntimeMaterializer(config).materialize(
+                    request.resolved_runtime_implementation,
+                    runtime_paths(Path(directory), config.image_runtime_root_path),
+                    Event(),
+                )
 
 
 if __name__ == "__main__":

@@ -57,6 +57,31 @@ class EnvironmentTests(unittest.TestCase):
             with self.assertRaises(PreparedEnvironmentError):
                 validate_prepared_environment(fixture.config)
 
+    def test_fails_when_image_runtime_contract_mismatches(self):
+        with WorkerFixture() as fixture:
+            payload = fixture.config.image_runtime_contract_path.read_text(encoding="utf-8")
+            fixture.config.image_runtime_contract_path.write_text(
+                payload.replace('"implementation_revision": "2026.05.16-001"', '"implementation_revision": "other"'),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
+    def test_fails_when_endpoint_image_identity_mismatches(self):
+        with WorkerFixture() as fixture:
+            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
+            fixture.config.runtime_manifest_path.write_text(
+                payload.replace(
+                    "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                    "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333",
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PreparedRuntimeError):
+                validate_prepared_environment(fixture.config)
+
     def test_fails_when_comfyui_entrypoint_is_missing(self):
         with WorkerFixture() as fixture:
             (fixture.comfyui_root / "main.py").unlink()
@@ -66,14 +91,14 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_fails_when_workflow_is_missing(self):
         with WorkerFixture() as fixture:
-            (fixture.comfyui_root / "workflows/t2i.json").unlink()
+            (fixture.workspace / "workflows/t2i.json").unlink()
 
             with self.assertRaises(PreparedEnvironmentError):
                 validate_prepared_environment(fixture.config)
 
     def test_fails_when_required_model_is_missing(self):
         with WorkerFixture() as fixture:
-            (fixture.comfyui_root / "models/checkpoints/sd_xl_base_1.0.safetensors").unlink()
+            (fixture.workspace / "models/checkpoints/sd_xl_base_1.0.safetensors").unlink()
 
             with self.assertRaises(PreparedEnvironmentError):
                 validate_prepared_environment(fixture.config)
@@ -83,7 +108,7 @@ class EnvironmentTests(unittest.TestCase):
             payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
             escaped = Path(fixture.workspace).parent / "outside-pip-freeze.txt"
             fixture.config.runtime_manifest_path.write_text(
-                payload.replace(str(fixture.pip_freeze_path), str(escaped)),
+                payload.replace(str(fixture.overlay_report_path), str(escaped)),
                 encoding="utf-8",
             )
 
@@ -92,7 +117,7 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_fails_when_dependency_record_is_missing(self):
         with WorkerFixture() as fixture:
-            fixture.pip_freeze_path.unlink()
+            fixture.overlay_report_path.unlink()
 
             with self.assertRaises(PreparedEnvironmentError):
                 validate_prepared_environment(fixture.config)
@@ -101,7 +126,8 @@ class EnvironmentTests(unittest.TestCase):
         with WorkerFixture() as fixture:
             runtime = validate_prepared_environment(fixture.config)
 
-            self.assertEqual(runtime.base_dependency_record_paths[0], fixture.pip_freeze_path)
+            self.assertEqual(runtime.image_base_dependency_record_paths[0], fixture.pip_freeze_path)
+            self.assertEqual(runtime.overlay_dependency_record_paths[0], fixture.overlay_report_path)
 
     def test_safe_child_path_rejects_parent_traversal(self):
         with self.assertRaises(ValidationError):
@@ -109,9 +135,10 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_validates_custom_node_path_when_configured(self):
         with WorkerFixture() as fixture:
-            (fixture.comfyui_root / "custom_nodes/node").mkdir(parents=True)
+            (fixture.workspace / "custom_nodes/node").mkdir(parents=True)
             config = EndpointConfig(
                 workspace_mount_path=fixture.workspace,
+                image_runtime_root_path=fixture.image_runtime_root,
                 required_custom_node_paths=(Path("custom_nodes/node"),),
             )
 

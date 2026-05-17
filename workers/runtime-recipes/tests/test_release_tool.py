@@ -2,7 +2,6 @@ import copy
 import importlib.util
 import json
 import shutil
-import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,10 +102,12 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
         self.assertNotIn("-r /workspace/ComfyUI/requirements.txt", dockerfile)
 
-    def test_dockerfile_builds_runtime_venv_without_symlinks(self):
+    def test_dockerfile_builds_image_runtime_venv_without_symlinks(self):
         dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("python -m venv --copies /workspace/.venv", dockerfile)
+        self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
+        self.assertIn("COPY --from=runtime-builder /opt/luma-forge/runtime /opt/luma-forge/runtime", dockerfile)
+        self.assertNotIn("base-runtime.tar.zst", dockerfile)
 
     def test_manual_dispatch_allows_optional_auto_revision_without_stale_default(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -279,8 +280,16 @@ class ReleaseToolTests(unittest.TestCase):
             ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"],
             contract["runtime_metadata"]["runtime_compatibility"]["pytorch_packages"],
         )
+        self.assertEqual(
+            ".luma-forge/python-overlay",
+            contract["runtime_metadata"]["workspace_overlay_policy"]["python_overlay_path"],
+        )
         self.assertEqual("2026.05.17-001", contract["default_implementation_revision"])
         self.assertEqual(_image_ref("1"), contract["implementation_revisions"][0]["provisioner_image_ref"])
+        self.assertEqual(
+            "/opt/luma-forge/runtime",
+            contract["implementation_revisions"][0]["image_metadata"]["image_runtime_root_path"],
+        )
 
     def test_validate_image_metadata_rejects_recipe_drift(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
@@ -296,29 +305,11 @@ class ReleaseToolTests(unittest.TestCase):
                 endpoint_metadata=endpoint_metadata,
             )
 
-    def test_validate_runtime_archive_rejects_absolute_symlinks(self):
-        with tempfile.TemporaryDirectory() as directory:
-            archive_path = Path(directory) / "base-runtime.tar.gz"
-            with tarfile.open(archive_path, "w:gz") as archive:
-                link = tarfile.TarInfo(".venv/bin/python3.12")
-                link.type = tarfile.SYMTYPE
-                link.linkname = "/usr/local/bin/python3.12"
-                archive.addfile(link)
+    def test_workflow_does_not_validate_runtime_archive(self):
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "safely extractable"):
-                release_tool.validate_runtime_archive(archive_path)
-
-    def test_validate_runtime_archive_accepts_data_filter_safe_members(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            payload = root / "payload"
-            payload.mkdir()
-            (payload / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
-            archive_path = root / "base-runtime.tar.gz"
-            with tarfile.open(archive_path, "w:gz") as archive:
-                archive.add(payload / "main.py", arcname="ComfyUI/main.py")
-
-            release_tool.validate_runtime_archive(archive_path)
+        self.assertNotIn("validate-runtime-archive", workflow)
+        self.assertNotIn("base-runtime.tar.zst", workflow)
 
     def test_cli_writes_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -382,11 +373,7 @@ def _catalog_with_contract(recipe, *, implementation_revision):
                         "revision": revision,
                         "provisioner_image_ref": _image_ref("1"),
                         "endpoint_image_ref": _image_ref("2"),
-                        "image_metadata": {
-                            "provisioner_runtime_archive_path": release_tool.PROVISIONER_RUNTIME_ARCHIVE_PATH,
-                            "provisioner_runtime_metadata_path": release_tool.PROVISIONER_RUNTIME_METADATA_PATH,
-                            "endpoint_runtime_contract_path": release_tool.ENDPOINT_RUNTIME_CONTRACT_PATH,
-                        },
+                        "image_metadata": release_tool.image_metadata_for_catalog(),
                     }
                     for revision in implementation_revisions
                 ],
@@ -408,6 +395,17 @@ def _provisioner_metadata(recipe, implementation_revision):
             "python_version": compatibility["python_version"],
             "platform": compatibility["platform"],
             "comfyui_revision": compatibility["comfyui_revision"],
+            "environment_kind": release_tool.ENVIRONMENT_KIND,
+            "image_runtime_root_path": release_tool.IMAGE_RUNTIME_ROOT_PATH,
+            "image_python_interpreter_path": release_tool.IMAGE_PYTHON_INTERPRETER_PATH,
+            "image_comfyui_root_path": release_tool.IMAGE_COMFYUI_ROOT_PATH,
+            "image_base_dependency_record_paths": copy.deepcopy(
+                release_tool.IMAGE_BASE_DEPENDENCY_RECORD_PATHS
+            ),
+            "runtime_manifest_compatibility": copy.deepcopy(
+                release_tool.RUNTIME_MANIFEST_COMPATIBILITY
+            ),
+            "workspace_overlay_policy": copy.deepcopy(release_tool.WORKSPACE_OVERLAY_POLICY),
             "pytorch_index_url": compatibility["pytorch_index_url"],
             "pytorch_packages": copy.deepcopy(compatibility["pytorch_packages"]),
             "base_requirements": copy.deepcopy(compatibility["base_requirements"]),
@@ -421,6 +419,12 @@ def _endpoint_metadata(recipe, implementation_revision):
         "contract_id": recipe["contract"]["id"],
         "contract_version": recipe["contract"]["version"],
         "implementation_revision": implementation_revision,
+        "image_runtime_root_path": release_tool.IMAGE_RUNTIME_ROOT_PATH,
+        "image_python_interpreter_path": release_tool.IMAGE_PYTHON_INTERPRETER_PATH,
+        "image_comfyui_root_path": release_tool.IMAGE_COMFYUI_ROOT_PATH,
+        "image_base_dependency_record_paths": copy.deepcopy(
+            release_tool.IMAGE_BASE_DEPENDENCY_RECORD_PATHS
+        ),
     }
 
 

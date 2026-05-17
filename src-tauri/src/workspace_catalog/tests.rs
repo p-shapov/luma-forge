@@ -343,6 +343,21 @@ async fn stores_provider_id_column_from_workspace() {
         stored_workspace.gpu_cloud_provider_id,
         workspace.gpu_cloud_provider_id
     );
+    assert_eq!(
+        stored_workspace
+            .resolved_runtime_implementation
+            .image_metadata
+            .image_python_interpreter_path,
+        "/opt/luma-forge/runtime/.venv/bin/python"
+    );
+    assert_eq!(
+        stored_workspace
+            .resolved_runtime_implementation
+            .runtime_metadata
+            .workspace_overlay_policy
+            .protected_package_names,
+        vec!["torch", "torchvision", "torchaudio"]
+    );
 }
 
 #[tokio::test]
@@ -523,6 +538,7 @@ fn runpod_template_snapshot() -> ProviderProvisioningSnapshot {
             template_id: "template-1".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
             endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
+            runtime_env: std::collections::HashMap::new(),
             mount_path: "/workspace".to_string(),
         }),
     }

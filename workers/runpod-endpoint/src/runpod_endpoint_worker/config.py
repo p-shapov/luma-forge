@@ -6,6 +6,11 @@ from pathlib import Path
 @dataclass(frozen=True)
 class EndpointConfig:
     workspace_mount_path: Path = Path("/workspace")
+    image_runtime_root_path: Path = Path("/opt/luma-forge/runtime")
+    runtime_contract_id: str = "comfyui-python312-cu121"
+    runtime_contract_version: str = "1.0.0"
+    runtime_implementation_revision: str = "2026.05.16-001"
+    endpoint_image_ref: str = "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222"
     comfyui_host: str = "127.0.0.1"
     comfyui_port: int = 8188
     comfyui_startup_timeout_seconds: float = 120
@@ -28,6 +33,14 @@ class EndpointConfig:
                 ),
                 "/workspace",
             )),
+            image_runtime_root_path=_absolute_path("LUMA_FORGE_IMAGE_RUNTIME_ROOT", "/opt/luma-forge/runtime"),
+            runtime_contract_id=_string("LUMA_FORGE_RUNTIME_CONTRACT_ID", "comfyui-python312-cu121"),
+            runtime_contract_version=_string("LUMA_FORGE_RUNTIME_CONTRACT_VERSION", "1.0.0"),
+            runtime_implementation_revision=_string("LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION", "2026.05.16-001"),
+            endpoint_image_ref=_string(
+                "LUMA_FORGE_ENDPOINT_IMAGE_REF",
+                "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            ),
             comfyui_host=_string("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST", "127.0.0.1"),
             comfyui_port=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT", 8188),
             comfyui_startup_timeout_seconds=_positive_float(
@@ -55,11 +68,19 @@ class EndpointConfig:
 
     @property
     def comfyui_root(self) -> Path:
-        return self.workspace_mount_path / "ComfyUI"
+        return self.image_runtime_root_path / "ComfyUI"
+
+    @property
+    def image_python_path(self) -> Path:
+        return self.image_runtime_root_path / ".venv" / "bin" / "python"
+
+    @property
+    def image_runtime_contract_path(self) -> Path:
+        return self.image_runtime_root_path / "runtime-contract.json"
 
     @property
     def runtime_manifest_path(self) -> Path:
-        return self.workspace_mount_path / ".luma-forge" / "runtime.json"
+        return self.workspace_mount_path / ".luma-forge" / "runtime-manifest.json"
 
 
 def _string(name: str, default: str) -> str:
@@ -82,6 +103,14 @@ def _optional_string(name: str) -> str | None:
     if value is None or value.strip() == "":
         return None
     return value.strip()
+
+
+def _absolute_path(name: str, default: str) -> Path:
+    value = _string(name, default)
+    path = Path(value)
+    if not path.is_absolute():
+        return Path(default)
+    return path.resolve(strict=False)
 
 
 def _positive_int(name: str, default: int) -> int:

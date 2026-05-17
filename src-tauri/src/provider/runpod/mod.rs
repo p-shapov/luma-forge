@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 mod contracts;
 mod mapper;
@@ -368,6 +368,7 @@ impl RunPodClient {
         api_key: &ProviderApiKey,
         name: &str,
         image_name: &str,
+        expected_env: &HashMap<String, String>,
         http_port: u16,
         volume_mount_path: &str,
     ) -> Result<Vec<RunPodTemplateObservation>, ProviderClientError> {
@@ -379,7 +380,14 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         let payloads = parse_rest_response::<Vec<RunPodTemplateResponse>>(response).await?;
-        templates_by_name(payloads, name, image_name, http_port, volume_mount_path)
+        templates_by_name(
+            payloads,
+            name,
+            image_name,
+            expected_env,
+            http_port,
+            volume_mount_path,
+        )
     }
 
     pub async fn delete_template(
@@ -517,6 +525,7 @@ fn templates_by_name(
     payloads: Vec<RunPodTemplateResponse>,
     name: &str,
     image_name: &str,
+    expected_env: &HashMap<String, String>,
     http_port: u16,
     volume_mount_path: &str,
 ) -> Result<Vec<RunPodTemplateObservation>, ProviderClientError> {
@@ -526,6 +535,11 @@ fn templates_by_name(
         .filter(|payload| {
             payload.name.as_deref() == Some(name)
                 && payload.image_name.as_deref() == Some(image_name)
+                && payload.env.as_ref().is_some_and(|env| {
+                    expected_env
+                        .iter()
+                        .all(|(key, value)| env.get(key) == Some(value))
+                })
                 && payload.volume_mount_path.as_deref() == Some(volume_mount_path)
                 && payload.is_serverless == Some(true)
                 && payload

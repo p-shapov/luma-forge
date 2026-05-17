@@ -80,12 +80,24 @@ class RuntimeMetadata:
     python_version: str
     platform: str
     comfyui_revision: str
-    base_dependency_record_paths: list[Path]
+    runtime_manifest_compatibility: dict[str, str]
+    workspace_overlay_policy: "WorkspaceOverlayPolicy"
+
+
+@dataclass(frozen=True)
+class WorkspaceOverlayPolicy:
+    python_overlay_path: Path
+    import_path_precedence: str
+    protected_package_names: list[str]
+    protected_package_prefixes: list[str]
 
 
 @dataclass(frozen=True)
 class RuntimeImageMetadata:
-    provisioner_runtime_archive_path: Path
+    image_runtime_root_path: Path
+    image_python_interpreter_path: Path
+    image_comfyui_root_path: Path
+    image_base_dependency_record_paths: list[Path]
     provisioner_runtime_metadata_path: Path
     endpoint_runtime_contract_path: Path
 
@@ -167,16 +179,34 @@ def _parse_resolved_runtime_implementation(payload: Any) -> ResolvedRuntimeImple
             python_version=_non_empty_string(runtime_metadata.get("python_version"), "runtime_metadata.python_version"),
             platform=_non_empty_string(runtime_metadata.get("platform"), "runtime_metadata.platform"),
             comfyui_revision=_immutable_revision(runtime_metadata.get("comfyui_revision"), "runtime_metadata.comfyui_revision"),
-            base_dependency_record_paths=[
-                safe_relative_path(path, field_name="runtime_metadata.base_dependency_record_paths[]")
-                for path in _list(runtime_metadata.get("base_dependency_record_paths"), "runtime_metadata.base_dependency_record_paths")
-            ],
+            runtime_manifest_compatibility=_string_map(
+                runtime_metadata.get("runtime_manifest_compatibility"),
+                "runtime_metadata.runtime_manifest_compatibility",
+            ),
+            workspace_overlay_policy=_parse_workspace_overlay_policy(
+                runtime_metadata.get("workspace_overlay_policy"),
+            ),
         ),
         image_metadata=RuntimeImageMetadata(
-            provisioner_runtime_archive_path=_absolute_path(
-                image_metadata.get("provisioner_runtime_archive_path"),
-                "image_metadata.provisioner_runtime_archive_path",
+            image_runtime_root_path=_absolute_path(
+                image_metadata.get("image_runtime_root_path"),
+                "image_metadata.image_runtime_root_path",
             ),
+            image_python_interpreter_path=_absolute_path(
+                image_metadata.get("image_python_interpreter_path"),
+                "image_metadata.image_python_interpreter_path",
+            ),
+            image_comfyui_root_path=_absolute_path(
+                image_metadata.get("image_comfyui_root_path"),
+                "image_metadata.image_comfyui_root_path",
+            ),
+            image_base_dependency_record_paths=[
+                safe_relative_path(path, field_name="image_metadata.image_base_dependency_record_paths[]")
+                for path in _list(
+                    image_metadata.get("image_base_dependency_record_paths"),
+                    "image_metadata.image_base_dependency_record_paths",
+                )
+            ],
             provisioner_runtime_metadata_path=_absolute_path(
                 image_metadata.get("provisioner_runtime_metadata_path"),
                 "image_metadata.provisioner_runtime_metadata_path",
@@ -186,6 +216,34 @@ def _parse_resolved_runtime_implementation(payload: Any) -> ResolvedRuntimeImple
                 "image_metadata.endpoint_runtime_contract_path",
             ),
         ),
+    )
+
+
+def _parse_workspace_overlay_policy(payload: Any) -> WorkspaceOverlayPolicy:
+    data = _object(payload, "runtime_metadata.workspace_overlay_policy")
+    return WorkspaceOverlayPolicy(
+        python_overlay_path=safe_relative_path(
+            data.get("python_overlay_path"),
+            field_name="runtime_metadata.workspace_overlay_policy.python_overlay_path",
+        ),
+        import_path_precedence=_non_empty_string(
+            data.get("import_path_precedence"),
+            "runtime_metadata.workspace_overlay_policy.import_path_precedence",
+        ),
+        protected_package_names=[
+            _package_name(name, "runtime_metadata.workspace_overlay_policy.protected_package_names[]")
+            for name in _list(
+                data.get("protected_package_names"),
+                "runtime_metadata.workspace_overlay_policy.protected_package_names",
+            )
+        ],
+        protected_package_prefixes=[
+            _package_prefix(prefix, "runtime_metadata.workspace_overlay_policy.protected_package_prefixes[]")
+            for prefix in _list(
+                data.get("protected_package_prefixes"),
+                "runtime_metadata.workspace_overlay_policy.protected_package_prefixes",
+            )
+        ],
     )
 
 
@@ -266,6 +324,13 @@ def _list(payload: Any, field: str) -> list[Any]:
     return payload
 
 
+def _string_map(payload: Any, field: str) -> dict[str, str]:
+    data = _object(payload, field)
+    if any(not isinstance(key, str) or not isinstance(value, str) or value.strip() == "" for key, value in data.items()):
+        raise ValidationError(f"{field} must contain string values")
+    return {key: value.strip() for key, value in data.items()}
+
+
 def _non_empty_string(value: Any, field: str) -> str:
     if not isinstance(value, str) or value.strip() == "":
         raise ValidationError(f"{field} must be a non-empty string")
@@ -286,6 +351,20 @@ def _display_name(value: Any, field: str) -> str:
     if len(name) > MAX_DISPLAY_NAME_LENGTH or any(ord(character) < 32 or ord(character) == 127 for character in name):
         raise ValidationError(f"{field} must be a safe display name")
     return name
+
+
+def _package_name(value: Any, field: str) -> str:
+    package = _non_empty_string(value, field).lower().replace("_", "-")
+    if re.fullmatch(r"[a-z0-9][a-z0-9._-]*", package) is None:
+        raise ValidationError(f"{field} must be a package name")
+    return package
+
+
+def _package_prefix(value: Any, field: str) -> str:
+    prefix = _package_name(value, field)
+    if not prefix.endswith("-"):
+        raise ValidationError(f"{field} must end with '-'")
+    return prefix
 
 
 def _is_immutable_git_revision(value: str) -> bool:

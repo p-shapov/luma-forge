@@ -190,9 +190,9 @@ class ApiTests(unittest.TestCase):
         self.assertIn(raw_output, stdout.getvalue())
         self.assertIn(raw_output, stderr.getvalue())
         self.assertEqual(payload["status"], "running")
-        self.assertEqual(payload["phase"], "installing_comfyui")
+        self.assertEqual(payload["phase"], "materializing_runtime")
         self.assertEqual(payload["progress_percent"], 25)
-        self.assertEqual(payload["diagnostic_message"], "Installing ComfyUI dependencies into volume environment")
+        self.assertEqual(payload["diagnostic_message"], "Validating image-baked ComfyUI runtime")
         self.assertNotIn(raw_output, str(payload))
 
     def test_failed_status_does_not_include_console_output(self):
@@ -433,9 +433,9 @@ class ConsoleOutputProvisioner:
 
     def prepare(self, request, progress, cancel_event):
         progress(
-            "installing_comfyui",
+            "materializing_runtime",
             25,
-            "Installing ComfyUI dependencies into volume environment",
+            "Validating image-baked ComfyUI runtime",
         )
         print(self.raw_output, flush=True)
         print(self.raw_output, file=sys.stderr, flush=True)

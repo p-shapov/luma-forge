@@ -5,22 +5,29 @@ import argparse
 import datetime as dt
 import json
 import re
-import subprocess
 import sys
-import tarfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 
 ENVIRONMENT_KIND = "image_baked_comfyui_runtime"
-BASE_DEPENDENCY_RECORD_PATHS = [
-    ".luma-forge/base-runtime/pip-freeze.txt",
-    ".luma-forge/base-runtime/install-report.json",
+IMAGE_RUNTIME_ROOT_PATH = "/opt/luma-forge/runtime"
+IMAGE_PYTHON_INTERPRETER_PATH = "/opt/luma-forge/runtime/.venv/bin/python"
+IMAGE_COMFYUI_ROOT_PATH = "/opt/luma-forge/runtime/ComfyUI"
+IMAGE_BASE_DEPENDENCY_RECORD_PATHS = [
+    "base-runtime/pip-freeze.txt",
+    "base-runtime/install-report.json",
 ]
-PROVISIONER_RUNTIME_ARCHIVE_PATH = "/opt/luma-forge/runtime/base-runtime.tar.zst"
 PROVISIONER_RUNTIME_METADATA_PATH = "/opt/luma-forge/runtime/runtime-metadata.json"
 ENDPOINT_RUNTIME_CONTRACT_PATH = "/opt/luma-forge/runtime/runtime-contract.json"
+RUNTIME_MANIFEST_COMPATIBILITY = {"manifest_version": "1"}
+WORKSPACE_OVERLAY_POLICY = {
+    "python_overlay_path": ".luma-forge/python-overlay",
+    "import_path_precedence": "overlay_first",
+    "protected_package_names": ["torch", "torchvision", "torchaudio"],
+    "protected_package_prefixes": ["nvidia-"],
+}
 AUTO_IMPLEMENTATION_REVISION_VALUES = ("", "auto")
 IMPLEMENTATION_REVISION_DATE_PATTERN = re.compile(r"^(?P<date>\d{4}\.\d{2}\.\d{2})-(?P<sequence>\d{3,})$")
 
@@ -44,7 +51,8 @@ def runtime_metadata_from_recipe(recipe: dict[str, Any]) -> dict[str, Any]:
         "python_version": compatibility["python_version"],
         "platform": compatibility["platform"],
         "comfyui_revision": compatibility["comfyui_revision"],
-        "base_dependency_record_paths": list(BASE_DEPENDENCY_RECORD_PATHS),
+        "runtime_manifest_compatibility": copy_json(RUNTIME_MANIFEST_COMPATIBILITY),
+        "workspace_overlay_policy": copy_json(WORKSPACE_OVERLAY_POLICY),
         "runtime_compatibility": {
             "pytorch_index_url": compatibility["pytorch_index_url"],
             "pytorch_packages": list(compatibility["pytorch_packages"]),
@@ -60,7 +68,9 @@ def compatibility_metadata_from_recipe(recipe: dict[str, Any]) -> dict[str, Any]
         "python_version": runtime["python_version"],
         "platform": runtime["platform"],
         "comfyui_revision": runtime["comfyui"]["revision"],
-        "base_dependency_record_paths": list(BASE_DEPENDENCY_RECORD_PATHS),
+        "runtime_manifest_compatibility": copy_json(RUNTIME_MANIFEST_COMPATIBILITY),
+        "workspace_overlay_policy": copy_json(WORKSPACE_OVERLAY_POLICY),
+        "image_runtime_layout": image_runtime_layout_for_compatibility(),
         "pytorch_index_url": runtime["pytorch"]["index_url"],
         "pytorch_packages": list(runtime["pytorch"]["packages"]),
         "base_requirements": list(runtime["base_requirements"]),
@@ -77,7 +87,9 @@ def compatibility_metadata_from_contract(contract: dict[str, Any]) -> dict[str, 
         "python_version": runtime_metadata.get("python_version"),
         "platform": runtime_metadata.get("platform"),
         "comfyui_revision": runtime_metadata.get("comfyui_revision"),
-        "base_dependency_record_paths": runtime_metadata.get("base_dependency_record_paths"),
+        "runtime_manifest_compatibility": runtime_metadata.get("runtime_manifest_compatibility"),
+        "workspace_overlay_policy": runtime_metadata.get("workspace_overlay_policy"),
+        "image_runtime_layout": _contract_image_runtime_layout(contract),
         "pytorch_index_url": runtime_compatibility.get("pytorch_index_url"),
         "pytorch_packages": runtime_compatibility.get("pytorch_packages"),
         "base_requirements": runtime_compatibility.get("base_requirements"),
@@ -185,11 +197,7 @@ def update_catalog(
             "revision": implementation_revision,
             "provisioner_image_ref": provisioner_ref,
             "endpoint_image_ref": endpoint_ref,
-            "image_metadata": {
-                "provisioner_runtime_archive_path": PROVISIONER_RUNTIME_ARCHIVE_PATH,
-                "provisioner_runtime_metadata_path": PROVISIONER_RUNTIME_METADATA_PATH,
-                "endpoint_runtime_contract_path": ENDPOINT_RUNTIME_CONTRACT_PATH,
-            },
+            "image_metadata": image_metadata_for_catalog(),
         }
     )
     contract["default_implementation_revision"] = implementation_revision
@@ -217,9 +225,16 @@ def validate_image_metadata(
             raise ReleaseToolError(f"endpoint runtime metadata mismatch: {key}")
 
     expected_provisioner = {
+        "environment_kind": ENVIRONMENT_KIND,
         "python_version": compatibility["python_version"],
         "platform": compatibility["platform"],
         "comfyui_revision": compatibility["comfyui_revision"],
+        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
+        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
+        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
+        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
+        "runtime_manifest_compatibility": copy_json(RUNTIME_MANIFEST_COMPATIBILITY),
+        "workspace_overlay_policy": copy_json(WORKSPACE_OVERLAY_POLICY),
         "pytorch_index_url": compatibility["pytorch_index_url"],
         "pytorch_packages": compatibility["pytorch_packages"],
         "base_requirements": compatibility["base_requirements"],
@@ -232,39 +247,62 @@ def validate_image_metadata(
             "provisioner runtime metadata does not match selected recipe: "
             + ", ".join(mismatches)
         )
-
-
-def validate_runtime_archive(path: Path) -> None:
-    if not path.is_file():
-        raise ReleaseToolError(f"runtime archive is missing: {path}")
-    if path.name.endswith(".tar.zst"):
-        _validate_zstd_runtime_archive(path)
-        return
-    try:
-        with tarfile.open(path, mode="r:*") as archive:
-            for member in archive:
-                tarfile.data_filter(member, "/tmp/luma-forge-runtime-archive-validation")
-    except (OSError, tarfile.TarError) as error:
-        raise ReleaseToolError(f"runtime archive is not safely extractable: {error}") from error
-
-
-def _validate_zstd_runtime_archive(path: Path) -> None:
-    try:
-        completed = subprocess.run(
-            ["tar", "--zstd", "-tf", str(path)],
-            check=True,
-            capture_output=True,
-            text=True,
+    endpoint_expected = {
+        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
+        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
+        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
+        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
+    }
+    endpoint_mismatches = [
+        key for key, value in endpoint_expected.items() if endpoint_metadata.get(key) != value
+    ]
+    if endpoint_mismatches:
+        raise ReleaseToolError(
+            "endpoint runtime metadata does not match selected recipe: "
+            + ", ".join(endpoint_mismatches)
         )
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise ReleaseToolError(f"runtime archive is not safely extractable: {error}") from error
-    for member_name in completed.stdout.splitlines():
-        if (
-            member_name.startswith("/")
-            or member_name == ""
-            or any(part in ("", ".", "..") for part in Path(member_name).parts)
-        ):
-            raise ReleaseToolError(f"runtime archive is not safely extractable: unsafe member {member_name}")
+
+
+def image_metadata_for_catalog() -> dict[str, Any]:
+    return {
+        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
+        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
+        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
+        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
+        "provisioner_runtime_metadata_path": PROVISIONER_RUNTIME_METADATA_PATH,
+        "endpoint_runtime_contract_path": ENDPOINT_RUNTIME_CONTRACT_PATH,
+    }
+
+
+def image_runtime_layout_for_compatibility() -> dict[str, Any]:
+    return {
+        "image_runtime_root_path": IMAGE_RUNTIME_ROOT_PATH,
+        "image_python_interpreter_path": IMAGE_PYTHON_INTERPRETER_PATH,
+        "image_comfyui_root_path": IMAGE_COMFYUI_ROOT_PATH,
+        "image_base_dependency_record_paths": list(IMAGE_BASE_DEPENDENCY_RECORD_PATHS),
+    }
+
+
+def _contract_image_runtime_layout(contract: dict[str, Any]) -> dict[str, Any] | None:
+    revisions = contract.get("implementation_revisions")
+    if not isinstance(revisions, list) or not revisions:
+        return None
+    first = revisions[0]
+    if not isinstance(first, dict):
+        return None
+    image_metadata = first.get("image_metadata")
+    if not isinstance(image_metadata, dict):
+        return None
+    return {
+        "image_runtime_root_path": image_metadata.get("image_runtime_root_path"),
+        "image_python_interpreter_path": image_metadata.get("image_python_interpreter_path"),
+        "image_comfyui_root_path": image_metadata.get("image_comfyui_root_path"),
+        "image_base_dependency_record_paths": image_metadata.get("image_base_dependency_record_paths"),
+    }
+
+
+def copy_json(value: Any) -> Any:
+    return json.loads(json.dumps(value))
 
 
 def recipe_outputs(recipe: dict[str, Any], recipe_path: Path, implementation_revision: str) -> dict[str, str]:
@@ -565,10 +603,6 @@ def _cmd_validate_image_metadata(args: argparse.Namespace) -> None:
     )
 
 
-def _cmd_validate_runtime_archive(args: argparse.Namespace) -> None:
-    validate_runtime_archive(Path(args.runtime_archive))
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Runtime recipe release helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -601,9 +635,6 @@ def build_parser() -> argparse.ArgumentParser:
     validate_image.add_argument("--endpoint-runtime-metadata", required=True)
     validate_image.set_defaults(func=_cmd_validate_image_metadata)
 
-    validate_archive = subparsers.add_parser("validate-runtime-archive", help="validate runtime archive safety")
-    validate_archive.add_argument("--runtime-archive", required=True)
-    validate_archive.set_defaults(func=_cmd_validate_runtime_archive)
     return parser
 
 

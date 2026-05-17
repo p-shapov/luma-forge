@@ -25,7 +25,21 @@ pub struct RuntimeMetadata {
     pub python_version: String,
     pub platform: String,
     pub comfyui_revision: String,
-    pub base_dependency_record_paths: Vec<String>,
+    pub runtime_manifest_compatibility: RuntimeManifestCompatibility,
+    pub workspace_overlay_policy: WorkspaceOverlayPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeManifestCompatibility {
+    pub manifest_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceOverlayPolicy {
+    pub python_overlay_path: String,
+    pub import_path_precedence: String,
+    pub protected_package_names: Vec<String>,
+    pub protected_package_prefixes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -38,7 +52,10 @@ pub struct RuntimeImplementationRevision {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeImageMetadata {
-    pub provisioner_runtime_archive_path: String,
+    pub image_runtime_root_path: String,
+    pub image_python_interpreter_path: String,
+    pub image_comfyui_root_path: String,
+    pub image_base_dependency_record_paths: Vec<String>,
     pub provisioner_runtime_metadata_path: String,
     pub endpoint_runtime_contract_path: String,
 }

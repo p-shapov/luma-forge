@@ -19,12 +19,14 @@ class PythonEnvironment:
         *,
         cwd: Path,
         python_path: Path,
+        target_path: Path,
         report_label: str,
         metadata_dir: Path,
         cancel_event: Event,
     ) -> None:
         if requirements_path.exists():
             metadata_dir.mkdir(parents=True, exist_ok=True)
+            target_path.mkdir(parents=True, exist_ok=True)
             report_path = metadata_report_path(metadata_dir, report_label)
             self.command_runner.run(
                 [
@@ -32,6 +34,8 @@ class PythonEnvironment:
                     "-m",
                     "pip",
                     "install",
+                    "--target",
+                    str(target_path),
                     "--report",
                     str(report_path),
                     "-r",

@@ -5,13 +5,15 @@ from app.schemas import StartRequest
 
 
 def validate_prepared_environment(request: StartRequest, paths: RuntimePaths, *, include_manifest: bool) -> None:
-    comfyui_root = paths.comfyui_root
+    comfyui_root = paths.image_comfyui_root
     if not comfyui_root.exists() or not comfyui_root.is_dir():
         raise PreparationError("ComfyUI directory is missing")
     if not (comfyui_root / "main.py").is_file():
         raise PreparationError("ComfyUI entrypoint is missing")
-    if not paths.python_path.is_file():
-        raise PreparationError("Volume Python interpreter is missing")
+    if not paths.image_python_path.is_file():
+        raise PreparationError("Image Python interpreter is missing")
+    if not paths.python_overlay_path.is_dir():
+        raise PreparationError("Python overlay directory is missing")
     if request.resolved_runtime_implementation.contract_id != request.workflow_preset.required_runtime_contract.id:
         raise PreparationError("Resolved runtime contract does not match Workflow Preset")
     if request.resolved_runtime_implementation.contract_version != request.workflow_preset.required_runtime_contract.version:
@@ -19,7 +21,7 @@ def validate_prepared_environment(request: StartRequest, paths: RuntimePaths, *,
 
     for node in request.workflow_preset.required_custom_nodes:
         target = safe_custom_node_child_path(
-            comfyui_root,
+            paths.workspace_root,
             node.install.comfyui_custom_nodes_relative_path.as_posix(),
             field_name=f"custom_node[{node.id}].install.comfyui_custom_nodes_relative_path",
         )
@@ -28,7 +30,7 @@ def validate_prepared_environment(request: StartRequest, paths: RuntimePaths, *,
 
     for asset in request.workflow_preset.required_model_assets:
         target = safe_child_path(
-            comfyui_root,
+            paths.workspace_root,
             asset.install.comfyui_relative_path.as_posix(),
             field_name=f"model_asset[{asset.id}].install.comfyui_relative_path",
         )

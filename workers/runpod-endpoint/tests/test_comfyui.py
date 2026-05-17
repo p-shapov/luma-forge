@@ -24,6 +24,7 @@ class ComfyUiTests(unittest.TestCase):
         with WorkerFixture() as fixture:
             config = EndpointConfig(
                 workspace_mount_path=fixture.workspace,
+                image_runtime_root_path=fixture.image_runtime_root,
                 t2i_prompt_node_id="1",
                 t2i_prompt_input_key="text",
             )
@@ -36,7 +37,7 @@ class ComfyUiTests(unittest.TestCase):
 
     def test_fails_when_prompt_placeholder_missing(self):
         with WorkerFixture() as fixture:
-            (fixture.comfyui_root / "workflows/t2i.json").write_text('{"1":{"inputs":{"text":"fixed"}}}', encoding="utf-8")
+            (fixture.workspace / "workflows/t2i.json").write_text('{"1":{"inputs":{"text":"fixed"}}}', encoding="utf-8")
 
             with self.assertRaises(ValidationError):
                 render_t2i_workflow(
@@ -114,8 +115,8 @@ class ComfyUiTests(unittest.TestCase):
             client = FakeComfyUiClient(available=False)
             processes = []
 
-            def process_factory(command, cwd):
-                process = FakeProcess(command, cwd)
+            def process_factory(command, cwd, env):
+                process = FakeProcess(command, cwd, env)
                 processes.append(process)
                 client.available = True
                 return process
@@ -135,20 +136,26 @@ class ComfyUiTests(unittest.TestCase):
         self.assertEqual(len(processes), 1)
         self.assertEqual(processes[0].command, [
             str(fixture.venv_python),
-            "main.py",
+            str(fixture.comfyui_root / "main.py"),
+            "--base-directory",
+            str(fixture.workspace),
+            "--output-directory",
+            str(fixture.workspace / "output"),
             "--listen",
             fixture.config.comfyui_host,
             "--port",
             str(fixture.config.comfyui_port),
         ])
         self.assertEqual(processes[0].cwd, fixture.comfyui_root)
+        self.assertIn(str(fixture.overlay_path), processes[0].env["PYTHONPATH"])
+        self.assertEqual(processes[0].env["LUMA_FORGE_CUSTOM_NODES_ROOT"], str(fixture.workspace / "custom_nodes"))
         self.assertTrue(processes[0].terminated)
 
     def test_process_manager_reuses_already_ready_comfyui(self):
         with WorkerFixture() as fixture:
             client = FakeComfyUiClient(available=True)
 
-            def process_factory(command, cwd):
+            def process_factory(command, cwd, env):
                 raise AssertionError("process should not start")
 
             manager = ComfyUiProcessManager(
@@ -163,8 +170,8 @@ class ComfyUiTests(unittest.TestCase):
         with WorkerFixture() as fixture:
             client = FakeComfyUiClient(available=False)
 
-            def process_factory(command, cwd):
-                return FakeProcess(command, cwd, exit_code=1)
+            def process_factory(command, cwd, env):
+                return FakeProcess(command, cwd, env, exit_code=1)
 
             manager = ComfyUiProcessManager(
                 config=fixture.config,
@@ -193,9 +200,10 @@ class ComfyUiTests(unittest.TestCase):
 
 
 class FakeProcess:
-    def __init__(self, command, cwd, *, exit_code=None):
+    def __init__(self, command, cwd, env, *, exit_code=None):
         self.command = command
         self.cwd = cwd
+        self.env = env
         self.exit_code = exit_code
         self.terminated = False
         self.killed = False

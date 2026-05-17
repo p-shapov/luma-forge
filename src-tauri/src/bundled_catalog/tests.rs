@@ -28,7 +28,37 @@ fn reads_bundled_catalogs() {
 #[test]
 fn validates_runtime_catalog_surface_fields() {
     let valid = valid_runtime_catalog();
-    parse_runtime_catalog(&valid.to_string()).expect("valid runtime catalog");
+    let parsed = parse_runtime_catalog(&valid.to_string()).expect("valid runtime catalog");
+    let resolved = parsed
+        .resolve_default(&crate::domain::runtime::RuntimeContractReference {
+            id: parsed.runtime_contracts[0].id.clone(),
+            version: parsed.runtime_contracts[0].version.clone(),
+        })
+        .expect("default runtime snapshot");
+    assert_eq!(
+        resolved.image_metadata.image_runtime_root_path,
+        "/opt/luma-forge/runtime"
+    );
+    assert_eq!(
+        resolved
+            .runtime_metadata
+            .workspace_overlay_policy
+            .python_overlay_path,
+        ".luma-forge/python-overlay"
+    );
+
+    let mut non_default_root = valid_runtime_catalog();
+    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
+        ["image_runtime_root_path"] = json!("/runtime");
+    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
+        ["image_python_interpreter_path"] = json!("/runtime/.venv/bin/python");
+    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
+        ["image_comfyui_root_path"] = json!("/runtime/ComfyUI");
+    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
+        ["provisioner_runtime_metadata_path"] = json!("/runtime/runtime-metadata.json");
+    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
+        ["endpoint_runtime_contract_path"] = json!("/runtime/runtime-contract.json");
+    parse_runtime_catalog(&non_default_root.to_string()).expect("valid non-default runtime root");
 
     let invalid_cases = [
         (
@@ -50,9 +80,27 @@ fn validates_runtime_catalog_surface_fields() {
             BundledCatalogError::ValidationFailed,
         ),
         (
-            "malformed metadata path",
-            "/runtime_contracts/0/implementation_revisions/0/image_metadata/provisioner_runtime_archive_path",
-            json!("relative.tar.zst"),
+            "malformed image runtime root",
+            "/runtime_contracts/0/implementation_revisions/0/image_metadata/image_runtime_root_path",
+            json!("relative"),
+            BundledCatalogError::ValidationFailed,
+        ),
+        (
+            "endpoint runtime contract outside image root",
+            "/runtime_contracts/0/implementation_revisions/0/image_metadata/endpoint_runtime_contract_path",
+            json!("/other-runtime/runtime-contract.json"),
+            BundledCatalogError::ValidationFailed,
+        ),
+        (
+            "missing overlay policy",
+            "/runtime_contracts/0/runtime_metadata/workspace_overlay_policy/protected_package_names",
+            json!([]),
+            BundledCatalogError::ValidationFailed,
+        ),
+        (
+            "malformed protected package prefix",
+            "/runtime_contracts/0/runtime_metadata/workspace_overlay_policy/protected_package_prefixes",
+            json!(["nvidia"]),
             BundledCatalogError::ValidationFailed,
         ),
     ];
@@ -205,7 +253,15 @@ fn valid_runtime_catalog() -> Value {
                     "python_version": "3.12",
                     "platform": "linux-x86_64-cuda",
                     "comfyui_revision": COMMIT_REVISION,
-                    "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"]
+                    "runtime_manifest_compatibility": {
+                        "manifest_version": "1"
+                    },
+                    "workspace_overlay_policy": {
+                        "python_overlay_path": ".luma-forge/python-overlay",
+                        "import_path_precedence": "overlay_first",
+                        "protected_package_names": ["torch", "torchvision", "torchaudio"],
+                        "protected_package_prefixes": ["nvidia-"]
+                    }
                 },
                 "implementation_revisions": [
                     {
@@ -213,7 +269,10 @@ fn valid_runtime_catalog() -> Value {
                         "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
                         "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
                         "image_metadata": {
-                            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.zst",
+                            "image_runtime_root_path": "/opt/luma-forge/runtime",
+                            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+                            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+                            "image_base_dependency_record_paths": ["base-runtime/pip-freeze.txt"],
                             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
                             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
                         }

@@ -4,6 +4,7 @@ import base64
 import atexit
 import copy
 import json
+import os
 from pathlib import Path
 import subprocess
 from threading import Lock
@@ -24,7 +25,7 @@ from runpod_endpoint_worker.schemas import GenerationRequest, ImageOutput
 
 JsonTransport = Callable[[str, str, dict[str, Any] | None, float], dict[str, Any]]
 BytesTransport = Callable[[str, float], bytes]
-ProcessFactory = Callable[[list[str], Path], "ProcessLike"]
+ProcessFactory = Callable[[list[str], Path, dict[str, str]], "ProcessLike"]
 
 
 class ProcessLike(Protocol):
@@ -37,8 +38,8 @@ class ProcessLike(Protocol):
     def wait(self, timeout: float | None = None) -> int: ...
 
 
-def _start_comfyui_process(command: list[str], cwd: Path) -> ProcessLike:
-    return subprocess.Popen(command, cwd=cwd)
+def _start_comfyui_process(command: list[str], cwd: Path, env: dict[str, str]) -> ProcessLike:
+    return subprocess.Popen(command, cwd=cwd, env={**os.environ, **env})
 
 
 @dataclass(frozen=True)
@@ -128,13 +129,18 @@ class ComfyUiProcessManager:
                 self._process = self.process_factory(
                     [
                         str(runtime.python_path),
-                        "main.py",
+                        str(runtime.comfyui_root / "main.py"),
+                        "--base-directory",
+                        str(runtime.workspace_root),
+                        "--output-directory",
+                        str(runtime.workspace_root / "output"),
                         "--listen",
                         self.config.comfyui_host,
                         "--port",
                         str(self.config.comfyui_port),
                     ],
-                    self.config.comfyui_root,
+                    runtime.comfyui_root,
+                    _runtime_env(runtime),
                 )
                 self._register_shutdown()
 
@@ -181,8 +187,13 @@ class ComfyUiProcessManager:
         self._shutdown_registered = True
 
 
-def render_t2i_workflow(config: EndpointConfig, generation_request: GenerationRequest) -> dict[str, Any]:
-    with workflow_path(config).open("r", encoding="utf-8") as file:
+def render_t2i_workflow(
+    config: EndpointConfig,
+    generation_request: GenerationRequest,
+    runtime: PreparedRuntimeManifest | None = None,
+) -> dict[str, Any]:
+    runtime = runtime or validate_runtime_for_workflow(config)
+    with workflow_path(config, runtime).open("r", encoding="utf-8") as file:
         workflow = json.load(file)
 
     rendered = copy.deepcopy(workflow)
@@ -194,6 +205,27 @@ def render_t2i_workflow(config: EndpointConfig, generation_request: GenerationRe
     if not replaced:
         raise ValidationError("workflow prompt placeholder is missing")
     return rendered
+
+
+def validate_runtime_for_workflow(config: EndpointConfig) -> PreparedRuntimeManifest:
+    from runpod_endpoint_worker.environment import validate_prepared_environment
+
+    return validate_prepared_environment(config)
+
+
+def _runtime_env(runtime: PreparedRuntimeManifest) -> dict[str, str]:
+    python_paths = [str(runtime.python_overlay_path), str(runtime.workspace_root / "custom_nodes")]
+    existing = os.environ.get("PYTHONPATH")
+    if existing:
+        python_paths.append(existing)
+    return {
+        "PYTHONPATH": os.pathsep.join(python_paths),
+        "LUMA_FORGE_WORKSPACE_ROOT": str(runtime.workspace_root),
+        "LUMA_FORGE_PYTHON_OVERLAY": str(runtime.python_overlay_path),
+        "LUMA_FORGE_CUSTOM_NODES_ROOT": str(runtime.workspace_root / "custom_nodes"),
+        "LUMA_FORGE_MODELS_ROOT": str(runtime.workspace_root / "models"),
+        "LUMA_FORGE_OUTPUT_ROOT": str(runtime.workspace_root / "output"),
+    }
 
 
 def _set_prompt_node(workflow: dict[str, Any], node_id: str, input_key: str, prompt: str) -> None:

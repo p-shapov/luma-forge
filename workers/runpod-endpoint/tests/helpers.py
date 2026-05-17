@@ -40,49 +40,80 @@ class WorkerFixture:
     def __init__(self, *, config: EndpointConfig | None = None, comfyui: FakeComfyUiClient | None = None):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.tempdir.name)
-        self.comfyui_root = self.workspace / "ComfyUI"
-        self.comfyui_root.mkdir()
+        self.image_runtime_root = self.workspace / "image-runtime"
+        self.comfyui_root = self.image_runtime_root / "ComfyUI"
+        self.comfyui_root.mkdir(parents=True)
         (self.comfyui_root / "main.py").write_text("print('comfy')\n", encoding="utf-8")
-        self.venv_python = self.workspace / ".venv/bin/python"
+        self.venv_python = self.image_runtime_root / ".venv/bin/python"
         self.venv_python.parent.mkdir(parents=True)
         self.venv_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
         self.metadata_dir = self.workspace / ".luma-forge"
         self.metadata_dir.mkdir()
-        self.base_runtime_dir = self.metadata_dir / "base-runtime"
+        self.overlay_path = self.metadata_dir / "python-overlay"
+        self.overlay_path.mkdir()
+        self.base_runtime_dir = self.image_runtime_root / "base-runtime"
         self.base_runtime_dir.mkdir()
         self.pip_freeze_path = self.base_runtime_dir / "pip-freeze.txt"
         self.install_report_path = self.base_runtime_dir / "install-report.json"
         self.pip_freeze_path.write_text("", encoding="utf-8")
         self.install_report_path.write_text('{"reports":[]}\n', encoding="utf-8")
-        (self.comfyui_root / "models/checkpoints").mkdir(parents=True)
-        (self.comfyui_root / "models/checkpoints/sd_xl_base_1.0.safetensors").write_bytes(b"model")
-        (self.comfyui_root / "workflows").mkdir()
-        (self.comfyui_root / "workflows/t2i.json").write_text(
+        self.overlay_report_path = self.metadata_dir / "custom-node-test-install-report.json"
+        self.overlay_report_path.write_text('{"install":[]}\n', encoding="utf-8")
+        (self.workspace / "models/checkpoints").mkdir(parents=True)
+        (self.workspace / "models/checkpoints/sd_xl_base_1.0.safetensors").write_bytes(b"model")
+        (self.workspace / "workflows").mkdir()
+        (self.workspace / "workflows/t2i.json").write_text(
             json.dumps({"1": {"inputs": {"text": "{{prompt}}"}}}),
             encoding="utf-8",
         )
-        self.config = config or EndpointConfig(workspace_mount_path=self.workspace)
+        (self.workspace / "output").mkdir()
+        self.config = config or EndpointConfig(
+            workspace_mount_path=self.workspace,
+            image_runtime_root_path=self.image_runtime_root,
+        )
+        self.write_image_runtime_contract()
         self.write_runtime_manifest()
         self.comfyui = comfyui or FakeComfyUiClient()
         self.service = GenerationService(config=self.config, comfyui=self.comfyui)
 
+    def write_image_runtime_contract(self):
+        (self.image_runtime_root / "runtime-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract_id": self.config.runtime_contract_id,
+                    "contract_version": self.config.runtime_contract_version,
+                    "implementation_revision": self.config.runtime_implementation_revision,
+                    "image_runtime_root_path": str(self.image_runtime_root),
+                    "image_python_interpreter_path": str(self.venv_python),
+                    "image_comfyui_root_path": str(self.comfyui_root),
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def write_runtime_manifest(self):
-        (self.metadata_dir / "runtime.json").write_text(
+        (self.metadata_dir / "runtime-manifest.json").write_text(
             json.dumps(
                 {
                     "environment_kind": "image_baked_comfyui_runtime",
                     "python_path": str(self.venv_python),
                     "comfyui_root": str(self.comfyui_root),
+                    "image_runtime_root": str(self.image_runtime_root),
+                    "workspace_root": str(self.workspace),
+                    "python_overlay_path": str(self.overlay_path),
                     "python_version": "Python 3.12.0",
                     "platform": "test-platform",
                     "comfyui_revision": "0123456789abcdef0123456789abcdef01234567",
-                    "runtime_contract_id": "comfyui-python312-cu121",
-                    "runtime_contract_version": "1.0.0",
-                    "implementation_revision": "2026.05.16-001",
+                    "runtime_contract_id": self.config.runtime_contract_id,
+                    "runtime_contract_version": self.config.runtime_contract_version,
+                    "implementation_revision": self.config.runtime_implementation_revision,
                     "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
-                    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+                    "endpoint_image_ref": self.config.endpoint_image_ref,
                     "custom_node_revisions": [],
-                    "base_dependency_record_paths": [str(self.pip_freeze_path), str(self.install_report_path)],
+                    "image_base_dependency_record_paths": [str(self.pip_freeze_path), str(self.install_report_path)],
+                    "overlay_dependency_record_paths": [str(self.overlay_report_path)],
+                    "model_asset_paths": [str(self.workspace / "models/checkpoints/sd_xl_base_1.0.safetensors")],
+                    "protected_dependency_policy_version": "1",
                     "prepared_at": "2026-05-15T00:00:00+00:00",
                 }
             ),

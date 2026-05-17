@@ -176,6 +176,7 @@ export type RunPodEndpointTemplateSnapshot = {
 	template_id: string,
 	provider_resource_status: ProviderResourceStatus,
 	endpoint_worker_image_ref: string,
+	runtime_env: { [key in string]: string },
 	mount_path: string,
 };
 
@@ -185,9 +186,16 @@ export type RuntimeContractReference = {
 };
 
 export type RuntimeImageMetadata = {
-	provisioner_runtime_archive_path: string,
+	image_runtime_root_path: string,
+	image_python_interpreter_path: string,
+	image_comfyui_root_path: string,
+	image_base_dependency_record_paths: string[],
 	provisioner_runtime_metadata_path: string,
 	endpoint_runtime_contract_path: string,
+};
+
+export type RuntimeManifestCompatibility = {
+	manifest_version: string,
 };
 
 export type RuntimeMetadata = {
@@ -195,7 +203,8 @@ export type RuntimeMetadata = {
 	python_version: string,
 	platform: string,
 	comfyui_revision: string,
-	base_dependency_record_paths: string[],
+	runtime_manifest_compatibility: RuntimeManifestCompatibility,
+	workspace_overlay_policy: WorkspaceOverlayPolicy,
 };
 
 export type ServerlessEndpointSnapshot = {
@@ -256,6 +265,13 @@ export type WorkspaceCatalog = {
 };
 
 export type WorkspaceLifecycleState = "draft" | "provisioning" | "ready" | "failed";
+
+export type WorkspaceOverlayPolicy = {
+	python_overlay_path: string,
+	import_path_precedence: string,
+	protected_package_names: string[],
+	protected_package_prefixes: string[],
+};
 
 export type WorkspaceProvisioningFailure = {
 	code: WorkspaceProvisioningFailureCode,

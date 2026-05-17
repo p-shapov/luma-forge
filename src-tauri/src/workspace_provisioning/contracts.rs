@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     domain::{
         provider_setup::GpuCloudProviderId,
@@ -75,6 +77,10 @@ pub struct CreateEndpointTemplateInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
     pub endpoint_worker_image_ref: String,
+    pub image_runtime_root_path: String,
+    pub runtime_contract_id: String,
+    pub runtime_contract_version: String,
+    pub runtime_implementation_revision: String,
     pub endpoint_worker_port: u16,
     pub mount_path: String,
 }
@@ -83,6 +89,7 @@ pub struct CreateEndpointTemplateInput {
 pub struct EndpointTemplateObservation {
     pub template_id: String,
     pub endpoint_worker_image_ref: String,
+    pub runtime_env: HashMap<String, String>,
     pub mount_path: String,
     pub provider_resource_status: ProviderResourceStatus,
 }
@@ -92,6 +99,10 @@ pub struct DiscoverEndpointTemplatesInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
     pub endpoint_worker_image_ref: String,
+    pub image_runtime_root_path: String,
+    pub runtime_contract_id: String,
+    pub runtime_contract_version: String,
+    pub runtime_implementation_revision: String,
     pub endpoint_worker_port: u16,
     pub mount_path: String,
 }
