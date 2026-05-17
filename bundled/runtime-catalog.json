@@ -5,8 +5,8 @@
       "revisions": [
         {
           "version": "1.0.0",
-          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:69f9acaaf8793f754f528fff2763bb306e6afc888dd12f5cdb235cc9556bdb1c",
-          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c0eca78615270e2a34d5cd36a3ad4d19145ddbc1321276a1e0c3432913ef9131"
+          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:d45d3aa61b4c9ce37d58ce8cd9ea92cc98d06cf31fceb0efa036d16d35625083",
+          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:85530732b432d2d3aa626513d138cc2101c63248c0712189064d7b6bf72d761d"
         }
       ]
     }
