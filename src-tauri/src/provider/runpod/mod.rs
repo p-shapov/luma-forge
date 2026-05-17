@@ -1,10 +1,13 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 mod contracts;
 mod mapper;
 
 use crate::{
-    domain::{provider_inventory::ProviderInventory, provider_setup::ProviderApiKey},
+    domain::{
+        provider_inventory::ProviderInventory, provider_setup::ProviderApiKey,
+        workspace::ProviderResourceStatus,
+    },
     provider::{
         error::ProviderClientError,
         runpod::contracts::{
@@ -23,8 +26,7 @@ pub use contracts::{
 
 use mapper::{
     endpoint_from_response, identity_from_graphql_response, inventory_from_graphql_response,
-    network_volume_from_list_response, network_volume_from_response,
-    pod_from_response_with_context, template_from_response, RunPodPodResponseContext,
+    network_volume_from_response, pod_from_response, template_from_response,
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
@@ -207,8 +209,6 @@ impl RunPodClient {
         &self,
         api_key: &ProviderApiKey,
         name: &str,
-        data_center_id: &str,
-        size_gb: u64,
     ) -> Result<Vec<RunPodNetworkVolumeObservation>, ProviderClientError> {
         let response = self
             .http
@@ -218,7 +218,7 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         let payloads = parse_rest_response::<Vec<RunPodNetworkVolumeResponse>>(response).await?;
-        network_volumes_by_name(payloads, name, data_center_id, size_gb)
+        network_volumes_by_name(payloads, name)
     }
 
     pub async fn delete_network_volume(
@@ -243,46 +243,15 @@ impl RunPodClient {
             .send()
             .await
             .map_err(|_| ProviderClientError::Indeterminate)?;
-        let context = RunPodPodResponseContext {
-            data_center_id: request
-                .data_center_ids
-                .first()
-                .cloned()
-                .ok_or(ProviderClientError::ResponseInvalid)?,
-            selected_gpu_id: request
-                .gpu_type_ids
-                .first()
-                .cloned()
-                .ok_or(ProviderClientError::ResponseInvalid)?,
-        };
         parse_rest_response::<RunPodPodResponse>(response)
             .await
-            .and_then(|payload| pod_from_response_with_context(payload, Some(context)))
+            .and_then(pod_from_response)
     }
 
-    pub async fn get_pod_with_context(
+    pub async fn get_pod(
         &self,
         api_key: &ProviderApiKey,
         pod_id: &str,
-        data_center_id: &str,
-        selected_gpu_id: &str,
-    ) -> Result<RunPodPodObservation, ProviderClientError> {
-        self.get_pod_mapped(
-            api_key,
-            pod_id,
-            Some(RunPodPodResponseContext {
-                data_center_id: data_center_id.to_string(),
-                selected_gpu_id: selected_gpu_id.to_string(),
-            }),
-        )
-        .await
-    }
-
-    async fn get_pod_mapped(
-        &self,
-        api_key: &ProviderApiKey,
-        pod_id: &str,
-        context: Option<RunPodPodResponseContext>,
     ) -> Result<RunPodPodObservation, ProviderClientError> {
         let response = self
             .http
@@ -293,21 +262,14 @@ impl RunPodClient {
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         parse_rest_response::<RunPodPodResponse>(response)
             .await
-            .and_then(|payload| pod_from_response_with_context(payload, context))
+            .and_then(pod_from_response)
     }
 
-    pub async fn find_pods_by_name_and_volume(
+    pub async fn find_pods_by_name(
         &self,
         api_key: &ProviderApiKey,
         name: &str,
-        network_volume_id: &str,
-        data_center_id: &str,
-        selected_gpu_id: &str,
     ) -> Result<Vec<RunPodPodObservation>, ProviderClientError> {
-        let context = RunPodPodResponseContext {
-            data_center_id: data_center_id.to_string(),
-            selected_gpu_id: selected_gpu_id.to_string(),
-        };
         let response = self
             .http
             .get(format!("{}/pods", self.rest_endpoint))
@@ -316,7 +278,7 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         let payloads = parse_rest_response::<Vec<RunPodPodResponse>>(response).await?;
-        pods_by_name_and_volume(payloads, name, network_volume_id, context)
+        pods_by_name(payloads, name)
     }
 
     pub async fn delete_pod(
@@ -367,10 +329,6 @@ impl RunPodClient {
         &self,
         api_key: &ProviderApiKey,
         name: &str,
-        image_name: &str,
-        expected_env: &HashMap<String, String>,
-        http_port: u16,
-        volume_mount_path: &str,
     ) -> Result<Vec<RunPodTemplateObservation>, ProviderClientError> {
         let response = self
             .http
@@ -380,14 +338,7 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         let payloads = parse_rest_response::<Vec<RunPodTemplateResponse>>(response).await?;
-        templates_by_name(
-            payloads,
-            name,
-            image_name,
-            expected_env,
-            http_port,
-            volume_mount_path,
-        )
+        templates_by_name(payloads, name)
     }
 
     pub async fn delete_template(
@@ -437,7 +388,7 @@ impl RunPodClient {
     pub async fn find_endpoints_by_name(
         &self,
         api_key: &ProviderApiKey,
-        input: &RunPodFindEndpointInput<'_>,
+        name: &str,
     ) -> Result<Vec<RunPodEndpointObservation>, ProviderClientError> {
         let response = self
             .http
@@ -447,7 +398,7 @@ impl RunPodClient {
             .await
             .map_err(|_| ProviderClientError::ApiUnavailable)?;
         let payloads = parse_rest_response::<Vec<RunPodEndpointResponse>>(response).await?;
-        endpoints_by_name(payloads, input)
+        endpoints_by_name(payloads, name)
     }
 
     pub async fn delete_endpoint(
@@ -478,104 +429,100 @@ impl RunPodClient {
     }
 }
 
-pub struct RunPodFindEndpointInput<'a> {
-    pub name: &'a str,
-    pub template_id: &'a str,
-    pub network_volume_id: &'a str,
-    pub data_center_id: &'a str,
-    pub selected_gpu_id: &'a str,
-    pub idle_timeout: u32,
-}
-
 fn network_volumes_by_name(
     payloads: Vec<RunPodNetworkVolumeResponse>,
     name: &str,
-    data_center_id: &str,
-    size_gb: u64,
 ) -> Result<Vec<RunPodNetworkVolumeObservation>, ProviderClientError> {
     payloads
         .into_iter()
-        .filter(|payload| {
-            payload.name.as_deref() == Some(name)
-                && payload.data_center_id.as_deref() == Some(data_center_id)
-                && payload.size == Some(size_gb)
-        })
-        .map(network_volume_from_list_response)
+        .filter(|payload| payload.name.as_deref() == Some(name))
+        .map(network_volume_from_discovery_response)
         .collect()
 }
 
-fn pods_by_name_and_volume(
+fn pods_by_name(
     payloads: Vec<RunPodPodResponse>,
     name: &str,
-    network_volume_id: &str,
-    context: RunPodPodResponseContext,
 ) -> Result<Vec<RunPodPodObservation>, ProviderClientError> {
     payloads
         .into_iter()
-        .filter(|payload| {
-            payload.name.as_deref() == Some(name)
-                && payload.network_volume_id.as_deref() == Some(network_volume_id)
-        })
+        .filter(|payload| payload.name.as_deref() == Some(name))
         .filter(|payload| !pod_response_is_deleted(payload))
-        .map(|payload| pod_from_response_with_context(payload, Some(context.clone())))
+        .map(pod_from_discovery_response)
         .collect()
 }
 
 fn templates_by_name(
     payloads: Vec<RunPodTemplateResponse>,
     name: &str,
-    image_name: &str,
-    expected_env: &HashMap<String, String>,
-    http_port: u16,
-    volume_mount_path: &str,
 ) -> Result<Vec<RunPodTemplateObservation>, ProviderClientError> {
-    let expected_port = format!("{http_port}/http");
     payloads
         .into_iter()
-        .filter(|payload| {
-            payload.name.as_deref() == Some(name)
-                && payload.image_name.as_deref() == Some(image_name)
-                && (expected_env.is_empty()
-                    || payload.env.as_ref().is_some_and(|env| {
-                        expected_env
-                            .iter()
-                            .all(|(key, value)| env.get(key) == Some(value))
-                    }))
-                && payload.volume_mount_path.as_deref() == Some(volume_mount_path)
-                && payload.is_serverless == Some(true)
-                && payload
-                    .ports
-                    .as_ref()
-                    .is_some_and(|ports| ports.iter().any(|port| port == &expected_port))
-        })
-        .map(template_from_response)
+        .filter(|payload| payload.name.as_deref() == Some(name))
+        .map(template_from_discovery_response)
         .collect()
 }
 
 fn endpoints_by_name(
     payloads: Vec<RunPodEndpointResponse>,
-    input: &RunPodFindEndpointInput<'_>,
+    name: &str,
 ) -> Result<Vec<RunPodEndpointObservation>, ProviderClientError> {
     payloads
         .into_iter()
-        .filter(|payload| {
-            payload.name.as_deref() == Some(input.name)
-                && payload.template_id.as_deref() == Some(input.template_id)
-                && payload.network_volume_id.as_deref() == Some(input.network_volume_id)
-                && payload
-                    .data_center_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.iter().any(|id| id == input.data_center_id))
-                && payload
-                    .gpu_type_ids
-                    .as_ref()
-                    .is_some_and(|ids| ids.iter().any(|id| id == input.selected_gpu_id))
-                && payload
-                    .idle_timeout
-                    .is_none_or(|timeout| timeout == input.idle_timeout)
-        })
-        .map(endpoint_from_response)
+        .filter(|payload| payload.name.as_deref() == Some(name))
+        .map(endpoint_from_discovery_response)
         .collect()
+}
+
+fn network_volume_from_discovery_response(
+    payload: RunPodNetworkVolumeResponse,
+) -> Result<RunPodNetworkVolumeObservation, ProviderClientError> {
+    Ok(RunPodNetworkVolumeObservation {
+        id: required_non_empty(payload.id)?,
+        status: ProviderResourceStatus::Unknown,
+    })
+}
+
+fn pod_from_discovery_response(
+    payload: RunPodPodResponse,
+) -> Result<RunPodPodObservation, ProviderClientError> {
+    let id = required_non_empty(payload.id)?;
+    Ok(RunPodPodObservation {
+        provisioner_status_url: None,
+        id,
+        status: ProviderResourceStatus::Unknown,
+    })
+}
+
+fn template_from_discovery_response(
+    payload: RunPodTemplateResponse,
+) -> Result<RunPodTemplateObservation, ProviderClientError> {
+    Ok(RunPodTemplateObservation {
+        id: required_non_empty(payload.id)?,
+        image_name: payload.image_name.unwrap_or_default(),
+        volume_mount_path: payload.volume_mount_path.unwrap_or_default(),
+        status: ProviderResourceStatus::Unknown,
+    })
+}
+
+fn endpoint_from_discovery_response(
+    payload: RunPodEndpointResponse,
+) -> Result<RunPodEndpointObservation, ProviderClientError> {
+    let id = required_non_empty(payload.id)?;
+    Ok(RunPodEndpointObservation {
+        endpoint_invoke_url: payload
+            .endpoint_url
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| format!("https://api.runpod.ai/v2/{id}/run")),
+        id,
+        status: ProviderResourceStatus::Unknown,
+    })
+}
+
+fn required_non_empty(value: Option<String>) -> Result<String, ProviderClientError> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .ok_or(ProviderClientError::ResponseInvalid)
 }
 
 fn pod_response_is_deleted(payload: &RunPodPodResponse) -> bool {

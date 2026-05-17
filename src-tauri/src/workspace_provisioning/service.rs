@@ -184,28 +184,20 @@ where
                 .discover_network_volumes(DiscoverNetworkVolumesInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    datacenter_id: selected_datacenter_id.clone(),
-                    size_bytes: persistent_storage_volume_size_bytes,
                 })
                 .await?;
-            match discovered_volumes.as_slice() {
-                [] => {}
-                [observation] => {
-                    workspace.persistent_storage_volume_snapshot = Some(
-                        persistent_storage_volume_snapshot(workspace, observation.clone()),
-                    );
-                    self.fail_if_volume_status_is_terminal(workspace);
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
-                _ => {
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingVolume,
-                        )
-                        .await;
-                }
+            if !discovered_volumes.is_empty() {
+                let provider_resource_ids = discovered_volumes
+                    .into_iter()
+                    .map(|observation| observation.provider_resource_id)
+                    .collect();
+                return self
+                    .fail_for_orphaned_provider_resources(
+                        workspace,
+                        WorkspaceProvisioningPhase::CreatingVolume,
+                        provider_resource_ids,
+                    )
+                    .await;
             }
             let observation = match self
                 .providers
@@ -224,37 +216,27 @@ where
                         .discover_network_volumes(DiscoverNetworkVolumesInput {
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
-                            datacenter_id: workspace
-                                .persistent_storage_volume_snapshot
-                                .as_ref()
-                                .map(|snapshot| snapshot.datacenter_id.clone())
-                                .unwrap_or_else(|| match &workspace.placement_plan {
-                                    PlacementPlan::Runpod {
-                                        selected_datacenter_id,
-                                        ..
-                                    } => selected_datacenter_id.clone(),
-                                }),
-                            size_bytes: persistent_storage_volume_size_bytes,
                         })
                         .await?;
-                    match discovered_volumes.as_slice() {
-                        [observation] => {
-                            workspace.persistent_storage_volume_snapshot = Some(
-                                persistent_storage_volume_snapshot(workspace, observation.clone()),
-                            );
-                            self.fail_if_volume_status_is_terminal(workspace);
-                            let workspace = self.update_workspace(workspace).await?;
-                            return Ok(Some(result(workspace)));
-                        }
-                        _ => {
-                            return self
-                                .fail_for_indeterminate_provider_operation(
-                                    workspace,
-                                    WorkspaceProvisioningPhase::CreatingVolume,
-                                )
-                                .await;
-                        }
+                    if !discovered_volumes.is_empty() {
+                        let provider_resource_ids = discovered_volumes
+                            .into_iter()
+                            .map(|observation| observation.provider_resource_id)
+                            .collect();
+                        return self
+                            .fail_for_orphaned_provider_resources(
+                                workspace,
+                                WorkspaceProvisioningPhase::CreatingVolume,
+                                provider_resource_ids,
+                            )
+                            .await;
                     }
+                    return self
+                        .fail_for_indeterminate_provider_operation(
+                            workspace,
+                            WorkspaceProvisioningPhase::CreatingVolume,
+                        )
+                        .await;
                 }
                 Err(error) => return Err(error),
             };
@@ -326,30 +308,20 @@ where
                 .discover_provisioning_pods(DiscoverProvisioningPodsInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    datacenter_id: selected_datacenter_id.clone(),
-                    selected_gpu_id: selected_gpu_id.clone(),
-                    network_volume_id: network_volume_id.clone(),
                 })
                 .await?;
-            match discovered_pods.as_slice() {
-                [] => {}
-                [observation] => {
-                    workspace.active_provisioning_pod_snapshot = Some(
-                        created_provisioning_pod_snapshot(workspace, observation.clone())?,
-                    );
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
-                _ => {
-                    failure::fail_workspace(
+            if !discovered_pods.is_empty() {
+                let provider_resource_ids = discovered_pods
+                    .into_iter()
+                    .map(|observation| observation.provider_resource_id)
+                    .collect();
+                return self
+                    .fail_for_orphaned_provider_resources(
                         workspace,
-                        failure::indeterminate_provider_operation(
-                            WorkspaceProvisioningPhase::StartingProvisioningPod,
-                        ),
-                    );
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
+                        WorkspaceProvisioningPhase::StartingProvisioningPod,
+                        provider_resource_ids,
+                    )
+                    .await;
             }
             let token = ProvisionerWorkerBearerToken::new(uuid::Uuid::new_v4().to_string())
                 .map_err(|_| WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid)?;
@@ -377,28 +349,27 @@ where
                         .discover_provisioning_pods(DiscoverProvisioningPodsInput {
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
-                            datacenter_id: selected_datacenter_id.clone(),
-                            selected_gpu_id: selected_gpu_id.clone(),
-                            network_volume_id,
                         })
                         .await?;
-                    match discovered_pods.as_slice() {
-                        [observation] => {
-                            workspace.active_provisioning_pod_snapshot = Some(
-                                created_provisioning_pod_snapshot(workspace, observation.clone())?,
-                            );
-                            let workspace = self.update_workspace(workspace).await?;
-                            return Ok(Some(result(workspace)));
-                        }
-                        _ => {
-                            return self
-                                .fail_for_indeterminate_provider_operation(
-                                    workspace,
-                                    WorkspaceProvisioningPhase::StartingProvisioningPod,
-                                )
-                                .await;
-                        }
+                    if !discovered_pods.is_empty() {
+                        let provider_resource_ids = discovered_pods
+                            .into_iter()
+                            .map(|observation| observation.provider_resource_id)
+                            .collect();
+                        return self
+                            .fail_for_orphaned_provider_resources(
+                                workspace,
+                                WorkspaceProvisioningPhase::StartingProvisioningPod,
+                                provider_resource_ids,
+                            )
+                            .await;
                     }
+                    return self
+                        .fail_for_indeterminate_provider_operation(
+                            workspace,
+                            WorkspaceProvisioningPhase::StartingProvisioningPod,
+                        )
+                        .await;
                 }
                 Err(error) => return Err(error),
             };
@@ -421,8 +392,6 @@ where
             .get_provisioning_pod(ObserveProvisioningPodInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 provider_resource_id: active_pod.provider_resource_id.clone(),
-                datacenter_id: active_pod.datacenter_id.clone(),
-                selected_gpu_id: active_pod.selected_gpu_id.clone(),
             })
             .await
         {
@@ -638,27 +607,20 @@ where
                 .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                    mount_path: self.config.volume_mount_path.clone(),
                 })
                 .await?;
-            match discovered_templates.as_slice() {
-                [] => {}
-                [observation] => {
-                    workspace.provider_provisioning_snapshot =
-                        Some(runpod_template_provisioning_snapshot(observation.clone()));
-                    self.fail_if_template_status_is_terminal(workspace);
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
-                _ => {
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                        )
-                        .await;
-                }
+            if !discovered_templates.is_empty() {
+                let provider_resource_ids = discovered_templates
+                    .into_iter()
+                    .map(|observation| observation.template_id)
+                    .collect();
+                return self
+                    .fail_for_orphaned_provider_resources(
+                        workspace,
+                        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                        provider_resource_ids,
+                    )
+                    .await;
             }
             let observation = match self
                 .providers
@@ -677,27 +639,27 @@ where
                         .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
-                            endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                            mount_path: self.config.volume_mount_path.clone(),
                         })
                         .await?;
-                    match discovered_templates.as_slice() {
-                        [observation] => {
-                            workspace.provider_provisioning_snapshot =
-                                Some(runpod_template_provisioning_snapshot(observation.clone()));
-                            self.fail_if_template_status_is_terminal(workspace);
-                            let workspace = self.update_workspace(workspace).await?;
-                            return Ok(Some(result(workspace)));
-                        }
-                        _ => {
-                            return self
-                                .fail_for_indeterminate_provider_operation(
-                                    workspace,
-                                    WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                                )
-                                .await;
-                        }
+                    if !discovered_templates.is_empty() {
+                        let provider_resource_ids = discovered_templates
+                            .into_iter()
+                            .map(|observation| observation.template_id)
+                            .collect();
+                        return self
+                            .fail_for_orphaned_provider_resources(
+                                workspace,
+                                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                                provider_resource_ids,
+                            )
+                            .await;
                     }
+                    return self
+                        .fail_for_indeterminate_provider_operation(
+                            workspace,
+                            WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                        )
+                        .await;
                 }
                 Err(error) => return Err(error),
             };
@@ -808,30 +770,20 @@ where
                 .discover_serverless_endpoints(DiscoverServerlessEndpointsInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
-                    template_id: template.template_id.clone(),
-                    datacenter_id: selected_datacenter_id.clone(),
-                    selected_gpu_id: selected_gpu_id.clone(),
-                    network_volume_id: volume.provider_resource_id.clone(),
-                    endpoint_keep_alive_seconds,
                 })
                 .await?;
-            match discovered_endpoints.as_slice() {
-                [] => {}
-                [observation] => {
-                    workspace.serverless_endpoint_snapshot =
-                        Some(serverless_endpoint_snapshot(workspace, observation.clone()));
-                    self.fail_if_endpoint_status_is_terminal(workspace);
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
-                _ => {
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingEndpoint,
-                        )
-                        .await;
-                }
+            if !discovered_endpoints.is_empty() {
+                let provider_resource_ids = discovered_endpoints
+                    .into_iter()
+                    .map(|observation| observation.provider_resource_id)
+                    .collect();
+                return self
+                    .fail_for_orphaned_provider_resources(
+                        workspace,
+                        WorkspaceProvisioningPhase::CreatingEndpoint,
+                        provider_resource_ids,
+                    )
+                    .await;
             }
             let observation = match self
                 .providers
@@ -853,30 +805,27 @@ where
                         .discover_serverless_endpoints(DiscoverServerlessEndpointsInput {
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
-                            template_id: template.template_id,
-                            datacenter_id: selected_datacenter_id,
-                            selected_gpu_id,
-                            network_volume_id: volume.provider_resource_id.clone(),
-                            endpoint_keep_alive_seconds,
                         })
                         .await?;
-                    match discovered_endpoints.as_slice() {
-                        [observation] => {
-                            workspace.serverless_endpoint_snapshot =
-                                Some(serverless_endpoint_snapshot(workspace, observation.clone()));
-                            self.fail_if_endpoint_status_is_terminal(workspace);
-                            let workspace = self.update_workspace(workspace).await?;
-                            return Ok(Some(result(workspace)));
-                        }
-                        _ => {
-                            return self
-                                .fail_for_indeterminate_provider_operation(
-                                    workspace,
-                                    WorkspaceProvisioningPhase::CreatingEndpoint,
-                                )
-                                .await;
-                        }
+                    if !discovered_endpoints.is_empty() {
+                        let provider_resource_ids = discovered_endpoints
+                            .into_iter()
+                            .map(|observation| observation.provider_resource_id)
+                            .collect();
+                        return self
+                            .fail_for_orphaned_provider_resources(
+                                workspace,
+                                WorkspaceProvisioningPhase::CreatingEndpoint,
+                                provider_resource_ids,
+                            )
+                            .await;
                     }
+                    return self
+                        .fail_for_indeterminate_provider_operation(
+                            workspace,
+                            WorkspaceProvisioningPhase::CreatingEndpoint,
+                        )
+                        .await;
                 }
                 Err(error) => return Err(error),
             };
@@ -965,6 +914,20 @@ where
         phase: WorkspaceProvisioningPhase,
     ) -> SyncStepResult {
         failure::fail_workspace(workspace, failure::missing_provider_resource(phase));
+        let workspace = self.update_workspace(workspace).await?;
+        Ok(Some(result(workspace)))
+    }
+
+    async fn fail_for_orphaned_provider_resources(
+        &self,
+        workspace: &mut Workspace,
+        phase: WorkspaceProvisioningPhase,
+        provider_resource_ids: Vec<String>,
+    ) -> SyncStepResult {
+        failure::fail_workspace(
+            workspace,
+            failure::orphaned_provider_resources(phase, provider_resource_ids),
+        );
         let workspace = self.update_workspace(workspace).await?;
         Ok(Some(result(workspace)))
     }

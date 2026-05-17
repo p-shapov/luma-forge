@@ -130,9 +130,7 @@ export type NativeCommandErrorCode = "provider_setup_incomplete" | "provider_set
 export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	provider_resource_id: string,
-	datacenter_id: string,
 	provider_resource_status: ProviderResourceStatus,
-	provisioned_size_bytes: number,
 	mount_path: string,
 };
 
@@ -156,9 +154,7 @@ export type ProviderResourceStatus = "creating" | "running" | "ready" | "termina
 export type ProvisioningPodSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	provider_resource_id: string,
-	datacenter_id: string,
 	provider_resource_status: ProviderResourceStatus,
-	selected_gpu_id: string,
 	provisioner_status_url: string,
 };
 
@@ -184,9 +180,7 @@ export type RuntimeContractReference = {
 export type ServerlessEndpointSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	provider_resource_id: string,
-	datacenter_id: string,
 	provider_resource_status: ProviderResourceStatus,
-	selected_gpu_id: string,
 	endpoint_invoke_url: string,
 };
 
@@ -247,7 +241,7 @@ export type WorkspaceProvisioningFailure = {
 	diagnostic: string | null,
 };
 
-export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_operation_indeterminate" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
+export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_operation_indeterminate" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
 
 export type WorkspaceProvisioningFailureSource = "native" | "provider" | "provider_resource" | "provisioner_worker";
 

@@ -66,6 +66,31 @@ pub(crate) fn missing_provider_resource(
     }
 }
 
+pub(crate) fn orphaned_provider_resources(
+    phase: WorkspaceProvisioningPhase,
+    provider_resource_ids: Vec<String>,
+) -> WorkspaceProvisioningFailure {
+    WorkspaceProvisioningFailure {
+        code: WorkspaceProvisioningFailureCode::ProviderOrphanedResources,
+        phase,
+        source: WorkspaceProvisioningFailureSource::ProviderResource,
+        retryable: false,
+        recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        diagnostic: orphaned_resource_diagnostic(provider_resource_ids),
+    }
+}
+
+fn orphaned_resource_diagnostic(provider_resource_ids: Vec<String>) -> Option<String> {
+    if provider_resource_ids.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Discovered provider resource ids: {}",
+            provider_resource_ids.join(", ")
+        ))
+    }
+}
+
 pub(crate) fn worker_failure(
     phase: WorkspaceProvisioningPhase,
     error: &WorkspaceProvisioningError,

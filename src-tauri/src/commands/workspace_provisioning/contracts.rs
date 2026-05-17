@@ -44,6 +44,7 @@ mod remote_types {
         ProviderResourceTerminated,
         ProviderResourceUnknown,
         ProviderResourceMissing,
+        ProviderOrphanedResources,
         ProviderOperationIndeterminate,
         ProvisionerWorkerTokenMissing,
         ProvisionerWorkerTokenInvalid,

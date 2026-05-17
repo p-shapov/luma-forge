@@ -168,9 +168,7 @@ mod remote_types {
     pub(super) struct PersistentStorageVolumeSnapshot {
         pub gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId,
         pub provider_resource_id: String,
-        pub datacenter_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
-        pub provisioned_size_bytes: u64,
         pub mount_path: String,
     }
 
@@ -179,9 +177,7 @@ mod remote_types {
     pub(super) struct ProvisioningPodSnapshot {
         pub gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId,
         pub provider_resource_id: String,
-        pub datacenter_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
-        pub selected_gpu_id: String,
         pub provisioner_status_url: String,
     }
 
@@ -190,9 +186,7 @@ mod remote_types {
     pub(super) struct ServerlessEndpointSnapshot {
         pub gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId,
         pub provider_resource_id: String,
-        pub datacenter_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
-        pub selected_gpu_id: String,
         pub endpoint_invoke_url: String,
     }
 

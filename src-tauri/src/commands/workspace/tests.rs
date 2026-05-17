@@ -31,7 +31,9 @@ fn maps_provider_placement_options_response_to_command_contract() {
                 max_persistent_storage_volume_size_bytes: Some(100),
                 datacenters: vec![],
             },
-            placement_capabilities: domain_placement::ProviderPlacementCapabilities::runpod(),
+            placement_capabilities: domain_placement::ProviderPlacementCapabilities::for_provider(
+                DomainGpuCloudProviderId::Runpod,
+            ),
         },
     );
 

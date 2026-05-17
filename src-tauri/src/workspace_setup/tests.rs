@@ -154,9 +154,7 @@ impl ProviderPlacementOptionsGateway for MemoryProvider {
                     max_persistent_storage_volume_size_bytes: None,
                     datacenters: vec![],
                 }),
-                placement_capabilities: match provider_id {
-                    DomainGpuCloudProviderId::Runpod => ProviderPlacementCapabilities::runpod(),
-                },
+                placement_capabilities: ProviderPlacementCapabilities::for_provider(*provider_id),
             })
         })
     }
