@@ -10,11 +10,10 @@ use crate::{
     provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-};
-
-use super::super::{
-    context::{SyncStepResult, WorkspaceProvisioningContext},
-    helpers::{persistent_storage_volume_snapshot, result},
+    workspace_provisioning::{
+        context::{SyncStepResult, WorkspaceProvisioningContext},
+        helpers::{persistent_storage_volume_snapshot, result},
+    },
 };
 
 pub(crate) async fn sync<S, P, W, R>(

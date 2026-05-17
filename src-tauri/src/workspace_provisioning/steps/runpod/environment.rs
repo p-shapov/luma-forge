@@ -10,13 +10,12 @@ use crate::{
     },
     secrets::{SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-};
-
-use super::super::{
-    context::{SyncStepResult, WorkspaceProvisioningContext},
-    failure,
-    helpers::{result, WorkspaceProvisioningResult},
-    WorkspaceProvisioningError,
+    workspace_provisioning::{
+        context::{SyncStepResult, WorkspaceProvisioningContext},
+        failure,
+        helpers::{result, WorkspaceProvisioningResult},
+        WorkspaceProvisioningError,
+    },
 };
 
 pub(crate) async fn sync<S, P, W, R>(

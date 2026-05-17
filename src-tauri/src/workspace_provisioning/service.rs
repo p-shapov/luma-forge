@@ -103,22 +103,7 @@ where
             return Ok(result(workspace));
         }
 
-        if let Some(result) = steps::network_volume::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::provisioning_pod::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::environment::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::provisioning_pod::finish(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::endpoint_template::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::serverless_endpoint::sync(&context, &mut workspace).await? {
+        if let Some(result) = steps::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
 

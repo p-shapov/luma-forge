@@ -13,13 +13,12 @@ use crate::{
     provisioner_worker::ProvisionerWorkerGateway,
     secrets::{ProvisionerWorkerBearerToken, SecretStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-};
-
-use super::super::{
-    context::{SyncStepResult, WorkspaceProvisioningContext},
-    failure,
-    helpers::{created_provisioning_pod_snapshot, observed_provisioning_pod_snapshot, result},
-    WorkspaceProvisioningError,
+    workspace_provisioning::{
+        context::{SyncStepResult, WorkspaceProvisioningContext},
+        failure,
+        helpers::{created_provisioning_pod_snapshot, observed_provisioning_pod_snapshot, result},
+        WorkspaceProvisioningError,
+    },
 };
 
 pub(crate) async fn sync<S, P, W, R>(

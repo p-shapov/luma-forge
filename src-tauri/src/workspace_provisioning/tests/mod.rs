@@ -683,6 +683,29 @@ async fn initiate_transitions_draft_to_provisioning() {
 }
 
 #[tokio::test]
+async fn sync_routes_runpod_workspace_through_provider_specific_steps() {
+    let catalog = MemoryWorkspaceCatalog::default();
+    let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
+    workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    catalog.insert_workspace(&workspace).await.expect("insert");
+    let provider = FakeProvider::default();
+    let service = service(catalog, provider.clone());
+
+    let result = service.sync(&workspace.id).await.expect("sync");
+
+    assert_eq!(
+        result.workspace.gpu_cloud_provider_id,
+        GpuCloudProviderId::Runpod
+    );
+    assert_eq!(provider.discover_volumes_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 1);
+    assert!(result
+        .workspace
+        .persistent_storage_volume_snapshot
+        .is_some());
+}
+
+#[tokio::test]
 async fn sync_creates_network_volume_once() {
     let catalog = MemoryWorkspaceCatalog::default();
     let mut workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
@@ -1303,7 +1326,9 @@ async fn sync_creates_endpoint_template_after_environment_preparation() {
     let result = service.sync(&workspace.id).await.expect("sync");
 
     assert_eq!(provider.create_template_count.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 0);
     assert!(runpod_template_snapshot(&result.workspace).is_some());
+    assert!(result.workspace.serverless_endpoint_snapshot.is_none());
 }
 
 #[tokio::test]

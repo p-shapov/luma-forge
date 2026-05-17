@@ -564,6 +564,32 @@ The Native Layer SHALL preserve the existing Workspace Provisioning command cont
 - **THEN** the Native Layer SHALL keep those secrets behind secure storage and provider or worker call paths
 - **AND** command responses, Workspace metadata, logs, diagnostics, and generated frontend bindings MUST NOT expose those secrets
 
+### Requirement: Route provider-specific provisioning choreography through use-case steps
+Workspace Provisioning SHALL keep provider-specific provisioning sequence decisions inside provider-specific Workspace Provisioning step modules while preserving provider API access behind infrastructure gateways.
+
+#### Scenario: RunPod sync is dispatched at the Workspace Provisioning boundary
+- **WHEN** the Client syncs a RunPod Workspace whose lifecycle state is `provisioning`
+- **THEN** the Native Layer SHALL route the provisioning sequence through RunPod-specific Workspace Provisioning step code
+- **AND** the Native Layer SHALL continue to derive each safe action from authoritative Workspace metadata
+- **AND** the Native Layer SHALL continue to perform at most one provider, worker, or catalog mutation per sync call
+
+#### Scenario: Provider gateway remains infrastructure
+- **WHEN** RunPod-specific Workspace Provisioning step code needs to create, observe, discover, or delete provider resources
+- **THEN** it SHALL call provider resource gateway methods for low-level provider operations
+- **AND** it MUST NOT move Workspace lifecycle, progress, idempotency, or cleanup metadata decisions into the low-level provider client or provider registry
+
+#### Scenario: RunPod endpoint template is handled as endpoint implementation detail
+- **WHEN** a provisioning RunPod Workspace has a prepared environment and no active Provisioning Pod
+- **THEN** the RunPod Workspace Provisioning endpoint step SHALL manage both the RunPod serverless template and the RunPod Serverless Endpoint sequencing needed for the persistent runtime entry point
+- **AND** it SHALL preserve the existing RunPod endpoint template snapshot metadata required for resume, readiness, and cleanup
+- **AND** it SHALL preserve existing Serverless Endpoint snapshot behavior and failure classifications
+
+#### Scenario: Refactor preserves external contract
+- **WHEN** Workspace Provisioning provider step modules are refactored
+- **THEN** existing Tauri command request and response shapes SHALL remain compatible
+- **AND** generated frontend bindings MUST NOT require frontend changes because of the native module split
+- **AND** persisted Workspace Catalog metadata MUST remain readable without a migration for this change
+
 ### Requirement: Keep base runtime dependency installation out of Workspace Provisioning
 Workspace Provisioning SHALL treat base Python/PyTorch/ComfyUI runtime dependency installation as a Docker image build concern, not a provisioning concern.
 
