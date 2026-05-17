@@ -3,6 +3,7 @@ mod bundled_catalog;
 mod commands;
 mod domain;
 mod provider;
+mod provider_resources;
 mod provider_setup;
 mod provisioner_worker;
 mod secrets;

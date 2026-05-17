@@ -13,16 +13,16 @@ use crate::{
             RunPodNetworkVolumeObservation, RunPodPodObservation, RunPodTemplateObservation,
         },
     },
-    provider_setup::{ProviderIdentityGateway, ProviderSetupError},
-    secrets::{KeyringSecretStore, SecretStore},
-    workspace_provisioning::{
+    provider_resources::{
         CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
         CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
         DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
         EndpointTemplateObservation, NetworkVolumeObservation, ObserveProvisioningPodInput,
-        ProviderProvisioningGateway, ProvisioningPodObservation, ServerlessEndpointObservation,
-        WorkspaceProvisioningError,
+        ProviderResourceError, ProviderResourceGateway, ProvisioningPodObservation,
+        ServerlessEndpointObservation,
     },
+    provider_setup::{ProviderIdentityGateway, ProviderSetupError},
+    secrets::{KeyringSecretStore, SecretStore},
     workspace_setup::{
         contracts::ProviderPlacementOptions, error::WorkspaceSetupError,
         ProviderPlacementOptionsGateway,
@@ -101,7 +101,7 @@ where
     }
 }
 
-impl<S> ProviderProvisioningGateway for ProviderClientRegistry<S>
+impl<S> ProviderResourceGateway for ProviderClientRegistry<S>
 where
     S: SecretStore,
 {
@@ -110,7 +110,7 @@ where
         input: CreateNetworkVolumeInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<NetworkVolumeObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -130,7 +130,7 @@ where
                     )
                     .await
                     .map(runpod_network_volume_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -141,7 +141,7 @@ where
         volume_id: &'a str,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<NetworkVolumeObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -154,7 +154,7 @@ where
                     .get_network_volume(&api_key, volume_id)
                     .await
                     .map(runpod_network_volume_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -164,7 +164,7 @@ where
         input: DiscoverNetworkVolumesInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -185,7 +185,7 @@ where
                             .map(runpod_network_volume_observation)
                             .collect()
                     })
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -194,7 +194,7 @@ where
         &'a self,
         provider_id: GpuCloudProviderId,
         volume_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
         Box::pin(async move {
             let api_key = self.provisioning_api_key(&provider_id)?;
             match provider_id {
@@ -202,7 +202,7 @@ where
                     .runpod
                     .delete_network_volume(&api_key, volume_id)
                     .await
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -212,7 +212,7 @@ where
         input: CreateProvisioningPodInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<ProvisioningPodObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -240,7 +240,7 @@ where
                     )
                     .await
                     .map(runpod_pod_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -250,7 +250,7 @@ where
         input: ObserveProvisioningPodInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<ProvisioningPodObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -263,7 +263,7 @@ where
                     .get_pod(&api_key, &input.provider_resource_id)
                     .await
                     .map(runpod_pod_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -273,7 +273,7 @@ where
         input: DiscoverProvisioningPodsInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -294,7 +294,7 @@ where
                             .map(runpod_pod_observation)
                             .collect()
                     })
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -303,7 +303,7 @@ where
         &'a self,
         provider_id: GpuCloudProviderId,
         pod_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
         Box::pin(async move {
             let api_key = self.provisioning_api_key(&provider_id)?;
             match provider_id {
@@ -311,7 +311,7 @@ where
                     .runpod
                     .delete_pod(&api_key, pod_id)
                     .await
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -321,7 +321,7 @@ where
         input: CreateEndpointTemplateInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<EndpointTemplateObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -347,7 +347,7 @@ where
                     )
                     .await
                     .map(runpod_template_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -358,7 +358,7 @@ where
         template_id: &'a str,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<EndpointTemplateObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -371,7 +371,7 @@ where
                     .get_template(&api_key, template_id)
                     .await
                     .map(runpod_template_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -381,9 +381,8 @@ where
         input: DiscoverEndpointTemplatesInput,
     ) -> Pin<
         Box<
-            dyn Future<
-                    Output = Result<Vec<EndpointTemplateObservation>, WorkspaceProvisioningError>,
-                > + Send
+            dyn Future<Output = Result<Vec<EndpointTemplateObservation>, ProviderResourceError>>
+                + Send
                 + 'a,
         >,
     > {
@@ -403,7 +402,7 @@ where
                             .map(runpod_template_observation)
                             .collect()
                     })
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -412,7 +411,7 @@ where
         &'a self,
         provider_id: GpuCloudProviderId,
         template_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
         Box::pin(async move {
             let api_key = self.provisioning_api_key(&provider_id)?;
             match provider_id {
@@ -420,7 +419,7 @@ where
                     .runpod
                     .delete_template(&api_key, template_id)
                     .await
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -430,7 +429,7 @@ where
         input: CreateServerlessEndpointInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<ServerlessEndpointObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -457,7 +456,7 @@ where
                     )
                     .await
                     .map(runpod_endpoint_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -468,7 +467,7 @@ where
         endpoint_id: &'a str,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceProvisioningError>>
+            dyn Future<Output = Result<ServerlessEndpointObservation, ProviderResourceError>>
                 + Send
                 + 'a,
         >,
@@ -481,7 +480,7 @@ where
                     .get_endpoint(&api_key, endpoint_id)
                     .await
                     .map(runpod_endpoint_observation)
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -491,9 +490,8 @@ where
         input: DiscoverServerlessEndpointsInput,
     ) -> Pin<
         Box<
-            dyn Future<
-                    Output = Result<Vec<ServerlessEndpointObservation>, WorkspaceProvisioningError>,
-                > + Send
+            dyn Future<Output = Result<Vec<ServerlessEndpointObservation>, ProviderResourceError>>
+                + Send
                 + 'a,
         >,
     > {
@@ -511,7 +509,7 @@ where
                                 .map(runpod_endpoint_observation)
                                 .collect()
                         })
-                        .map_err(provisioning_error_from_client_error)
+                        .map_err(provider_resource_error_from_client_error)
                 }
             }
         })
@@ -521,7 +519,7 @@ where
         &'a self,
         provider_id: GpuCloudProviderId,
         endpoint_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceProvisioningError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
         Box::pin(async move {
             let api_key = self.provisioning_api_key(&provider_id)?;
             match provider_id {
@@ -529,7 +527,7 @@ where
                     .runpod
                     .delete_endpoint(&api_key, endpoint_id)
                     .await
-                    .map_err(provisioning_error_from_client_error),
+                    .map_err(provider_resource_error_from_client_error),
             }
         })
     }
@@ -542,11 +540,11 @@ where
     fn provisioning_api_key(
         &self,
         provider_id: &GpuCloudProviderId,
-    ) -> Result<ProviderApiKey, WorkspaceProvisioningError> {
+    ) -> Result<ProviderApiKey, ProviderResourceError> {
         self.secrets
             .read_api_key(provider_id)
-            .map_err(WorkspaceProvisioningError::from)?
-            .ok_or(WorkspaceProvisioningError::ProviderSetupIncomplete)
+            .map_err(ProviderResourceError::from)?
+            .ok_or(ProviderResourceError::ProviderSetupIncomplete)
     }
 }
 
@@ -577,18 +575,16 @@ fn error_from_client_error(error: ProviderClientError) -> WorkspaceSetupError {
     }
 }
 
-fn provisioning_error_from_client_error(error: ProviderClientError) -> WorkspaceProvisioningError {
+fn provider_resource_error_from_client_error(error: ProviderClientError) -> ProviderResourceError {
     match error {
-        ProviderClientError::Unauthorized => WorkspaceProvisioningError::ProviderApiKeyUnauthorized,
-        ProviderClientError::ApiUnavailable => WorkspaceProvisioningError::ProviderApiUnavailable,
-        ProviderClientError::RateLimited => WorkspaceProvisioningError::ProviderRateLimited,
-        ProviderClientError::RequestRejected => WorkspaceProvisioningError::ProviderRequestRejected,
-        ProviderClientError::ResponseInvalid => WorkspaceProvisioningError::ProviderResponseInvalid,
-        ProviderClientError::NotFound => WorkspaceProvisioningError::ProviderResourceNotFound,
-        ProviderClientError::Conflict => WorkspaceProvisioningError::ProviderOperationConflict,
-        ProviderClientError::Indeterminate => {
-            WorkspaceProvisioningError::ProviderOperationIndeterminate
-        }
+        ProviderClientError::Unauthorized => ProviderResourceError::ProviderApiKeyUnauthorized,
+        ProviderClientError::ApiUnavailable => ProviderResourceError::ProviderApiUnavailable,
+        ProviderClientError::RateLimited => ProviderResourceError::ProviderRateLimited,
+        ProviderClientError::RequestRejected => ProviderResourceError::ProviderRequestRejected,
+        ProviderClientError::ResponseInvalid => ProviderResourceError::ProviderResponseInvalid,
+        ProviderClientError::NotFound => ProviderResourceError::ProviderResourceNotFound,
+        ProviderClientError::Conflict => ProviderResourceError::ProviderOperationConflict,
+        ProviderClientError::Indeterminate => ProviderResourceError::ProviderOperationIndeterminate,
     }
 }
 

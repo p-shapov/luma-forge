@@ -3,14 +3,14 @@ use std::time::Duration;
 use crate::{
     domain::provider_setup::{GpuCloudProviderId, ProviderApiKey},
     provider::{error::ProviderClientError, runpod::RunPodClient, ProviderClientRegistry},
-    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
-    workspace_provisioning::{
-        CreateNetworkVolumeInput, ProviderProvisioningGateway, WorkspaceProvisioningError,
+    provider_resources::{
+        CreateNetworkVolumeInput, ProviderResourceError, ProviderResourceGateway,
     },
+    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_setup::{error::WorkspaceSetupError, ProviderPlacementOptionsGateway},
 };
 
-use super::{error_from_client_error, provisioning_error_from_client_error};
+use super::{error_from_client_error, provider_resource_error_from_client_error};
 
 #[derive(Debug, Clone, Default)]
 struct EmptySecretStore;
@@ -155,16 +155,16 @@ fn inventory_request_rejection_does_not_collapse_to_unavailable() {
 #[test]
 fn provisioning_request_rejection_maps_to_request_rejected() {
     assert_eq!(
-        provisioning_error_from_client_error(ProviderClientError::RequestRejected),
-        WorkspaceProvisioningError::ProviderRequestRejected
+        provider_resource_error_from_client_error(ProviderClientError::RequestRejected),
+        ProviderResourceError::ProviderRequestRejected
     );
 }
 
 #[test]
 fn provisioning_rate_limit_maps_to_rate_limited() {
     assert_eq!(
-        provisioning_error_from_client_error(ProviderClientError::RateLimited),
-        WorkspaceProvisioningError::ProviderRateLimited
+        provider_resource_error_from_client_error(ProviderClientError::RateLimited),
+        ProviderResourceError::ProviderRateLimited
     );
 }
 
@@ -187,10 +187,7 @@ async fn provisioning_dispatch_reads_stored_key_before_runpod_call() {
         .await
         .expect_err("unreachable create should be indeterminate after dispatch");
 
-    assert_eq!(
-        error,
-        WorkspaceProvisioningError::ProviderOperationIndeterminate
-    );
+    assert_eq!(error, ProviderResourceError::ProviderOperationIndeterminate);
 }
 
 #[tokio::test]
@@ -210,11 +207,11 @@ async fn provisioning_fails_before_provider_call_when_setup_missing() {
         .await
         .expect_err("missing setup should fail before provider call");
 
-    assert_eq!(error, WorkspaceProvisioningError::ProviderSetupIncomplete);
+    assert_eq!(error, ProviderResourceError::ProviderSetupIncomplete);
 }
 
 #[tokio::test]
-async fn provisioning_maps_runpod_transport_failure_to_workspace_provisioning_error() {
+async fn provisioning_maps_runpod_transport_failure_to_provider_resource_error() {
     let registry = ProviderClientRegistry::new(
         ApiKeySecretStore {
             api_key: "rp_123_secret".to_string(),
@@ -227,5 +224,5 @@ async fn provisioning_maps_runpod_transport_failure_to_workspace_provisioning_er
         .await
         .expect_err("unreachable get should map");
 
-    assert_eq!(error, WorkspaceProvisioningError::ProviderApiUnavailable);
+    assert_eq!(error, ProviderResourceError::ProviderApiUnavailable);
 }

@@ -1,40 +1,21 @@
 use crate::{
-    domain::{
-        placement::PlacementPlan,
-        workspace::{
-            ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
-            WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
-        },
+    domain::workspace::{
+        provisioning_state::{fail_workspace, reset_after_resource_cleanup},
+        WorkspaceLifecycleState,
     },
-    provisioner_worker::{
-        progress_from_worker_status, ProvisionerWorkerJobStatus, ProvisionerWorkerStartRequest,
-    },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    provider_resources::ProviderResourceGateway,
+    provisioner_worker::ProvisionerWorkerGateway,
+    secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
 use super::{
-    contracts::{
-        CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
-        DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
-        ObserveProvisioningPodInput, WorkspaceProvisioningResult,
-    },
+    context::WorkspaceProvisioningContext,
     coordinator::WorkspaceProvisioningCoordinator,
     failure,
-    gateways::{ProviderProvisioningGateway, ProvisionerWorkerGateway},
-    progress::result,
-    snapshots::{
-        created_provisioning_pod_snapshot, endpoint_template_matches_workspace,
-        is_terminal_provider_resource_status, is_workspace_ready,
-        observed_provisioning_pod_snapshot, persistent_storage_volume_snapshot,
-        runpod_template_provisioning_snapshot, runpod_template_snapshot,
-        serverless_endpoint_snapshot,
-    },
-    WorkspaceProvisioningError,
+    helpers::{result, WorkspaceProvisioningResult},
+    steps, WorkspaceProvisioningError,
 };
-
-type SyncStepResult = Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceProvisioningConfig {
@@ -68,12 +49,22 @@ impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
             config,
         }
     }
+
+    fn context(&self) -> WorkspaceProvisioningContext<'_, S, P, W, R> {
+        WorkspaceProvisioningContext::new(
+            &self.secrets,
+            &self.providers,
+            &self.workspace_catalog,
+            &self.workers,
+            &self.config,
+        )
+    }
 }
 
 impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R>
 where
     S: SecretStore,
-    P: ProviderProvisioningGateway,
+    P: ProviderResourceGateway,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
@@ -81,7 +72,8 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<WorkspaceProvisioningResult, WorkspaceProvisioningError> {
-        let mut workspace = self.workspace(workspace_id).await?;
+        let context = self.context();
+        let mut workspace = context.workspace(workspace_id).await?;
         if workspace.lifecycle_state != WorkspaceLifecycleState::Draft {
             return Err(WorkspaceProvisioningError::InvalidWorkspaceLifecycle);
         }
@@ -92,7 +84,7 @@ where
 
         workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
         workspace.last_provisioning_failure = None;
-        let workspace = self.update_workspace(&workspace).await?;
+        let workspace = context.update_workspace(&workspace).await?;
         Ok(result(workspace))
     }
 
@@ -101,30 +93,32 @@ where
         workspace_id: &str,
     ) -> Result<WorkspaceProvisioningResult, WorkspaceProvisioningError> {
         let Some(_guard) = self.coordinator.try_enter(workspace_id) else {
-            return Ok(result(self.workspace(workspace_id).await?));
+            let context = self.context();
+            return Ok(result(context.workspace(workspace_id).await?));
         };
 
-        let mut workspace = self.workspace(workspace_id).await?;
+        let context = self.context();
+        let mut workspace = context.workspace(workspace_id).await?;
         if workspace.lifecycle_state != WorkspaceLifecycleState::Provisioning {
             return Ok(result(workspace));
         }
 
-        if let Some(result) = self.sync_network_volume(&mut workspace).await? {
+        if let Some(result) = steps::network_volume::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
-        if let Some(result) = self.sync_provisioning_pod(&mut workspace).await? {
+        if let Some(result) = steps::provisioning_pod::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
-        if let Some(result) = self.drive_provisioner_worker(&mut workspace).await? {
+        if let Some(result) = steps::environment::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
-        if let Some(result) = self.finish_provisioning_pod(&mut workspace).await? {
+        if let Some(result) = steps::provisioning_pod::finish(&context, &mut workspace).await? {
             return Ok(result);
         }
-        if let Some(result) = self.sync_endpoint_template(&mut workspace).await? {
+        if let Some(result) = steps::endpoint_template::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
-        if let Some(result) = self.sync_serverless_endpoint(&mut workspace).await? {
+        if let Some(result) = steps::serverless_endpoint::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
 
@@ -139,7 +133,8 @@ where
             return Err(WorkspaceProvisioningError::ProviderOperationConflict);
         };
 
-        let mut workspace = self.workspace(workspace_id).await?;
+        let context = self.context();
+        let mut workspace = context.workspace(workspace_id).await?;
         if workspace.lifecycle_state != WorkspaceLifecycleState::Provisioning {
             return Err(WorkspaceProvisioningError::InvalidWorkspaceLifecycle);
         }
@@ -152,865 +147,14 @@ where
         .await
         {
             Ok(()) => {
-                workspace.lifecycle_state = WorkspaceLifecycleState::Draft;
-                workspace.persistent_storage_volume_snapshot = None;
-                workspace.active_provisioning_pod_snapshot = None;
-                workspace.serverless_endpoint_snapshot = None;
-                workspace.last_provisioning_pod_snapshot = None;
-                workspace.provider_provisioning_snapshot = None;
-                workspace.environment_prepared_at = None;
-                workspace.last_provisioning_failure = None;
+                reset_after_resource_cleanup(&mut workspace);
             }
             Err(_) => {
-                failure::fail_workspace(&mut workspace, failure::cancellation_cleanup_failed());
+                fail_workspace(&mut workspace, failure::cancellation_cleanup_failed());
             }
         }
 
-        let workspace = self.update_workspace(&workspace).await?;
+        let workspace = context.update_workspace(&workspace).await?;
         Ok(result(workspace))
     }
-
-    async fn sync_network_volume(&self, workspace: &mut Workspace) -> SyncStepResult {
-        if workspace.persistent_storage_volume_snapshot.is_none() {
-            let PlacementPlan::Runpod {
-                selected_datacenter_id,
-                persistent_storage_volume_size_bytes,
-                ..
-            } = &workspace.placement_plan;
-            let selected_datacenter_id = selected_datacenter_id.clone();
-            let persistent_storage_volume_size_bytes = *persistent_storage_volume_size_bytes;
-            let discovered_volumes = self
-                .providers
-                .discover_network_volumes(DiscoverNetworkVolumesInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                })
-                .await?;
-            if !discovered_volumes.is_empty() {
-                let provider_resource_ids = discovered_volumes
-                    .into_iter()
-                    .map(|observation| observation.provider_resource_id)
-                    .collect();
-                return self
-                    .fail_for_orphaned_provider_resources(
-                        workspace,
-                        WorkspaceProvisioningPhase::CreatingVolume,
-                        provider_resource_ids,
-                    )
-                    .await;
-            }
-            let observation = match self
-                .providers
-                .create_network_volume(CreateNetworkVolumeInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                    datacenter_id: selected_datacenter_id,
-                    size_bytes: persistent_storage_volume_size_bytes,
-                })
-                .await
-            {
-                Ok(observation) => observation,
-                Err(WorkspaceProvisioningError::ProviderOperationIndeterminate) => {
-                    let discovered_volumes = self
-                        .providers
-                        .discover_network_volumes(DiscoverNetworkVolumesInput {
-                            gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                            workspace_id: workspace.id.clone(),
-                        })
-                        .await?;
-                    if !discovered_volumes.is_empty() {
-                        let provider_resource_ids = discovered_volumes
-                            .into_iter()
-                            .map(|observation| observation.provider_resource_id)
-                            .collect();
-                        return self
-                            .fail_for_orphaned_provider_resources(
-                                workspace,
-                                WorkspaceProvisioningPhase::CreatingVolume,
-                                provider_resource_ids,
-                            )
-                            .await;
-                    }
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingVolume,
-                        )
-                        .await;
-                }
-                Err(error) => return Err(error),
-            };
-            workspace.persistent_storage_volume_snapshot =
-                Some(persistent_storage_volume_snapshot(workspace, observation));
-            self.fail_if_volume_status_is_terminal(workspace);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-
-        let Some(volume_id) = workspace
-            .persistent_storage_volume_snapshot
-            .as_ref()
-            .filter(|snapshot| snapshot.provider_resource_status != ProviderResourceStatus::Ready)
-            .map(|snapshot| snapshot.provider_resource_id.clone())
-        else {
-            return Ok(None);
-        };
-
-        let observation = match self
-            .providers
-            .get_network_volume(workspace.gpu_cloud_provider_id, &volume_id)
-            .await
-        {
-            Ok(observation) => observation,
-            Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {
-                return self
-                    .fail_for_missing_provider_resource(
-                        workspace,
-                        WorkspaceProvisioningPhase::CreatingVolume,
-                    )
-                    .await;
-            }
-            Err(error) => return Err(error),
-        };
-        workspace.persistent_storage_volume_snapshot =
-            Some(persistent_storage_volume_snapshot(workspace, observation));
-        self.fail_if_volume_status_is_terminal(workspace);
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn sync_provisioning_pod(&self, workspace: &mut Workspace) -> SyncStepResult {
-        if workspace.environment_prepared_at.is_none()
-            && workspace.active_provisioning_pod_snapshot.is_none()
-            && workspace
-                .persistent_storage_volume_snapshot
-                .as_ref()
-                .is_some_and(|snapshot| {
-                    snapshot.provider_resource_status == ProviderResourceStatus::Ready
-                })
-        {
-            let volume = workspace
-                .persistent_storage_volume_snapshot
-                .as_ref()
-                .expect("volume checked above");
-            let network_volume_id = volume.provider_resource_id.clone();
-            let provisioner_worker_image_ref = workspace
-                .resolved_runtime_image
-                .provisioner_image_ref
-                .clone();
-            let PlacementPlan::Runpod {
-                selected_datacenter_id,
-                selected_gpu_id,
-                ..
-            } = &workspace.placement_plan;
-            let discovered_pods = self
-                .providers
-                .discover_provisioning_pods(DiscoverProvisioningPodsInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                })
-                .await?;
-            if !discovered_pods.is_empty() {
-                let provider_resource_ids = discovered_pods
-                    .into_iter()
-                    .map(|observation| observation.provider_resource_id)
-                    .collect();
-                return self
-                    .fail_for_orphaned_provider_resources(
-                        workspace,
-                        WorkspaceProvisioningPhase::StartingProvisioningPod,
-                        provider_resource_ids,
-                    )
-                    .await;
-            }
-            let token = ProvisionerWorkerBearerToken::new(uuid::Uuid::new_v4().to_string())
-                .map_err(|_| WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid)?;
-            self.secrets
-                .write_provisioner_worker_token(&workspace.id, &token)
-                .map_err(WorkspaceProvisioningError::from)?;
-            let observation = match self
-                .providers
-                .create_provisioning_pod(CreateProvisioningPodInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                    provisioner_worker_image_ref: provisioner_worker_image_ref.clone(),
-                    datacenter_id: selected_datacenter_id.clone(),
-                    selected_gpu_id: selected_gpu_id.clone(),
-                    network_volume_id: network_volume_id.clone(),
-                    mount_path: self.config.volume_mount_path.clone(),
-                    bearer_token: token,
-                })
-                .await
-            {
-                Ok(observation) => observation,
-                Err(WorkspaceProvisioningError::ProviderOperationIndeterminate) => {
-                    let discovered_pods = self
-                        .providers
-                        .discover_provisioning_pods(DiscoverProvisioningPodsInput {
-                            gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                            workspace_id: workspace.id.clone(),
-                        })
-                        .await?;
-                    if !discovered_pods.is_empty() {
-                        let provider_resource_ids = discovered_pods
-                            .into_iter()
-                            .map(|observation| observation.provider_resource_id)
-                            .collect();
-                        return self
-                            .fail_for_orphaned_provider_resources(
-                                workspace,
-                                WorkspaceProvisioningPhase::StartingProvisioningPod,
-                                provider_resource_ids,
-                            )
-                            .await;
-                    }
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::StartingProvisioningPod,
-                        )
-                        .await;
-                }
-                Err(error) => return Err(error),
-            };
-            workspace.active_provisioning_pod_snapshot =
-                Some(created_provisioning_pod_snapshot(workspace, observation)?);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-
-        if workspace.environment_prepared_at.is_some() {
-            return Ok(None);
-        }
-
-        let Some(active_pod) = workspace.active_provisioning_pod_snapshot.clone() else {
-            return Ok(None);
-        };
-
-        let observation = match self
-            .providers
-            .get_provisioning_pod(ObserveProvisioningPodInput {
-                gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                provider_resource_id: active_pod.provider_resource_id.clone(),
-            })
-            .await
-        {
-            Ok(observation) => observation,
-            Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {
-                return self
-                    .fail_for_missing_provider_resource(
-                        workspace,
-                        WorkspaceProvisioningPhase::StartingProvisioningPod,
-                    )
-                    .await;
-            }
-            Err(error) => return Err(error),
-        };
-        let observed_pod = observed_provisioning_pod_snapshot(workspace, &active_pod, observation);
-        if is_terminal_provider_resource_status(&observed_pod.provider_resource_status) {
-            let failure = failure::provider_resource_failure(
-                WorkspaceProvisioningPhase::StartingProvisioningPod,
-                &observed_pod.provider_resource_status,
-            );
-            workspace.active_provisioning_pod_snapshot = Some(observed_pod);
-            failure::fail_workspace(workspace, failure);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-        if observed_pod != active_pod {
-            workspace.active_provisioning_pod_snapshot = Some(observed_pod);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-        if active_pod.provider_resource_status != ProviderResourceStatus::Running {
-            return Ok(Some(result(workspace.clone())));
-        }
-
-        Ok(None)
-    }
-
-    async fn drive_provisioner_worker(&self, workspace: &mut Workspace) -> SyncStepResult {
-        if workspace.environment_prepared_at.is_some() {
-            return Ok(None);
-        }
-
-        let Some(active_pod) = workspace.active_provisioning_pod_snapshot.clone() else {
-            return Ok(None);
-        };
-
-        if active_pod.provider_resource_status != ProviderResourceStatus::Running {
-            return Ok(None);
-        }
-
-        let token = match self.secrets.read_provisioner_worker_token(&workspace.id) {
-            Ok(Some(token)) => token,
-            Ok(None) => {
-                failure::fail_workspace(
-                    workspace,
-                    failure::worker_token_missing(WorkspaceProvisioningPhase::PreparingEnvironment),
-                );
-                let workspace = self.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
-            }
-            Err(SecretStoreError::InvalidStoredProvisionerWorkerToken) => {
-                failure::fail_workspace(
-                    workspace,
-                    failure::worker_token_invalid(WorkspaceProvisioningPhase::PreparingEnvironment),
-                );
-                let workspace = self.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
-            }
-            Err(error) => return Err(WorkspaceProvisioningError::from(error)),
-        };
-        let worker_status = match self
-            .workers
-            .status(&active_pod.provisioner_status_url, &token)
-            .await
-        {
-            Ok(status) if status.status == ProvisionerWorkerJobStatus::Idle => {
-                match self
-                    .workers
-                    .start(
-                        &active_pod.provisioner_status_url,
-                        &token,
-                        &ProvisionerWorkerStartRequest {
-                            job_id: workspace.id.clone(),
-                            workflow_preset: workspace
-                                .placement_plan
-                                .selected_workflow_preset()
-                                .clone(),
-                            resolved_runtime_image: workspace.resolved_runtime_image.clone(),
-                        },
-                    )
-                    .await
-                {
-                    Ok(status) => status,
-                    Err(error) => {
-                        return self.handle_worker_error(workspace.clone(), error).await;
-                    }
-                }
-            }
-            Ok(status) if status.status == ProvisionerWorkerJobStatus::Succeeded => {
-                workspace.environment_prepared_at = Some(now_rfc3339()?);
-                let workspace = self.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
-            }
-            Ok(status) => status,
-            Err(error) => {
-                return self.handle_worker_error(workspace.clone(), error).await;
-            }
-        };
-        Ok(Some(WorkspaceProvisioningResult {
-            workspace: workspace.clone(),
-            progress: progress_from_worker_status(&worker_status),
-        }))
-    }
-
-    async fn finish_provisioning_pod(&self, workspace: &mut Workspace) -> SyncStepResult {
-        if workspace.environment_prepared_at.is_none() {
-            return Ok(None);
-        }
-
-        let Some(active_pod) = workspace.active_provisioning_pod_snapshot.clone() else {
-            return Ok(None);
-        };
-
-        match self
-            .providers
-            .delete_provisioning_pod(
-                workspace.gpu_cloud_provider_id,
-                &active_pod.provider_resource_id,
-            )
-            .await
-        {
-            Ok(()) | Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {}
-            Err(error) => return Err(error),
-        }
-        let mut terminal_pod = active_pod;
-        terminal_pod.provider_resource_status = ProviderResourceStatus::Terminated;
-        workspace.last_provisioning_pod_snapshot = Some(terminal_pod);
-        workspace.active_provisioning_pod_snapshot = None;
-        self.secrets
-            .delete_provisioner_worker_token(&workspace.id)
-            .map_err(WorkspaceProvisioningError::from)?;
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn sync_endpoint_template(&self, workspace: &mut Workspace) -> SyncStepResult {
-        if workspace.environment_prepared_at.is_none()
-            || workspace.active_provisioning_pod_snapshot.is_some()
-        {
-            return Ok(None);
-        }
-
-        let template_snapshot = runpod_template_snapshot(workspace);
-        if let Some(template) = template_snapshot
-            .as_ref()
-            .filter(|snapshot| snapshot.provider_resource_status == ProviderResourceStatus::Ready)
-        {
-            if endpoint_template_matches_workspace(template, workspace) {
-                return Ok(None);
-            }
-
-            match self
-                .providers
-                .get_endpoint_template(workspace.gpu_cloud_provider_id, &template.template_id)
-                .await
-            {
-                Ok(observation) => {
-                    workspace.provider_provisioning_snapshot =
-                        Some(runpod_template_provisioning_snapshot(observation));
-                    let refreshed_template = runpod_template_snapshot(workspace)
-                        .ok_or(WorkspaceProvisioningError::ProviderResponseInvalid)?;
-                    if endpoint_template_matches_workspace(&refreshed_template, workspace) {
-                        let workspace = self.update_workspace(workspace).await?;
-                        return Ok(Some(result(workspace)));
-                    }
-                    if let Some(result) = self.delete_tracked_serverless_endpoint(workspace).await?
-                    {
-                        return Ok(Some(result));
-                    }
-                    match self
-                        .providers
-                        .delete_endpoint_template(
-                            workspace.gpu_cloud_provider_id,
-                            &refreshed_template.template_id,
-                        )
-                        .await
-                    {
-                        Ok(()) | Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {}
-                        Err(error) => return Err(error),
-                    }
-                    workspace.provider_provisioning_snapshot = None;
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
-                Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {
-                    if let Some(result) = self.delete_tracked_serverless_endpoint(workspace).await?
-                    {
-                        return Ok(Some(result));
-                    }
-                    workspace.provider_provisioning_snapshot = None;
-                    let workspace = self.update_workspace(workspace).await?;
-                    return Ok(Some(result(workspace)));
-                }
-                Err(error) => return Err(error),
-            }
-        }
-
-        if template_snapshot.is_none() {
-            let endpoint_worker_image_ref =
-                workspace.resolved_runtime_image.endpoint_image_ref.clone();
-            let discovered_templates = self
-                .providers
-                .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                })
-                .await?;
-            if !discovered_templates.is_empty() {
-                let provider_resource_ids = discovered_templates
-                    .into_iter()
-                    .map(|observation| observation.template_id)
-                    .collect();
-                return self
-                    .fail_for_orphaned_provider_resources(
-                        workspace,
-                        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                        provider_resource_ids,
-                    )
-                    .await;
-            }
-            let observation = match self
-                .providers
-                .create_endpoint_template(CreateEndpointTemplateInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                    endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                    mount_path: self.config.volume_mount_path.clone(),
-                })
-                .await
-            {
-                Ok(observation) => observation,
-                Err(WorkspaceProvisioningError::ProviderOperationIndeterminate) => {
-                    let discovered_templates = self
-                        .providers
-                        .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
-                            gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                            workspace_id: workspace.id.clone(),
-                        })
-                        .await?;
-                    if !discovered_templates.is_empty() {
-                        let provider_resource_ids = discovered_templates
-                            .into_iter()
-                            .map(|observation| observation.template_id)
-                            .collect();
-                        return self
-                            .fail_for_orphaned_provider_resources(
-                                workspace,
-                                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                                provider_resource_ids,
-                            )
-                            .await;
-                    }
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                        )
-                        .await;
-                }
-                Err(error) => return Err(error),
-            };
-            workspace.provider_provisioning_snapshot =
-                Some(runpod_template_provisioning_snapshot(observation));
-            self.fail_if_template_status_is_terminal(workspace);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-
-        let Some(template) = template_snapshot
-            .filter(|snapshot| snapshot.provider_resource_status != ProviderResourceStatus::Ready)
-        else {
-            return Ok(None);
-        };
-
-        let observation = match self
-            .providers
-            .get_endpoint_template(workspace.gpu_cloud_provider_id, &template.template_id)
-            .await
-        {
-            Ok(observation) => observation,
-            Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {
-                return self
-                    .fail_for_missing_provider_resource(
-                        workspace,
-                        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                    )
-                    .await;
-            }
-            Err(error) => return Err(error),
-        };
-        workspace.provider_provisioning_snapshot =
-            Some(runpod_template_provisioning_snapshot(observation));
-        self.fail_if_template_status_is_terminal(workspace);
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn delete_tracked_serverless_endpoint(
-        &self,
-        workspace: &mut Workspace,
-    ) -> SyncStepResult {
-        let Some(endpoint) = workspace.serverless_endpoint_snapshot.clone() else {
-            return Ok(None);
-        };
-
-        match self
-            .providers
-            .delete_serverless_endpoint(
-                workspace.gpu_cloud_provider_id,
-                &endpoint.provider_resource_id,
-            )
-            .await
-        {
-            Ok(()) | Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {}
-            Err(error) => return Err(error),
-        }
-
-        workspace.serverless_endpoint_snapshot = None;
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn sync_serverless_endpoint(&self, workspace: &mut Workspace) -> SyncStepResult {
-        if workspace.environment_prepared_at.is_none()
-            || workspace.active_provisioning_pod_snapshot.is_some()
-        {
-            return Ok(None);
-        }
-
-        if workspace.serverless_endpoint_snapshot.is_none() {
-            let volume = workspace
-                .persistent_storage_volume_snapshot
-                .as_ref()
-                .cloned();
-            let Some(volume) = volume else {
-                failure::fail_workspace(
-                    workspace,
-                    failure::missing_provider_resource(
-                        WorkspaceProvisioningPhase::CreatingEndpoint,
-                    ),
-                );
-                let workspace = self.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
-            };
-            let Some(template) = runpod_template_snapshot(workspace) else {
-                failure::fail_workspace(
-                    workspace,
-                    failure::readiness_validation_failed(
-                        WorkspaceProvisioningPhase::CreatingEndpoint,
-                    ),
-                );
-                let workspace = self.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
-            };
-            let PlacementPlan::Runpod {
-                selected_datacenter_id,
-                selected_gpu_id,
-                endpoint_keep_alive_seconds,
-                ..
-            } = &workspace.placement_plan;
-            let selected_datacenter_id = selected_datacenter_id.clone();
-            let selected_gpu_id = selected_gpu_id.clone();
-            let endpoint_keep_alive_seconds = *endpoint_keep_alive_seconds;
-            let discovered_endpoints = self
-                .providers
-                .discover_serverless_endpoints(DiscoverServerlessEndpointsInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                })
-                .await?;
-            if !discovered_endpoints.is_empty() {
-                let provider_resource_ids = discovered_endpoints
-                    .into_iter()
-                    .map(|observation| observation.provider_resource_id)
-                    .collect();
-                return self
-                    .fail_for_orphaned_provider_resources(
-                        workspace,
-                        WorkspaceProvisioningPhase::CreatingEndpoint,
-                        provider_resource_ids,
-                    )
-                    .await;
-            }
-            let observation = match self
-                .providers
-                .create_serverless_endpoint(CreateServerlessEndpointInput {
-                    gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                    workspace_id: workspace.id.clone(),
-                    template_id: template.template_id.clone(),
-                    datacenter_id: selected_datacenter_id.clone(),
-                    selected_gpu_id: selected_gpu_id.clone(),
-                    network_volume_id: volume.provider_resource_id.clone(),
-                    endpoint_keep_alive_seconds,
-                })
-                .await
-            {
-                Ok(observation) => observation,
-                Err(WorkspaceProvisioningError::ProviderOperationIndeterminate) => {
-                    let discovered_endpoints = self
-                        .providers
-                        .discover_serverless_endpoints(DiscoverServerlessEndpointsInput {
-                            gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-                            workspace_id: workspace.id.clone(),
-                        })
-                        .await?;
-                    if !discovered_endpoints.is_empty() {
-                        let provider_resource_ids = discovered_endpoints
-                            .into_iter()
-                            .map(|observation| observation.provider_resource_id)
-                            .collect();
-                        return self
-                            .fail_for_orphaned_provider_resources(
-                                workspace,
-                                WorkspaceProvisioningPhase::CreatingEndpoint,
-                                provider_resource_ids,
-                            )
-                            .await;
-                    }
-                    return self
-                        .fail_for_indeterminate_provider_operation(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingEndpoint,
-                        )
-                        .await;
-                }
-                Err(error) => return Err(error),
-            };
-            workspace.serverless_endpoint_snapshot =
-                Some(serverless_endpoint_snapshot(workspace, observation));
-            self.fail_if_endpoint_status_is_terminal(workspace);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-
-        if let Some(endpoint_id) = workspace
-            .serverless_endpoint_snapshot
-            .as_ref()
-            .filter(|snapshot| snapshot.provider_resource_status != ProviderResourceStatus::Ready)
-            .map(|snapshot| snapshot.provider_resource_id.clone())
-        {
-            let observation = match self
-                .providers
-                .get_serverless_endpoint(workspace.gpu_cloud_provider_id, &endpoint_id)
-                .await
-            {
-                Ok(observation) => observation,
-                Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {
-                    return self
-                        .fail_for_missing_provider_resource(
-                            workspace,
-                            WorkspaceProvisioningPhase::CreatingEndpoint,
-                        )
-                        .await;
-                }
-                Err(error) => return Err(error),
-            };
-            workspace.serverless_endpoint_snapshot =
-                Some(serverless_endpoint_snapshot(workspace, observation));
-            self.fail_if_endpoint_status_is_terminal(workspace);
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-
-        if is_workspace_ready(workspace) {
-            workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
-            workspace.last_provisioning_failure = None;
-            let workspace = self.update_workspace(workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
-
-        Ok(None)
-    }
-
-    async fn handle_worker_error(
-        &self,
-        mut workspace: Workspace,
-        error: WorkspaceProvisioningError,
-    ) -> Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError> {
-        if error == WorkspaceProvisioningError::ProvisionerWorkerUnavailable {
-            return Ok(Some(WorkspaceProvisioningResult {
-                workspace,
-                progress: worker_readiness_progress(),
-            }));
-        }
-
-        if let Some(failure) =
-            failure::worker_failure(WorkspaceProvisioningPhase::PreparingEnvironment, &error)
-        {
-            failure::fail_workspace(&mut workspace, failure);
-            let workspace = self.update_workspace(&workspace).await?;
-            Ok(Some(result(workspace)))
-        } else {
-            Err(error)
-        }
-    }
-
-    async fn fail_for_indeterminate_provider_operation(
-        &self,
-        workspace: &mut Workspace,
-        phase: WorkspaceProvisioningPhase,
-    ) -> SyncStepResult {
-        failure::fail_workspace(workspace, failure::indeterminate_provider_operation(phase));
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn fail_for_missing_provider_resource(
-        &self,
-        workspace: &mut Workspace,
-        phase: WorkspaceProvisioningPhase,
-    ) -> SyncStepResult {
-        failure::fail_workspace(workspace, failure::missing_provider_resource(phase));
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn fail_for_orphaned_provider_resources(
-        &self,
-        workspace: &mut Workspace,
-        phase: WorkspaceProvisioningPhase,
-        provider_resource_ids: Vec<String>,
-    ) -> SyncStepResult {
-        failure::fail_workspace(
-            workspace,
-            failure::orphaned_provider_resources(phase, provider_resource_ids),
-        );
-        let workspace = self.update_workspace(workspace).await?;
-        Ok(Some(result(workspace)))
-    }
-
-    async fn workspace(&self, workspace_id: &str) -> Result<Workspace, WorkspaceProvisioningError> {
-        self.workspace_catalog
-            .find_workspace_by_id(workspace_id)
-            .await
-            .map_err(catalog_error)?
-            .ok_or(WorkspaceProvisioningError::WorkspaceNotFound)
-    }
-
-    async fn update_workspace(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<Workspace, WorkspaceProvisioningError> {
-        self.workspace_catalog
-            .update_workspace(workspace)
-            .await
-            .map_err(catalog_error)
-    }
-
-    fn fail_if_volume_status_is_terminal(&self, workspace: &mut Workspace) {
-        if let Some(status) = workspace
-            .persistent_storage_volume_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.provider_resource_status.clone())
-            .filter(is_terminal_provider_resource_status)
-        {
-            let failure = failure::provider_resource_failure(
-                WorkspaceProvisioningPhase::CreatingVolume,
-                &status,
-            );
-            failure::fail_workspace(workspace, failure);
-        }
-    }
-
-    fn fail_if_template_status_is_terminal(&self, workspace: &mut Workspace) {
-        if let Some(status) = runpod_template_snapshot(workspace)
-            .map(|snapshot| snapshot.provider_resource_status)
-            .filter(is_terminal_provider_resource_status)
-        {
-            let failure = failure::provider_resource_failure(
-                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                &status,
-            );
-            failure::fail_workspace(workspace, failure);
-        }
-    }
-
-    fn fail_if_endpoint_status_is_terminal(&self, workspace: &mut Workspace) {
-        if let Some(status) = workspace
-            .serverless_endpoint_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.provider_resource_status.clone())
-            .filter(is_terminal_provider_resource_status)
-        {
-            let failure = failure::provider_resource_failure(
-                WorkspaceProvisioningPhase::CreatingEndpoint,
-                &status,
-            );
-            failure::fail_workspace(workspace, failure);
-        }
-    }
-}
-
-fn worker_readiness_progress() -> WorkspaceProvisioningProgress {
-    WorkspaceProvisioningProgress {
-        status: WorkspaceProvisioningStatus::Running,
-        phase: WorkspaceProvisioningPhase::PreparingEnvironment,
-        percent: None,
-        failure: None,
-    }
-}
-
-fn catalog_error(
-    _error: crate::workspace_setup::error::WorkspaceSetupError,
-) -> WorkspaceProvisioningError {
-    WorkspaceProvisioningError::WorkspaceCatalogUnavailable
-}
-
-fn now_rfc3339() -> Result<String, WorkspaceProvisioningError> {
-    time::OffsetDateTime::now_utc()
-        .format(&time::format_description::well_known::Rfc3339)
-        .map_err(|_| WorkspaceProvisioningError::ProviderResponseInvalid)
 }

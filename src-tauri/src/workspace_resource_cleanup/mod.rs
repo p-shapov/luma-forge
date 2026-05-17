@@ -1,7 +1,8 @@
 use crate::{
     domain::workspace::{ProviderProvisioningSnapshot, Workspace},
+    provider_resources::{ProviderResourceError, ProviderResourceGateway},
     secrets::SecretStore,
-    workspace_provisioning::{ProviderProvisioningGateway, WorkspaceProvisioningError},
+    workspace_provisioning::WorkspaceProvisioningError,
 };
 
 pub async fn cleanup_known_resources<S, P>(
@@ -11,7 +12,7 @@ pub async fn cleanup_known_resources<S, P>(
 ) -> Result<(), WorkspaceProvisioningError>
 where
     S: SecretStore,
-    P: ProviderProvisioningGateway,
+    P: ProviderResourceGateway,
 {
     let mut first_error = None;
 
@@ -91,11 +92,11 @@ fn runpod_template_id(workspace: &Workspace) -> Option<String> {
 }
 
 fn tolerate_missing(
-    result: Result<(), WorkspaceProvisioningError>,
+    result: Result<(), ProviderResourceError>,
 ) -> Result<(), WorkspaceProvisioningError> {
     match result {
-        Ok(()) | Err(WorkspaceProvisioningError::ProviderResourceNotFound) => Ok(()),
-        Err(error) => Err(error),
+        Ok(()) | Err(ProviderResourceError::ProviderResourceNotFound) => Ok(()),
+        Err(error) => Err(error.into()),
     }
 }
 
@@ -109,3 +110,6 @@ fn remember_first_error(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
