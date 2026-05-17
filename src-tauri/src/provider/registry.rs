@@ -31,6 +31,8 @@ use crate::{
 };
 
 const RUNPOD_VOLUME_MOUNT_PATH: &str = "/workspace";
+const RUNPOD_PROVISIONER_WORKER_HTTP_PORT: u16 = 8000;
+const RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT: u16 = 8188;
 const GIB_BYTES: u64 = 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
@@ -245,7 +247,7 @@ where
                                         provisioner_image_ref,
                                     ),
                                 ]),
-                                ports: vec![format!("{}/http", input.provisioner_worker_port)],
+                                ports: vec![format!("{RUNPOD_PROVISIONER_WORKER_HTTP_PORT}/http")],
                             },
                         )
                         .await
@@ -380,7 +382,7 @@ where
                             ]),
                             is_public: false,
                             is_serverless: true,
-                            ports: vec![format!("{}/http", input.endpoint_worker_port)],
+                            ports: vec![format!("{RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT}/http")],
                             readme: String::new(),
                             volume_mount_path: input.mount_path,
                         },
@@ -443,7 +445,7 @@ where
                             &input.runtime_implementation_revision,
                             &input.endpoint_worker_image_ref,
                         ),
-                        input.endpoint_worker_port,
+                        RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT,
                         &input.mount_path,
                     )
                     .await

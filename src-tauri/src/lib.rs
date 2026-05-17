@@ -1,4 +1,3 @@
-mod app_config;
 mod app_state;
 mod bundled_catalog;
 mod commands;

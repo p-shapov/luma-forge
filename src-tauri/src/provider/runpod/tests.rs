@@ -541,7 +541,7 @@ fn serializes_pod_create_request_with_documented_shape() {
                 "ghcr.io/luma-forge/provisioner-worker:test".to_string(),
             ),
         ]),
-        ports: vec!["8080/http".to_string()],
+        ports: vec!["8000/http".to_string()],
     })
     .expect("request should serialize");
 
@@ -558,7 +558,7 @@ fn serializes_pod_create_request_with_documented_shape() {
                 "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "worker-token",
                 "LUMA_FORGE_PROVISIONER_IMAGE_REF": "ghcr.io/luma-forge/provisioner-worker:test"
             },
-            "ports": ["8080/http"]
+            "ports": ["8000/http"]
         })
     );
 }
@@ -871,7 +871,7 @@ fn pod_discovery_rejects_candidate_without_image_identity() {
 }
 
 #[test]
-fn serializes_serverless_template_create_request_with_worker_port() {
+fn serializes_serverless_template_create_request_with_comfyui_http_port() {
     let endpoint_ref = "ghcr.io/luma-forge/endpoint-worker:dev".to_string();
     let payload = serde_json::to_value(RunPodCreateTemplateRequest {
         name: "lf-workspace-endpoint-template".to_string(),
@@ -898,7 +898,7 @@ fn serializes_serverless_template_create_request_with_worker_port() {
         ]),
         is_public: false,
         is_serverless: true,
-        ports: vec!["8080/http".to_string()],
+        ports: vec!["8188/http".to_string()],
         readme: String::new(),
         volume_mount_path: "/workspace".to_string(),
     })
@@ -919,7 +919,7 @@ fn serializes_serverless_template_create_request_with_worker_port() {
             },
             "isPublic": false,
             "isServerless": true,
-            "ports": ["8080/http"],
+            "ports": ["8188/http"],
             "readme": "",
             "volumeMountPath": "/workspace"
         })
