@@ -1,15 +1,8 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use crate::{
-    domain::{
-        provider_setup::{GpuCloudProviderId, ProviderApiKey},
-        workspace::ProviderResourceStatus,
-    },
-    provider::{
-        error::ProviderClientError,
-        runpod::{RunPodClient, RunPodTemplateObservation},
-        ProviderClientRegistry,
-    },
+    domain::provider_setup::{GpuCloudProviderId, ProviderApiKey},
+    provider::{error::ProviderClientError, runpod::RunPodClient, ProviderClientRegistry},
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_provisioning::{
         CreateNetworkVolumeInput, ProviderProvisioningGateway, WorkspaceProvisioningError,
@@ -17,9 +10,7 @@ use crate::{
     workspace_setup::{error::WorkspaceSetupError, ProviderPlacementOptionsGateway},
 };
 
-use super::{
-    error_from_client_error, provisioning_error_from_client_error, runpod_template_observation,
-};
+use super::{error_from_client_error, provisioning_error_from_client_error};
 
 #[derive(Debug, Clone, Default)]
 struct EmptySecretStore;
@@ -175,21 +166,6 @@ fn provisioning_rate_limit_maps_to_rate_limited() {
         provisioning_error_from_client_error(ProviderClientError::RateLimited),
         WorkspaceProvisioningError::ProviderRateLimited
     );
-}
-
-#[test]
-fn runpod_template_observation_preserves_template_env() {
-    let env = HashMap::from([("CUSTOM_ENV".to_string(), "custom-value".to_string())]);
-
-    let observation = runpod_template_observation(RunPodTemplateObservation {
-        id: "template-1".to_string(),
-        image_name: "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
-        volume_mount_path: "/workspace".to_string(),
-        env: env.clone(),
-        status: ProviderResourceStatus::Ready,
-    });
-
-    assert_eq!(observation.runtime_env, env);
 }
 
 #[tokio::test]

@@ -65,7 +65,6 @@ pub(crate) fn runpod_template_provisioning_snapshot(
         endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
             template_id: observation.template_id,
             endpoint_worker_image_ref: observation.endpoint_worker_image_ref,
-            runtime_env: observation.runtime_env,
             mount_path: observation.mount_path,
             provider_resource_status: observation.provider_resource_status,
         }),
