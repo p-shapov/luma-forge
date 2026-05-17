@@ -1,5 +1,4 @@
 import os
-import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -107,9 +106,40 @@ class PreparerTests(unittest.TestCase):
             self.assertIn("materializing_runtime", phases)
             self.assertIn("downloading_assets", phases)
             self.assertIn("validating_environment", phases)
-            self.assertTrue((Path(directory) / "ComfyUI/models/checkpoints/model.safetensors").is_file())
-            self.assertTrue((Path(directory) / ".venv/bin/python").is_file())
-            self.assertTrue((Path(directory) / ".luma-forge/runtime.json").is_file())
+            self.assertTrue((Path(directory) / "models/checkpoints/model.safetensors").is_file())
+            self.assertFalse((Path(directory) / ".venv/bin/python").exists())
+            self.assertFalse((Path(directory) / "ComfyUI").exists())
+            self.assertTrue((Path(directory) / ".luma-forge/runtime-manifest.json").is_file())
+
+    def test_uses_catalog_declared_python_overlay_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload(preset=start_payload()["workflow_preset"])
+            payload["resolved_runtime_implementation"]["runtime_metadata"]["workspace_overlay_policy"][
+                "python_overlay_path"
+            ] = ".luma-forge/custom-overlay"
+            request = parse_start_request(payload)
+            config = test_config(workspace_mount_path=Path(directory))
+            metadata_path = config.image_runtime_root_path / "runtime-metadata.json"
+            metadata_path.write_text(
+                metadata_path.read_text(encoding="utf-8").replace(
+                    ".luma-forge/python-overlay",
+                    ".luma-forge/custom-overlay",
+                ),
+                encoding="utf-8",
+            )
+
+            Provisioner(
+                command_runner=FakeCommandRunner(),
+                downloader=FakeDownloader(),
+                config=config,
+            ).prepare(
+                request,
+                lambda phase, progress, message: None,
+                Event(),
+            )
+
+            self.assertTrue((Path(directory) / ".luma-forge/custom-overlay").is_dir())
+            self.assertFalse((Path(directory) / ".luma-forge/python-overlay").exists())
 
     def test_rejects_mutable_git_revision(self):
         payload = start_payload()
@@ -231,16 +261,19 @@ class PreparerTests(unittest.TestCase):
                 Event(),
             )
 
-            custom_node_path = (Path(directory) / "ComfyUI/custom_nodes/example-node").resolve(strict=False)
-            venv_python = (Path(directory) / ".venv/bin/python").resolve(strict=False)
+            custom_node_path = (Path(directory) / "custom_nodes/example-node").resolve(strict=False)
+            image_python = runner.capture_calls[0][0][0]
+            overlay_path = (Path(directory) / ".luma-forge/python-overlay").resolve(strict=False)
             self.assertTrue(custom_node_path.is_dir())
             self.assertIn(
                 (
                     [
-                        str(venv_python),
+                        image_python,
                         "-m",
                         "pip",
                         "install",
+                        "--target",
+                        str(overlay_path),
                         "--report",
                         str((Path(directory) / ".luma-forge/custom-node-example-node-install-report.json").resolve()),
                         "-r",
@@ -280,6 +313,237 @@ class PreparerTests(unittest.TestCase):
             self.assertEqual(len(report_paths), 1)
             self.assertEqual(report_paths[0].parent, (Path(directory) / ".luma-forge").resolve(strict=False))
             self.assertEqual(report_paths[0].name, "custom-node-safe.node_1-install-report.json")
+
+    def test_rejects_protected_custom_node_dependency_before_pip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = FakeCommandRunner()
+            original_run = runner.run
+
+            def run_with_protected_requirement(args, **kwargs):
+                original_run(args, **kwargs)
+                if args[0:2] == ["git", "clone"]:
+                    Path(args[3], "requirements.txt").write_text("torch==2.6.0\n", encoding="utf-8")
+
+            runner.run = run_with_protected_requirement
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertFalse(any("--target" in call[0] for call in runner.calls))
+
+    def test_rejects_protected_custom_node_dependency_with_pep503_name_normalization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = FakeCommandRunner()
+            original_run = runner.run
+
+            def run_with_dotted_protected_requirement(args, **kwargs):
+                original_run(args, **kwargs)
+                if args[0:2] == ["git", "clone"]:
+                    Path(args[3], "requirements.txt").write_text(
+                        "nvidia.cublas-cu12==12.6.4.1\n",
+                        encoding="utf-8",
+                    )
+
+            runner.run = run_with_dotted_protected_requirement
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertFalse(any("--target" in call[0] for call in runner.calls))
+
+    def test_rejects_protected_dependency_from_nested_requirements_before_pip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = FakeCommandRunner()
+            original_run = runner.run
+
+            def run_with_nested_protected_requirement(args, **kwargs):
+                original_run(args, **kwargs)
+                if args[0:2] == ["git", "clone"]:
+                    checkout = Path(args[3])
+                    (checkout / "requirements.txt").write_text("-r nested/base.txt\n", encoding="utf-8")
+                    (checkout / "nested").mkdir()
+                    (checkout / "nested/base.txt").write_text("torch==2.6.0\n", encoding="utf-8")
+
+            runner.run = run_with_nested_protected_requirement
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertFalse(any("--target" in call[0] for call in runner.calls))
+
+    def test_rejects_protected_transitive_dependency_from_pip_report(self):
+        class ProtectedTransitiveReportRunner(FakeCommandRunner):
+            def run(self, args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
+                super().run(
+                    args,
+                    cwd=cwd,
+                    cancel_event=cancel_event,
+                    timeout_seconds=timeout_seconds,
+                    error_type=error_type,
+                )
+                if "--report" in args:
+                    report_path = Path(args[args.index("--report") + 1])
+                    report_path.write_text(
+                        '{"install":[{"metadata":{"name":"nvidia-cublas-cu12"}}]}\n',
+                        encoding="utf-8",
+                    )
+
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = ProtectedTransitiveReportRunner()
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertTrue(any("--target" in call[0] for call in runner.calls))
+
+    def test_rejects_remote_nested_requirements_before_pip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = FakeCommandRunner()
+            original_run = runner.run
+
+            def run_with_remote_nested_requirement(args, **kwargs):
+                original_run(args, **kwargs)
+                if args[0:2] == ["git", "clone"]:
+                    Path(args[3], "requirements.txt").write_text(
+                        "-r https://example.test/requirements.txt\n",
+                        encoding="utf-8",
+                    )
+
+            runner.run = run_with_remote_nested_requirement
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertFalse(any("--target" in call[0] for call in runner.calls))
+
+    def test_rejects_protected_direct_url_dependency_before_pip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = FakeCommandRunner()
+            original_run = runner.run
+
+            def run_with_protected_direct_url_requirement(args, **kwargs):
+                original_run(args, **kwargs)
+                if args[0:2] == ["git", "clone"]:
+                    Path(args[3], "requirements.txt").write_text(
+                        "git+https://example.test/torch.git#egg=torch\n",
+                        encoding="utf-8",
+                    )
+
+            runner.run = run_with_protected_direct_url_requirement
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertFalse(any("--target" in call[0] for call in runner.calls))
+
+    def test_reports_overlay_install_failure(self):
+        class FailingPipRunner(FakeCommandRunner):
+            def run(self, args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
+                if "--target" in args:
+                    raise DependencyInstallError("install failed")
+                super().run(
+                    args,
+                    cwd=cwd,
+                    cancel_event=cancel_event,
+                    timeout_seconds=timeout_seconds,
+                    error_type=error_type,
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=FailingPipRunner(),
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
 
     def test_progress_messages_include_custom_node_id_and_model_asset_name(self):
         secret = "Bearer secret-token with misleading text"
@@ -366,7 +630,7 @@ class PreparerTests(unittest.TestCase):
             )
 
             venv_path = Path(directory) / ".venv"
-            self.assertTrue((venv_path / "bin/python").is_file())
+            self.assertFalse((venv_path / "bin/python").exists())
             self.assertNotIn(["python", "-m", "venv", str(venv_path.resolve(strict=False))], [call[0] for call in runner.calls])
             self.assertNotIn(
                 [
@@ -380,33 +644,22 @@ class PreparerTests(unittest.TestCase):
                 [call[0] for call in runner.calls],
             )
 
-    def test_fails_when_materialized_venv_is_missing_during_validation(self):
-        archive_file = tempfile.NamedTemporaryFile(suffix=".tar", delete=False)
-        archive_path = Path(archive_file.name)
-        archive_file.close()
-        try:
-            with tempfile.TemporaryDirectory() as source_directory, tempfile.TemporaryDirectory() as directory:
-                source_root = Path(source_directory)
-                comfyui = source_root / "ComfyUI"
-                comfyui.mkdir(parents=True)
-                (comfyui / "main.py").write_text("", encoding="utf-8")
-                with tarfile.open(archive_path, "w") as archive:
-                    archive.add(comfyui, arcname="ComfyUI")
-                request = parse_start_request(start_payload())
-                runner = FakeCommandRunner()
+    def test_fails_when_image_python_is_missing_during_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            request = parse_start_request(start_payload())
+            config = test_config(workspace_mount_path=Path(directory))
+            (config.image_runtime_root_path / ".venv/bin/python").unlink()
 
-                with self.assertRaises(PreparationError):
-                    Provisioner(
-                        command_runner=runner,
-                        downloader=FakeDownloader(),
-                        config=test_config(workspace_mount_path=Path(directory), runtime_archive_path=archive_path),
-                    ).prepare(
-                        request,
-                        lambda phase, progress, message: None,
-                        Event(),
-                    )
-        finally:
-            archive_path.unlink(missing_ok=True)
+            with self.assertRaises(PreparationError):
+                Provisioner(
+                    command_runner=FakeCommandRunner(),
+                    downloader=FakeDownloader(),
+                    config=config,
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
 
     def test_does_not_write_manifest_when_final_validation_fails(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -423,7 +676,7 @@ class PreparerTests(unittest.TestCase):
                     Event(),
                 )
 
-            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+            self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
             self.assertEqual(str(context.exception), "Model asset is missing: model")
 
     def test_validation_failure_includes_validated_id_but_not_preset_asset_name(self):
@@ -468,7 +721,7 @@ class PreparerTests(unittest.TestCase):
                 )
 
             self.assertEqual(runner.calls, [])
-            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+            self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
 
     def test_cancels_before_runtime_materialization_without_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -493,7 +746,7 @@ class PreparerTests(unittest.TestCase):
             self.assertIn("materializing_runtime", phases)
             self.assertFalse(any("--report" in call[0] for call in runner.calls))
             self.assertEqual(downloader.calls, [])
-            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+            self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
 
     def test_cancels_before_asset_download_without_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -514,8 +767,8 @@ class PreparerTests(unittest.TestCase):
                 ).prepare(request, progress, cancel_event)
 
             self.assertEqual(downloader.calls, [])
-            self.assertFalse((Path(directory) / "ComfyUI/models/checkpoints/model.safetensors").exists())
-            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+            self.assertFalse((Path(directory) / "models/checkpoints/model.safetensors").exists())
+            self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
 
     def test_cancels_before_final_validation_without_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -534,9 +787,9 @@ class PreparerTests(unittest.TestCase):
                     config=test_config(workspace_mount_path=Path(directory)),
                 ).prepare(request, progress, cancel_event)
 
-            self.assertTrue((Path(directory) / "ComfyUI/models/checkpoints/model.safetensors").is_file())
+            self.assertTrue((Path(directory) / "models/checkpoints/model.safetensors").is_file())
             self.assertEqual(runner.capture_calls, [])
-            self.assertFalse((Path(directory) / ".luma-forge/runtime.json").exists())
+            self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
 
 def custom_node(
     *,

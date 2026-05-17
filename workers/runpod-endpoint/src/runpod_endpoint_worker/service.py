@@ -32,6 +32,6 @@ class GenerationService:
             self.process_manager.ensure_running(runtime)
         else:
             self.comfyui.assert_available()
-        workflow = render_t2i_workflow(self.config, request)
+        workflow = render_t2i_workflow(self.config, request, runtime)
         prompt_id = self.comfyui.queue_prompt(workflow)
         return GenerationResponse(image=self.comfyui.wait_for_image(prompt_id))

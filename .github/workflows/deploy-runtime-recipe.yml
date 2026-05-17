@@ -104,6 +104,13 @@ jobs:
             --build-arg LUMA_FORGE_RUNTIME_CONTRACT_ID="${{ steps.recipe.outputs.contract_id }}" \
             --build-arg LUMA_FORGE_RUNTIME_CONTRACT_VERSION="${{ steps.recipe.outputs.contract_version }}" \
             --build-arg LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION="${{ steps.recipe.outputs.implementation_revision }}" \
+            --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
+            --build-arg LUMA_FORGE_RUNTIME_PLATFORM="${{ steps.recipe.outputs.runtime_platform }}" \
+            --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
+            --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.recipe.outputs.comfyui_revision }}" \
+            --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.recipe.outputs.pytorch_index_url }}" \
+            --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.recipe.outputs.pytorch_packages_json }}' \
+            --build-arg LUMA_FORGE_BASE_REQUIREMENTS_JSON='${{ steps.recipe.outputs.base_requirements_json }}' \
             --tag "${{ steps.image.outputs.endpoint_tag }}" .
 
       - name: Validate image pair runtime metadata
@@ -111,7 +118,6 @@ jobs:
           provisioner="$(docker create "${{ steps.image.outputs.provisioner_tag }}")"
           endpoint="$(docker create "${{ steps.image.outputs.endpoint_tag }}")"
           docker cp "$provisioner:/opt/luma-forge/runtime/runtime-metadata.json" /tmp/provisioner-runtime.json
-          docker cp "$provisioner:/opt/luma-forge/runtime/base-runtime.tar.gz" /tmp/base-runtime.tar.gz
           docker cp "$endpoint:/opt/luma-forge/runtime/runtime-contract.json" /tmp/endpoint-runtime.json
           docker rm "$provisioner" "$endpoint"
           python workers/runtime-recipes/release_tool.py validate-image-metadata \
@@ -119,8 +125,6 @@ jobs:
             --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}" \
             --provisioner-runtime-metadata /tmp/provisioner-runtime.json \
             --endpoint-runtime-metadata /tmp/endpoint-runtime.json
-          python workers/runtime-recipes/release_tool.py validate-runtime-archive \
-            --runtime-archive /tmp/base-runtime.tar.gz
 
       - name: Log in to GHCR
         uses: docker/login-action@v4

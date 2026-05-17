@@ -25,8 +25,9 @@ use super::{
     gateways::{ProviderProvisioningGateway, ProvisionerWorkerGateway},
     progress::result,
     snapshots::{
-        created_provisioning_pod_snapshot, is_terminal_provider_resource_status,
-        is_workspace_ready, observed_provisioning_pod_snapshot, persistent_storage_volume_snapshot,
+        created_provisioning_pod_snapshot, endpoint_template_matches_workspace,
+        is_terminal_provider_resource_status, is_workspace_ready,
+        observed_provisioning_pod_snapshot, persistent_storage_volume_snapshot,
         runpod_template_provisioning_snapshot, runpod_template_snapshot,
         serverless_endpoint_snapshot,
     },
@@ -580,10 +581,81 @@ where
         }
 
         let template_snapshot = runpod_template_snapshot(workspace);
+        if let Some(template) = template_snapshot
+            .as_ref()
+            .filter(|snapshot| snapshot.provider_resource_status == ProviderResourceStatus::Ready)
+        {
+            if endpoint_template_matches_workspace(template, workspace) {
+                return Ok(None);
+            }
+
+            match self
+                .providers
+                .get_endpoint_template(workspace.gpu_cloud_provider_id, &template.template_id)
+                .await
+            {
+                Ok(observation) => {
+                    workspace.provider_provisioning_snapshot =
+                        Some(runpod_template_provisioning_snapshot(observation));
+                    let refreshed_template = runpod_template_snapshot(workspace)
+                        .ok_or(WorkspaceProvisioningError::ProviderResponseInvalid)?;
+                    if endpoint_template_matches_workspace(&refreshed_template, workspace) {
+                        let workspace = self.update_workspace(workspace).await?;
+                        return Ok(Some(result(workspace)));
+                    }
+                    if let Some(result) = self.delete_tracked_serverless_endpoint(workspace).await?
+                    {
+                        return Ok(Some(result));
+                    }
+                    match self
+                        .providers
+                        .delete_endpoint_template(
+                            workspace.gpu_cloud_provider_id,
+                            &refreshed_template.template_id,
+                        )
+                        .await
+                    {
+                        Ok(()) | Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {}
+                        Err(error) => return Err(error),
+                    }
+                    workspace.provider_provisioning_snapshot = None;
+                    let workspace = self.update_workspace(workspace).await?;
+                    return Ok(Some(result(workspace)));
+                }
+                Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {
+                    if let Some(result) = self.delete_tracked_serverless_endpoint(workspace).await?
+                    {
+                        return Ok(Some(result));
+                    }
+                    workspace.provider_provisioning_snapshot = None;
+                    let workspace = self.update_workspace(workspace).await?;
+                    return Ok(Some(result(workspace)));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
         if template_snapshot.is_none() {
             let endpoint_worker_image_ref = workspace
                 .resolved_runtime_implementation
                 .endpoint_image_ref
+                .clone();
+            let image_runtime_root_path = workspace
+                .resolved_runtime_implementation
+                .image_metadata
+                .image_runtime_root_path
+                .clone();
+            let runtime_contract_id = workspace
+                .resolved_runtime_implementation
+                .contract_id
+                .clone();
+            let runtime_contract_version = workspace
+                .resolved_runtime_implementation
+                .contract_version
+                .clone();
+            let runtime_implementation_revision = workspace
+                .resolved_runtime_implementation
+                .implementation_revision
                 .clone();
             let discovered_templates = self
                 .providers
@@ -591,6 +663,10 @@ where
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
                     endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
+                    image_runtime_root_path: image_runtime_root_path.clone(),
+                    runtime_contract_id: runtime_contract_id.clone(),
+                    runtime_contract_version: runtime_contract_version.clone(),
+                    runtime_implementation_revision: runtime_implementation_revision.clone(),
                     endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                     mount_path: self.config.volume_mount_path.clone(),
                 })
@@ -619,6 +695,10 @@ where
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
                     endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
+                    image_runtime_root_path: image_runtime_root_path.clone(),
+                    runtime_contract_id: runtime_contract_id.clone(),
+                    runtime_contract_version: runtime_contract_version.clone(),
+                    runtime_implementation_revision: runtime_implementation_revision.clone(),
                     endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                     mount_path: self.config.volume_mount_path.clone(),
                 })
@@ -632,6 +712,11 @@ where
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
                             endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
+                            image_runtime_root_path: image_runtime_root_path.clone(),
+                            runtime_contract_id: runtime_contract_id.clone(),
+                            runtime_contract_version: runtime_contract_version.clone(),
+                            runtime_implementation_revision: runtime_implementation_revision
+                                .clone(),
                             endpoint_worker_port: self.config.runpod_endpoint_worker_port,
                             mount_path: self.config.volume_mount_path.clone(),
                         })
@@ -688,6 +773,31 @@ where
         workspace.provider_provisioning_snapshot =
             Some(runpod_template_provisioning_snapshot(observation));
         self.fail_if_template_status_is_terminal(workspace);
+        let workspace = self.update_workspace(workspace).await?;
+        Ok(Some(result(workspace)))
+    }
+
+    async fn delete_tracked_serverless_endpoint(
+        &self,
+        workspace: &mut Workspace,
+    ) -> SyncStepResult {
+        let Some(endpoint) = workspace.serverless_endpoint_snapshot.clone() else {
+            return Ok(None);
+        };
+
+        match self
+            .providers
+            .delete_serverless_endpoint(
+                workspace.gpu_cloud_provider_id,
+                &endpoint.provider_resource_id,
+            )
+            .await
+        {
+            Ok(()) | Err(WorkspaceProvisioningError::ProviderResourceNotFound) => {}
+            Err(error) => return Err(error),
+        }
+
+        workspace.serverless_endpoint_snapshot = None;
         let workspace = self.update_workspace(workspace).await?;
         Ok(Some(result(workspace)))
     }

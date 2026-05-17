@@ -143,10 +143,25 @@ fn runtime_snapshot() -> domain_runtime::ResolvedRuntimeImplementationSnapshot {
             python_version: "3.12".to_string(),
             platform: "linux-x86_64-cuda".to_string(),
             comfyui_revision: "aa9d2fc713664e9ffe37763f4c9240c0c3eda667".to_string(),
-            base_dependency_record_paths: vec![],
+            runtime_manifest_compatibility: domain_runtime::RuntimeManifestCompatibility {
+                manifest_version: "1".to_string(),
+            },
+            workspace_overlay_policy: domain_runtime::WorkspaceOverlayPolicy {
+                python_overlay_path: ".luma-forge/python-overlay".to_string(),
+                import_path_precedence: "overlay_first".to_string(),
+                protected_package_names: vec![
+                    "torch".to_string(),
+                    "torchvision".to_string(),
+                    "torchaudio".to_string(),
+                ],
+                protected_package_prefixes: vec!["nvidia-".to_string()],
+            },
         },
         image_metadata: domain_runtime::RuntimeImageMetadata {
-            provisioner_runtime_archive_path: "/opt/luma-forge/runtime/base-runtime.tar.gz".to_string(),
+            image_runtime_root_path: "/opt/luma-forge/runtime".to_string(),
+            image_python_interpreter_path: "/opt/luma-forge/runtime/.venv/bin/python".to_string(),
+            image_comfyui_root_path: "/opt/luma-forge/runtime/ComfyUI".to_string(),
+            image_base_dependency_record_paths: vec!["base-runtime/pip-freeze.txt".to_string()],
             provisioner_runtime_metadata_path: "/opt/luma-forge/runtime/runtime-metadata.json".to_string(),
             endpoint_runtime_contract_path: "/opt/luma-forge/runtime/runtime-contract.json".to_string(),
         },

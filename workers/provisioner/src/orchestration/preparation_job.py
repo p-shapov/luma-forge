@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import json
 from threading import Event, Lock, Thread
 from typing import TypedDict
 
@@ -89,6 +90,13 @@ class JobManager:
             )
             self._thread = Thread(target=self._run, args=(request, self._cancel_event), daemon=True)
             self._thread.start()
+            _log_event(
+                "provisioner_job_started",
+                job_id=request.job_id,
+                status=self._snapshot.status,
+                phase=self._snapshot.phase,
+                progress_percent=self._snapshot.progress_percent,
+            )
             return _copy_snapshot(self._snapshot)
 
     def _run(self, request: StartRequest, cancel_event: Event) -> None:
@@ -122,6 +130,13 @@ class JobManager:
             self._snapshot.progress_percent = progress_percent
             self._snapshot.diagnostic_message = message
             self._snapshot.updated_at = _now()
+            _log_event(
+                "provisioner_job_progress",
+                job_id=self._snapshot.job_id,
+                status=self._snapshot.status,
+                phase=phase,
+                progress_percent=progress_percent,
+            )
 
     def _terminal(self, status: str, message: str, error: WorkerErrorPayload | None) -> None:
         with self._lock:
@@ -131,6 +146,14 @@ class JobManager:
             self._snapshot.diagnostic_message = message
             self._snapshot.error = error
             self._snapshot.updated_at = _now()
+            _log_event(
+                "provisioner_job_terminal",
+                job_id=self._snapshot.job_id,
+                status=status,
+                progress_percent=self._snapshot.progress_percent,
+                error_code=error.get("code") if error else None,
+                error_reason_code=error.get("reason_code") if error else None,
+            )
 
 
 def _copy_snapshot(snapshot: JobSnapshot) -> JobSnapshot:
@@ -148,3 +171,8 @@ def _copy_snapshot(snapshot: JobSnapshot) -> JobSnapshot:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _log_event(event: str, **fields: str | int | None) -> None:
+    payload = {"event": event, **{key: value for key, value in fields.items() if value is not None}}
+    print(json.dumps(payload, sort_keys=True), flush=True)

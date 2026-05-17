@@ -472,6 +472,21 @@ async fn creates_draft_workspace() {
     assert!(response.persistent_storage_volume_snapshot.is_none());
     assert!(response.active_provisioning_pod_snapshot.is_none());
     assert!(response.serverless_endpoint_snapshot.is_none());
+    assert_eq!(
+        response
+            .resolved_runtime_implementation
+            .image_metadata
+            .image_runtime_root_path,
+        "/opt/luma-forge/runtime"
+    );
+    assert_eq!(
+        response
+            .resolved_runtime_implementation
+            .runtime_metadata
+            .workspace_overlay_policy
+            .python_overlay_path,
+        ".luma-forge/python-overlay"
+    );
 }
 
 #[tokio::test]

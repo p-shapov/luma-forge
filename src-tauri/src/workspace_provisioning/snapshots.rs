@@ -1,6 +1,12 @@
-use crate::domain::workspace::{
-    PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
-    ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot, Workspace,
+use std::collections::HashMap;
+
+use crate::domain::{
+    runtime::ResolvedRuntimeImplementationSnapshot,
+    workspace::{
+        PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
+        ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
+        Workspace,
+    },
 };
 
 use super::{
@@ -65,6 +71,7 @@ pub(crate) fn runpod_template_provisioning_snapshot(
         endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
             template_id: observation.template_id,
             endpoint_worker_image_ref: observation.endpoint_worker_image_ref,
+            runtime_env: observation.runtime_env,
             mount_path: observation.mount_path,
             provider_resource_status: observation.provider_resource_status,
         }),
@@ -96,6 +103,51 @@ pub(crate) fn runpod_template_snapshot(
     }
 }
 
+pub(crate) fn expected_endpoint_template_runtime_env(
+    runtime: &ResolvedRuntimeImplementationSnapshot,
+) -> HashMap<String, String> {
+    HashMap::from([
+        (
+            "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
+            runtime.image_metadata.image_runtime_root_path.clone(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
+            runtime.contract_id.clone(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
+            runtime.contract_version.clone(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
+            runtime.implementation_revision.clone(),
+        ),
+        (
+            "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
+            runtime.endpoint_image_ref.clone(),
+        ),
+    ])
+}
+
+pub(crate) fn endpoint_template_matches_workspace(
+    template: &RunPodEndpointTemplateSnapshot,
+    workspace: &Workspace,
+) -> bool {
+    template.provider_resource_status == ProviderResourceStatus::Ready
+        && template.endpoint_worker_image_ref
+            == workspace.resolved_runtime_implementation.endpoint_image_ref
+        && expected_endpoint_template_runtime_env(&workspace.resolved_runtime_implementation)
+            .iter()
+            .all(|(key, value)| template.runtime_env.get(key) == Some(value))
+        && template.mount_path
+            == workspace
+                .persistent_storage_volume_snapshot
+                .as_ref()
+                .map(|volume| volume.mount_path.clone())
+                .unwrap_or_default()
+}
+
 pub(crate) fn is_workspace_ready(workspace: &Workspace) -> bool {
     workspace.environment_prepared_at.is_some()
         && workspace.active_provisioning_pod_snapshot.is_none()
@@ -107,9 +159,7 @@ pub(crate) fn is_workspace_ready(workspace: &Workspace) -> bool {
             })
         && runpod_template_snapshot(workspace)
             .as_ref()
-            .is_some_and(|snapshot| {
-                snapshot.provider_resource_status == ProviderResourceStatus::Ready
-            })
+            .is_some_and(|snapshot| endpoint_template_matches_workspace(snapshot, workspace))
         && workspace
             .serverless_endpoint_snapshot
             .as_ref()

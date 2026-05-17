@@ -108,7 +108,7 @@ pub enum ProvisionerWorkerPhase {
     Idle,
     Starting,
     ResolvingWorkflow,
-    InstallingRuntime,
+    ValidatingRuntime,
     InstallingModels,
     InstallingCustomNodes,
     WritingManifest,
@@ -266,7 +266,7 @@ fn phase_from_response(
         Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
         Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
         Some("materializing_runtime" | "installing_runtime" | "installing_comfyui") => {
-            Ok(ProvisionerWorkerPhase::InstallingRuntime)
+            Ok(ProvisionerWorkerPhase::ValidatingRuntime)
         }
         Some("installing_models" | "downloading_assets") => {
             Ok(ProvisionerWorkerPhase::InstallingModels)
@@ -310,7 +310,7 @@ pub fn progress_from_worker_status(
             ProvisionerWorkerPhase::Idle
             | ProvisionerWorkerPhase::Starting
             | ProvisionerWorkerPhase::ResolvingWorkflow
-            | ProvisionerWorkerPhase::InstallingRuntime
+            | ProvisionerWorkerPhase::ValidatingRuntime
             | ProvisionerWorkerPhase::InstallingModels
             | ProvisionerWorkerPhase::InstallingCustomNodes
             | ProvisionerWorkerPhase::WritingManifest => {
@@ -443,7 +443,7 @@ mod tests {
             ("starting", ProvisionerWorkerPhase::Starting),
             (
                 "installing_comfyui",
-                ProvisionerWorkerPhase::InstallingRuntime,
+                ProvisionerWorkerPhase::ValidatingRuntime,
             ),
             (
                 "installing_custom_nodes",

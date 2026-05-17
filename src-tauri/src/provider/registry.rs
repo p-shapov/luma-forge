@@ -354,9 +354,30 @@ where
                         &api_key,
                         &RunPodCreateTemplateRequest {
                             name: provider_resource_name(&input.workspace_id, "endpoint-template"),
-                            image_name: input.endpoint_worker_image_ref,
+                            image_name: input.endpoint_worker_image_ref.clone(),
                             container_disk_in_gb: 10,
-                            env: HashMap::new(),
+                            env: HashMap::from([
+                                (
+                                    "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
+                                    input.image_runtime_root_path,
+                                ),
+                                (
+                                    "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
+                                    input.runtime_contract_id,
+                                ),
+                                (
+                                    "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
+                                    input.runtime_contract_version,
+                                ),
+                                (
+                                    "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
+                                    input.runtime_implementation_revision,
+                                ),
+                                (
+                                    "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
+                                    input.endpoint_worker_image_ref,
+                                ),
+                            ]),
                             is_public: false,
                             is_serverless: true,
                             ports: vec![format!("{}/http", input.endpoint_worker_port)],
@@ -415,6 +436,13 @@ where
                         &api_key,
                         &provider_resource_name(&input.workspace_id, "endpoint-template"),
                         &input.endpoint_worker_image_ref,
+                        &endpoint_template_runtime_env(
+                            &input.image_runtime_root_path,
+                            &input.runtime_contract_id,
+                            &input.runtime_contract_version,
+                            &input.runtime_implementation_revision,
+                            &input.endpoint_worker_image_ref,
+                        ),
                         input.endpoint_worker_port,
                         &input.mount_path,
                     )
@@ -652,9 +680,41 @@ fn runpod_template_observation(
     EndpointTemplateObservation {
         template_id: observation.id,
         endpoint_worker_image_ref: observation.image_name,
+        runtime_env: observation.env,
         mount_path: observation.volume_mount_path,
         provider_resource_status: observation.status,
     }
+}
+
+fn endpoint_template_runtime_env(
+    image_runtime_root_path: &str,
+    runtime_contract_id: &str,
+    runtime_contract_version: &str,
+    runtime_implementation_revision: &str,
+    endpoint_worker_image_ref: &str,
+) -> HashMap<String, String> {
+    HashMap::from([
+        (
+            "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
+            image_runtime_root_path.to_string(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
+            runtime_contract_id.to_string(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
+            runtime_contract_version.to_string(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
+            runtime_implementation_revision.to_string(),
+        ),
+        (
+            "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
+            endpoint_worker_image_ref.to_string(),
+        ),
+    ])
 }
 
 fn runpod_endpoint_observation(

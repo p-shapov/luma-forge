@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -70,6 +72,8 @@ pub struct RunPodEndpointTemplateSnapshot {
     pub template_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub endpoint_worker_image_ref: String,
+    #[serde(default)]
+    pub runtime_env: HashMap<String, String>,
     pub mount_path: String,
 }
 

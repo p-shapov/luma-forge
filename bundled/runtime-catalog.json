@@ -11,10 +11,21 @@
         "python_version": "3.12",
         "platform": "linux-x86_64-cuda",
         "comfyui_revision": "aa9d2fc713664e9ffe37763f4c9240c0c3eda667",
-        "base_dependency_record_paths": [
-          ".luma-forge/base-runtime/pip-freeze.txt",
-          ".luma-forge/base-runtime/install-report.json"
-        ],
+        "runtime_manifest_compatibility": {
+          "manifest_version": "1"
+        },
+        "workspace_overlay_policy": {
+          "python_overlay_path": ".luma-forge/python-overlay",
+          "import_path_precedence": "overlay_first",
+          "protected_package_names": [
+            "torch",
+            "torchvision",
+            "torchaudio"
+          ],
+          "protected_package_prefixes": [
+            "nvidia-"
+          ]
+        },
         "runtime_compatibility": {
           "pytorch_index_url": "https://download.pytorch.org/whl/cu121",
           "pytorch_packages": [
@@ -33,7 +44,13 @@
           "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
           "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
           "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "image_runtime_root_path": "/opt/luma-forge/runtime",
+            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+            "image_base_dependency_record_paths": [
+              "base-runtime/pip-freeze.txt",
+              "base-runtime/install-report.json"
+            ],
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
@@ -43,7 +60,13 @@
           "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b8f2935bc09ac9bc5d2a3e4efcc53225e1a3a8b02bb5e392bd5e5ba4bd389193",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:5fb986e81662216b3983db2104aa0a016cc393f33d262a6ee13206d562dbc1bf",
           "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "image_runtime_root_path": "/opt/luma-forge/runtime",
+            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+            "image_base_dependency_record_paths": [
+              "base-runtime/pip-freeze.txt",
+              "base-runtime/install-report.json"
+            ],
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
@@ -53,13 +76,51 @@
           "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:af202cfc2a2b97ec970925d7e2d5abd5e9fb6a2dd5bededbf364f834bc0ab201",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:e2ace526f37a07ea46c68ca355312135e37e33c65a232f0c3877335bfddb80df",
           "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "image_runtime_root_path": "/opt/luma-forge/runtime",
+            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+            "image_base_dependency_record_paths": [
+              "base-runtime/pip-freeze.txt",
+              "base-runtime/install-report.json"
+            ],
+            "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
+            "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
+          }
+        },
+        {
+          "revision": "2026.05.16-004",
+          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8ef1f2c6fb1bfc893fe51b143ca124e1d7b81e2e50239ec5601c612803f1b707",
+          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:99446d789d99c396087b180f37630f38deb2cccabd3efd2a33b3e327e11afe56",
+          "image_metadata": {
+            "image_runtime_root_path": "/opt/luma-forge/runtime",
+            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+            "image_base_dependency_record_paths": [
+              "base-runtime/pip-freeze.txt",
+              "base-runtime/install-report.json"
+            ],
+            "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
+            "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
+          }
+        },
+        {
+          "revision": "2026.05.17-001",
+          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:69f9acaaf8793f754f528fff2763bb306e6afc888dd12f5cdb235cc9556bdb1c",
+          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c0eca78615270e2a34d5cd36a3ad4d19145ddbc1321276a1e0c3432913ef9131",
+          "image_metadata": {
+            "image_runtime_root_path": "/opt/luma-forge/runtime",
+            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+            "image_base_dependency_record_paths": [
+              "base-runtime/pip-freeze.txt",
+              "base-runtime/install-report.json"
+            ],
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
           }
         }
       ],
-      "default_implementation_revision": "2026.05.16-003"
+      "default_implementation_revision": "2026.05.17-001"
     }
   ]
 }

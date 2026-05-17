@@ -176,7 +176,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **AND** the request SHALL include `Authorization: Bearer <stored-token>`
 - **AND** the Native Layer MUST NOT include Provider API Keys in the worker request
 - **AND** the Native Layer SHALL include the Workspace's resolved runtime contract implementation snapshot in the worker start request
-- **AND** the Native Layer SHALL treat the worker's accepted start response as running environment materialization progress
+- **AND** the Native Layer SHALL treat the worker's accepted start response as running preparation progress for image runtime validation and workspace-specific materialization
 
 #### Scenario: Provisioner Worker idle status is valid
 - **WHEN** the Provisioner Worker reports `status` `idle` with no active phase
@@ -193,7 +193,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 #### Scenario: Provisioner Worker succeeds
 - **WHEN** the Provisioner Worker reports terminal success for the active Workspace job
 - **THEN** the Native Layer SHALL persist the environment prepared timestamp
-- **AND** later readiness validation SHALL depend on the prepared environment metadata when that metadata is available through the mounted workspace
+- **AND** later readiness validation SHALL depend on the prepared workspace metadata when that metadata is available through the mounted workspace
 - **AND** a terminal success response with no active phase SHALL be treated as valid
 
 #### Scenario: Provisioner Worker fails
@@ -296,12 +296,13 @@ Workspace Provisioning SHALL create, discover, adopt, or observe one RunPod Serv
 
 ### Requirement: Validate Provisioning Readiness
 
-Workspace Provisioning SHALL mark a Workspace `ready` only after required provider resources and the prepared runtime environment are durably represented and provider observations confirm readiness.
+Workspace Provisioning SHALL mark a Workspace `ready` only after required provider resources and the prepared workspace environment are durably represented and provider observations confirm readiness.
 
 #### Scenario: Workspace becomes ready
 
 - **WHEN** the Persistent Storage Volume, RunPod endpoint template, and Serverless Endpoint snapshots are persisted and provider observations confirm the required resources still exist in acceptable states
 - **AND** the prepared environment timestamp is durable
+- **AND** prepared workspace metadata identifies the image-baked runtime contract and workspace-specific assets required by the Endpoint Worker
 - **AND** no active Provisioning Pod snapshot remains
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `ready`
 - **AND** Workspace Provisioning Progress SHALL report status `completed`
@@ -315,7 +316,7 @@ Workspace Provisioning SHALL mark a Workspace `ready` only after required provid
 #### Scenario: Readiness excludes generation
 
 - **WHEN** Workspace Provisioning validates the persistent runtime entry point
-- **THEN** the Native Layer SHALL validate provider metadata and no-job endpoint health or status information only
+- **THEN** the Native Layer SHALL validate provider metadata, prepared workspace metadata, and no-job endpoint health or status information only
 - **AND** the Native Layer MUST NOT submit a generation request to the Endpoint Worker
 
 ### Requirement: Cancel Workspace Provisioning
@@ -588,3 +589,4 @@ Workspace Provisioning SHALL parse RunPod pod image identity from the provider r
 #### Scenario: Pod image identity is missing
 - **WHEN** RunPod returns a pod response without a usable image identity
 - **THEN** the Native Layer SHALL treat the pod response as invalid provider data
+

@@ -38,6 +38,35 @@ fn parse_identity(
     identity_from_graphql_response(&ProviderApiKey::new(secret.to_string()).unwrap(), response)
 }
 
+fn template_env() -> HashMap<String, String> {
+    HashMap::from([
+        (
+            "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
+            "/opt/luma-forge/runtime".to_string(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
+            "comfyui-python312-cu121".to_string(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
+            "1.0.0".to_string(),
+        ),
+        (
+            "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
+            "2026.05.16-004".to_string(),
+        ),
+        (
+            "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
+            "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
+        ),
+    ])
+}
+
+fn template_env_json() -> serde_json::Value {
+    json!(template_env())
+}
+
 #[test]
 fn default_rest_endpoint_uses_documented_host() {
     assert_eq!(RUNPOD_REST_ENDPOINT, "https://rest.runpod.io/v1");
@@ -843,11 +872,30 @@ fn pod_discovery_rejects_candidate_without_image_identity() {
 
 #[test]
 fn serializes_serverless_template_create_request_with_worker_port() {
+    let endpoint_ref = "ghcr.io/luma-forge/endpoint-worker:dev".to_string();
     let payload = serde_json::to_value(RunPodCreateTemplateRequest {
         name: "lf-workspace-endpoint-template".to_string(),
-        image_name: "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
+        image_name: endpoint_ref.clone(),
         container_disk_in_gb: 10,
-        env: HashMap::new(),
+        env: HashMap::from([
+            (
+                "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
+                "/opt/luma-forge/runtime".to_string(),
+            ),
+            (
+                "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
+                "comfyui-python312-cu121".to_string(),
+            ),
+            (
+                "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
+                "1.0.0".to_string(),
+            ),
+            (
+                "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
+                "2026.05.16-001".to_string(),
+            ),
+            ("LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(), endpoint_ref),
+        ]),
         is_public: false,
         is_serverless: true,
         ports: vec!["8080/http".to_string()],
@@ -862,7 +910,13 @@ fn serializes_serverless_template_create_request_with_worker_port() {
             "name": "lf-workspace-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
             "containerDiskInGb": 10,
-            "env": {},
+            "env": {
+                "LUMA_FORGE_IMAGE_RUNTIME_ROOT": "/opt/luma-forge/runtime",
+                "LUMA_FORGE_RUNTIME_CONTRACT_ID": "comfyui-python312-cu121",
+                "LUMA_FORGE_RUNTIME_CONTRACT_VERSION": "1.0.0",
+                "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION": "2026.05.16-001",
+                "LUMA_FORGE_ENDPOINT_IMAGE_REF": "ghcr.io/luma-forge/endpoint-worker:dev"
+            },
             "isPublic": false,
             "isServerless": true,
             "ports": ["8080/http"],
@@ -897,6 +951,7 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -905,6 +960,7 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
             "id": "template-wrong-port",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8000/http"]
@@ -913,6 +969,7 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
             "id": "template-not-serverless",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": false,
             "ports": ["8080/http"]
@@ -924,6 +981,7 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
         payloads,
         "luma-forge-workspace-1-endpoint-template",
         "ghcr.io/luma-forge/endpoint-worker:dev",
+        &template_env(),
         8080,
         "/workspace",
     )
@@ -940,6 +998,7 @@ fn template_discovery_returns_multiple_matches_when_provider_has_duplicates() {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -948,6 +1007,7 @@ fn template_discovery_returns_multiple_matches_when_provider_has_duplicates() {
             "id": "template-2",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -959,6 +1019,7 @@ fn template_discovery_returns_multiple_matches_when_provider_has_duplicates() {
         payloads,
         "luma-forge-workspace-1-endpoint-template",
         "ghcr.io/luma-forge/endpoint-worker:dev",
+        &template_env(),
         8080,
         "/workspace",
     )
@@ -974,6 +1035,7 @@ fn template_discovery_returns_zero_without_required_match() {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -985,6 +1047,34 @@ fn template_discovery_returns_zero_without_required_match() {
         payloads,
         "luma-forge-workspace-1-endpoint-template",
         "ghcr.io/luma-forge/endpoint-worker:other",
+        &template_env(),
+        8080,
+        "/workspace",
+    )
+    .expect("matching templates should map");
+
+    assert!(observations.is_empty());
+}
+
+#[test]
+fn template_discovery_rejects_missing_runtime_env() {
+    let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
+        {
+            "id": "template-1",
+            "name": "luma-forge-workspace-1-endpoint-template",
+            "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "volumeMountPath": "/workspace",
+            "isServerless": true,
+            "ports": ["8080/http"]
+        }
+    ]))
+    .expect("template list should parse");
+
+    let observations = templates_by_name(
+        payloads,
+        "luma-forge-workspace-1-endpoint-template",
+        "ghcr.io/luma-forge/endpoint-worker:dev",
+        &template_env(),
         8080,
         "/workspace",
     )
@@ -1000,6 +1090,7 @@ fn template_discovery_rejects_missing_serverless_flag() {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "ports": ["8080/http"]
         }
@@ -1010,6 +1101,7 @@ fn template_discovery_rejects_missing_serverless_flag() {
         payloads,
         "luma-forge-workspace-1-endpoint-template",
         "ghcr.io/luma-forge/endpoint-worker:dev",
+        &template_env(),
         8080,
         "/workspace",
     )
@@ -1025,6 +1117,7 @@ fn template_discovery_rejects_missing_ports() {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
+            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true
         }
@@ -1035,6 +1128,7 @@ fn template_discovery_rejects_missing_ports() {
         payloads,
         "luma-forge-workspace-1-endpoint-template",
         "ghcr.io/luma-forge/endpoint-worker:dev",
+        &template_env(),
         8080,
         "/workspace",
     )

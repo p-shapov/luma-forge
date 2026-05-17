@@ -1,6 +1,5 @@
 import json
 import os
-import tarfile
 import tempfile
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
@@ -64,10 +63,21 @@ def sample_runtime_implementation() -> dict[str, Any]:
             "python_version": "3.12",
             "platform": "linux-x86_64-cuda",
             "comfyui_revision": COMMIT_REVISION,
-            "base_dependency_record_paths": [".luma-forge/base-runtime/pip-freeze.txt"],
+            "runtime_manifest_compatibility": {
+                "manifest_version": "1",
+            },
+            "workspace_overlay_policy": {
+                "python_overlay_path": ".luma-forge/python-overlay",
+                "import_path_precedence": "overlay_first",
+                "protected_package_names": ["torch", "torchvision", "torchaudio"],
+                "protected_package_prefixes": ["nvidia-"],
+            },
         },
         "image_metadata": {
-            "provisioner_runtime_archive_path": "/opt/luma-forge/runtime/base-runtime.tar.gz",
+            "image_runtime_root_path": "/opt/luma-forge/runtime",
+            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+            "image_base_dependency_record_paths": ["base-runtime/pip-freeze.txt"],
             "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
             "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json",
         },
@@ -114,6 +124,7 @@ class BlockingProvisioner:
 
 
 def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str = TEST_BEARER_TOKEN, **overrides) -> WorkerConfig:
+    image_runtime_root_path = overrides.get("image_runtime_root_path", _image_runtime_fixture())
     config = WorkerConfig.from_env(
         {
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": bearer_token,
@@ -121,6 +132,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
             "LUMA_FORGE_PROVISIONER_PORT": "8000",
             "LUMA_FORGE_PROVISIONER_IMAGE_REF": TEST_PROVISIONER_IMAGE_REF,
             "LUMA_FORGE_WORKSPACE_MOUNT_PATH": str(workspace_mount_path or Path("/workspace")),
+            "LUMA_FORGE_IMAGE_RUNTIME_ROOT": str(image_runtime_root_path),
         }
     )
     return WorkerConfig(
@@ -135,7 +147,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
         ),
         download_timeout_seconds=overrides.get("download_timeout_seconds", config.download_timeout_seconds),
         workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
-        runtime_archive_path=overrides.get("runtime_archive_path", _runtime_archive_fixture()),
+        image_runtime_root_path=image_runtime_root_path,
         runtime_contract_id=overrides.get("runtime_contract_id", config.runtime_contract_id),
         runtime_contract_version=overrides.get("runtime_contract_version", config.runtime_contract_version),
         runtime_implementation_revision=overrides.get(
@@ -146,16 +158,14 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
     )
 
 
-def _runtime_archive_fixture() -> Path:
-    archive_file = tempfile.NamedTemporaryFile(prefix="luma-forge-runtime-", suffix=".tar.gz", delete=False)
-    archive_path = Path(archive_file.name)
-    archive_file.close()
+def _image_runtime_fixture() -> Path:
     tempdir = tempfile.TemporaryDirectory()
     root = Path(tempdir.name)
-    comfyui = root / "ComfyUI"
+    runtime_root = root / "runtime"
+    comfyui = runtime_root / "ComfyUI"
     custom_nodes = comfyui / "custom_nodes"
-    venv_bin = root / ".venv" / "bin"
-    base_runtime = root / ".luma-forge" / "base-runtime"
+    venv_bin = runtime_root / ".venv" / "bin"
+    base_runtime = runtime_root / "base-runtime"
     custom_nodes.mkdir(parents=True)
     venv_bin.mkdir(parents=True)
     base_runtime.mkdir(parents=True)
@@ -164,13 +174,38 @@ def _runtime_archive_fixture() -> Path:
     (venv_bin / "python").write_text("#!/usr/bin/env python\n", encoding="utf-8")
     (base_runtime / "pip-freeze.txt").write_text("torch==2.5.1\n", encoding="utf-8")
     (base_runtime / "install-report.json").write_text('{"reports":[]}\n', encoding="utf-8")
+    (runtime_root / "runtime-metadata.json").write_text(
+        json.dumps(
+            {
+                "contract_id": "comfyui-python312-cu121",
+                "contract_version": "1.0.0",
+                "implementation_revision": "2026.05.16-001",
+                "environment_kind": "image_baked_comfyui_runtime",
+                "python_version": "3.12",
+                "platform": "linux-x86_64-cuda",
+                "comfyui_revision": COMMIT_REVISION,
+                "image_runtime_root_path": "/opt/luma-forge/runtime",
+                "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
+                "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
+                "image_base_dependency_record_paths": ["base-runtime/pip-freeze.txt"],
+                "runtime_manifest_compatibility": {"manifest_version": "1"},
+                "workspace_overlay_policy": {
+                    "python_overlay_path": ".luma-forge/python-overlay",
+                    "import_path_precedence": "overlay_first",
+                    "protected_package_names": ["torch", "torchvision", "torchaudio"],
+                    "protected_package_prefixes": ["nvidia-"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     os.chmod(venv_bin / "python", 0o755)
-    with tarfile.open(archive_path, "w:gz") as archive:
-        archive.add(comfyui, arcname="ComfyUI")
-        archive.add(root / ".venv", arcname=".venv")
-        archive.add(base_runtime, arcname=".luma-forge/base-runtime")
-    tempdir.cleanup()
-    return archive_path
+    # Keep the temporary directory alive for the lifetime of the process.
+    _IMAGE_RUNTIME_TEMP_DIRS.append(tempdir)
+    return runtime_root
+
+
+_IMAGE_RUNTIME_TEMP_DIRS: list[tempfile.TemporaryDirectory] = []
 
 
 class ServerFixture:

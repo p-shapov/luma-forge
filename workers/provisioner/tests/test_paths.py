@@ -85,13 +85,15 @@ class PathSafetyTests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 runtime_paths(workspace)
 
-    def test_rejects_runtime_venv_symlink_escape(self):
+    def test_rejects_python_overlay_symlink_escape(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory) / "workspace"
-            outside = Path(directory) / "outside-venv"
+            outside = Path(directory) / "outside-overlay"
             workspace.mkdir()
             outside.mkdir()
-            _symlink_or_skip(self, outside, workspace / ".venv")
+            metadata = workspace / ".luma-forge"
+            metadata.mkdir()
+            _symlink_or_skip(self, outside, metadata / "python-overlay")
 
             with self.assertRaises(ValidationError):
                 runtime_paths(workspace)

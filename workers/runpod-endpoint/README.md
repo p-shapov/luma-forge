@@ -21,21 +21,23 @@ Successful responses return exactly one image as MIME type plus base64 data:
 }
 ```
 
-This worker assumes the workspace volume was already prepared by the Provisioner Worker. It does not clone ComfyUI, download models, install dependencies, create virtual environments, run pip, or create provider resources. It starts the prepared local ComfyUI process lazily before the first valid generation request, waits for `/system_stats`, and reuses the process for later jobs in the same warm worker.
+This worker assumes the workspace volume was already prepared by the Provisioner Worker. It does not clone ComfyUI, download models, install dependencies, create virtual environments, run pip, extract archives, or create provider resources. It starts the image-baked ComfyUI process lazily before the first valid generation request, waits for `/system_stats`, and reuses the process for later jobs in the same warm worker.
 
-The prepared workspace must include the volume-local runtime environment:
+The endpoint image must include the base runtime under `/opt/luma-forge/runtime`. The prepared workspace must include only workspace-specific state:
 
 ```text
 /workspace/
-  ComfyUI/
-  .venv/
+  custom_nodes/
+  models/
+  output/
+  workflows/
   .luma-forge/
-    runtime.json
-    base-runtime/
-      pip-freeze.txt
+    runtime-manifest.json
+    python-overlay/
+    custom-node-*-install-report.json
 ```
 
-The endpoint validates `/workspace/.luma-forge/runtime.json`, including resolved runtime contract metadata, and starts ComfyUI through the manifest-declared volume-local interpreter, normally `/workspace/.venv/bin/python`.
+The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` against `/opt/luma-forge/runtime/runtime-contract.json`, including resolved runtime contract metadata and endpoint image identity. It starts ComfyUI through the image interpreter, normally `/opt/luma-forge/runtime/.venv/bin/python`, with workspace model, Custom Node, output, and overlay dependency paths configured for the process.
 
 ## Configuration
 
@@ -43,14 +45,19 @@ The endpoint validates `/workspace/.luma-forge/runtime.json`, including resolved
 | --- | --- | --- |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Shared prepared workspace volume mount path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH` | unset | Endpoint-specific workspace mount path override. |
+| `LUMA_FORGE_IMAGE_RUNTIME_ROOT` | `/opt/luma-forge/runtime` | Image-baked runtime root containing `.venv`, ComfyUI, and runtime contract metadata. |
+| `LUMA_FORGE_RUNTIME_CONTRACT_ID` | `comfyui-python312-cu121` | Runtime contract id declared by this image. |
+| `LUMA_FORGE_RUNTIME_CONTRACT_VERSION` | `1.0.0` | Runtime contract version declared by this image. |
+| `LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION` | `2026.05.16-001` | Runtime implementation revision declared by this image. |
+| `LUMA_FORGE_ENDPOINT_IMAGE_REF` | test digest | Immutable endpoint image ref injected by Native from the Workspace runtime implementation snapshot. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | ComfyUI host inside the endpoint container. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | ComfyUI HTTP port inside the endpoint container. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `120` | Maximum wait for the local ComfyUI process to become HTTP-ready. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS` | `4000` | Maximum accepted prompt length. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_GENERATION_TIMEOUT_SECONDS` | `300` | Maximum ComfyUI generation wait time. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_RELATIVE_PATH` | `workflows/t2i.json` | ComfyUI workflow JSON path relative to the ComfyUI root. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_MODEL_PATHS` | `models/checkpoints/sd_xl_base_1.0.safetensors` | Comma-separated ComfyUI-relative model paths required before generation. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_CUSTOM_NODE_PATHS` | empty | Comma-separated ComfyUI-relative custom node paths required before generation. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_RELATIVE_PATH` | `workflows/t2i.json` | Workflow JSON path relative to the prepared workspace root. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_MODEL_PATHS` | `models/checkpoints/sd_xl_base_1.0.safetensors` | Comma-separated prepared-workspace-relative model paths required before generation. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_CUSTOM_NODE_PATHS` | empty | Comma-separated prepared-workspace-relative Custom Node paths required before generation. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_NODE_ID` | empty | Optional ComfyUI node id to receive the prompt. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_INPUT_KEY` | `text` | Input key used when prompt node id is configured. |
 

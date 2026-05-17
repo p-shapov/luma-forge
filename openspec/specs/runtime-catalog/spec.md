@@ -4,17 +4,17 @@
 TBD - created by archiving change bake-comfyui-runtime-into-provisioner-image. Update Purpose after archive.
 ## Requirements
 ### Requirement: Provide bundled Runtime Catalog
-The Native Layer SHALL read a bundled Runtime Catalog that defines exact runtime contract versions and their verified worker image implementations.
+The Native Layer SHALL read a bundled Runtime Catalog that defines exact runtime contract versions and their verified worker image implementations, including image-baked runtime metadata and workspace overlay policy.
 
 #### Scenario: Runtime Catalog is available
 - **WHEN** the Client or Workspace Setup needs runtime contract data
 - **THEN** the Native Layer SHALL read the bundled Runtime Catalog from the current application build
 - **AND** each runtime contract SHALL include a stable id, exact version, display name, runtime metadata, a non-empty list of immutable implementation revisions, and a default implementation revision
-- **AND** each implementation revision SHALL include a stable revision identifier, immutable provisioner image ref, immutable endpoint image ref, and verified image metadata
+- **AND** each implementation revision SHALL include a stable revision identifier, immutable provisioner image ref, immutable endpoint image ref, verified image metadata, image runtime root metadata, image Python interpreter metadata, image ComfyUI root metadata, base dependency record metadata, runtime manifest compatibility metadata, and workspace overlay policy metadata
 - **AND** the Runtime Catalog response MUST NOT include provider secrets, registry credentials, or worker bearer tokens
 
 #### Scenario: Runtime Catalog is invalid
-- **WHEN** the bundled Runtime Catalog is missing, unreadable, empty, internally inconsistent, references mutable image tags, contains malformed runtime contract data, contains duplicate implementation revisions, or points a default implementation revision at a missing implementation
+- **WHEN** the bundled Runtime Catalog is missing, unreadable, empty, internally inconsistent, references mutable image tags, contains malformed runtime contract data, contains duplicate implementation revisions, points a default implementation revision at a missing implementation, omits required image runtime metadata, or omits required overlay policy metadata
 - **THEN** the Native Layer SHALL reject Runtime Catalog reads and dependent Workspace Setup operations with a UI-safe catalog error
 - **AND** the Native Layer MUST NOT create or update Workspace records from invalid runtime contract data
 
@@ -38,7 +38,7 @@ Workspace Setup SHALL persist the resolved runtime contract implementation snaps
 - **THEN** it SHALL resolve the runtime contract through the bundled Runtime Catalog
 - **AND** it SHALL select the contract's default implementation revision
 - **AND** it SHALL persist the resolved runtime contract implementation snapshot with the Workspace
-- **AND** the snapshot SHALL include the runtime contract id, version, selected implementation revision, immutable provisioner image ref, immutable endpoint image ref, runtime metadata needed by provisioning and endpoint validation, and verified image metadata
+- **AND** the snapshot SHALL include the runtime contract id, version, selected implementation revision, immutable provisioner image ref, immutable endpoint image ref, runtime metadata needed by provisioning and endpoint validation, image-baked runtime root metadata, image Python interpreter metadata, image ComfyUI root metadata, base dependency record metadata, runtime manifest compatibility metadata, workspace overlay policy metadata, and verified image metadata
 
 #### Scenario: Runtime Catalog changes later
 - **WHEN** a later application build adds newer runtime contract versions or newer implementation revisions
@@ -49,7 +49,7 @@ Workspace Setup SHALL persist the resolved runtime contract implementation snaps
 Published runtime contract id/version pairs and their implementation revisions SHALL retain stable meaning.
 
 #### Scenario: Runtime compatibility changes
-- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, base runtime requirement set, or runtime manifest contract changes the base runtime compatibility surface
+- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, base runtime requirement set, workspace overlay policy, runtime manifest contract, or image runtime layout changes the base runtime compatibility surface
 - **THEN** the Runtime Catalog SHALL add a new runtime contract version
 - **AND** it MUST NOT mutate an existing runtime contract version in a way that changes the meaning of persisted Workspace snapshots
 
@@ -72,7 +72,7 @@ Published runtime contract id/version pairs and their implementation revisions S
 
 #### Scenario: Runtime recipe release reuses an existing contract version
 - **WHEN** the runtime recipe release workflow prepares to append an implementation revision under an existing runtime contract id/version
-- **THEN** it SHALL verify that the selected recipe's Python version, platform, ComfyUI revision, PyTorch index URL, PyTorch package list, base requirements, and runtime manifest compatibility metadata match the existing catalog contract
+- **THEN** it SHALL verify that the selected recipe's Python version, platform, ComfyUI revision, PyTorch index URL, PyTorch package list, base requirements, runtime manifest compatibility metadata, image runtime layout, and workspace overlay policy match the existing catalog contract
 - **AND** it SHALL reject the catalog update before image publication when any compatibility field differs
 
 ### Requirement: Runtime Catalog update PRs contain only catalog changes
@@ -92,3 +92,4 @@ The runtime recipe release workflow SHALL ensure automated Runtime Catalog updat
 - **AND** the repository has changed tracked or untracked paths other than `bundled/runtime-catalog.json`
 - **THEN** the workflow SHALL fail before creating or updating the PR
 - **AND** the workflow SHALL report the unexpected changed paths for diagnosis
+

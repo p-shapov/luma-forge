@@ -20,11 +20,11 @@ Do not store registry credentials, provider API keys, or worker bearer tokens in
 
 ## Validation
 
-The release workflow validates both worker packages, builds the provisioner image with the selected runtime recipe, builds the compatible endpoint image, and checks that both images declare matching runtime contract metadata. Full runtime archive extraction smoke checks are intentionally kept out of CI because building the provisioner runtime already installs the full ComfyUI dependency set.
+The release workflow validates both worker packages, builds the provisioner image with the selected runtime recipe, builds the compatible endpoint image, and checks that both images declare matching runtime contract metadata. The deterministic ComfyUI/PyTorch base runtime is baked into both images under `/opt/luma-forge/runtime`; no base runtime archive is copied to or extracted from the RunPod network volume during provisioning.
 
 ## Runtime Catalog Update
 
-After publishing a validated image pair, the workflow opens a reviewed PR that updates `bundled/runtime-catalog.json` with digest-pinned provisioner and endpoint image refs. Worker redeploys append a new immutable implementation revision under the existing contract and may advance `default_implementation_revision`.
+After publishing a validated image pair, the workflow opens a reviewed PR that updates `bundled/runtime-catalog.json` with digest-pinned provisioner and endpoint image refs, image runtime paths, base dependency record metadata, runtime manifest compatibility, and workspace overlay policy. Worker redeploys append a new immutable implementation revision under the existing contract and may advance `default_implementation_revision`.
 
 Native must pass the selected immutable provisioner image ref into the temporary provisioning pod as `LUMA_FORGE_PROVISIONER_IMAGE_REF`. The value is not secret; it lets the Provisioner Worker verify that a start request matches the running image identity. The Provisioner Worker rejects startup configuration when this value is missing or blank.
 

@@ -217,6 +217,7 @@ pub(super) fn template_from_response(
         id: non_empty(payload.id)?,
         image_name: non_empty(payload.image_name)?,
         volume_mount_path: non_empty(payload.volume_mount_path)?,
+        env: payload.env.unwrap_or_default(),
         status: resource_status_or_ready(payload.status.as_deref()),
     })
 }

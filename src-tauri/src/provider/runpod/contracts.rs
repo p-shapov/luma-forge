@@ -173,6 +173,7 @@ pub(super) struct RunPodTemplateResponse {
     pub id: Option<String>,
     pub name: Option<String>,
     pub image_name: Option<String>,
+    pub env: Option<HashMap<String, String>>,
     pub is_serverless: Option<bool>,
     pub ports: Option<Vec<String>>,
     pub volume_mount_path: Option<String>,
@@ -184,6 +185,7 @@ pub struct RunPodTemplateObservation {
     pub id: String,
     pub image_name: String,
     pub volume_mount_path: String,
+    pub env: HashMap<String, String>,
     pub status: ProviderResourceStatus,
 }
 
