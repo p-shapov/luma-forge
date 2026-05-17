@@ -37,7 +37,7 @@ The endpoint image must include the base runtime under `/opt/luma-forge/runtime`
     custom-node-*-install-report.json
 ```
 
-The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` against `/opt/luma-forge/runtime/runtime-contract.json`, including resolved runtime contract metadata and endpoint image identity. It starts ComfyUI through the image interpreter, normally `/opt/luma-forge/runtime/.venv/bin/python`, with workspace model, Custom Node, output, and overlay dependency paths configured for the process.
+The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` for the prepared workspace paths needed during generation. It starts ComfyUI through the fixed image interpreter at `/opt/luma-forge/runtime/.venv/bin/python`, with workspace model, Custom Node, output, and overlay dependency paths configured for the process.
 
 ## Configuration
 
@@ -45,11 +45,6 @@ The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` against `/
 | --- | --- | --- |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Shared prepared workspace volume mount path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH` | unset | Endpoint-specific workspace mount path override. |
-| `LUMA_FORGE_IMAGE_RUNTIME_ROOT` | `/opt/luma-forge/runtime` | Image-baked runtime root containing `.venv`, ComfyUI, and runtime contract metadata. |
-| `LUMA_FORGE_RUNTIME_CONTRACT_ID` | `comfyui-python312-cu121` | Runtime contract id declared by this image. |
-| `LUMA_FORGE_RUNTIME_CONTRACT_VERSION` | `1.0.0` | Runtime contract version declared by this image. |
-| `LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION` | `2026.05.16-001` | Runtime implementation revision declared by this image. |
-| `LUMA_FORGE_ENDPOINT_IMAGE_REF` | test digest | Immutable endpoint image ref injected by Native from the Workspace runtime implementation snapshot. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | ComfyUI host inside the endpoint container. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | ComfyUI HTTP port inside the endpoint container. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `120` | Maximum wait for the local ComfyUI process to become HTTP-ready. |

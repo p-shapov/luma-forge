@@ -178,11 +178,8 @@ fn provisioning_rate_limit_maps_to_rate_limited() {
 }
 
 #[test]
-fn runpod_template_observation_preserves_runtime_env() {
-    let env = HashMap::from([(
-        "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
-        "comfyui-python312-cu121".to_string(),
-    )]);
+fn runpod_template_observation_preserves_template_env() {
+    let env = HashMap::from([("CUSTOM_ENV".to_string(), "custom-value".to_string())]);
 
     let observation = runpod_template_observation(RunPodTemplateObservation {
         id: "template-1".to_string(),

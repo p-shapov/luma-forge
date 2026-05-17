@@ -7,11 +7,10 @@ Container-side worker that prepares a mounted ComfyUI workspace after the native
 ```bash
 cd workers/provisioner
 LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
-  LUMA_FORGE_PROVISIONER_IMAGE_REF=ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   PYTHONPATH=src python -m app
 ```
 
-The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_IMAGE_REF` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
+The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
 
 During preparation, the Provisioner Worker validates the image-baked ComfyUI base runtime under `/opt/luma-forge/runtime` and prepares only workspace-specific data on the mounted volume. Workflow Preset Custom Nodes, model assets, runtime metadata, and Custom Node dependency overlays live on `/workspace`:
 
@@ -48,7 +47,6 @@ cd workers/provisioner
 docker build -t luma-forge-provisioner:local -f ../Dockerfile --target provisioner ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
-  -e LUMA_FORGE_PROVISIONER_IMAGE_REF=ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   -p 8000:8000 \
   -v "$PWD/tmp-workspace:/workspace" \
   luma-forge-provisioner:local
@@ -94,11 +92,6 @@ The diagnostic never includes configured environment values or secrets.
 | `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
-| `LUMA_FORGE_IMAGE_RUNTIME_ROOT` | `/opt/luma-forge/runtime` | Absolute normalized path to the image-baked base runtime root. |
-| `LUMA_FORGE_RUNTIME_CONTRACT_ID` | `comfyui-python312-cu121` | Runtime contract id declared by this image. |
-| `LUMA_FORGE_RUNTIME_CONTRACT_VERSION` | `1.0.0` | Runtime contract version declared by this image. |
-| `LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION` | `2026.05.16-001` | Runtime implementation revision declared by this image. |
-| `LUMA_FORGE_PROVISIONER_IMAGE_REF` | Required | Immutable provisioner image ref for the running pod, injected by Native from the Workspace runtime implementation snapshot. |
 
 ## API
 
@@ -122,45 +115,18 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
     "name": "ComfyUI Text to Image Basic",
     "workflow_execution_type": "t2i",
     "required_base_volume_size_bytes": 85899345920,
-    "required_runtime_contract": {
+    "runtime_contract": {
       "id": "comfyui-python312-cu121",
       "version": "1.0.0"
     },
     "required_model_assets": [],
     "required_custom_nodes": []
   },
-  "resolved_runtime_implementation": {
+  "resolved_runtime_image": {
     "contract_id": "comfyui-python312-cu121",
     "contract_version": "1.0.0",
-    "implementation_revision": "2026.05.16-001",
     "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:...",
-    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:...",
-    "runtime_metadata": {
-      "environment_kind": "image_baked_comfyui_runtime",
-      "python_version": "3.12",
-      "platform": "linux-x86_64-cuda",
-      "comfyui_revision": "0123456789abcdef0123456789abcdef01234567",
-      "runtime_manifest_compatibility": {
-        "manifest_version": "1"
-      },
-      "workspace_overlay_policy": {
-        "python_overlay_path": ".luma-forge/python-overlay",
-        "import_path_precedence": "overlay_first",
-        "protected_package_names": ["torch", "torchvision", "torchaudio"],
-        "protected_package_prefixes": ["nvidia-"]
-      }
-    },
-    "image_metadata": {
-      "image_runtime_root_path": "/opt/luma-forge/runtime",
-      "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
-      "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
-      "image_base_dependency_record_paths": [
-        "base-runtime/pip-freeze.txt",
-        "base-runtime/install-report.json"
-      ],
-      "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
-      "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
-    }
+    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:..."
   }
 }
 ```

@@ -225,35 +225,27 @@ where
         Box::pin(async move {
             let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
             match input.gpu_cloud_provider_id {
-                GpuCloudProviderId::Runpod => {
-                    let provisioner_image_ref = input.provisioner_worker_image_ref;
-                    self.runpod
-                        .create_pod(
-                            &api_key,
-                            &RunPodCreatePodRequest {
-                                name: provider_resource_name(&input.workspace_id, "provisioner"),
-                                image_name: provisioner_image_ref.clone(),
-                                gpu_type_ids: vec![input.selected_gpu_id],
-                                data_center_ids: vec![input.datacenter_id],
-                                network_volume_id: input.network_volume_id,
-                                volume_mount_path: input.mount_path,
-                                env: HashMap::from([
-                                    (
-                                        "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-                                        input.bearer_token.expose_secret().to_string(),
-                                    ),
-                                    (
-                                        "LUMA_FORGE_PROVISIONER_IMAGE_REF".to_string(),
-                                        provisioner_image_ref,
-                                    ),
-                                ]),
-                                ports: vec![format!("{RUNPOD_PROVISIONER_WORKER_HTTP_PORT}/http")],
-                            },
-                        )
-                        .await
-                        .map(runpod_pod_observation)
-                        .map_err(provisioning_error_from_client_error)
-                }
+                GpuCloudProviderId::Runpod => self
+                    .runpod
+                    .create_pod(
+                        &api_key,
+                        &RunPodCreatePodRequest {
+                            name: provider_resource_name(&input.workspace_id, "provisioner"),
+                            image_name: input.provisioner_worker_image_ref,
+                            gpu_type_ids: vec![input.selected_gpu_id],
+                            data_center_ids: vec![input.datacenter_id],
+                            network_volume_id: input.network_volume_id,
+                            volume_mount_path: input.mount_path,
+                            env: HashMap::from([(
+                                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+                                input.bearer_token.expose_secret().to_string(),
+                            )]),
+                            ports: vec![format!("{RUNPOD_PROVISIONER_WORKER_HTTP_PORT}/http")],
+                        },
+                    )
+                    .await
+                    .map(runpod_pod_observation)
+                    .map_err(provisioning_error_from_client_error),
             }
         })
     }
@@ -358,28 +350,7 @@ where
                             name: provider_resource_name(&input.workspace_id, "endpoint-template"),
                             image_name: input.endpoint_worker_image_ref.clone(),
                             container_disk_in_gb: 10,
-                            env: HashMap::from([
-                                (
-                                    "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
-                                    input.image_runtime_root_path,
-                                ),
-                                (
-                                    "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
-                                    input.runtime_contract_id,
-                                ),
-                                (
-                                    "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
-                                    input.runtime_contract_version,
-                                ),
-                                (
-                                    "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
-                                    input.runtime_implementation_revision,
-                                ),
-                                (
-                                    "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
-                                    input.endpoint_worker_image_ref,
-                                ),
-                            ]),
+                            env: HashMap::new(),
                             is_public: false,
                             is_serverless: true,
                             ports: vec![format!("{RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT}/http")],
@@ -438,13 +409,7 @@ where
                         &api_key,
                         &provider_resource_name(&input.workspace_id, "endpoint-template"),
                         &input.endpoint_worker_image_ref,
-                        &endpoint_template_runtime_env(
-                            &input.image_runtime_root_path,
-                            &input.runtime_contract_id,
-                            &input.runtime_contract_version,
-                            &input.runtime_implementation_revision,
-                            &input.endpoint_worker_image_ref,
-                        ),
+                        &HashMap::new(),
                         RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT,
                         &input.mount_path,
                     )
@@ -686,37 +651,6 @@ fn runpod_template_observation(
         mount_path: observation.volume_mount_path,
         provider_resource_status: observation.status,
     }
-}
-
-fn endpoint_template_runtime_env(
-    image_runtime_root_path: &str,
-    runtime_contract_id: &str,
-    runtime_contract_version: &str,
-    runtime_implementation_revision: &str,
-    endpoint_worker_image_ref: &str,
-) -> HashMap<String, String> {
-    HashMap::from([
-        (
-            "LUMA_FORGE_IMAGE_RUNTIME_ROOT".to_string(),
-            image_runtime_root_path.to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_CONTRACT_ID".to_string(),
-            runtime_contract_id.to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_CONTRACT_VERSION".to_string(),
-            runtime_contract_version.to_string(),
-        ),
-        (
-            "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
-            runtime_implementation_revision.to_string(),
-        ),
-        (
-            "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
-            endpoint_worker_image_ref.to_string(),
-        ),
-    ])
 }
 
 fn runpod_endpoint_observation(

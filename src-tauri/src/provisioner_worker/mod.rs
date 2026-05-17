@@ -6,7 +6,7 @@ use thiserror::Error;
 
 use crate::{
     domain::{
-        runtime::ResolvedRuntimeImplementationSnapshot,
+        runtime::ResolvedRuntimeImageSnapshot,
         workflow::WorkflowPreset,
         workspace::{
             WorkspaceProvisioningPhase, WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
@@ -82,7 +82,7 @@ impl ProvisionerWorkerHttpGateway {
 pub struct ProvisionerWorkerStartRequest {
     pub job_id: String,
     pub workflow_preset: WorkflowPreset,
-    pub resolved_runtime_implementation: ResolvedRuntimeImplementationSnapshot,
+    pub resolved_runtime_image: ResolvedRuntimeImageSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

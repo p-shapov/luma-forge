@@ -313,7 +313,7 @@ where
                 .expect("volume checked above");
             let network_volume_id = volume.provider_resource_id.clone();
             let provisioner_worker_image_ref = workspace
-                .resolved_runtime_implementation
+                .resolved_runtime_image
                 .provisioner_image_ref
                 .clone();
             let PlacementPlan::Runpod {
@@ -510,9 +510,7 @@ where
                                 .placement_plan
                                 .selected_workflow_preset()
                                 .clone(),
-                            resolved_runtime_implementation: workspace
-                                .resolved_runtime_implementation
-                                .clone(),
+                            resolved_runtime_image: workspace.resolved_runtime_image.clone(),
                         },
                     )
                     .await
@@ -633,37 +631,14 @@ where
         }
 
         if template_snapshot.is_none() {
-            let endpoint_worker_image_ref = workspace
-                .resolved_runtime_implementation
-                .endpoint_image_ref
-                .clone();
-            let image_runtime_root_path = workspace
-                .resolved_runtime_implementation
-                .image_metadata
-                .image_runtime_root_path
-                .clone();
-            let runtime_contract_id = workspace
-                .resolved_runtime_implementation
-                .contract_id
-                .clone();
-            let runtime_contract_version = workspace
-                .resolved_runtime_implementation
-                .contract_version
-                .clone();
-            let runtime_implementation_revision = workspace
-                .resolved_runtime_implementation
-                .implementation_revision
-                .clone();
+            let endpoint_worker_image_ref =
+                workspace.resolved_runtime_image.endpoint_image_ref.clone();
             let discovered_templates = self
                 .providers
                 .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
                     endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                    image_runtime_root_path: image_runtime_root_path.clone(),
-                    runtime_contract_id: runtime_contract_id.clone(),
-                    runtime_contract_version: runtime_contract_version.clone(),
-                    runtime_implementation_revision: runtime_implementation_revision.clone(),
                     mount_path: self.config.volume_mount_path.clone(),
                 })
                 .await?;
@@ -691,10 +666,6 @@ where
                     gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                     workspace_id: workspace.id.clone(),
                     endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                    image_runtime_root_path: image_runtime_root_path.clone(),
-                    runtime_contract_id: runtime_contract_id.clone(),
-                    runtime_contract_version: runtime_contract_version.clone(),
-                    runtime_implementation_revision: runtime_implementation_revision.clone(),
                     mount_path: self.config.volume_mount_path.clone(),
                 })
                 .await
@@ -707,11 +678,6 @@ where
                             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                             workspace_id: workspace.id.clone(),
                             endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                            image_runtime_root_path: image_runtime_root_path.clone(),
-                            runtime_contract_id: runtime_contract_id.clone(),
-                            runtime_contract_version: runtime_contract_version.clone(),
-                            runtime_implementation_revision: runtime_implementation_revision
-                                .clone(),
                             mount_path: self.config.volume_mount_path.clone(),
                         })
                         .await?;

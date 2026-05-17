@@ -52,11 +52,17 @@ class CustomNode:
 
 
 @dataclass(frozen=True)
+class RuntimeContractReference:
+    id: str
+    version: str
+
+
+@dataclass(frozen=True)
 class WorkflowPreset:
     id: str
     version: str
     name: str
-    required_runtime_contract: "RuntimeContractReference"
+    runtime_contract: RuntimeContractReference
     required_model_assets: list[ModelAsset]
     required_custom_nodes: list[CustomNode]
 
@@ -65,52 +71,15 @@ class WorkflowPreset:
 class StartRequest:
     job_id: str
     workflow_preset: WorkflowPreset
-    resolved_runtime_implementation: "ResolvedRuntimeImplementation"
+    resolved_runtime_image: "ResolvedRuntimeImage"
 
 
 @dataclass(frozen=True)
-class RuntimeContractReference:
-    id: str
-    version: str
-
-
-@dataclass(frozen=True)
-class RuntimeMetadata:
-    environment_kind: str
-    python_version: str
-    platform: str
-    comfyui_revision: str
-    runtime_manifest_compatibility: dict[str, str]
-    workspace_overlay_policy: "WorkspaceOverlayPolicy"
-
-
-@dataclass(frozen=True)
-class WorkspaceOverlayPolicy:
-    python_overlay_path: Path
-    import_path_precedence: str
-    protected_package_names: list[str]
-    protected_package_prefixes: list[str]
-
-
-@dataclass(frozen=True)
-class RuntimeImageMetadata:
-    image_runtime_root_path: Path
-    image_python_interpreter_path: Path
-    image_comfyui_root_path: Path
-    image_base_dependency_record_paths: list[Path]
-    provisioner_runtime_metadata_path: Path
-    endpoint_runtime_contract_path: Path
-
-
-@dataclass(frozen=True)
-class ResolvedRuntimeImplementation:
+class ResolvedRuntimeImage:
     contract_id: str
     contract_version: str
-    implementation_revision: str
     provisioner_image_ref: str
     endpoint_image_ref: str
-    runtime_metadata: RuntimeMetadata
-    image_metadata: RuntimeImageMetadata
 
 
 def parse_start_request(payload: Any) -> StartRequest:
@@ -120,8 +89,8 @@ def parse_start_request(payload: Any) -> StartRequest:
     return StartRequest(
         job_id=job_id,
         workflow_preset=workflow_preset,
-        resolved_runtime_implementation=_parse_resolved_runtime_implementation(
-            data.get("resolved_runtime_implementation"),
+        resolved_runtime_image=_parse_resolved_runtime_image(
+            data.get("resolved_runtime_image"),
         ),
     )
 
@@ -132,10 +101,7 @@ def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
         id=_safe_identifier(data.get("id"), "workflow_preset.id"),
         version=_non_empty_string(data.get("version"), "workflow_preset.version"),
         name=_display_name(data.get("name"), "workflow_preset.name"),
-        required_runtime_contract=_parse_runtime_contract_reference(
-            data.get("required_runtime_contract"),
-            "workflow_preset.required_runtime_contract",
-        ),
+        runtime_contract=_parse_runtime_contract_reference(data.get("runtime_contract")),
         required_model_assets=[
             _parse_model_asset(item, f"workflow_preset.required_model_assets[{index}]")
             for index, item in enumerate(_list(data.get("required_model_assets"), "workflow_preset.required_model_assets"))
@@ -147,103 +113,27 @@ def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
     )
 
 
-def _parse_runtime_contract_reference(payload: Any, field: str) -> RuntimeContractReference:
-    data = _object(payload, field)
+def _parse_runtime_contract_reference(payload: Any) -> RuntimeContractReference:
+    data = _object(payload, "workflow_preset.runtime_contract")
     return RuntimeContractReference(
-        id=_safe_identifier(data.get("id"), f"{field}.id"),
-        version=_non_empty_string(data.get("version"), f"{field}.version"),
+        id=_safe_identifier(data.get("id"), "workflow_preset.runtime_contract.id"),
+        version=_non_empty_string(data.get("version"), "workflow_preset.runtime_contract.version"),
     )
 
 
-def _parse_resolved_runtime_implementation(payload: Any) -> ResolvedRuntimeImplementation:
-    data = _object(payload, "resolved_runtime_implementation")
-    runtime_metadata = _object(data.get("runtime_metadata"), "resolved_runtime_implementation.runtime_metadata")
-    image_metadata = _object(data.get("image_metadata"), "resolved_runtime_implementation.image_metadata")
-    return ResolvedRuntimeImplementation(
-        contract_id=_safe_identifier(data.get("contract_id"), "resolved_runtime_implementation.contract_id"),
-        contract_version=_non_empty_string(data.get("contract_version"), "resolved_runtime_implementation.contract_version"),
-        implementation_revision=_non_empty_string(
-            data.get("implementation_revision"),
-            "resolved_runtime_implementation.implementation_revision",
-        ),
+def _parse_resolved_runtime_image(payload: Any) -> ResolvedRuntimeImage:
+    data = _object(payload, "resolved_runtime_image")
+    return ResolvedRuntimeImage(
+        contract_id=_safe_identifier(data.get("contract_id"), "resolved_runtime_image.contract_id"),
+        contract_version=_non_empty_string(data.get("contract_version"), "resolved_runtime_image.contract_version"),
         provisioner_image_ref=_immutable_image_ref(
             data.get("provisioner_image_ref"),
-            "resolved_runtime_implementation.provisioner_image_ref",
+            "resolved_runtime_image.provisioner_image_ref",
         ),
         endpoint_image_ref=_immutable_image_ref(
             data.get("endpoint_image_ref"),
-            "resolved_runtime_implementation.endpoint_image_ref",
+            "resolved_runtime_image.endpoint_image_ref",
         ),
-        runtime_metadata=RuntimeMetadata(
-            environment_kind=_non_empty_string(runtime_metadata.get("environment_kind"), "runtime_metadata.environment_kind"),
-            python_version=_non_empty_string(runtime_metadata.get("python_version"), "runtime_metadata.python_version"),
-            platform=_non_empty_string(runtime_metadata.get("platform"), "runtime_metadata.platform"),
-            comfyui_revision=_immutable_revision(runtime_metadata.get("comfyui_revision"), "runtime_metadata.comfyui_revision"),
-            runtime_manifest_compatibility=_string_map(
-                runtime_metadata.get("runtime_manifest_compatibility"),
-                "runtime_metadata.runtime_manifest_compatibility",
-            ),
-            workspace_overlay_policy=_parse_workspace_overlay_policy(
-                runtime_metadata.get("workspace_overlay_policy"),
-            ),
-        ),
-        image_metadata=RuntimeImageMetadata(
-            image_runtime_root_path=_absolute_path(
-                image_metadata.get("image_runtime_root_path"),
-                "image_metadata.image_runtime_root_path",
-            ),
-            image_python_interpreter_path=_absolute_path(
-                image_metadata.get("image_python_interpreter_path"),
-                "image_metadata.image_python_interpreter_path",
-            ),
-            image_comfyui_root_path=_absolute_path(
-                image_metadata.get("image_comfyui_root_path"),
-                "image_metadata.image_comfyui_root_path",
-            ),
-            image_base_dependency_record_paths=[
-                safe_relative_path(path, field_name="image_metadata.image_base_dependency_record_paths[]")
-                for path in _list(
-                    image_metadata.get("image_base_dependency_record_paths"),
-                    "image_metadata.image_base_dependency_record_paths",
-                )
-            ],
-            provisioner_runtime_metadata_path=_absolute_path(
-                image_metadata.get("provisioner_runtime_metadata_path"),
-                "image_metadata.provisioner_runtime_metadata_path",
-            ),
-            endpoint_runtime_contract_path=_absolute_path(
-                image_metadata.get("endpoint_runtime_contract_path"),
-                "image_metadata.endpoint_runtime_contract_path",
-            ),
-        ),
-    )
-
-
-def _parse_workspace_overlay_policy(payload: Any) -> WorkspaceOverlayPolicy:
-    data = _object(payload, "runtime_metadata.workspace_overlay_policy")
-    return WorkspaceOverlayPolicy(
-        python_overlay_path=safe_relative_path(
-            data.get("python_overlay_path"),
-            field_name="runtime_metadata.workspace_overlay_policy.python_overlay_path",
-        ),
-        import_path_precedence=_non_empty_string(
-            data.get("import_path_precedence"),
-            "runtime_metadata.workspace_overlay_policy.import_path_precedence",
-        ),
-        protected_package_names=[
-            _package_name(name, "runtime_metadata.workspace_overlay_policy.protected_package_names[]")
-            for name in _list(
-                data.get("protected_package_names"),
-                "runtime_metadata.workspace_overlay_policy.protected_package_names",
-            )
-        ],
-        protected_package_prefixes=[
-            _package_prefix(prefix, "runtime_metadata.workspace_overlay_policy.protected_package_prefixes[]")
-            for prefix in _list(
-                data.get("protected_package_prefixes"),
-                "runtime_metadata.workspace_overlay_policy.protected_package_prefixes",
-            )
-        ],
     )
 
 

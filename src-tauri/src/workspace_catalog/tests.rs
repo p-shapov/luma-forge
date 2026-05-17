@@ -223,84 +223,6 @@ async fn migrates_v1_workspace_json_to_current_optional_shape() {
 }
 
 #[tokio::test]
-async fn reads_workspace_json_with_legacy_runtime_snapshot_shape() {
-    let catalog = SqliteWorkspaceCatalog::in_memory().await.expect("catalog");
-    let workspace = sample_workspace("018f6a40-0000-7000-8000-000000000001");
-    catalog.insert_workspace(&workspace).await.expect("insert");
-    let mut payload = serde_json::to_value(&workspace).expect("workspace json value");
-    let runtime = &mut payload["resolved_runtime_implementation"];
-    runtime["runtime_metadata"]
-        .as_object_mut()
-        .expect("runtime metadata")
-        .remove("runtime_manifest_compatibility");
-    runtime["runtime_metadata"]
-        .as_object_mut()
-        .expect("runtime metadata")
-        .remove("workspace_overlay_policy");
-    runtime["runtime_metadata"]["base_dependency_record_paths"] = json!([
-        "base-runtime/pip-freeze.txt",
-        "base-runtime/install-report.json"
-    ]);
-    runtime["image_metadata"]
-        .as_object_mut()
-        .expect("image metadata")
-        .remove("image_runtime_root_path");
-    runtime["image_metadata"]
-        .as_object_mut()
-        .expect("image metadata")
-        .remove("image_python_interpreter_path");
-    runtime["image_metadata"]
-        .as_object_mut()
-        .expect("image metadata")
-        .remove("image_comfyui_root_path");
-    runtime["image_metadata"]
-        .as_object_mut()
-        .expect("image metadata")
-        .remove("image_base_dependency_record_paths");
-    runtime["image_metadata"]["provisioner_runtime_archive_path"] =
-        json!("/opt/luma-forge/runtime/base-runtime.tar.gz");
-    sqlx::query("UPDATE workspaces SET workspace_json = ? WHERE id = ?")
-        .bind(payload.to_string())
-        .bind(&workspace.id)
-        .execute(&catalog.pool)
-        .await
-        .expect("write legacy payload");
-
-    let stored = catalog
-        .find_workspace_by_id(&workspace.id)
-        .await
-        .expect("find legacy workspace")
-        .expect("workspace");
-
-    assert_eq!(
-        stored
-            .resolved_runtime_implementation
-            .runtime_metadata
-            .runtime_manifest_compatibility
-            .manifest_version,
-        "1"
-    );
-    assert_eq!(
-        stored
-            .resolved_runtime_implementation
-            .runtime_metadata
-            .workspace_overlay_policy
-            .protected_package_names,
-        vec!["torch", "torchvision", "torchaudio"]
-    );
-    assert_eq!(
-        stored
-            .resolved_runtime_implementation
-            .image_metadata
-            .image_base_dependency_record_paths,
-        vec![
-            "base-runtime/pip-freeze.txt",
-            "base-runtime/install-report.json"
-        ]
-    );
-}
-
-#[tokio::test]
 async fn rejects_future_persistence_version() {
     let path = temp_catalog_path("future-version");
     let catalog = SqliteWorkspaceCatalog::connect(&path)
@@ -422,19 +344,8 @@ async fn stores_provider_id_column_from_workspace() {
         workspace.gpu_cloud_provider_id
     );
     assert_eq!(
-        stored_workspace
-            .resolved_runtime_implementation
-            .image_metadata
-            .image_python_interpreter_path,
-        "/opt/luma-forge/runtime/.venv/bin/python"
-    );
-    assert_eq!(
-        stored_workspace
-            .resolved_runtime_implementation
-            .runtime_metadata
-            .workspace_overlay_policy
-            .protected_package_names,
-        vec!["torch", "torchvision", "torchaudio"]
+        stored_workspace.resolved_runtime_image.contract_version,
+        "1.0.0"
     );
 }
 

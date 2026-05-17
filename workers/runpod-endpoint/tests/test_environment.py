@@ -32,17 +32,6 @@ class EnvironmentTests(unittest.TestCase):
             with self.assertRaises(PreparedRuntimeError):
                 validate_prepared_environment(fixture.config)
 
-    def test_fails_when_runtime_contract_metadata_is_missing(self):
-        with WorkerFixture() as fixture:
-            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
-            fixture.config.runtime_manifest_path.write_text(
-                payload.replace('"runtime_contract_id": "comfyui-python312-cu121",', ""),
-                encoding="utf-8",
-            )
-
-            with self.assertRaises(PreparedRuntimeError):
-                validate_prepared_environment(fixture.config)
-
     def test_fails_when_runtime_manifest_is_not_object(self):
         with WorkerFixture() as fixture:
             fixture.config.runtime_manifest_path.write_text("[]", encoding="utf-8")
@@ -55,31 +44,6 @@ class EnvironmentTests(unittest.TestCase):
             fixture.venv_python.unlink()
 
             with self.assertRaises(PreparedEnvironmentError):
-                validate_prepared_environment(fixture.config)
-
-    def test_fails_when_image_runtime_contract_mismatches(self):
-        with WorkerFixture() as fixture:
-            payload = fixture.config.image_runtime_contract_path.read_text(encoding="utf-8")
-            fixture.config.image_runtime_contract_path.write_text(
-                payload.replace('"implementation_revision": "2026.05.16-001"', '"implementation_revision": "other"'),
-                encoding="utf-8",
-            )
-
-            with self.assertRaises(PreparedRuntimeError):
-                validate_prepared_environment(fixture.config)
-
-    def test_fails_when_endpoint_image_identity_mismatches(self):
-        with WorkerFixture() as fixture:
-            payload = fixture.config.runtime_manifest_path.read_text(encoding="utf-8")
-            fixture.config.runtime_manifest_path.write_text(
-                payload.replace(
-                    "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
-                    "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333",
-                ),
-                encoding="utf-8",
-            )
-
-            with self.assertRaises(PreparedRuntimeError):
                 validate_prepared_environment(fixture.config)
 
     def test_fails_when_comfyui_entrypoint_is_missing(self):
@@ -126,7 +90,6 @@ class EnvironmentTests(unittest.TestCase):
         with WorkerFixture() as fixture:
             runtime = validate_prepared_environment(fixture.config)
 
-            self.assertEqual(runtime.image_base_dependency_record_paths[0], fixture.pip_freeze_path)
             self.assertEqual(runtime.overlay_dependency_record_paths[0], fixture.overlay_report_path)
 
     def test_safe_child_path_rejects_parent_traversal(self):

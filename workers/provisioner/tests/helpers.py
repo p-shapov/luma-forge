@@ -27,7 +27,7 @@ def sample_preset() -> dict[str, Any]:
         "name": "ComfyUI Text to Image Basic",
         "workflow_execution_type": "t2i",
         "required_base_volume_size_bytes": 1,
-        "required_runtime_contract": {
+        "runtime_contract": {
             "id": "comfyui-python312-cu121",
             "version": "1.0.0",
         },
@@ -51,36 +51,12 @@ def sample_preset() -> dict[str, Any]:
     }
 
 
-def sample_runtime_implementation() -> dict[str, Any]:
+def sample_runtime_image() -> dict[str, Any]:
     return {
         "contract_id": "comfyui-python312-cu121",
         "contract_version": "1.0.0",
-        "implementation_revision": "2026.05.16-001",
         "provisioner_image_ref": TEST_PROVISIONER_IMAGE_REF,
         "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
-        "runtime_metadata": {
-            "environment_kind": "image_baked_comfyui_runtime",
-            "python_version": "3.12",
-            "platform": "linux-x86_64-cuda",
-            "comfyui_revision": COMMIT_REVISION,
-            "runtime_manifest_compatibility": {
-                "manifest_version": "1",
-            },
-            "workspace_overlay_policy": {
-                "python_overlay_path": ".luma-forge/python-overlay",
-                "import_path_precedence": "overlay_first",
-                "protected_package_names": ["torch", "torchvision", "torchaudio"],
-                "protected_package_prefixes": ["nvidia-"],
-            },
-        },
-        "image_metadata": {
-            "image_runtime_root_path": "/opt/luma-forge/runtime",
-            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
-            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
-            "image_base_dependency_record_paths": ["base-runtime/pip-freeze.txt"],
-            "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
-            "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json",
-        },
     }
 
 
@@ -88,7 +64,7 @@ def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None
     return {
         "job_id": job_id,
         "workflow_preset": preset or sample_preset(),
-        "resolved_runtime_implementation": sample_runtime_implementation(),
+        "resolved_runtime_image": sample_runtime_image(),
     }
 
 
@@ -130,9 +106,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": bearer_token,
             "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
             "LUMA_FORGE_PROVISIONER_PORT": "8000",
-            "LUMA_FORGE_PROVISIONER_IMAGE_REF": TEST_PROVISIONER_IMAGE_REF,
             "LUMA_FORGE_WORKSPACE_MOUNT_PATH": str(workspace_mount_path or Path("/workspace")),
-            "LUMA_FORGE_IMAGE_RUNTIME_ROOT": str(image_runtime_root_path),
         }
     )
     return WorkerConfig(
@@ -148,13 +122,6 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
         download_timeout_seconds=overrides.get("download_timeout_seconds", config.download_timeout_seconds),
         workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
         image_runtime_root_path=image_runtime_root_path,
-        runtime_contract_id=overrides.get("runtime_contract_id", config.runtime_contract_id),
-        runtime_contract_version=overrides.get("runtime_contract_version", config.runtime_contract_version),
-        runtime_implementation_revision=overrides.get(
-            "runtime_implementation_revision",
-            config.runtime_implementation_revision,
-        ),
-        provisioner_image_ref=overrides.get("provisioner_image_ref", config.provisioner_image_ref),
     )
 
 
@@ -165,40 +132,11 @@ def _image_runtime_fixture() -> Path:
     comfyui = runtime_root / "ComfyUI"
     custom_nodes = comfyui / "custom_nodes"
     venv_bin = runtime_root / ".venv" / "bin"
-    base_runtime = runtime_root / "base-runtime"
     custom_nodes.mkdir(parents=True)
     venv_bin.mkdir(parents=True)
-    base_runtime.mkdir(parents=True)
     (comfyui / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
     (custom_nodes / "websocket_image_save.py").write_text("# upstream ComfyUI node\n", encoding="utf-8")
     (venv_bin / "python").write_text("#!/usr/bin/env python\n", encoding="utf-8")
-    (base_runtime / "pip-freeze.txt").write_text("torch==2.5.1\n", encoding="utf-8")
-    (base_runtime / "install-report.json").write_text('{"reports":[]}\n', encoding="utf-8")
-    (runtime_root / "runtime-metadata.json").write_text(
-        json.dumps(
-            {
-                "contract_id": "comfyui-python312-cu121",
-                "contract_version": "1.0.0",
-                "implementation_revision": "2026.05.16-001",
-                "environment_kind": "image_baked_comfyui_runtime",
-                "python_version": "3.12",
-                "platform": "linux-x86_64-cuda",
-                "comfyui_revision": COMMIT_REVISION,
-                "image_runtime_root_path": "/opt/luma-forge/runtime",
-                "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
-                "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
-                "image_base_dependency_record_paths": ["base-runtime/pip-freeze.txt"],
-                "runtime_manifest_compatibility": {"manifest_version": "1"},
-                "workspace_overlay_policy": {
-                    "python_overlay_path": ".luma-forge/python-overlay",
-                    "import_path_precedence": "overlay_first",
-                    "protected_package_names": ["torch", "torchvision", "torchaudio"],
-                    "protected_package_prefixes": ["nvidia-"],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
     os.chmod(venv_bin / "python", 0o755)
     # Keep the temporary directory alive for the lifetime of the process.
     _IMAGE_RUNTIME_TEMP_DIRS.append(tempdir)

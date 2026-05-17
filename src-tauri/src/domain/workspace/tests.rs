@@ -1,11 +1,8 @@
 use crate::domain::{
     placement::PlacementPlan,
     provider_setup::GpuCloudProviderId,
-    runtime::{
-        ResolvedRuntimeImplementationSnapshot, RuntimeContractReference, RuntimeImageMetadata,
-        RuntimeManifestCompatibility, RuntimeMetadata, WorkspaceOverlayPolicy,
-    },
-    workflow::{WorkflowExecutionType, WorkflowPreset},
+    runtime::ResolvedRuntimeImageSnapshot,
+    workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
 };
 
 use super::{Workspace, WorkspaceLifecycleState, WorkspaceValidationError};
@@ -27,7 +24,7 @@ fn placement_plan() -> PlacementPlan {
             name: "Preset".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 85899345920,
-            required_runtime_contract: RuntimeContractReference {
+            runtime_contract: RuntimeContractReference {
                 id: "comfyui-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
@@ -37,42 +34,12 @@ fn placement_plan() -> PlacementPlan {
     }
 }
 
-fn runtime_snapshot() -> ResolvedRuntimeImplementationSnapshot {
-    ResolvedRuntimeImplementationSnapshot {
+fn runtime_snapshot() -> ResolvedRuntimeImageSnapshot {
+    ResolvedRuntimeImageSnapshot {
         contract_id: "comfyui-python312-cu121".to_string(),
         contract_version: "1.0.0".to_string(),
-        implementation_revision: "2026.05.16-001".to_string(),
         provisioner_image_ref: "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
         endpoint_image_ref: "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222".to_string(),
-        runtime_metadata: RuntimeMetadata {
-            environment_kind: "image_baked_comfyui_runtime".to_string(),
-            python_version: "3.12".to_string(),
-            platform: "linux-x86_64-cuda".to_string(),
-            comfyui_revision: "aa9d2fc713664e9ffe37763f4c9240c0c3eda667".to_string(),
-            runtime_manifest_compatibility: RuntimeManifestCompatibility {
-                manifest_version: "1".to_string(),
-            },
-            workspace_overlay_policy: WorkspaceOverlayPolicy {
-                python_overlay_path: ".luma-forge/python-overlay".to_string(),
-                import_path_precedence: "overlay_first".to_string(),
-                protected_package_names: vec![
-                    "torch".to_string(),
-                    "torchvision".to_string(),
-                    "torchaudio".to_string(),
-                ],
-                protected_package_prefixes: vec!["nvidia-".to_string()],
-            },
-        },
-        image_metadata: RuntimeImageMetadata {
-            image_runtime_root_path: "/opt/luma-forge/runtime".to_string(),
-            image_python_interpreter_path: "/opt/luma-forge/runtime/.venv/bin/python".to_string(),
-            image_comfyui_root_path: "/opt/luma-forge/runtime/ComfyUI".to_string(),
-            image_base_dependency_record_paths: vec![
-                "base-runtime/pip-freeze.txt".to_string(),
-            ],
-            provisioner_runtime_metadata_path: "/opt/luma-forge/runtime/runtime-metadata.json".to_string(),
-            endpoint_runtime_contract_path: "/opt/luma-forge/runtime/runtime-contract.json".to_string(),
-        },
     }
 }
 

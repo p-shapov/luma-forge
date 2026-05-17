@@ -104,12 +104,18 @@ where
             &runtime_catalog,
         )
         .map_err(WorkspaceSetupError::from)?;
-        let resolved_runtime_implementation = runtime_catalog
-            .resolve_default(
+        let resolved_runtime_image = runtime_catalog
+            .resolve(
                 &request
                     .placement_plan
                     .selected_workflow_preset()
-                    .required_runtime_contract,
+                    .runtime_contract
+                    .id,
+                &request
+                    .placement_plan
+                    .selected_workflow_preset()
+                    .runtime_contract
+                    .version,
             )
             .ok_or(WorkspaceSetupError::WorkflowCatalogUnavailable)?;
 
@@ -118,7 +124,7 @@ where
             workspace_id.to_string(),
             name.to_string(),
             request.placement_plan,
-            resolved_runtime_implementation,
+            resolved_runtime_image,
         )
         .map_err(|_| WorkspaceSetupError::InvalidWorkspaceMetadata)?;
 

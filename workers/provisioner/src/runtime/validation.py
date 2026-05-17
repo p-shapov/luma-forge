@@ -14,10 +14,10 @@ def validate_prepared_environment(request: StartRequest, paths: RuntimePaths, *,
         raise PreparationError("Image Python interpreter is missing")
     if not paths.python_overlay_path.is_dir():
         raise PreparationError("Python overlay directory is missing")
-    if request.resolved_runtime_implementation.contract_id != request.workflow_preset.required_runtime_contract.id:
-        raise PreparationError("Resolved runtime contract does not match Workflow Preset")
-    if request.resolved_runtime_implementation.contract_version != request.workflow_preset.required_runtime_contract.version:
+    if request.resolved_runtime_image.contract_version != request.workflow_preset.runtime_contract.version:
         raise PreparationError("Resolved runtime contract version does not match Workflow Preset")
+    if request.resolved_runtime_image.contract_id != request.workflow_preset.runtime_contract.id:
+        raise PreparationError("Resolved runtime contract id does not match Workflow Preset")
 
     for node in request.workflow_preset.required_custom_nodes:
         target = safe_custom_node_child_path(

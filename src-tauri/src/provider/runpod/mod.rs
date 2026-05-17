@@ -535,11 +535,12 @@ fn templates_by_name(
         .filter(|payload| {
             payload.name.as_deref() == Some(name)
                 && payload.image_name.as_deref() == Some(image_name)
-                && payload.env.as_ref().is_some_and(|env| {
-                    expected_env
-                        .iter()
-                        .all(|(key, value)| env.get(key) == Some(value))
-                })
+                && (expected_env.is_empty()
+                    || payload.env.as_ref().is_some_and(|env| {
+                        expected_env
+                            .iter()
+                            .all(|(key, value)| env.get(key) == Some(value))
+                    }))
                 && payload.volume_mount_path.as_deref() == Some(volume_mount_path)
                 && payload.is_serverless == Some(true)
                 && payload

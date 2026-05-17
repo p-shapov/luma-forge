@@ -13,9 +13,6 @@ on:
         options:
           - workers/runtime-recipes/comfyui-python312-cu121.yaml
         default: workers/runtime-recipes/comfyui-python312-cu121.yaml
-      implementation_revision:
-        description: Runtime implementation revision (optional; auto-increments when omitted)
-        required: false
 
 permissions:
   contents: write
@@ -47,20 +44,10 @@ jobs:
         id: recipe
         env:
           RECIPE: ${{ inputs.recipe || 'workers/runtime-recipes/comfyui-python312-cu121.yaml' }}
-          IMPLEMENTATION_REVISION: ${{ inputs.implementation_revision }}
         run: |
           python workers/runtime-recipes/release_tool.py resolve \
             --recipe "$RECIPE" \
-            --catalog bundled/runtime-catalog.json \
-            --implementation-revision "$IMPLEMENTATION_REVISION" \
             --github-output "$GITHUB_OUTPUT"
-
-      - name: Validate runtime catalog compatibility
-        run: |
-          python workers/runtime-recipes/release_tool.py validate-catalog \
-            --recipe "${{ steps.recipe.outputs.recipe }}" \
-            --catalog bundled/runtime-catalog.json \
-            --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}"
 
       - name: Validate workers
         run: |
@@ -76,19 +63,15 @@ jobs:
           SHA: ${{ github.sha }}
           CONTRACT_ID: ${{ steps.recipe.outputs.contract_id }}
           CONTRACT_VERSION: ${{ steps.recipe.outputs.contract_version }}
-          IMPLEMENTATION_REVISION: ${{ steps.recipe.outputs.implementation_revision }}
         run: |
           base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          suffix="${CONTRACT_ID}-${CONTRACT_VERSION}-${IMPLEMENTATION_REVISION}"
+          suffix="${CONTRACT_ID}-${CONTRACT_VERSION}"
           printf 'provisioner_tag=%s\n' "${base}/provisioner-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
           printf 'endpoint_tag=%s\n' "${base}/runpod-endpoint-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build provisioner image
         run: |
           docker build --file workers/Dockerfile --platform linux/amd64 --target provisioner \
-            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_ID="${{ steps.recipe.outputs.contract_id }}" \
-            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_VERSION="${{ steps.recipe.outputs.contract_version }}" \
-            --build-arg LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION="${{ steps.recipe.outputs.implementation_revision }}" \
             --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
             --build-arg LUMA_FORGE_RUNTIME_PLATFORM="${{ steps.recipe.outputs.runtime_platform }}" \
             --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
@@ -101,9 +84,6 @@ jobs:
       - name: Build endpoint image
         run: |
           docker build --file workers/Dockerfile --platform linux/amd64 --target runpod-endpoint \
-            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_ID="${{ steps.recipe.outputs.contract_id }}" \
-            --build-arg LUMA_FORGE_RUNTIME_CONTRACT_VERSION="${{ steps.recipe.outputs.contract_version }}" \
-            --build-arg LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION="${{ steps.recipe.outputs.implementation_revision }}" \
             --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
             --build-arg LUMA_FORGE_RUNTIME_PLATFORM="${{ steps.recipe.outputs.runtime_platform }}" \
             --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
@@ -112,19 +92,6 @@ jobs:
             --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.recipe.outputs.pytorch_packages_json }}' \
             --build-arg LUMA_FORGE_BASE_REQUIREMENTS_JSON='${{ steps.recipe.outputs.base_requirements_json }}' \
             --tag "${{ steps.image.outputs.endpoint_tag }}" .
-
-      - name: Validate image pair runtime metadata
-        run: |
-          provisioner="$(docker create "${{ steps.image.outputs.provisioner_tag }}")"
-          endpoint="$(docker create "${{ steps.image.outputs.endpoint_tag }}")"
-          docker cp "$provisioner:/opt/luma-forge/runtime/runtime-metadata.json" /tmp/provisioner-runtime.json
-          docker cp "$endpoint:/opt/luma-forge/runtime/runtime-contract.json" /tmp/endpoint-runtime.json
-          docker rm "$provisioner" "$endpoint"
-          python workers/runtime-recipes/release_tool.py validate-image-metadata \
-            --recipe "${{ steps.recipe.outputs.recipe }}" \
-            --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}" \
-            --provisioner-runtime-metadata /tmp/provisioner-runtime.json \
-            --endpoint-runtime-metadata /tmp/endpoint-runtime.json
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -151,7 +118,6 @@ jobs:
           python workers/runtime-recipes/release_tool.py update-catalog \
             --recipe "${{ steps.recipe.outputs.recipe }}" \
             --catalog bundled/runtime-catalog.json \
-            --implementation-revision "${{ steps.recipe.outputs.implementation_revision }}" \
             --provisioner-ref "${{ steps.digest.outputs.provisioner_ref }}" \
             --endpoint-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
@@ -175,9 +141,9 @@ jobs:
         with:
           add-paths: |
             bundled/runtime-catalog.json
-          branch: runtime-catalog/${{ steps.recipe.outputs.contract_id }}-${{ steps.recipe.outputs.contract_version }}-${{ steps.recipe.outputs.implementation_revision }}
-          title: "chore(workers): catalog runtime ${{ steps.recipe.outputs.contract_id }} ${{ steps.recipe.outputs.implementation_revision }}"
-          commit-message: "chore(workers): catalog runtime implementation"
+          branch: runtime-catalog/${{ steps.recipe.outputs.contract_id }}-${{ steps.recipe.outputs.contract_version }}
+          title: "chore(workers): catalog runtime ${{ steps.recipe.outputs.contract_id }} ${{ steps.recipe.outputs.contract_version }}"
+          commit-message: "chore(workers): catalog runtime images"
           body: |
             Updates `bundled/runtime-catalog.json` for the validated runtime recipe image pair.
           labels: runtime-catalog

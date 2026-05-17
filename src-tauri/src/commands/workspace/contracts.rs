@@ -94,59 +94,19 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_runtime::RuntimeContractReference)]
+    #[specta(remote = domain_runtime::ResolvedRuntimeImageSnapshot)]
+    pub(super) struct ResolvedRuntimeImageSnapshot {
+        pub contract_id: String,
+        pub contract_version: String,
+        pub provisioner_image_ref: String,
+        pub endpoint_image_ref: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_workflow::RuntimeContractReference)]
     pub(super) struct RuntimeContractReference {
         pub id: String,
         pub version: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_runtime::RuntimeMetadata)]
-    pub(super) struct RuntimeMetadata {
-        pub environment_kind: String,
-        pub python_version: String,
-        pub platform: String,
-        pub comfyui_revision: String,
-        pub runtime_manifest_compatibility: domain_runtime::RuntimeManifestCompatibility,
-        pub workspace_overlay_policy: domain_runtime::WorkspaceOverlayPolicy,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_runtime::RuntimeManifestCompatibility)]
-    pub(super) struct RuntimeManifestCompatibility {
-        pub manifest_version: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_runtime::WorkspaceOverlayPolicy)]
-    pub(super) struct WorkspaceOverlayPolicy {
-        pub python_overlay_path: String,
-        pub import_path_precedence: String,
-        pub protected_package_names: Vec<String>,
-        pub protected_package_prefixes: Vec<String>,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_runtime::RuntimeImageMetadata)]
-    pub(super) struct RuntimeImageMetadata {
-        pub image_runtime_root_path: String,
-        pub image_python_interpreter_path: String,
-        pub image_comfyui_root_path: String,
-        pub image_base_dependency_record_paths: Vec<String>,
-        pub provisioner_runtime_metadata_path: String,
-        pub endpoint_runtime_contract_path: String,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_runtime::ResolvedRuntimeImplementationSnapshot)]
-    pub(super) struct ResolvedRuntimeImplementationSnapshot {
-        pub contract_id: String,
-        pub contract_version: String,
-        pub implementation_revision: String,
-        pub provisioner_image_ref: String,
-        pub endpoint_image_ref: String,
-        pub runtime_metadata: domain_runtime::RuntimeMetadata,
-        pub image_metadata: domain_runtime::RuntimeImageMetadata,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -157,7 +117,7 @@ mod remote_types {
         pub name: String,
         pub workflow_execution_type: domain_workflow::WorkflowExecutionType,
         pub required_base_volume_size_bytes: u64,
-        pub required_runtime_contract: domain_runtime::RuntimeContractReference,
+        pub runtime_contract: domain_workflow::RuntimeContractReference,
         pub required_model_assets: Vec<domain_workflow::ModelAsset>,
         pub required_custom_nodes: Vec<domain_workflow::CustomNode>,
     }
@@ -165,8 +125,6 @@ mod remote_types {
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_workflow::WorkflowCatalog)]
     pub(super) struct WorkflowCatalog {
-        pub id: String,
-        pub version: String,
         pub workflow_presets: Vec<domain_workflow::WorkflowPreset>,
     }
 
@@ -265,7 +223,7 @@ mod remote_types {
         pub name: String,
         pub lifecycle_state: domain_workspace::WorkspaceLifecycleState,
         pub placement_plan: domain_placement::PlacementPlan,
-        pub resolved_runtime_implementation: domain_runtime::ResolvedRuntimeImplementationSnapshot,
+        pub resolved_runtime_image: domain_runtime::ResolvedRuntimeImageSnapshot,
         pub persistent_storage_volume_snapshot:
             Option<domain_workspace::PersistentStorageVolumeSnapshot>,
         pub active_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,

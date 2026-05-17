@@ -16,7 +16,7 @@ fn reads_bundled_catalogs() {
     assert!(!reader
         .runtime_catalog()
         .expect("runtime catalog")
-        .runtime_contracts
+        .contracts
         .is_empty());
     assert!(!reader
         .workflow_catalog()
@@ -30,77 +30,34 @@ fn validates_runtime_catalog_surface_fields() {
     let valid = valid_runtime_catalog();
     let parsed = parse_runtime_catalog(&valid.to_string()).expect("valid runtime catalog");
     let resolved = parsed
-        .resolve_default(&crate::domain::runtime::RuntimeContractReference {
-            id: parsed.runtime_contracts[0].id.clone(),
-            version: parsed.runtime_contracts[0].version.clone(),
-        })
-        .expect("default runtime snapshot");
-    assert_eq!(
-        resolved.image_metadata.image_runtime_root_path,
-        "/opt/luma-forge/runtime"
-    );
-    assert_eq!(
-        resolved
-            .runtime_metadata
-            .workspace_overlay_policy
-            .python_overlay_path,
-        ".luma-forge/python-overlay"
-    );
-
-    let mut non_default_root = valid_runtime_catalog();
-    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
-        ["image_runtime_root_path"] = json!("/runtime");
-    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
-        ["image_python_interpreter_path"] = json!("/runtime/.venv/bin/python");
-    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
-        ["image_comfyui_root_path"] = json!("/runtime/ComfyUI");
-    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
-        ["provisioner_runtime_metadata_path"] = json!("/runtime/runtime-metadata.json");
-    non_default_root["runtime_contracts"][0]["implementation_revisions"][0]["image_metadata"]
-        ["endpoint_runtime_contract_path"] = json!("/runtime/runtime-contract.json");
-    parse_runtime_catalog(&non_default_root.to_string()).expect("valid non-default runtime root");
+        .resolve("comfyui-python312-cu121", "1.0.0")
+        .expect("runtime snapshot");
+    assert_eq!(resolved.contract_id, "comfyui-python312-cu121");
+    assert_eq!(resolved.contract_version, "1.0.0");
 
     let invalid_cases = [
         (
             "empty contracts",
-            "/runtime_contracts",
+            "/contracts",
             json!([]),
             BundledCatalogError::ValidationFailed,
         ),
         (
-            "missing default revision",
-            "/runtime_contracts/0/default_implementation_revision",
-            json!("missing"),
+            "malformed contract id",
+            "/contracts/0/id",
+            json!("ComfyUI"),
+            BundledCatalogError::ValidationFailed,
+        ),
+        (
+            "malformed version",
+            "/contracts/0/revisions/0/version",
+            json!("1"),
             BundledCatalogError::ValidationFailed,
         ),
         (
             "mutable provisioner image",
-            "/runtime_contracts/0/implementation_revisions/0/provisioner_image_ref",
+            "/contracts/0/revisions/0/provisioner_image_ref",
             json!("ghcr.io/luma-forge/provisioner-worker:latest"),
-            BundledCatalogError::ValidationFailed,
-        ),
-        (
-            "malformed image runtime root",
-            "/runtime_contracts/0/implementation_revisions/0/image_metadata/image_runtime_root_path",
-            json!("relative"),
-            BundledCatalogError::ValidationFailed,
-        ),
-        (
-            "endpoint runtime contract outside image root",
-            "/runtime_contracts/0/implementation_revisions/0/image_metadata/endpoint_runtime_contract_path",
-            json!("/other-runtime/runtime-contract.json"),
-            BundledCatalogError::ValidationFailed,
-        ),
-        (
-            "missing overlay policy",
-            "/runtime_contracts/0/runtime_metadata/workspace_overlay_policy/protected_package_names",
-            json!([]),
-            BundledCatalogError::ValidationFailed,
-        ),
-        (
-            "malformed protected package prefix",
-            "/runtime_contracts/0/runtime_metadata/workspace_overlay_policy/protected_package_prefixes",
-            json!(["nvidia"]),
             BundledCatalogError::ValidationFailed,
         ),
     ];
@@ -113,22 +70,19 @@ fn validates_runtime_catalog_surface_fields() {
     }
 
     let mut duplicate = valid.clone();
-    duplicate["runtime_contracts"][0]["implementation_revisions"] = json!([
-        duplicate["runtime_contracts"][0]["implementation_revisions"][0].clone(),
-        duplicate["runtime_contracts"][0]["implementation_revisions"][0].clone()
+    duplicate["contracts"] = json!([
+        duplicate["contracts"][0].clone(),
+        duplicate["contracts"][0].clone()
     ]);
-    let error = parse_runtime_catalog(&duplicate.to_string()).expect_err("duplicate revision");
+    let error = parse_runtime_catalog(&duplicate.to_string()).expect_err("duplicate contract id");
     assert_eq!(error, BundledCatalogError::ValidationFailed);
 }
 
 #[test]
 fn rejects_empty_workflow_catalog() {
     let runtime_catalog = runtime_catalog();
-    let error = parse_workflow_catalog(
-        r#"{"id":"catalog","version":"1","workflow_presets":[]}"#,
-        &runtime_catalog,
-    )
-    .expect_err("empty catalog should fail");
+    let error = parse_workflow_catalog(r#"{"workflow_presets":[]}"#, &runtime_catalog)
+        .expect_err("empty catalog should fail");
 
     assert_eq!(error, BundledCatalogError::ValidationFailed);
 }
@@ -176,13 +130,18 @@ fn validates_workflow_catalog_source_and_custom_node_surface_fields() {
         .expect("safe requirements path should pass");
     let invalid_cases = [
         (
-            "unknown runtime contract",
-            "/workflow_presets/0/required_runtime_contract/id",
-            json!("missing-runtime"),
+            "unknown runtime contract id",
+            "/workflow_presets/0/runtime_contract/id",
+            json!("unknown-runtime"),
         ),
         (
-            "malformed runtime contract",
-            "/workflow_presets/0/required_runtime_contract/version",
+            "unknown runtime contract version",
+            "/workflow_presets/0/runtime_contract/version",
+            json!("9.0.0"),
+        ),
+        (
+            "malformed runtime contract version",
+            "/workflow_presets/0/runtime_contract/version",
             json!("1"),
         ),
         (
@@ -241,44 +200,16 @@ fn runtime_catalog() -> crate::domain::runtime::RuntimeCatalog {
 
 fn valid_runtime_catalog() -> Value {
     json!({
-        "id": "runtimes",
-        "version": "1",
-        "runtime_contracts": [
+        "contracts": [
             {
                 "id": "comfyui-python312-cu121",
-                "version": "1.0.0",
-                "display_name": "Runtime",
-                "runtime_metadata": {
-                    "environment_kind": "image_baked_comfyui_runtime",
-                    "python_version": "3.12",
-                    "platform": "linux-x86_64-cuda",
-                    "comfyui_revision": COMMIT_REVISION,
-                    "runtime_manifest_compatibility": {
-                        "manifest_version": "1"
-                    },
-                    "workspace_overlay_policy": {
-                        "python_overlay_path": ".luma-forge/python-overlay",
-                        "import_path_precedence": "overlay_first",
-                        "protected_package_names": ["torch", "torchvision", "torchaudio"],
-                        "protected_package_prefixes": ["nvidia-"]
-                    }
-                },
-                "implementation_revisions": [
+                "revisions": [
                     {
-                        "revision": "2026.05.16-001",
+                        "version": "1.0.0",
                         "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111",
-                        "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
-                        "image_metadata": {
-                            "image_runtime_root_path": "/opt/luma-forge/runtime",
-                            "image_python_interpreter_path": "/opt/luma-forge/runtime/.venv/bin/python",
-                            "image_comfyui_root_path": "/opt/luma-forge/runtime/ComfyUI",
-                            "image_base_dependency_record_paths": ["base-runtime/pip-freeze.txt"],
-                            "provisioner_runtime_metadata_path": "/opt/luma-forge/runtime/runtime-metadata.json",
-                            "endpoint_runtime_contract_path": "/opt/luma-forge/runtime/runtime-contract.json"
-                        }
+                        "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222"
                     }
-                ],
-                "default_implementation_revision": "2026.05.16-001"
+                ]
             }
         ]
     })
@@ -286,8 +217,6 @@ fn valid_runtime_catalog() -> Value {
 
 fn valid_workflow_catalog() -> Value {
     json!({
-        "id": "catalog",
-        "version": "1",
         "workflow_presets": [
             {
                 "id": "preset",
@@ -295,7 +224,7 @@ fn valid_workflow_catalog() -> Value {
                 "name": "Preset",
                 "workflow_execution_type": "t2i",
                 "required_base_volume_size_bytes": 1,
-                "required_runtime_contract": {
+                "runtime_contract": {
                     "id": "comfyui-python312-cu121",
                     "version": "1.0.0"
                 },

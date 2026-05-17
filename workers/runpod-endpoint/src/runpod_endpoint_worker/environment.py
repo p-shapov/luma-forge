@@ -17,27 +17,15 @@ class PreparedRuntimeManifest:
     image_runtime_root: Path
     workspace_root: Path
     python_overlay_path: Path
-    python_version: str
-    platform: str
-    comfyui_revision: str
-    runtime_contract_id: str
-    runtime_contract_version: str
-    implementation_revision: str
-    provisioner_image_ref: str
-    endpoint_image_ref: str
     custom_node_revisions: list[dict[str, str]]
-    image_base_dependency_record_paths: list[Path]
     overlay_dependency_record_paths: list[Path]
     model_asset_paths: list[Path]
-    protected_dependency_policy_version: str
     prepared_at: str
 
 
 def validate_prepared_environment(config: EndpointConfig) -> PreparedRuntimeManifest:
     manifest = load_runtime_manifest(config)
-    image_contract = load_image_runtime_contract(config)
     _validate_runtime_manifest(config, manifest)
-    _validate_image_runtime_contract(config, image_contract)
 
     comfyui_root = manifest.comfyui_root
     if not comfyui_root.is_dir():
@@ -69,12 +57,6 @@ def validate_prepared_environment(config: EndpointConfig) -> PreparedRuntimeMani
         if not path.is_file():
             raise PreparedEnvironmentError("Prepared model asset is missing.")
 
-    for path in manifest.image_base_dependency_record_paths:
-        if not _is_under(path, manifest.image_runtime_root):
-            raise PreparedRuntimeError("Prepared runtime image dependency record path is outside the image runtime.")
-        if not path.is_file():
-            raise PreparedEnvironmentError("Image runtime dependency record is missing.")
-
     for path in manifest.overlay_dependency_record_paths:
         if not _is_under(path, manifest.workspace_root):
             raise PreparedRuntimeError("Prepared runtime overlay dependency record path is outside the workspace.")
@@ -102,39 +84,15 @@ def load_runtime_manifest(config: EndpointConfig) -> PreparedRuntimeManifest:
             image_runtime_root=Path(_required_string(payload, "image_runtime_root")),
             workspace_root=Path(_required_string(payload, "workspace_root")),
             python_overlay_path=Path(_required_string(payload, "python_overlay_path")),
-            python_version=_required_string(payload, "python_version"),
-            platform=_required_string(payload, "platform"),
-            comfyui_revision=_required_string(payload, "comfyui_revision"),
-            runtime_contract_id=_required_string(payload, "runtime_contract_id"),
-            runtime_contract_version=_required_string(payload, "runtime_contract_version"),
-            implementation_revision=_required_string(payload, "implementation_revision"),
-            provisioner_image_ref=_required_string(payload, "provisioner_image_ref"),
-            endpoint_image_ref=_required_string(payload, "endpoint_image_ref"),
             custom_node_revisions=_custom_node_revision_payload(payload),
-            image_base_dependency_record_paths=[
-                Path(path) for path in _string_list(payload, "image_base_dependency_record_paths")
-            ],
             overlay_dependency_record_paths=[
                 Path(path) for path in _string_list(payload, "overlay_dependency_record_paths")
             ],
             model_asset_paths=[Path(path) for path in _string_list(payload, "model_asset_paths")],
-            protected_dependency_policy_version=_required_string(payload, "protected_dependency_policy_version"),
             prepared_at=_required_string(payload, "prepared_at"),
         )
     except (TypeError, ValueError) as error:
         raise PreparedRuntimeError("Prepared runtime manifest is invalid.") from error
-
-
-def load_image_runtime_contract(config: EndpointConfig) -> dict[str, object]:
-    try:
-        payload = json.loads(config.image_runtime_contract_path.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise PreparedRuntimeError("Endpoint image runtime contract is missing.") from error
-    except json.JSONDecodeError as error:
-        raise PreparedRuntimeError("Endpoint image runtime contract is invalid.") from error
-    if not isinstance(payload, dict):
-        raise PreparedRuntimeError("Endpoint image runtime contract is invalid.")
-    return payload
 
 
 def workflow_path(config: EndpointConfig, runtime: PreparedRuntimeManifest) -> Path:
@@ -167,31 +125,6 @@ def _validate_runtime_manifest(config: EndpointConfig, manifest: PreparedRuntime
         raise PreparedRuntimeError("Prepared runtime workspace path is invalid.")
     if not _is_under(manifest.python_overlay_path, config.workspace_mount_path):
         raise PreparedRuntimeError("Prepared runtime overlay path is outside the workspace.")
-    if manifest.runtime_contract_id != config.runtime_contract_id:
-        raise PreparedRuntimeError("Prepared runtime contract id is invalid.")
-    if manifest.runtime_contract_version != config.runtime_contract_version:
-        raise PreparedRuntimeError("Prepared runtime contract version is invalid.")
-    if manifest.implementation_revision != config.runtime_implementation_revision:
-        raise PreparedRuntimeError("Prepared runtime implementation revision is invalid.")
-    if manifest.endpoint_image_ref != config.endpoint_image_ref:
-        raise PreparedRuntimeError("Prepared runtime endpoint image identity is invalid.")
-    if manifest.protected_dependency_policy_version.strip() == "":
-        raise PreparedRuntimeError("Prepared runtime overlay policy is invalid.")
-
-
-def _validate_image_runtime_contract(config: EndpointConfig, payload: dict[str, object]) -> None:
-    expected = {
-        "contract_id": config.runtime_contract_id,
-        "contract_version": config.runtime_contract_version,
-        "implementation_revision": config.runtime_implementation_revision,
-        "image_runtime_root_path": str(config.image_runtime_root_path),
-        "image_python_interpreter_path": str(config.image_python_path),
-        "image_comfyui_root_path": str(config.comfyui_root),
-    }
-    for key, value in expected.items():
-        if payload.get(key) != value:
-            raise PreparedRuntimeError("Endpoint image runtime contract does not match configuration.")
-
 
 def _is_under(path: Path, root: Path) -> bool:
     root_resolved = root.resolve(strict=False)
