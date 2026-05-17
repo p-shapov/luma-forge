@@ -18,9 +18,7 @@ pub(crate) fn persistent_storage_volume_snapshot(
     PersistentStorageVolumeSnapshot {
         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
         provider_resource_id: observation.provider_resource_id,
-        datacenter_id: observation.datacenter_id,
         provider_resource_status: observation.provider_resource_status,
-        provisioned_size_bytes: observation.provisioned_size_bytes,
         mount_path: observation.mount_path,
     }
 }
@@ -32,9 +30,7 @@ pub(crate) fn created_provisioning_pod_snapshot(
     Ok(ProvisioningPodSnapshot {
         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
         provider_resource_id: observation.provider_resource_id,
-        datacenter_id: observation.datacenter_id,
         provider_resource_status: observation.provider_resource_status,
-        selected_gpu_id: observation.selected_gpu_id,
         provisioner_status_url: observation
             .provisioner_status_url
             .ok_or(WorkspaceProvisioningError::ProviderResponseInvalid)?,
@@ -49,9 +45,7 @@ pub(crate) fn observed_provisioning_pod_snapshot(
     ProvisioningPodSnapshot {
         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
         provider_resource_id: observation.provider_resource_id,
-        datacenter_id: observation.datacenter_id,
         provider_resource_status: observation.provider_resource_status,
-        selected_gpu_id: observation.selected_gpu_id,
         provisioner_status_url: observation
             .provisioner_status_url
             .unwrap_or_else(|| previous.provisioner_status_url.clone()),
@@ -78,9 +72,7 @@ pub(crate) fn serverless_endpoint_snapshot(
     ServerlessEndpointSnapshot {
         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
         provider_resource_id: observation.provider_resource_id,
-        datacenter_id: observation.datacenter_id,
         provider_resource_status: observation.provider_resource_status,
-        selected_gpu_id: observation.selected_gpu_id,
         endpoint_invoke_url: observation.endpoint_invoke_url,
     }
 }

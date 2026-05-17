@@ -52,12 +52,12 @@ The Native Layer SHALL expose a Workspace Provisioning sync command that derives
 
 ### Requirement: Provision RunPod Network Volume
 
-Workspace Provisioning SHALL create, discover, adopt, or observe one RunPod network volume for the Workspace and persist its snapshot before later compute resources depend on it, without blindly creating duplicate provider volumes when create results are indeterminate.
+Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one RunPod network volume for the Workspace and persist its snapshot before later compute resources depend on it, without adopting pre-existing provider volumes when local Workspace metadata has no matching snapshot.
 
 #### Scenario: Network volume is created
 
 - **WHEN** a provisioning Workspace has no Persistent Storage Volume snapshot
-- **AND** provider discovery finds no safe Workspace-correlated RunPod network volume
+- **AND** provider discovery finds no RunPod network volume with the stable Workspace-derived volume name
 - **THEN** the Native Layer SHALL create a RunPod network volume in the selected data center with the requested size
 - **AND** the Native Layer SHALL persist the provider resource id, data center id, provisioned size, provider status, and mount path `/workspace`
 - **AND** the Native Layer SHALL use the Workspace identifier as the stable correlation value when provider naming supports it
@@ -69,20 +69,22 @@ Workspace Provisioning SHALL create, discover, adopt, or observe one RunPod netw
 - **AND** the Native Layer SHALL update the snapshot status from the provider observation
 - **AND** the Native Layer MUST NOT blindly create a second network volume
 
-#### Scenario: Existing correlated volume is adopted before create
+#### Scenario: Same-name volume is orphaned before create
 
 - **WHEN** a provisioning Workspace has no Persistent Storage Volume snapshot
-- **AND** provider discovery finds exactly one RunPod network volume correlated to the Workspace by stable Workspace-derived volume name and expected placement metadata
-- **THEN** the Native Layer SHALL persist that volume as the Persistent Storage Volume snapshot
+- **AND** provider discovery finds one or more RunPod network volumes with the stable Workspace-derived volume name
+- **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
+- **AND** the Native Layer SHALL persist structured failure detail with code `provider_orphaned_resources`, phase `creating_volume`, source `provider_resource`, and cleanup-oriented recovery action
+- **AND** the Native Layer SHALL retain known cleanup metadata when safely representable
+- **AND** the Native Layer MUST NOT adopt the discovered volume
 - **AND** the Native Layer MUST NOT create another RunPod network volume
-- **AND** the persisted snapshot SHALL include the provider resource id, data center id, provisioned size, provider status, and mount path `/workspace`
 
 #### Scenario: Volume creation result is indeterminate
 
-- **WHEN** a RunPod network volume creation request times out or returns an indeterminate response
-- **THEN** the Native Layer SHALL inspect durable Workspace metadata and discoverable provider resources before retrying creation
-- **AND** the Native Layer SHALL adopt exactly one safe Workspace-correlated volume when provider discovery proves that one exists
-- **AND** the Native Layer SHALL mark the Workspace `failed` when it cannot identify exactly one safe Workspace-correlated volume
+- **WHEN** a RunPod network volume creation request times out or returns an indeterminate response before a Persistent Storage Volume snapshot is durable
+- **THEN** the Native Layer SHALL inspect durable Workspace metadata and discover provider resources by the stable Workspace-derived volume name before retrying creation
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_orphaned_resources` when discovery finds one or more same-name volumes
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_operation_indeterminate` when discovery finds no same-name volume
 - **AND** known cleanup metadata SHALL be retained
 - **AND** the Native Layer MUST NOT retry volume creation while the previous create outcome is unresolved
 
@@ -96,24 +98,22 @@ Workspace Provisioning SHALL create, discover, adopt, or observe one RunPod netw
 - **AND** the Native Layer MUST NOT clear the snapshot and create another network volume automatically
 
 ### Requirement: Provision Temporary RunPod Provisioning Pod
-Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary RunPod provisioning pod that mounts the Workspace network volume at `/workspace` and runs the Provisioner Worker image from the Workspace's resolved runtime image snapshot, without blindly creating duplicate provider pods when local state is missing or incomplete.
 
-#### Scenario: Existing correlated provisioning pod is adopted before create
-- **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot and no active Provisioning Pod snapshot
-- **AND** provider discovery finds exactly one live RunPod pod correlated to the Workspace by stable Workspace-derived pod name and network volume id
-- **THEN** the Native Layer SHALL persist that pod as the active Provisioning Pod snapshot before contacting the Provisioner Worker
-- **AND** the Native Layer MUST NOT create another RunPod pod
-- **AND** the persisted snapshot SHALL include the provider pod id, selected data center id, selected GPU id, provider resource status, and Provisioner Worker status URL
+Workspace Provisioning SHALL create, detect orphaned owned resources for, observe, and terminate a temporary RunPod provisioning pod that mounts the Workspace network volume at `/workspace` and runs the Provisioner Worker image from the Workspace's resolved runtime image snapshot, without adopting pre-existing provider pods when local Workspace metadata has no matching snapshot.
 
-#### Scenario: Multiple correlated provisioning pods fail closed
+#### Scenario: Same-name provisioning pod is orphaned before create
+
 - **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot and no active Provisioning Pod snapshot
-- **AND** provider discovery finds more than one live RunPod pod correlated to the Workspace
+- **AND** provider discovery finds one or more live RunPod pods with the stable Workspace-derived pod name
 - **THEN** the Native Layer SHALL mark the Workspace `failed`
+- **AND** the Native Layer SHALL persist structured failure detail with code `provider_orphaned_resources`, phase `starting_provisioning_pod`, source `provider_resource`, and cleanup-oriented recovery action
 - **AND** the Native Layer SHALL retain known Persistent Storage Volume metadata and any safely representable matching pod metadata needed for cleanup or inspection
+- **AND** the Native Layer MUST NOT adopt the discovered provisioning pod
 - **AND** the Native Layer MUST NOT create another RunPod pod
 
 #### Scenario: Provisioning pod is created
-- **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot, no active Provisioning Pod snapshot, and no existing safe Workspace-correlated RunPod provisioning pod
+
+- **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot, no active Provisioning Pod snapshot, and no live RunPod pod with the stable Workspace-derived pod name
 - **THEN** the Native Layer SHALL generate and store a per-workspace Provisioner Worker bearer token in secure storage
 - **AND** the Native Layer SHALL create a RunPod pod using the immutable Provisioner Worker image ref from the Workspace's resolved runtime image snapshot, selected GPU, selected data center, network volume id, and mount path `/workspace`
 - **AND** the Native Layer SHALL inject the bearer token into the pod environment only for the Provisioner Worker runtime
@@ -123,20 +123,23 @@ Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary R
 - **AND** the Native Layer MUST NOT require RunPod direct TCP `publicIp` or `portMappings` metadata for HTTP-exposed provisioning pods
 
 #### Scenario: Provisioning pod create result is indeterminate
-- **WHEN** a RunPod provisioning pod creation request times out or returns an indeterminate response after the per-workspace Provisioner Worker bearer token is stored
-- **THEN** the Native Layer SHALL discover live RunPod pods correlated to the Workspace by stable Workspace-derived pod name and network volume id before retrying creation
-- **AND** the Native Layer SHALL persist the active Provisioning Pod snapshot when exactly one safe matching pod exists
-- **AND** the Native Layer SHALL mark the Workspace `failed` when zero or multiple safe matching pods exist
+
+- **WHEN** a RunPod provisioning pod creation request times out or returns an indeterminate response after the per-workspace Provisioner Worker bearer token is stored and before an active Provisioning Pod snapshot is durable
+- **THEN** the Native Layer SHALL discover live RunPod pods by the stable Workspace-derived pod name before retrying creation
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_orphaned_resources` when discovery finds one or more same-name pods
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_operation_indeterminate` when discovery finds no same-name pod
 - **AND** the Native Layer SHALL retain known Persistent Storage Volume metadata
 - **AND** the Native Layer MUST NOT create another RunPod pod while the previous create outcome is unresolved
 
 #### Scenario: Provisioning pod create response has a pod id but incomplete HTTP metadata
+
 - **WHEN** RunPod creates a provisioning pod and returns a pod id with HTTP port exposure but without direct TCP `publicIp` or `portMappings`
 - **THEN** the Native Layer SHALL persist an active Provisioning Pod snapshot using the pod id and RunPod HTTP proxy status URL
 - **AND** the Native Layer MUST NOT return `provider_response_invalid` solely because direct TCP metadata is missing
 - **AND** later sync SHALL observe the persisted pod instead of creating another pod
 
 #### Scenario: Provisioning pod is observed
+
 - **WHEN** a provisioning Workspace has an active Provisioning Pod snapshot
 - **THEN** the Native Layer SHALL observe the RunPod pod status before contacting the Provisioner Worker
 - **AND** the Native Layer SHALL update the active Provisioning Pod snapshot from the provider observation
@@ -144,6 +147,7 @@ Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary R
 - **AND** the Native Layer SHALL mark the Workspace `failed` if the pod is failed, terminated unexpectedly, missing, or unreachable in a way that prevents safe continuation
 
 #### Scenario: Tracked provisioning pod is missing during refresh
+
 - **WHEN** a provisioning Workspace has an active Provisioning Pod snapshot
 - **AND** provider observation reports that the tracked provisioning pod no longer exists
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
@@ -152,6 +156,7 @@ Workspace Provisioning SHALL create, adopt, observe, and terminate a temporary R
 - **AND** the Native Layer MUST NOT clear the active pod snapshot and create another provisioning pod automatically
 
 #### Scenario: Provisioning pod is terminated after preparation
+
 - **WHEN** the Provisioner Worker has reported terminal success and the prepared environment timestamp is durable
 - **THEN** the Native Layer SHALL delete or terminate the RunPod provisioning pod
 - **AND** the Native Layer SHALL move the terminal pod snapshot to the last Provisioning Pod snapshot
@@ -230,39 +235,49 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **AND** any persisted or returned diagnostics SHALL remain UI-safe and secret-safe
 
 ### Requirement: Provision RunPod Serverless Template
-Workspace Provisioning SHALL create, discover, adopt, or observe one per-user RunPod serverless template for the Endpoint Worker image from the Workspace's resolved runtime image snapshot and persist its provider-specific template id before creating the Serverless Endpoint, without blindly creating duplicate templates when create results are indeterminate.
+
+Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one per-user RunPod serverless template for the Endpoint Worker image from the Workspace's resolved runtime image snapshot and persist its provider-specific template id before creating the Serverless Endpoint, without adopting pre-existing provider templates when local Workspace metadata has no matching snapshot.
 
 #### Scenario: Serverless template is created
-- **WHEN** a provisioning Workspace has a prepared environment, no active provisioning pod, no RunPod endpoint template snapshot, and no safe Workspace-correlated template exists
+
+- **WHEN** a provisioning Workspace has a prepared environment, no active provisioning pod, no RunPod endpoint template snapshot, and no RunPod serverless template with the stable Workspace-derived template name
 - **THEN** the Native Layer SHALL create a RunPod serverless template in the user's RunPod account using the immutable Endpoint Worker image ref from the Workspace's resolved runtime image snapshot
 - **AND** the template SHALL use mount path `/workspace`
 - **AND** the Native Layer SHALL persist the RunPod `template_id`, image reference, mount path, and provider status before creating an endpoint from that template
 
-#### Scenario: Existing correlated template is adopted before create
+#### Scenario: Same-name template is orphaned before create
+
 - **WHEN** a provisioning Workspace has a prepared environment, no active provisioning pod, and no RunPod endpoint template snapshot
-- **AND** provider discovery finds exactly one RunPod serverless template correlated to the Workspace by stable Workspace-derived template name and expected template properties
-- **THEN** the Native Layer SHALL persist that template as the RunPod endpoint template snapshot
+- **AND** provider discovery finds one or more RunPod serverless templates with the stable Workspace-derived template name
+- **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
+- **AND** the Native Layer SHALL persist structured failure detail with code `provider_orphaned_resources`, phase `creating_endpoint_template`, source `provider_resource`, and cleanup-oriented recovery action
+- **AND** the Native Layer SHALL retain known volume and template metadata for cleanup or inspection when safely representable
+- **AND** the Native Layer MUST NOT adopt the discovered template
 - **AND** the Native Layer MUST NOT create another RunPod serverless template
 
 #### Scenario: Template snapshot is observed
+
 - **WHEN** a provisioning Workspace already has a RunPod endpoint template snapshot
 - **THEN** the Native Layer SHALL observe or validate that template before creating or validating the Serverless Endpoint
 - **AND** the Native Layer MUST NOT blindly create a second template
 
 #### Scenario: Template creation result is indeterminate
-- **WHEN** a RunPod serverless template creation request times out or returns an indeterminate response
-- **THEN** the Native Layer SHALL inspect durable Workspace metadata and discoverable provider resources before retrying creation
-- **AND** the Native Layer SHALL adopt exactly one safe Workspace-correlated template when provider discovery proves that one exists
-- **AND** the Native Layer SHALL mark the Workspace `failed` when it cannot identify exactly one safe Workspace-correlated template
+
+- **WHEN** a RunPod serverless template creation request times out or returns an indeterminate response before a RunPod endpoint template snapshot is durable
+- **THEN** the Native Layer SHALL inspect durable Workspace metadata and discover provider resources by the stable Workspace-derived template name before retrying creation
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_orphaned_resources` when discovery finds one or more same-name templates
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_operation_indeterminate` when discovery finds no same-name template
 - **AND** known volume metadata SHALL be retained for cleanup
 - **AND** the Native Layer MUST NOT retry template creation while the previous create outcome is unresolved
 
 #### Scenario: Template creation fails after provider success
+
 - **WHEN** RunPod creates a serverless template but a later provider action fails
 - **THEN** the Native Layer SHALL retain the persisted template snapshot
 - **AND** future cleanup SHALL have enough metadata to delete the template even though Workspace Resource Cleanup is out of scope for this change
 
 #### Scenario: Tracked template is missing during refresh
+
 - **WHEN** a provisioning Workspace has a RunPod endpoint template snapshot
 - **AND** provider observation reports that the tracked template no longer exists
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
@@ -271,41 +286,51 @@ Workspace Provisioning SHALL create, discover, adopt, or observe one per-user Ru
 - **AND** the Native Layer MUST NOT clear the template snapshot and create another template automatically
 
 ### Requirement: Provision RunPod Serverless Endpoint
-Workspace Provisioning SHALL create, discover, adopt, or observe one RunPod Serverless Endpoint from the persisted per-user template and attach the Workspace network volume, without blindly creating duplicate endpoints when create results are indeterminate.
+
+Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one RunPod Serverless Endpoint from the persisted per-user template and attach the Workspace network volume, without adopting pre-existing provider endpoints when local Workspace metadata has no matching snapshot.
 
 #### Scenario: Serverless endpoint is created
-- **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot, a persisted RunPod endpoint template snapshot, no Serverless Endpoint snapshot, and no safe Workspace-correlated endpoint exists
+
+- **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot, a persisted RunPod endpoint template snapshot, no Serverless Endpoint snapshot, and no RunPod Serverless Endpoint with the stable Workspace-derived endpoint name
 - **THEN** the Native Layer SHALL create a RunPod Serverless Endpoint using the persisted `template_id`, selected GPU, selected data center, network volume id, and Endpoint Worker runtime values from the Workspace's resolved runtime image snapshot
 - **AND** the endpoint SHALL use `workersMin = 0`, `workersMax = 1`, `scalerType = "REQUEST_COUNT"`, and `scalerValue = 1`
 - **AND** the endpoint `idleTimeout` SHALL be set from the persisted RunPod Placement Plan endpoint keep-alive seconds
 - **AND** the Native Layer SHALL persist the endpoint provider resource id, data center id, selected GPU id, provider status, and endpoint invoke URL after the provider resource id is known
 
-#### Scenario: Existing correlated endpoint is adopted before create
+#### Scenario: Same-name endpoint is orphaned before create
+
 - **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot, a persisted RunPod endpoint template snapshot, and no Serverless Endpoint snapshot
-- **AND** provider discovery finds exactly one RunPod Serverless Endpoint correlated to the Workspace by stable Workspace-derived endpoint name, template id, network volume id, selected GPU, and selected data center
-- **THEN** the Native Layer SHALL persist that endpoint as the Serverless Endpoint snapshot
+- **AND** provider discovery finds one or more RunPod Serverless Endpoints with the stable Workspace-derived endpoint name
+- **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
+- **AND** the Native Layer SHALL persist structured failure detail with code `provider_orphaned_resources`, phase `creating_endpoint`, source `provider_resource`, and cleanup-oriented recovery action
+- **AND** the Native Layer SHALL retain known volume, template, and endpoint metadata for cleanup or inspection when safely representable
+- **AND** the Native Layer MUST NOT adopt the discovered endpoint
 - **AND** the Native Layer MUST NOT create another RunPod Serverless Endpoint
 
 #### Scenario: Existing endpoint snapshot is refreshed
+
 - **WHEN** a provisioning Workspace already has a Serverless Endpoint snapshot
 - **THEN** the Native Layer SHALL observe the corresponding RunPod Serverless Endpoint before readiness validation
 - **AND** the Native Layer SHALL update the endpoint snapshot status from the provider observation
 - **AND** the Native Layer MUST NOT blindly create a second endpoint
 
 #### Scenario: Endpoint creation result is indeterminate
-- **WHEN** a RunPod Serverless Endpoint creation request times out or returns an indeterminate response
-- **THEN** the Native Layer SHALL inspect durable Workspace metadata and discoverable provider resources before retrying creation
-- **AND** the Native Layer SHALL adopt exactly one safe Workspace-correlated endpoint when provider discovery proves that one exists
-- **AND** the Native Layer SHALL mark the Workspace `failed` when it cannot identify exactly one safe Workspace-correlated endpoint
+
+- **WHEN** a RunPod Serverless Endpoint creation request times out or returns an indeterminate response before a Serverless Endpoint snapshot is durable
+- **THEN** the Native Layer SHALL inspect durable Workspace metadata and discover provider resources by the stable Workspace-derived endpoint name before retrying creation
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_orphaned_resources` when discovery finds one or more same-name endpoints
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_operation_indeterminate` when discovery finds no same-name endpoint
 - **AND** known volume and template metadata SHALL be retained for cleanup
 - **AND** the Native Layer MUST NOT retry endpoint creation while the previous create outcome is unresolved
 
 #### Scenario: Endpoint setup fails
+
 - **WHEN** endpoint creation, endpoint observation, or endpoint metadata validation fails in a way that prevents safe continuation
 - **THEN** the Native Layer SHALL mark the Workspace `failed`
 - **AND** the Native Layer SHALL retain known volume, template, and endpoint metadata for future cleanup
 
 #### Scenario: Tracked endpoint is missing during refresh
+
 - **WHEN** a provisioning Workspace has a Serverless Endpoint snapshot
 - **AND** provider observation reports that the tracked endpoint no longer exists
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
@@ -476,7 +501,7 @@ Workspace Provisioning SHALL persist a structured, UI-safe provisioning failure 
 
 #### Scenario: Terminal provider resource failure is recorded
 
-- **WHEN** a provisioning sync observes a required provider resource in a terminal failed, unexpectedly terminated, unknown, missing, or otherwise unsafe-to-continue state
+- **WHEN** a provisioning sync observes a required provider resource in a terminal failed, unexpectedly terminated, unknown, missing, orphaned, or otherwise unsafe-to-continue state
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
 - **AND** the Native Layer SHALL persist a structured provisioning failure detail with a stable failure code, failed phase, provider-resource source, retryability, and recovery action
 - **AND** the Native Layer SHALL retain known Provider Resource snapshots for future cleanup
@@ -492,7 +517,7 @@ Workspace Provisioning SHALL persist a structured, UI-safe provisioning failure 
 
 #### Scenario: Unsafe continuation is recorded
 
-- **WHEN** a provider mutation outcome, readiness validation result, local token inconsistency, or cleanup result leaves Native unable to safely continue provisioning without risking duplicate resources, leaked resources, or a false `ready` state
+- **WHEN** a provider mutation outcome, readiness validation result, local token inconsistency, discovered orphaned provider resource, or cleanup result leaves Native unable to safely continue provisioning without risking duplicate resources, leaked resources, or a false `ready` state
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
 - **AND** the Native Layer SHALL persist a structured provisioning failure detail describing the failed phase, failure source, retryability, and recovery action
 - **AND** the Native Layer SHALL retain all known cleanup metadata
@@ -538,24 +563,6 @@ The Native Layer SHALL preserve the existing Workspace Provisioning command cont
 - **WHEN** Workspace Provisioning reads Provider API Keys or Provisioner Worker bearer tokens during initiate, sync, or cancel
 - **THEN** the Native Layer SHALL keep those secrets behind secure storage and provider or worker call paths
 - **AND** command responses, Workspace metadata, logs, diagnostics, and generated frontend bindings MUST NOT expose those secrets
-
-### Requirement: Recover provisioning pods by provider ownership identity
-Workspace Provisioning SHALL consider a discovered provisioning pod safe to adopt when provider-visible ownership metadata proves that it belongs to the Workspace, without using provider-reported image identity as an adoption key.
-
-#### Scenario: Discovered provisioning pod matches Workspace ownership identity
-- **WHEN** provider discovery reports a live RunPod pod with the stable Workspace-derived pod name and the Workspace network volume id
-- **THEN** Workspace Provisioning MAY treat that pod as a safe matching pod for adoption when all other provider ownership and placement checks pass
-
-#### Scenario: Provider reports a different provisioning pod image
-- **WHEN** provider discovery reports a live RunPod pod with the stable Workspace-derived pod name and Workspace network volume id
-- **AND** the provider-reported image identity differs from the Workspace's resolved runtime image snapshot
-- **THEN** Workspace Provisioning SHALL NOT reject the pod solely because of the provider-reported image value
-- **AND** runtime compatibility SHALL be validated by the Provisioner Worker start contract before materialization begins
-
-#### Scenario: Provider omits provisioning pod image identity
-- **WHEN** provider discovery cannot report a usable image identity for a live correlated provisioning pod
-- **THEN** Workspace Provisioning SHALL treat the provider response as invalid provider data
-- **AND** it MUST NOT create a duplicate provisioning pod while the previous create outcome is unresolved
 
 ### Requirement: Keep base runtime dependency installation out of Workspace Provisioning
 Workspace Provisioning SHALL treat base Python/PyTorch/ComfyUI runtime dependency installation as a Docker image build concern, not a provisioning concern.
@@ -604,12 +611,6 @@ Workspace Provisioning SHALL treat RunPod serverless template runtime environmen
 - **WHEN** Workspace Provisioning creates a RunPod serverless template and receives a provider observation that includes runtime environment values
 - **THEN** the Native Layer SHALL persist the RunPod endpoint template snapshot without runtime environment keys or values
 - **AND** the persisted snapshot SHALL retain the template id, endpoint worker image reference, mount path, and provider resource status needed for later provisioning and cleanup
-
-#### Scenario: Existing template is adopted from provider discovery
-- **WHEN** Workspace Provisioning adopts a safe Workspace-correlated RunPod serverless template discovered from the provider
-- **AND** the discovered template observation includes runtime environment values
-- **THEN** the Native Layer SHALL persist the RunPod endpoint template snapshot without runtime environment keys or values
-- **AND** the Native Layer MUST NOT write Provider API Keys, worker bearer tokens, provider-owned env values, or operator-added template env values into Workspace Catalog metadata
 
 #### Scenario: Existing template snapshot is refreshed
 - **WHEN** Workspace Provisioning observes or validates a persisted RunPod endpoint template before creating or validating a Serverless Endpoint

@@ -27,12 +27,14 @@ pub enum EndpointKeepAliveCapability {
 }
 
 impl ProviderPlacementCapabilities {
-    pub fn runpod() -> Self {
-        Self {
-            endpoint_keep_alive: EndpointKeepAliveCapability::Supported {
-                default_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
-                min_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS,
-                max_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS,
+    pub fn for_provider(provider_id: GpuCloudProviderId) -> Self {
+        match provider_id {
+            GpuCloudProviderId::Runpod => Self {
+                endpoint_keep_alive: EndpointKeepAliveCapability::Supported {
+                    default_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+                    min_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS,
+                    max_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS,
+                },
             },
         }
     }

@@ -127,8 +127,6 @@ fn validate_persistent_storage_volume_snapshot(
 ) -> DomainValidationResult {
     if snapshot.gpu_cloud_provider_id != provider_id
         || is_blank(&snapshot.provider_resource_id)
-        || is_blank(&snapshot.datacenter_id)
-        || snapshot.provisioned_size_bytes == 0
         || !is_safe_absolute_posix_path(&snapshot.mount_path)
     {
         return Err(DomainValidationError);
@@ -143,8 +141,6 @@ fn validate_provisioning_pod_snapshot(
 ) -> DomainValidationResult {
     if snapshot.gpu_cloud_provider_id != provider_id
         || is_blank(&snapshot.provider_resource_id)
-        || is_blank(&snapshot.datacenter_id)
-        || is_blank(&snapshot.selected_gpu_id)
         || is_blank(&snapshot.provisioner_status_url)
     {
         return Err(DomainValidationError);
@@ -159,8 +155,6 @@ fn validate_serverless_endpoint_snapshot(
 ) -> DomainValidationResult {
     if snapshot.gpu_cloud_provider_id != provider_id
         || is_blank(&snapshot.provider_resource_id)
-        || is_blank(&snapshot.datacenter_id)
-        || is_blank(&snapshot.selected_gpu_id)
         || is_blank(&snapshot.endpoint_invoke_url)
     {
         return Err(DomainValidationError);
@@ -220,9 +214,7 @@ mod tests {
         workspace.persistent_storage_volume_snapshot = Some(PersistentStorageVolumeSnapshot {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             provider_resource_id: "volume-1".to_string(),
-            datacenter_id: "EU-RO-1".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
-            provisioned_size_bytes: 1,
             mount_path: "/workspace".to_string(),
         });
 

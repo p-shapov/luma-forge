@@ -19,12 +19,11 @@ use crate::{
             endpoints_by_name,
             mapper::{
                 endpoint_from_response, identity_from_graphql_response,
-                inventory_from_graphql_response, network_volume_from_response,
-                pod_from_response_with_context, template_from_response, RunPodPodResponseContext,
+                inventory_from_graphql_response, network_volume_from_response, pod_from_response,
+                template_from_response,
             },
-            network_volumes_by_name, pods_by_name_and_volume, provider_error_from_inventory_status,
-            provider_error_from_rest_status, templates_by_name, RunPodClient,
-            RunPodFindEndpointInput, RUNPOD_REST_ENDPOINT,
+            network_volumes_by_name, pods_by_name, provider_error_from_inventory_status,
+            provider_error_from_rest_status, templates_by_name, RunPodClient, RUNPOD_REST_ENDPOINT,
         },
     },
 };
@@ -36,14 +35,6 @@ fn parse_identity(
     let response: GraphQlResponse<RunPodIdentityData> =
         serde_json::from_value(value).expect("response should parse");
     identity_from_graphql_response(&ProviderApiKey::new(secret.to_string()).unwrap(), response)
-}
-
-fn template_env() -> HashMap<String, String> {
-    HashMap::new()
-}
-
-fn template_env_json() -> serde_json::Value {
-    json!(template_env())
 }
 
 #[test]
@@ -385,76 +376,62 @@ fn serializes_network_volume_create_request_with_documented_size_field() {
 fn parses_network_volume_response() {
     let response: RunPodNetworkVolumeResponse = serde_json::from_value(json!({
         "id": "volume-1",
-        "name": "lf-workspace",
-        "dataCenterId": "EU-RO-1",
-        "size": 80
+        "name": "lf-workspace"
     }))
     .expect("volume response should parse");
 
     let observation = network_volume_from_response(response).expect("network volume should map");
 
     assert_eq!(observation.id, "volume-1");
-    assert_eq!(observation.data_center_id, "EU-RO-1");
-    assert_eq!(observation.size_gb, 80);
     assert_eq!(observation.status, ProviderResourceStatus::Ready);
 }
 
 #[test]
-fn network_volume_discovery_filters_by_name_datacenter_and_size() {
+fn network_volume_discovery_filters_by_name_only() {
     let payloads: Vec<RunPodNetworkVolumeResponse> = serde_json::from_value(json!([
         {
             "id": "volume-1",
-            "name": "luma-forge-workspace-1-volume",
-            "dataCenterId": "EU-RO-1",
-            "size": 80
+            "name": "luma-forge-workspace-1-volume"
         },
         {
-            "id": "volume-wrong-size",
-            "name": "luma-forge-workspace-1-volume",
-            "dataCenterId": "EU-RO-1",
-            "size": 100
+            "id": "volume-same-name",
+            "name": "luma-forge-workspace-1-volume"
         },
         {
             "id": "volume-wrong-name",
-            "name": "other-volume",
-            "dataCenterId": "EU-RO-1",
-            "size": 80
+            "name": "other-volume"
         }
     ]))
     .expect("volume list should parse");
 
-    let observations =
-        network_volumes_by_name(payloads, "luma-forge-workspace-1-volume", "EU-RO-1", 80)
-            .expect("matching volumes should map");
+    let observations = network_volumes_by_name(payloads, "luma-forge-workspace-1-volume")
+        .expect("matching volumes should map");
 
-    assert_eq!(observations.len(), 1);
+    assert_eq!(observations.len(), 2);
     assert_eq!(observations[0].id, "volume-1");
     assert_eq!(
         observations[0].status,
-        ProviderResourceStatus::Creating,
-        "list responses without status must be refreshed before use"
+        ProviderResourceStatus::Unknown,
+        "discovery only needs a safe provider resource id"
     );
 }
 
 #[test]
-fn network_volume_discovery_preserves_explicit_status() {
+fn network_volume_discovery_ignores_explicit_status() {
     let payloads: Vec<RunPodNetworkVolumeResponse> = serde_json::from_value(json!([
         {
             "id": "volume-1",
             "name": "luma-forge-workspace-1-volume",
-            "dataCenterId": "EU-RO-1",
-            "size": 80,
             "status": "READY"
         }
     ]))
     .expect("volume list should parse");
 
-    let observations =
-        network_volumes_by_name(payloads, "luma-forge-workspace-1-volume", "EU-RO-1", 80)
-            .expect("matching volumes should map");
+    let observations = network_volumes_by_name(payloads, "luma-forge-workspace-1-volume")
+        .expect("matching volumes should map");
 
     assert_eq!(observations.len(), 1);
-    assert_eq!(observations[0].status, ProviderResourceStatus::Ready);
+    assert_eq!(observations[0].status, ProviderResourceStatus::Unknown);
 }
 
 #[test]
@@ -462,41 +439,33 @@ fn network_volume_discovery_returns_multiple_matches_when_provider_has_duplicate
     let payloads: Vec<RunPodNetworkVolumeResponse> = serde_json::from_value(json!([
         {
             "id": "volume-1",
-            "name": "luma-forge-workspace-1-volume",
-            "dataCenterId": "EU-RO-1",
-            "size": 80
+            "name": "luma-forge-workspace-1-volume"
         },
         {
             "id": "volume-2",
-            "name": "luma-forge-workspace-1-volume",
-            "dataCenterId": "EU-RO-1",
-            "size": 80
+            "name": "luma-forge-workspace-1-volume"
         }
     ]))
     .expect("volume list should parse");
 
-    let observations =
-        network_volumes_by_name(payloads, "luma-forge-workspace-1-volume", "EU-RO-1", 80)
-            .expect("matching volumes should map");
+    let observations = network_volumes_by_name(payloads, "luma-forge-workspace-1-volume")
+        .expect("matching volumes should map");
 
     assert_eq!(observations.len(), 2);
 }
 
 #[test]
-fn network_volume_discovery_returns_zero_without_required_match() {
+fn network_volume_discovery_returns_zero_without_name_match() {
     let payloads: Vec<RunPodNetworkVolumeResponse> = serde_json::from_value(json!([
         {
             "id": "volume-1",
-            "name": "luma-forge-workspace-1-volume",
-            "dataCenterId": "US-KS-1",
-            "size": 80
+            "name": "other-volume"
         }
     ]))
     .expect("volume list should parse");
 
-    let observations =
-        network_volumes_by_name(payloads, "luma-forge-workspace-1-volume", "EU-RO-1", 80)
-            .expect("matching volumes should map");
+    let observations = network_volumes_by_name(payloads, "luma-forge-workspace-1-volume")
+        .expect("matching volumes should map");
 
     assert!(observations.is_empty());
 }
@@ -539,12 +508,7 @@ fn serializes_pod_create_request_with_documented_shape() {
 fn parses_pod_response_and_derives_http_proxy_status_url() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
-        "image": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "desiredStatus": "RUNNING",
-        "machine": {
-            "dataCenterId": "EU-RO-1",
-            "gpuTypeId": "NVIDIA GeForce RTX 4090"
-        },
         "publicIp": "203.0.113.10",
         "portMappings": {
             "8080": 30001
@@ -555,14 +519,8 @@ fn parses_pod_response_and_derives_http_proxy_status_url() {
     }))
     .expect("pod response should parse");
 
-    let observation = pod_from_response_with_context(response, None).expect("pod should map");
+    let observation = pod_from_response(response).expect("pod should map");
 
-    assert_eq!(observation.data_center_id, "EU-RO-1");
-    assert_eq!(observation.selected_gpu_id, "NVIDIA GeForce RTX 4090");
-    assert_eq!(
-        observation.image_name,
-        "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111"
-    );
     assert_eq!(observation.status, ProviderResourceStatus::Running);
     assert_eq!(
         observation.provisioner_status_url.as_deref(),
@@ -571,70 +529,18 @@ fn parses_pod_response_and_derives_http_proxy_status_url() {
 }
 
 #[test]
-fn parses_legacy_pod_response_image_name_field() {
+fn parses_pod_response_without_placement_fields() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
-        "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
-        "desiredStatus": "RUNNING",
-        "machine": {
-            "dataCenterId": "EU-RO-1",
-            "gpuTypeId": "NVIDIA GeForce RTX 4090"
-        },
-        "ports": ["8080/http"]
-    }))
-    .expect("pod response should parse");
-
-    let observation = pod_from_response_with_context(response, None).expect("pod should map");
-
-    assert_eq!(
-        observation.image_name,
-        "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111"
-    );
-}
-
-#[test]
-fn rejects_pod_response_without_image_identity() {
-    let response: RunPodPodResponse = serde_json::from_value(json!({
-        "id": "pod-1",
-        "desiredStatus": "RUNNING",
-        "machine": {
-            "dataCenterId": "EU-RO-1",
-            "gpuTypeId": "NVIDIA GeForce RTX 4090"
-        },
-        "ports": ["8080/http"]
-    }))
-    .expect("pod response should parse");
-
-    let error =
-        pod_from_response_with_context(response, None).expect_err("image identity is required");
-
-    assert_eq!(error, ProviderClientError::ResponseInvalid);
-}
-
-#[test]
-fn parses_pod_response_with_request_context_when_provider_omits_placement_fields() {
-    let response: RunPodPodResponse = serde_json::from_value(json!({
-        "id": "pod-1",
-        "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "desiredStatus": "RUNNING",
         "publicIp": "",
         "ports": ["8000/http"],
-        "portMappings": null,
-        "machine": {}
+        "portMappings": null
     }))
     .expect("pod response should parse");
 
-    let observation = pod_from_response_with_context(
-        response,
-        Some(RunPodPodResponseContext {
-            data_center_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA GeForce RTX 4090".to_string(),
-        }),
-    )
-    .expect("pod should map with request context");
+    let observation = pod_from_response(response).expect("pod should map");
 
-    assert_eq!(observation.data_center_id, "EU-RO-1");
-    assert_eq!(observation.selected_gpu_id, "NVIDIA GeForce RTX 4090");
     assert_eq!(
         observation.provisioner_status_url.as_deref(),
         Some("https://pod-1-8000.proxy.runpod.net/status")
@@ -645,12 +551,7 @@ fn parses_pod_response_with_request_context_when_provider_omits_placement_fields
 fn parses_direct_tcp_pod_response_with_public_ip_and_port_mapping() {
     let response: RunPodPodResponse = serde_json::from_value(json!({
         "id": "pod-1",
-        "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
         "desiredStatus": "RUNNING",
-        "machine": {
-            "dataCenterId": "EU-RO-1",
-            "gpuTypeId": "NVIDIA GeForce RTX 4090"
-        },
         "publicIp": "203.0.113.10",
         "portMappings": {
             "8080": 30001
@@ -661,7 +562,7 @@ fn parses_direct_tcp_pod_response_with_public_ip_and_port_mapping() {
     }))
     .expect("pod response should parse");
 
-    let observation = pod_from_response_with_context(response, None).expect("pod should map");
+    let observation = pod_from_response(response).expect("pod should map");
 
     assert_eq!(
         observation.provisioner_status_url.as_deref(),
@@ -670,85 +571,35 @@ fn parses_direct_tcp_pod_response_with_public_ip_and_port_mapping() {
 }
 
 #[test]
-fn filters_pods_by_name_and_volume_for_discovery() {
+fn filters_pods_by_name_for_discovery() {
     let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
         {
             "id": "pod-1",
             "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
-            "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
         },
         {
-            "id": "pod-wrong-volume",
+            "id": "pod-same-name",
             "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
-            "networkVolumeId": "other-volume",
             "ports": ["8080/http"]
         },
         {
             "id": "pod-terminated",
             "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "TERMINATED",
-            "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
         }
     ]))
     .expect("pod list should parse");
 
-    let observations = pods_by_name_and_volume(
-        payloads,
-        "luma-forge-workspace-1-provisioner",
-        "volume-1",
-        RunPodPodResponseContext {
-            data_center_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
-        },
-    )
-    .expect("matching pods should map");
+    let observations = pods_by_name(payloads, "luma-forge-workspace-1-provisioner")
+        .expect("matching pods should map");
 
-    assert_eq!(observations.len(), 1);
+    assert_eq!(observations.len(), 2);
     assert_eq!(observations[0].id, "pod-1");
-    assert_eq!(
-        observations[0].provisioner_status_url.as_deref(),
-        Some("https://pod-1-8080.proxy.runpod.net/status")
-    );
-}
-
-#[test]
-fn pod_discovery_returns_candidate_with_mismatched_image_identity() {
-    let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
-        {
-            "id": "pod-1",
-            "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:9999999999999999999999999999999999999999999999999999999999999999",
-            "desiredStatus": "RUNNING",
-            "networkVolumeId": "volume-1",
-            "ports": ["8080/http"]
-        }
-    ]))
-    .expect("pod list should parse");
-
-    let observations = pods_by_name_and_volume(
-        payloads,
-        "luma-forge-workspace-1-provisioner",
-        "volume-1",
-        RunPodPodResponseContext {
-            data_center_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
-        },
-    )
-    .expect("matching pods should map");
-
-    assert_eq!(observations.len(), 1);
-    assert_eq!(observations[0].id, "pod-1");
-    assert_eq!(
-        observations[0].image_name,
-        "ghcr.io/luma-forge/provisioner@sha256:9999999999999999999999999999999999999999999999999999999999999999"
-    );
+    assert!(observations[0].provisioner_status_url.is_none());
 }
 
 #[test]
@@ -757,89 +608,59 @@ fn pod_discovery_filter_returns_multiple_matches_when_provider_has_duplicates() 
         {
             "id": "pod-1",
             "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
-            "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
         },
         {
             "id": "pod-2",
             "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
             "desiredStatus": "RUNNING",
-            "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
         }
     ]))
     .expect("pod list should parse");
 
-    let observations = pods_by_name_and_volume(
-        payloads,
-        "luma-forge-workspace-1-provisioner",
-        "volume-1",
-        RunPodPodResponseContext {
-            data_center_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
-        },
-    )
-    .expect("matching pods should map");
+    let observations = pods_by_name(payloads, "luma-forge-workspace-1-provisioner")
+        .expect("matching pods should map");
 
     assert_eq!(observations.len(), 2);
 }
 
 #[test]
-fn pod_discovery_filter_returns_zero_matches_without_name_and_volume_match() {
+fn pod_discovery_filter_returns_zero_matches_without_name_match() {
     let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
         {
             "id": "pod-1",
-            "name": "luma-forge-workspace-1-provisioner",
-            "imageName": "ghcr.io/luma-forge/provisioner@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "name": "other-pod",
             "desiredStatus": "RUNNING",
-            "networkVolumeId": "other-volume",
             "ports": ["8080/http"]
         }
     ]))
     .expect("pod list should parse");
 
-    let observations = pods_by_name_and_volume(
-        payloads,
-        "luma-forge-workspace-1-provisioner",
-        "volume-1",
-        RunPodPodResponseContext {
-            data_center_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
-        },
-    )
-    .expect("matching pods should map");
+    let observations = pods_by_name(payloads, "luma-forge-workspace-1-provisioner")
+        .expect("matching pods should map");
 
     assert!(observations.is_empty());
 }
 
 #[test]
-fn pod_discovery_rejects_candidate_without_image_identity() {
+fn pod_discovery_accepts_candidate_with_minimal_metadata() {
     let payloads: Vec<RunPodPodResponse> = serde_json::from_value(json!([
         {
             "id": "pod-1",
             "name": "luma-forge-workspace-1-provisioner",
             "desiredStatus": "RUNNING",
-            "networkVolumeId": "volume-1",
             "ports": ["8080/http"]
         }
     ]))
     .expect("pod list should parse");
 
-    let error = pods_by_name_and_volume(
-        payloads,
-        "luma-forge-workspace-1-provisioner",
-        "volume-1",
-        RunPodPodResponseContext {
-            data_center_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
-        },
-    )
-    .expect_err("image identity is required");
+    let observations = pods_by_name(payloads, "luma-forge-workspace-1-provisioner")
+        .expect("matching pods should map");
 
-    assert_eq!(error, ProviderClientError::ResponseInvalid);
+    assert_eq!(observations.len(), 1);
+    assert_eq!(observations[0].id, "pod-1");
 }
 
 #[test]
@@ -893,13 +714,12 @@ fn parses_template_response() {
 }
 
 #[test]
-fn template_discovery_filters_by_name_image_port_and_mount_path() {
+fn template_discovery_filters_by_name_only() {
     let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
         {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -908,7 +728,6 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
             "id": "template-wrong-port",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8000/http"]
@@ -917,7 +736,6 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
             "id": "template-not-serverless",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": false,
             "ports": ["8080/http"]
@@ -925,17 +743,10 @@ fn template_discovery_filters_by_name_image_port_and_mount_path() {
     ]))
     .expect("template list should parse");
 
-    let observations = templates_by_name(
-        payloads,
-        "luma-forge-workspace-1-endpoint-template",
-        "ghcr.io/luma-forge/endpoint-worker:dev",
-        &template_env(),
-        8080,
-        "/workspace",
-    )
-    .expect("matching templates should map");
+    let observations = templates_by_name(payloads, "luma-forge-workspace-1-endpoint-template")
+        .expect("matching templates should map");
 
-    assert_eq!(observations.len(), 1);
+    assert_eq!(observations.len(), 3);
     assert_eq!(observations[0].id, "template-1");
 }
 
@@ -946,7 +757,6 @@ fn template_discovery_returns_multiple_matches_when_provider_has_duplicates() {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -955,7 +765,6 @@ fn template_discovery_returns_multiple_matches_when_provider_has_duplicates() {
             "id": "template-2",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -963,27 +772,19 @@ fn template_discovery_returns_multiple_matches_when_provider_has_duplicates() {
     ]))
     .expect("template list should parse");
 
-    let observations = templates_by_name(
-        payloads,
-        "luma-forge-workspace-1-endpoint-template",
-        "ghcr.io/luma-forge/endpoint-worker:dev",
-        &template_env(),
-        8080,
-        "/workspace",
-    )
-    .expect("matching templates should map");
+    let observations = templates_by_name(payloads, "luma-forge-workspace-1-endpoint-template")
+        .expect("matching templates should map");
 
     assert_eq!(observations.len(), 2);
 }
 
 #[test]
-fn template_discovery_returns_zero_without_required_match() {
+fn template_discovery_returns_zero_without_name_match() {
     let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
         {
             "id": "template-1",
-            "name": "luma-forge-workspace-1-endpoint-template",
+            "name": "other-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true,
             "ports": ["8080/http"]
@@ -991,21 +792,14 @@ fn template_discovery_returns_zero_without_required_match() {
     ]))
     .expect("template list should parse");
 
-    let observations = templates_by_name(
-        payloads,
-        "luma-forge-workspace-1-endpoint-template",
-        "ghcr.io/luma-forge/endpoint-worker:other",
-        &template_env(),
-        8080,
-        "/workspace",
-    )
-    .expect("matching templates should map");
+    let observations = templates_by_name(payloads, "luma-forge-workspace-1-endpoint-template")
+        .expect("matching templates should map");
 
     assert!(observations.is_empty());
 }
 
 #[test]
-fn template_discovery_accepts_missing_runtime_env_when_no_env_is_expected() {
+fn template_discovery_accepts_incomplete_same_name_metadata() {
     let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
         {
             "id": "template-1",
@@ -1018,71 +812,48 @@ fn template_discovery_accepts_missing_runtime_env_when_no_env_is_expected() {
     ]))
     .expect("template list should parse");
 
-    let observations = templates_by_name(
-        payloads,
-        "luma-forge-workspace-1-endpoint-template",
-        "ghcr.io/luma-forge/endpoint-worker:dev",
-        &template_env(),
-        8080,
-        "/workspace",
-    )
-    .expect("matching templates should map");
+    let observations = templates_by_name(payloads, "luma-forge-workspace-1-endpoint-template")
+        .expect("matching templates should map");
 
     assert_eq!(observations.len(), 1);
 }
 
 #[test]
-fn template_discovery_rejects_missing_serverless_flag() {
+fn template_discovery_accepts_missing_serverless_flag() {
     let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
         {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "ports": ["8080/http"]
         }
     ]))
     .expect("template list should parse");
 
-    let observations = templates_by_name(
-        payloads,
-        "luma-forge-workspace-1-endpoint-template",
-        "ghcr.io/luma-forge/endpoint-worker:dev",
-        &template_env(),
-        8080,
-        "/workspace",
-    )
-    .expect("matching templates should map");
+    let observations = templates_by_name(payloads, "luma-forge-workspace-1-endpoint-template")
+        .expect("matching templates should map");
 
-    assert!(observations.is_empty());
+    assert_eq!(observations.len(), 1);
 }
 
 #[test]
-fn template_discovery_rejects_missing_ports() {
+fn template_discovery_accepts_missing_ports() {
     let payloads: Vec<RunPodTemplateResponse> = serde_json::from_value(json!([
         {
             "id": "template-1",
             "name": "luma-forge-workspace-1-endpoint-template",
             "imageName": "ghcr.io/luma-forge/endpoint-worker:dev",
-            "env": template_env_json(),
             "volumeMountPath": "/workspace",
             "isServerless": true
         }
     ]))
     .expect("template list should parse");
 
-    let observations = templates_by_name(
-        payloads,
-        "luma-forge-workspace-1-endpoint-template",
-        "ghcr.io/luma-forge/endpoint-worker:dev",
-        &template_env(),
-        8080,
-        "/workspace",
-    )
-    .expect("matching templates should map");
+    let observations = templates_by_name(payloads, "luma-forge-workspace-1-endpoint-template")
+        .expect("matching templates should map");
 
-    assert!(observations.is_empty());
+    assert_eq!(observations.len(), 1);
 }
 
 #[test]
@@ -1104,9 +875,7 @@ fn rejects_non_serverless_template_response() {
 fn parses_endpoint_response_and_derives_invoke_url() {
     let response: RunPodEndpointResponse = serde_json::from_value(json!({
         "id": "endpoint-1",
-        "status": "RUNNING",
-        "gpuTypeIds": ["NVIDIA RTX 4090"],
-        "dataCenterIds": ["EU-RO-1"]
+        "status": "RUNNING"
     }))
     .expect("endpoint response should parse");
 
@@ -1120,28 +889,10 @@ fn parses_endpoint_response_and_derives_invoke_url() {
 }
 
 #[test]
-fn parses_endpoint_response_with_comma_separated_datacenter_ids() {
-    let response: RunPodEndpointResponse = serde_json::from_value(json!({
-        "id": "endpoint-1",
-        "status": "RUNNING",
-        "gpuTypeIds": ["NVIDIA RTX 4090"],
-        "dataCenterIds": "EU-RO-1, US-KS-1"
-    }))
-    .expect("endpoint response should parse");
-
-    let observation = endpoint_from_response(response).expect("endpoint should map");
-
-    assert_eq!(observation.data_center_id, "EU-RO-1");
-}
-
-#[test]
 fn parses_endpoint_response_without_status_as_ready() {
     let response: RunPodEndpointResponse = serde_json::from_value(json!({
         "id": "endpoint-1",
-        "name": "lf-workspace-endpoint",
-        "gpuTypeIds": ["NVIDIA RTX 4090"],
-        "dataCenterIds": ["EU-RO-1"],
-        "idleTimeout": 5
+        "name": "lf-workspace-endpoint"
     }))
     .expect("endpoint response should parse");
 
@@ -1151,84 +902,27 @@ fn parses_endpoint_response_without_status_as_ready() {
 }
 
 #[test]
-fn endpoint_discovery_filters_by_name_resources_and_placement() {
+fn endpoint_discovery_filters_by_name_only() {
     let payloads: Vec<RunPodEndpointResponse> = serde_json::from_value(json!([
         {
             "id": "endpoint-1",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-1",
-            "gpuTypeIds": ["NVIDIA RTX 4090"],
-            "dataCenterIds": ["EU-RO-1"],
-            "idleTimeout": 5
+            "name": "luma-forge-workspace-1-endpoint"
         },
         {
-            "id": "endpoint-wrong-volume",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-2",
-            "gpuTypeIds": ["NVIDIA RTX 4090"],
-            "dataCenterIds": ["EU-RO-1"],
-            "idleTimeout": 5
+            "id": "endpoint-same-name",
+            "name": "luma-forge-workspace-1-endpoint"
         },
         {
-            "id": "endpoint-wrong-gpu",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-1",
-            "gpuTypeIds": ["NVIDIA RTX 3090"],
-            "dataCenterIds": ["EU-RO-1"],
-            "idleTimeout": 5
+            "id": "endpoint-wrong-name",
+            "name": "other-endpoint"
         }
     ]))
     .expect("endpoint list should parse");
 
-    let observations = endpoints_by_name(
-        payloads,
-        &RunPodFindEndpointInput {
-            name: "luma-forge-workspace-1-endpoint",
-            template_id: "template-1",
-            network_volume_id: "volume-1",
-            data_center_id: "EU-RO-1",
-            selected_gpu_id: "NVIDIA RTX 4090",
-            idle_timeout: 5,
-        },
-    )
-    .expect("matching endpoints should map");
+    let observations = endpoints_by_name(payloads, "luma-forge-workspace-1-endpoint")
+        .expect("matching endpoints should map");
 
-    assert_eq!(observations.len(), 1);
-    assert_eq!(observations[0].id, "endpoint-1");
-}
-
-#[test]
-fn endpoint_discovery_accepts_comma_separated_datacenter_ids() {
-    let payloads: Vec<RunPodEndpointResponse> = serde_json::from_value(json!([
-        {
-            "id": "endpoint-1",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-1",
-            "gpuTypeIds": ["NVIDIA RTX 4090"],
-            "dataCenterIds": "US-KS-1, EU-RO-1",
-            "idleTimeout": 5
-        }
-    ]))
-    .expect("endpoint list should parse");
-
-    let observations = endpoints_by_name(
-        payloads,
-        &RunPodFindEndpointInput {
-            name: "luma-forge-workspace-1-endpoint",
-            template_id: "template-1",
-            network_volume_id: "volume-1",
-            data_center_id: "EU-RO-1",
-            selected_gpu_id: "NVIDIA RTX 4090",
-            idle_timeout: 5,
-        },
-    )
-    .expect("matching endpoints should map");
-
-    assert_eq!(observations.len(), 1);
+    assert_eq!(observations.len(), 2);
     assert_eq!(observations[0].id, "endpoint-1");
 }
 
@@ -1237,68 +931,33 @@ fn endpoint_discovery_returns_multiple_matches_when_provider_has_duplicates() {
     let payloads: Vec<RunPodEndpointResponse> = serde_json::from_value(json!([
         {
             "id": "endpoint-1",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-1",
-            "gpuTypeIds": ["NVIDIA RTX 4090"],
-            "dataCenterIds": ["EU-RO-1"],
-            "idleTimeout": 5
+            "name": "luma-forge-workspace-1-endpoint"
         },
         {
             "id": "endpoint-2",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-1",
-            "gpuTypeIds": ["NVIDIA RTX 4090"],
-            "dataCenterIds": ["EU-RO-1"],
-            "idleTimeout": 5
+            "name": "luma-forge-workspace-1-endpoint"
         }
     ]))
     .expect("endpoint list should parse");
 
-    let observations = endpoints_by_name(
-        payloads,
-        &RunPodFindEndpointInput {
-            name: "luma-forge-workspace-1-endpoint",
-            template_id: "template-1",
-            network_volume_id: "volume-1",
-            data_center_id: "EU-RO-1",
-            selected_gpu_id: "NVIDIA RTX 4090",
-            idle_timeout: 5,
-        },
-    )
-    .expect("matching endpoints should map");
+    let observations = endpoints_by_name(payloads, "luma-forge-workspace-1-endpoint")
+        .expect("matching endpoints should map");
 
     assert_eq!(observations.len(), 2);
 }
 
 #[test]
-fn endpoint_discovery_returns_zero_without_required_match() {
+fn endpoint_discovery_returns_zero_without_name_match() {
     let payloads: Vec<RunPodEndpointResponse> = serde_json::from_value(json!([
         {
             "id": "endpoint-1",
-            "name": "luma-forge-workspace-1-endpoint",
-            "templateId": "template-1",
-            "networkVolumeId": "volume-1",
-            "gpuTypeIds": ["NVIDIA RTX 4090"],
-            "dataCenterIds": ["EU-RO-1"],
-            "idleTimeout": 10
+            "name": "other-endpoint"
         }
     ]))
     .expect("endpoint list should parse");
 
-    let observations = endpoints_by_name(
-        payloads,
-        &RunPodFindEndpointInput {
-            name: "luma-forge-workspace-1-endpoint",
-            template_id: "template-1",
-            network_volume_id: "volume-1",
-            data_center_id: "EU-RO-1",
-            selected_gpu_id: "NVIDIA RTX 4090",
-            idle_timeout: 5,
-        },
-    )
-    .expect("matching endpoints should map");
+    let observations = endpoints_by_name(payloads, "luma-forge-workspace-1-endpoint")
+        .expect("matching endpoints should map");
 
     assert!(observations.is_empty());
 }
@@ -1342,9 +1001,7 @@ fn maps_rest_status_codes_to_provider_errors() {
 #[test]
 fn rejects_invalid_rest_payloads() {
     let response: RunPodNetworkVolumeResponse = serde_json::from_value(json!({
-        "id": "",
-        "dataCenterId": "EU-RO-1",
-        "size": 80
+        "id": ""
     }))
     .expect("payload should parse");
 

@@ -143,34 +143,13 @@ pub(super) fn network_volume_from_response(
 ) -> Result<RunPodNetworkVolumeObservation, ProviderClientError> {
     Ok(RunPodNetworkVolumeObservation {
         id: non_empty(payload.id)?,
-        data_center_id: non_empty(payload.data_center_id)?,
-        size_gb: payload.size.ok_or(ProviderClientError::ResponseInvalid)?,
         status: resource_status_or_ready(payload.status.as_deref()),
     })
 }
 
-pub(super) fn network_volume_from_list_response(
-    payload: RunPodNetworkVolumeResponse,
-) -> Result<RunPodNetworkVolumeObservation, ProviderClientError> {
-    Ok(RunPodNetworkVolumeObservation {
-        id: non_empty(payload.id)?,
-        data_center_id: non_empty(payload.data_center_id)?,
-        size_gb: payload.size.ok_or(ProviderClientError::ResponseInvalid)?,
-        status: resource_status_or_creating(payload.status.as_deref()),
-    })
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct RunPodPodResponseContext {
-    pub data_center_id: String,
-    pub selected_gpu_id: String,
-}
-
-pub(super) fn pod_from_response_with_context(
+pub(super) fn pod_from_response(
     payload: RunPodPodResponse,
-    context: Option<RunPodPodResponseContext>,
 ) -> Result<RunPodPodObservation, ProviderClientError> {
-    let machine = payload.machine.clone();
     let id = non_empty(payload.id)?;
     Ok(RunPodPodObservation {
         provisioner_status_url: provisioner_status_url(
@@ -180,28 +159,6 @@ pub(super) fn pod_from_response_with_context(
             payload.port_mappings.unwrap_or_default(),
         ),
         id,
-        data_center_id: non_empty(payload.data_center_id.or_else(|| {
-            machine
-                .as_ref()
-                .and_then(|machine| machine.data_center_id.clone())
-                .or_else(|| {
-                    context
-                        .as_ref()
-                        .map(|context| context.data_center_id.clone())
-                })
-        }))?,
-        selected_gpu_id: non_empty(payload.gpu_type_id.or_else(|| {
-            machine
-                .as_ref()
-                .and_then(|machine| machine.gpu_type_id.clone())
-                .or_else(|| payload.gpu.and_then(|gpu| gpu.id))
-                .or_else(|| {
-                    context
-                        .as_ref()
-                        .map(|context| context.selected_gpu_id.clone())
-                })
-        }))?,
-        image_name: non_empty(payload.image_name)?,
         status: resource_status(payload.pod_status.or(payload.desired_status).as_deref()),
     })
 }
@@ -217,7 +174,6 @@ pub(super) fn template_from_response(
         id: non_empty(payload.id)?,
         image_name: non_empty(payload.image_name)?,
         volume_mount_path: non_empty(payload.volume_mount_path)?,
-        env: payload.env.unwrap_or_default(),
         status: resource_status_or_ready(payload.status.as_deref()),
     })
 }
@@ -226,18 +182,6 @@ pub(super) fn endpoint_from_response(
     payload: RunPodEndpointResponse,
 ) -> Result<RunPodEndpointObservation, ProviderClientError> {
     let id = non_empty(payload.id)?;
-    let data_center_id = payload
-        .data_center_ids
-        .unwrap_or_default()
-        .into_iter()
-        .find(|value| !value.trim().is_empty())
-        .ok_or(ProviderClientError::ResponseInvalid)?;
-    let selected_gpu_id = payload
-        .gpu_type_ids
-        .unwrap_or_default()
-        .into_iter()
-        .find(|value| !value.trim().is_empty())
-        .ok_or(ProviderClientError::ResponseInvalid)?;
     let endpoint_invoke_url = payload
         .endpoint_url
         .filter(|value| !value.trim().is_empty())
@@ -245,8 +189,6 @@ pub(super) fn endpoint_from_response(
 
     Ok(RunPodEndpointObservation {
         id,
-        data_center_id,
-        selected_gpu_id,
         status: resource_status_or_ready(payload.status.as_deref()),
         endpoint_invoke_url,
     })
@@ -273,13 +215,6 @@ fn resource_status_or_ready(status: Option<&str>) -> ProviderResourceStatus {
     match status {
         Some(status) => resource_status(Some(status)),
         None => ProviderResourceStatus::Ready,
-    }
-}
-
-fn resource_status_or_creating(status: Option<&str>) -> ProviderResourceStatus {
-    match status {
-        Some(status) => resource_status(Some(status)),
-        None => ProviderResourceStatus::Creating,
     }
 }
 

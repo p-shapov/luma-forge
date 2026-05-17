@@ -10,8 +10,7 @@ use crate::{
         runpod::{
             RunPodClient, RunPodCreateEndpointRequest, RunPodCreateNetworkVolumeRequest,
             RunPodCreatePodRequest, RunPodCreateTemplateRequest, RunPodEndpointObservation,
-            RunPodFindEndpointInput, RunPodNetworkVolumeObservation, RunPodPodObservation,
-            RunPodTemplateObservation,
+            RunPodNetworkVolumeObservation, RunPodPodObservation, RunPodTemplateObservation,
         },
     },
     provider_setup::{ProviderIdentityGateway, ProviderSetupError},
@@ -92,9 +91,7 @@ where
                     .await
                     .map_err(error_from_client_error),
             }?;
-            let placement_capabilities = match provider_id {
-                GpuCloudProviderId::Runpod => ProviderPlacementCapabilities::runpod(),
-            };
+            let placement_capabilities = ProviderPlacementCapabilities::for_provider(*provider_id);
 
             Ok(ProviderPlacementOptions {
                 provider_inventory,
@@ -180,8 +177,6 @@ where
                     .find_network_volumes_by_name(
                         &api_key,
                         &provider_resource_name(&input.workspace_id, "volume"),
-                        &input.datacenter_id,
-                        bytes_to_gib(input.size_bytes),
                     )
                     .await
                     .map(|observations| {
@@ -265,12 +260,7 @@ where
             match input.gpu_cloud_provider_id {
                 GpuCloudProviderId::Runpod => self
                     .runpod
-                    .get_pod_with_context(
-                        &api_key,
-                        &input.provider_resource_id,
-                        &input.datacenter_id,
-                        &input.selected_gpu_id,
-                    )
+                    .get_pod(&api_key, &input.provider_resource_id)
                     .await
                     .map(runpod_pod_observation)
                     .map_err(provisioning_error_from_client_error),
@@ -293,12 +283,9 @@ where
             match input.gpu_cloud_provider_id {
                 GpuCloudProviderId::Runpod => self
                     .runpod
-                    .find_pods_by_name_and_volume(
+                    .find_pods_by_name(
                         &api_key,
                         &provider_resource_name(&input.workspace_id, "provisioner"),
-                        &input.network_volume_id,
-                        &input.datacenter_id,
-                        &input.selected_gpu_id,
                     )
                     .await
                     .map(|observations| {
@@ -408,10 +395,6 @@ where
                     .find_templates_by_name(
                         &api_key,
                         &provider_resource_name(&input.workspace_id, "endpoint-template"),
-                        &input.endpoint_worker_image_ref,
-                        &HashMap::new(),
-                        RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT,
-                        &input.mount_path,
                     )
                     .await
                     .map(|observations| {
@@ -520,17 +503,7 @@ where
                 GpuCloudProviderId::Runpod => {
                     let endpoint_name = provider_resource_name(&input.workspace_id, "endpoint");
                     self.runpod
-                        .find_endpoints_by_name(
-                            &api_key,
-                            &RunPodFindEndpointInput {
-                                name: &endpoint_name,
-                                template_id: &input.template_id,
-                                network_volume_id: &input.network_volume_id,
-                                data_center_id: &input.datacenter_id,
-                                selected_gpu_id: &input.selected_gpu_id,
-                                idle_timeout: input.endpoint_keep_alive_seconds,
-                            },
-                        )
+                        .find_endpoints_by_name(&api_key, &endpoint_name)
                         .await
                         .map(|observations| {
                             observations
@@ -624,8 +597,6 @@ fn runpod_network_volume_observation(
 ) -> NetworkVolumeObservation {
     NetworkVolumeObservation {
         provider_resource_id: observation.id,
-        datacenter_id: observation.data_center_id,
-        provisioned_size_bytes: observation.size_gb * GIB_BYTES,
         provider_resource_status: observation.status,
         mount_path: RUNPOD_VOLUME_MOUNT_PATH.to_string(),
     }
@@ -634,8 +605,6 @@ fn runpod_network_volume_observation(
 fn runpod_pod_observation(observation: RunPodPodObservation) -> ProvisioningPodObservation {
     ProvisioningPodObservation {
         provider_resource_id: observation.id,
-        datacenter_id: observation.data_center_id,
-        selected_gpu_id: observation.selected_gpu_id,
         provider_resource_status: observation.status,
         provisioner_status_url: observation.provisioner_status_url,
     }
@@ -657,8 +626,6 @@ fn runpod_endpoint_observation(
 ) -> ServerlessEndpointObservation {
     ServerlessEndpointObservation {
         provider_resource_id: observation.id,
-        datacenter_id: observation.data_center_id,
-        selected_gpu_id: observation.selected_gpu_id,
         provider_resource_status: observation.status,
         endpoint_invoke_url: observation.endpoint_invoke_url,
     }

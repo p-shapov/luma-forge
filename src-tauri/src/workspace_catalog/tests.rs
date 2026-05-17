@@ -413,9 +413,7 @@ async fn rejects_invalid_workspace_payload() {
     payload["persistent_storage_volume_snapshot"] = json!({
         "gpu_cloud_provider_id": "runpod",
         "provider_resource_id": "volume-1",
-        "datacenter_id": "EU-RO-1",
         "provider_resource_status": "ready",
-        "provisioned_size_bytes": 1,
         "mount_path": "/workspace"
     });
     sqlx::query("UPDATE workspaces SET workspace_json = ? WHERE id = ?")
@@ -503,9 +501,7 @@ fn volume_snapshot() -> PersistentStorageVolumeSnapshot {
     PersistentStorageVolumeSnapshot {
         gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
         provider_resource_id: "volume-1".to_string(),
-        datacenter_id: "EU-RO-1".to_string(),
         provider_resource_status: ProviderResourceStatus::Ready,
-        provisioned_size_bytes: 85899345920,
         mount_path: "/workspace".to_string(),
     }
 }
@@ -514,9 +510,7 @@ fn endpoint_snapshot() -> ServerlessEndpointSnapshot {
     ServerlessEndpointSnapshot {
         gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
         provider_resource_id: "endpoint-1".to_string(),
-        datacenter_id: "EU-RO-1".to_string(),
         provider_resource_status: ProviderResourceStatus::Ready,
-        selected_gpu_id: "NVIDIA RTX 4090".to_string(),
         endpoint_invoke_url: "https://example.invalid/run".to_string(),
     }
 }

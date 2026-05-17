@@ -17,8 +17,6 @@ pub struct CreateNetworkVolumeInput {
 #[derive(Debug, Clone)]
 pub struct NetworkVolumeObservation {
     pub provider_resource_id: String,
-    pub datacenter_id: String,
-    pub provisioned_size_bytes: u64,
     pub provider_resource_status: ProviderResourceStatus,
     pub mount_path: String,
 }
@@ -27,8 +25,6 @@ pub struct NetworkVolumeObservation {
 pub struct DiscoverNetworkVolumesInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
-    pub datacenter_id: String,
-    pub size_bytes: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -47,24 +43,17 @@ pub struct CreateProvisioningPodInput {
 pub struct DiscoverProvisioningPodsInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
-    pub datacenter_id: String,
-    pub selected_gpu_id: String,
-    pub network_volume_id: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct ObserveProvisioningPodInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
-    pub datacenter_id: String,
-    pub selected_gpu_id: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct ProvisioningPodObservation {
     pub provider_resource_id: String,
-    pub datacenter_id: String,
-    pub selected_gpu_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub provisioner_status_url: Option<String>,
 }
@@ -89,8 +78,6 @@ pub struct EndpointTemplateObservation {
 pub struct DiscoverEndpointTemplatesInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
-    pub endpoint_worker_image_ref: String,
-    pub mount_path: String,
 }
 
 #[derive(Debug, Clone)]
@@ -107,8 +94,6 @@ pub struct CreateServerlessEndpointInput {
 #[derive(Debug, Clone)]
 pub struct ServerlessEndpointObservation {
     pub provider_resource_id: String,
-    pub datacenter_id: String,
-    pub selected_gpu_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub endpoint_invoke_url: String,
 }
@@ -117,11 +102,6 @@ pub struct ServerlessEndpointObservation {
 pub struct DiscoverServerlessEndpointsInput {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub workspace_id: String,
-    pub template_id: String,
-    pub datacenter_id: String,
-    pub selected_gpu_id: String,
-    pub network_volume_id: String,
-    pub endpoint_keep_alive_seconds: u32,
 }
 
 #[derive(Debug, Clone)]
