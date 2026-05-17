@@ -173,7 +173,6 @@ export type RunPodEndpointTemplateSnapshot = {
 	template_id: string,
 	provider_resource_status: ProviderResourceStatus,
 	endpoint_worker_image_ref: string,
-	runtime_env: { [key in string]: string },
 	mount_path: string,
 };
 

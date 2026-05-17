@@ -647,7 +647,6 @@ fn runpod_template_observation(
     EndpointTemplateObservation {
         template_id: observation.id,
         endpoint_worker_image_ref: observation.image_name,
-        runtime_env: observation.env,
         mount_path: observation.volume_mount_path,
         provider_resource_status: observation.status,
     }

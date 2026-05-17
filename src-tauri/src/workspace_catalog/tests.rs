@@ -527,7 +527,6 @@ fn runpod_template_snapshot() -> ProviderProvisioningSnapshot {
             template_id: "template-1".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
             endpoint_worker_image_ref: "ghcr.io/luma-forge/endpoint-worker:dev".to_string(),
-            runtime_env: std::collections::HashMap::new(),
             mount_path: "/workspace".to_string(),
         }),
     }

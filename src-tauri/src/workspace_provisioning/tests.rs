@@ -202,7 +202,6 @@ struct FakeProvider {
     get_volume_status: Option<ProviderResourceStatus>,
     get_pod_status_url: Option<Option<String>>,
     get_template_status: Option<ProviderResourceStatus>,
-    get_template_runtime_env: Option<HashMap<String, String>>,
     get_endpoint_status: Option<ProviderResourceStatus>,
     delete_endpoint_error: Option<WorkspaceProvisioningError>,
 }
@@ -408,7 +407,6 @@ impl ProviderProvisioningGateway for FakeProvider {
             Ok(EndpointTemplateObservation {
                 template_id: "template-1".to_string(),
                 endpoint_worker_image_ref: input.endpoint_worker_image_ref,
-                runtime_env: sample_template_runtime_env(),
                 mount_path: "/workspace".to_string(),
                 provider_resource_status: ProviderResourceStatus::Ready,
             })
@@ -434,10 +432,6 @@ impl ProviderProvisioningGateway for FakeProvider {
             Ok(EndpointTemplateObservation {
                 template_id: _template_id.to_string(),
                 endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
-                runtime_env: self
-                    .get_template_runtime_env
-                    .clone()
-                    .unwrap_or_else(sample_template_runtime_env),
                 mount_path: "/workspace".to_string(),
                 provider_resource_status: self
                     .get_template_status
@@ -1644,7 +1638,7 @@ async fn sync_fails_closed_when_multiple_discovered_endpoint_templates_exist() {
 }
 
 #[tokio::test]
-async fn sync_reuses_ready_endpoint_template_without_runtime_env_and_creates_endpoint() {
+async fn sync_reuses_ready_endpoint_template_and_creates_endpoint() {
     let catalog = MemoryWorkspaceCatalog::default();
     let mut workspace =
         provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
@@ -1653,7 +1647,6 @@ async fn sync_reuses_ready_endpoint_template_without_runtime_env_and_creates_end
         endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
             template_id: "template-old".to_string(),
             endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
-            runtime_env: HashMap::new(),
             mount_path: "/workspace".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
         }),
@@ -1685,7 +1678,6 @@ async fn sync_refreshes_mismatched_ready_template_before_replacing_it() {
         endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
             template_id: "template-old".to_string(),
             endpoint_worker_image_ref: "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:3333333333333333333333333333333333333333333333333333333333333333".to_string(),
-            runtime_env: HashMap::new(),
             mount_path: "/workspace".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
         }),
@@ -1693,7 +1685,6 @@ async fn sync_refreshes_mismatched_ready_template_before_replacing_it() {
     workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        get_template_runtime_env: Some(HashMap::new()),
         ..Default::default()
     };
     let service = service_with_parts(
@@ -1711,44 +1702,6 @@ async fn sync_refreshes_mismatched_ready_template_before_replacing_it() {
     assert_eq!(provider.delete_endpoint_count.load(Ordering::SeqCst), 0);
     assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 0);
     assert_eq!(provider.create_template_count.load(Ordering::SeqCst), 0);
-}
-
-#[tokio::test]
-async fn sync_reuses_ready_endpoint_template_when_runtime_env_has_extra_keys() {
-    let catalog = MemoryWorkspaceCatalog::default();
-    let mut workspace =
-        provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
-    workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
-    let mut runtime_env = sample_template_runtime_env();
-    runtime_env.insert(
-        "RUNPOD_PROVIDER_KEY".to_string(),
-        "provider-value".to_string(),
-    );
-    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-        endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
-            template_id: "template-extra-env".to_string(),
-            endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
-            runtime_env,
-            mount_path: "/workspace".to_string(),
-            provider_resource_status: ProviderResourceStatus::Ready,
-        }),
-    });
-    catalog.insert_workspace(&workspace).await.expect("insert");
-    let provider = FakeProvider::default();
-    let service = service_with_parts(
-        catalog,
-        provider.clone(),
-        FakeWorker::idle(),
-        Arc::default(),
-    );
-
-    let result = service.sync(&workspace.id).await.expect("sync");
-
-    let template = runpod_template_snapshot(&result.workspace).expect("template");
-    assert_eq!(template.template_id, "template-extra-env");
-    assert_eq!(provider.get_template_count.load(Ordering::SeqCst), 0);
-    assert_eq!(provider.delete_template_count.load(Ordering::SeqCst), 0);
-    assert_eq!(provider.create_endpoint_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -2257,7 +2210,6 @@ fn discovered_template(template_id: &str) -> EndpointTemplateObservation {
     EndpointTemplateObservation {
         template_id: template_id.to_string(),
         endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
-        runtime_env: sample_template_runtime_env(),
         mount_path: "/workspace".to_string(),
         provider_resource_status: ProviderResourceStatus::Ready,
     }
@@ -2267,14 +2219,9 @@ fn template_snapshot(status: ProviderResourceStatus) -> RunPodEndpointTemplateSn
     RunPodEndpointTemplateSnapshot {
         template_id: "template-1".to_string(),
         endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
-        runtime_env: sample_template_runtime_env(),
         mount_path: "/workspace".to_string(),
         provider_resource_status: status,
     }
-}
-
-fn sample_template_runtime_env() -> HashMap<String, String> {
-    HashMap::new()
 }
 
 fn sample_provisioner_worker_image_ref() -> String {

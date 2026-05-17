@@ -211,7 +211,6 @@ mod remote_types {
         pub template_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
         pub endpoint_worker_image_ref: String,
-        pub runtime_env: std::collections::HashMap<String, String>,
         pub mount_path: String,
     }
 
