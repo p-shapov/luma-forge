@@ -1,6 +1,8 @@
+import json
 import re
 
 from collections.abc import Callable
+from collections.abc import Iterable
 from pathlib import Path
 from threading import Event
 
@@ -139,7 +141,7 @@ class Provisioner:
                     protected_package_names,
                     protected_package_prefixes,
                 )
-                self.python_environment.install_requirements(
+                report_path = self.python_environment.install_requirements(
                     requirements_path,
                     cwd=target,
                     python_path=python_path,
@@ -148,6 +150,12 @@ class Provisioner:
                     metadata_dir=metadata_dir,
                     cancel_event=cancel_event,
                 )
+                if report_path is not None:
+                    _reject_protected_install_report(
+                        report_path,
+                        protected_package_names,
+                        protected_package_prefixes,
+                    )
 
     def _download_assets(
         self,
@@ -196,6 +204,45 @@ def _reject_protected_requirements(
         protected_prefixes,
         set(),
     )
+
+
+def _reject_protected_install_report(
+    report_path: Path,
+    protected_package_names: list[str],
+    protected_package_prefixes: list[str],
+) -> None:
+    protected_names = {_normalize_package_name(name) for name in protected_package_names}
+    protected_prefixes = [_normalize_package_name(prefix) for prefix in protected_package_prefixes]
+    for name in _install_report_package_names(report_path):
+        normalized = _normalize_package_name(name)
+        if normalized in protected_names or any(normalized.startswith(prefix) for prefix in protected_prefixes):
+            from app.errors import DependencyInstallError
+
+            raise DependencyInstallError("Custom Node dependency conflicts with the image-baked base runtime.")
+
+
+def _install_report_package_names(report_path: Path) -> Iterable[str]:
+    from app.errors import DependencyInstallError
+
+    try:
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise DependencyInstallError("Custom Node dependency install report is invalid.") from error
+
+    installs = payload.get("install")
+    if not isinstance(installs, list):
+        raise DependencyInstallError("Custom Node dependency install report is invalid.")
+
+    for entry in installs:
+        if not isinstance(entry, dict):
+            raise DependencyInstallError("Custom Node dependency install report is invalid.")
+        metadata = entry.get("metadata")
+        if not isinstance(metadata, dict):
+            raise DependencyInstallError("Custom Node dependency install report is invalid.")
+        name = metadata.get("name")
+        if not isinstance(name, str) or name.strip() == "":
+            raise DependencyInstallError("Custom Node dependency install report is invalid.")
+        yield name
 
 
 def _reject_protected_requirements_file(

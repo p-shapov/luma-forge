@@ -23,7 +23,7 @@ class PythonEnvironment:
         report_label: str,
         metadata_dir: Path,
         cancel_event: Event,
-    ) -> None:
+    ) -> Path | None:
         if requirements_path.exists():
             metadata_dir.mkdir(parents=True, exist_ok=True)
             target_path.mkdir(parents=True, exist_ok=True)
@@ -46,6 +46,8 @@ class PythonEnvironment:
                 timeout_seconds=self.timeout_seconds,
                 error_type=DependencyInstallError,
             )
+            return report_path
+        return None
 
     def capture_python_version(self, python_path: Path, cancel_event: Event) -> str:
         return self.command_runner.capture(

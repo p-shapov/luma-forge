@@ -410,6 +410,44 @@ class PreparerTests(unittest.TestCase):
 
             self.assertFalse(any("--target" in call[0] for call in runner.calls))
 
+    def test_rejects_protected_transitive_dependency_from_pip_report(self):
+        class ProtectedTransitiveReportRunner(FakeCommandRunner):
+            def run(self, args, *, cwd=None, cancel_event=None, timeout_seconds=None, error_type=None):
+                super().run(
+                    args,
+                    cwd=cwd,
+                    cancel_event=cancel_event,
+                    timeout_seconds=timeout_seconds,
+                    error_type=error_type,
+                )
+                if "--report" in args:
+                    report_path = Path(args[args.index("--report") + 1])
+                    report_path.write_text(
+                        '{"install":[{"metadata":{"name":"nvidia-cublas-cu12"}}]}\n',
+                        encoding="utf-8",
+                    )
+
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = ProtectedTransitiveReportRunner()
+
+            with self.assertRaises(DependencyInstallError):
+                Provisioner(
+                    command_runner=runner,
+                    downloader=FakeDownloader(),
+                    config=test_config(workspace_mount_path=Path(directory)),
+                ).prepare(
+                    request,
+                    lambda phase, progress, message: None,
+                    Event(),
+                )
+
+            self.assertTrue(any("--target" in call[0] for call in runner.calls))
+
     def test_rejects_remote_nested_requirements_before_pip(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = start_payload()

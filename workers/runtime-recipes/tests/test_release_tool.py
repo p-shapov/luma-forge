@@ -254,11 +254,17 @@ class ReleaseToolTests(unittest.TestCase):
     def test_bundled_catalog_accepts_fresh_implementation_revision(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
         catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        fresh_revision = release_tool.resolve_implementation_revision(
+            recipe=recipe,
+            catalog=catalog,
+            requested_revision="auto",
+            today=release_tool.dt.date(2099, 1, 1),
+        )
 
         release_tool.validate_catalog_compatibility(
             recipe=recipe,
             catalog=catalog,
-            implementation_revision="2026.05.17-001",
+            implementation_revision=fresh_revision,
         )
 
     def test_update_catalog_creates_new_contract_from_recipe_metadata(self):

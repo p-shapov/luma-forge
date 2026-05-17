@@ -25,7 +25,9 @@ pub struct RuntimeMetadata {
     pub python_version: String,
     pub platform: String,
     pub comfyui_revision: String,
+    #[serde(default = "default_runtime_manifest_compatibility")]
     pub runtime_manifest_compatibility: RuntimeManifestCompatibility,
+    #[serde(default = "default_workspace_overlay_policy")]
     pub workspace_overlay_policy: WorkspaceOverlayPolicy,
 }
 
@@ -52,9 +54,13 @@ pub struct RuntimeImplementationRevision {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeImageMetadata {
+    #[serde(default = "default_image_runtime_root_path")]
     pub image_runtime_root_path: String,
+    #[serde(default = "default_image_python_interpreter_path")]
     pub image_python_interpreter_path: String,
+    #[serde(default = "default_image_comfyui_root_path")]
     pub image_comfyui_root_path: String,
+    #[serde(default = "default_image_base_dependency_record_paths")]
     pub image_base_dependency_record_paths: Vec<String>,
     pub provisioner_runtime_metadata_path: String,
     pub endpoint_runtime_contract_path: String,
@@ -102,4 +108,42 @@ impl RuntimeCatalog {
             image_metadata: implementation.image_metadata.clone(),
         })
     }
+}
+
+fn default_runtime_manifest_compatibility() -> RuntimeManifestCompatibility {
+    RuntimeManifestCompatibility {
+        manifest_version: "1".to_string(),
+    }
+}
+
+fn default_workspace_overlay_policy() -> WorkspaceOverlayPolicy {
+    WorkspaceOverlayPolicy {
+        python_overlay_path: ".luma-forge/python-overlay".to_string(),
+        import_path_precedence: "overlay_first".to_string(),
+        protected_package_names: vec![
+            "torch".to_string(),
+            "torchvision".to_string(),
+            "torchaudio".to_string(),
+        ],
+        protected_package_prefixes: vec!["nvidia-".to_string()],
+    }
+}
+
+fn default_image_runtime_root_path() -> String {
+    "/opt/luma-forge/runtime".to_string()
+}
+
+fn default_image_python_interpreter_path() -> String {
+    "/opt/luma-forge/runtime/.venv/bin/python".to_string()
+}
+
+fn default_image_comfyui_root_path() -> String {
+    "/opt/luma-forge/runtime/ComfyUI".to_string()
+}
+
+fn default_image_base_dependency_record_paths() -> Vec<String> {
+    vec![
+        "base-runtime/pip-freeze.txt".to_string(),
+        "base-runtime/install-report.json".to_string(),
+    ]
 }

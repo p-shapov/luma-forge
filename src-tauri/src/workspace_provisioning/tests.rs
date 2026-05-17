@@ -26,7 +26,10 @@ use crate::{
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_setup::{error::WorkspaceSetupError, tests::sample_workspace},
+    workspace_setup::{
+        error::WorkspaceSetupError,
+        tests::{sample_runtime_snapshot, sample_workspace},
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -307,7 +310,7 @@ impl ProviderProvisioningGateway for FakeProvider {
                 .push(input.clone());
             assert_eq!(
                 input.provisioner_worker_image_ref,
-                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8ef1f2c6fb1bfc893fe51b143ca124e1d7b81e2e50239ec5601c612803f1b707"
+                sample_provisioner_worker_image_ref()
             );
             assert_eq!(input.provisioner_worker_port, 8080);
             Ok(ProvisioningPodObservation {
@@ -402,12 +405,15 @@ impl ProviderProvisioningGateway for FakeProvider {
             assert_eq!(input.endpoint_worker_port, 8080);
             assert_eq!(
                 input.endpoint_worker_image_ref,
-                "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:99446d789d99c396087b180f37630f38deb2cccabd3efd2a33b3e327e11afe56"
+                sample_endpoint_worker_image_ref()
             );
             assert_eq!(input.image_runtime_root_path, "/opt/luma-forge/runtime");
             assert_eq!(input.runtime_contract_id, "comfyui-python312-cu121");
             assert_eq!(input.runtime_contract_version, "1.0.0");
-            assert_eq!(input.runtime_implementation_revision, "2026.05.16-004");
+            assert_eq!(
+                input.runtime_implementation_revision,
+                sample_runtime_implementation_revision()
+            );
             Ok(EndpointTemplateObservation {
                 template_id: "template-1".to_string(),
                 endpoint_worker_image_ref: input.endpoint_worker_image_ref,
@@ -2297,7 +2303,7 @@ fn sample_template_runtime_env() -> HashMap<String, String> {
         ),
         (
             "LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION".to_string(),
-            "2026.05.16-004".to_string(),
+            sample_runtime_implementation_revision(),
         ),
         (
             "LUMA_FORGE_ENDPOINT_IMAGE_REF".to_string(),
@@ -2306,9 +2312,16 @@ fn sample_template_runtime_env() -> HashMap<String, String> {
     ])
 }
 
+fn sample_provisioner_worker_image_ref() -> String {
+    sample_runtime_snapshot().provisioner_image_ref
+}
+
+fn sample_runtime_implementation_revision() -> String {
+    sample_runtime_snapshot().implementation_revision
+}
+
 fn sample_endpoint_worker_image_ref() -> String {
-    "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:99446d789d99c396087b180f37630f38deb2cccabd3efd2a33b3e327e11afe56"
-        .to_string()
+    sample_runtime_snapshot().endpoint_image_ref
 }
 
 fn discovered_endpoint(provider_resource_id: &str) -> ServerlessEndpointObservation {
