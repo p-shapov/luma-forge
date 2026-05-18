@@ -3,15 +3,15 @@ use thiserror::Error;
 use crate::{
     domain::workspace::{
         provisioning_state::progress_for_workspace, PersistentStorageVolumeSnapshot,
-        ProviderProvisioningSnapshot, ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot,
-        ServerlessEndpointSnapshot, Workspace, WorkspaceProvisioningProgress,
+        ProvisioningPodSnapshot, ServerlessEndpointSnapshot, Workspace,
+        WorkspaceProvisioningProgress,
     },
-    provider_resources::{
-        EndpointTemplateObservation, NetworkVolumeObservation, ProviderResourceError,
-        ProvisioningPodObservation, ServerlessEndpointObservation,
-    },
-    provisioner_worker::ProvisionerWorkerError,
     secrets::SecretStoreError,
+    workspace_provisioner::ProvisionerWorkerError,
+    workspace_resources::{
+        NetworkVolumeObservation, ProvisioningPodObservation, ServerlessEndpointObservation,
+        WorkspaceResourceError,
+    },
 };
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -68,21 +68,27 @@ impl From<SecretStoreError> for WorkspaceProvisioningError {
     }
 }
 
-impl From<ProviderResourceError> for WorkspaceProvisioningError {
-    fn from(error: ProviderResourceError) -> Self {
+impl From<WorkspaceResourceError> for WorkspaceProvisioningError {
+    fn from(error: WorkspaceResourceError) -> Self {
         match error {
-            ProviderResourceError::ProviderSetupIncomplete => Self::ProviderSetupIncomplete,
-            ProviderResourceError::ProviderApiKeyUnauthorized => Self::ProviderApiKeyUnauthorized,
-            ProviderResourceError::ProviderApiUnavailable => Self::ProviderApiUnavailable,
-            ProviderResourceError::ProviderRateLimited => Self::ProviderRateLimited,
-            ProviderResourceError::ProviderRequestRejected => Self::ProviderRequestRejected,
-            ProviderResourceError::ProviderResponseInvalid => Self::ProviderResponseInvalid,
-            ProviderResourceError::ProviderResourceNotFound => Self::ProviderResourceNotFound,
-            ProviderResourceError::ProviderOperationConflict => Self::ProviderOperationConflict,
-            ProviderResourceError::ProviderOperationIndeterminate => {
+            WorkspaceResourceError::WorkspaceCatalogUnavailable => {
+                Self::WorkspaceCatalogUnavailable
+            }
+            WorkspaceResourceError::ProviderSetupIncomplete => Self::ProviderSetupIncomplete,
+            WorkspaceResourceError::ProviderApiKeyUnauthorized => Self::ProviderApiKeyUnauthorized,
+            WorkspaceResourceError::ProviderApiUnavailable => Self::ProviderApiUnavailable,
+            WorkspaceResourceError::ProviderRateLimited => Self::ProviderRateLimited,
+            WorkspaceResourceError::ProviderRequestRejected => Self::ProviderRequestRejected,
+            WorkspaceResourceError::ProviderResponseInvalid => Self::ProviderResponseInvalid,
+            WorkspaceResourceError::ProviderResourceNotFound => Self::ProviderResourceNotFound,
+            WorkspaceResourceError::ProviderOperationConflict => Self::ProviderOperationConflict,
+            WorkspaceResourceError::ProviderOperationIndeterminate => {
                 Self::ProviderOperationIndeterminate
             }
-            ProviderResourceError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
+            WorkspaceResourceError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
+            WorkspaceResourceError::ProvisionerWorkerTokenInvalid => {
+                Self::ProvisionerWorkerTokenInvalid
+            }
         }
     }
 }
@@ -129,20 +135,6 @@ pub(crate) fn persistent_storage_volume_snapshot(
     }
 }
 
-pub(crate) fn created_provisioning_pod_snapshot(
-    workspace: &Workspace,
-    observation: ProvisioningPodObservation,
-) -> Result<ProvisioningPodSnapshot, WorkspaceProvisioningError> {
-    Ok(ProvisioningPodSnapshot {
-        gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-        provider_resource_id: observation.provider_resource_id,
-        provider_resource_status: observation.provider_resource_status,
-        provisioner_status_url: observation
-            .provisioner_status_url
-            .ok_or(WorkspaceProvisioningError::ProviderResponseInvalid)?,
-    })
-}
-
 pub(crate) fn observed_provisioning_pod_snapshot(
     workspace: &Workspace,
     previous: &ProvisioningPodSnapshot,
@@ -155,19 +147,6 @@ pub(crate) fn observed_provisioning_pod_snapshot(
         provisioner_status_url: observation
             .provisioner_status_url
             .unwrap_or_else(|| previous.provisioner_status_url.clone()),
-    }
-}
-
-pub(crate) fn runpod_template_provisioning_snapshot(
-    observation: EndpointTemplateObservation,
-) -> ProviderProvisioningSnapshot {
-    ProviderProvisioningSnapshot::Runpod {
-        endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
-            template_id: observation.template_id,
-            endpoint_worker_image_ref: observation.endpoint_worker_image_ref,
-            mount_path: observation.mount_path,
-            provider_resource_status: observation.provider_resource_status,
-        }),
     }
 }
 

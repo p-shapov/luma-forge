@@ -249,18 +249,8 @@ impl MemoryWorkspaceCatalog {
 fn service(
     secrets: MemorySecretStore,
     workspace_catalog: MemoryWorkspaceCatalog,
-) -> WorkspaceSetupService<
-    BundledCatalogReader,
-    MemorySecretStore,
-    MemoryProvider,
-    MemoryWorkspaceCatalog,
-> {
-    WorkspaceSetupService::new(
-        BundledCatalogReader,
-        secrets,
-        MemoryProvider::default(),
-        workspace_catalog,
-    )
+) -> WorkspaceSetupService<BundledCatalogReader, MemorySecretStore, MemoryWorkspaceCatalog> {
+    WorkspaceSetupService::new(BundledCatalogReader, secrets, workspace_catalog)
 }
 
 pub(crate) fn sample_placement_plan() -> PlacementPlan {
@@ -323,12 +313,7 @@ fn create_workspace_request(id: &str) -> CreateWorkspaceInput {
 
 async fn create_workspace_with_gate(
     coordinator: Arc<ProviderSetupCoordinator>,
-    service: WorkspaceSetupService<
-        BundledCatalogReader,
-        MemorySecretStore,
-        MemoryProvider,
-        MemoryWorkspaceCatalog,
-    >,
+    service: WorkspaceSetupService<BundledCatalogReader, MemorySecretStore, MemoryWorkspaceCatalog>,
     request: CreateWorkspaceInput,
 ) -> Result<Workspace, WorkspaceSetupError> {
     let provider_id = request.gpu_cloud_provider_id;
@@ -363,18 +348,17 @@ fn returns_workflow_catalog() {
 
 #[tokio::test]
 async fn rejects_inventory_when_setup_is_missing() {
-    let service = WorkspaceSetupService::new(
-        BundledCatalogReader,
+    let service = service(
         MemorySecretStore::empty(),
-        MemoryProvider {
-            setup_missing: true,
-            ..Default::default()
-        },
         MemoryWorkspaceCatalog::default(),
     );
+    let providers = MemoryProvider {
+        setup_missing: true,
+        ..Default::default()
+    };
 
     let error = service
-        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options_with_provider(DomainGpuCloudProviderId::Runpod, &providers)
         .await
         .expect_err("missing key should fail");
 
@@ -383,18 +367,17 @@ async fn rejects_inventory_when_setup_is_missing() {
 
 #[tokio::test]
 async fn maps_provider_inventory_failure() {
-    let service = WorkspaceSetupService::new(
-        BundledCatalogReader,
+    let service = service(
         MemorySecretStore::with_key("rp_123_secret"),
-        MemoryProvider {
-            fail: true,
-            ..Default::default()
-        },
         MemoryWorkspaceCatalog::default(),
     );
+    let providers = MemoryProvider {
+        fail: true,
+        ..Default::default()
+    };
 
     let error = service
-        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options_with_provider(DomainGpuCloudProviderId::Runpod, &providers)
         .await
         .expect_err("provider should fail");
 
@@ -403,23 +386,22 @@ async fn maps_provider_inventory_failure() {
 
 #[tokio::test]
 async fn maps_invalid_provider_inventory_to_provider_inventory_invalid() {
-    let service = WorkspaceSetupService::new(
-        BundledCatalogReader,
+    let service = service(
         MemorySecretStore::with_key("rp_123_secret"),
-        MemoryProvider {
-            inventory: Some(ProviderInventory {
-                gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
-                fetched_at: " ".to_string(),
-                max_persistent_storage_volume_size_bytes: None,
-                datacenters: vec![],
-            }),
-            ..Default::default()
-        },
         MemoryWorkspaceCatalog::default(),
     );
+    let providers = MemoryProvider {
+        inventory: Some(ProviderInventory {
+            gpu_cloud_provider_id: DomainGpuCloudProviderId::Runpod,
+            fetched_at: " ".to_string(),
+            max_persistent_storage_volume_size_bytes: None,
+            datacenters: vec![],
+        }),
+        ..Default::default()
+    };
 
     let error = service
-        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options_with_provider(DomainGpuCloudProviderId::Runpod, &providers)
         .await
         .expect_err("invalid provider inventory should fail");
 
@@ -428,15 +410,14 @@ async fn maps_invalid_provider_inventory_to_provider_inventory_invalid() {
 
 #[tokio::test]
 async fn returns_runpod_placement_capabilities_with_default_keep_alive() {
-    let service = WorkspaceSetupService::new(
-        BundledCatalogReader,
+    let service = service(
         MemorySecretStore::with_key("rp_123_secret"),
-        MemoryProvider::default(),
         MemoryWorkspaceCatalog::default(),
     );
+    let providers = MemoryProvider::default();
 
     let response = service
-        .get_provider_placement_options(DomainGpuCloudProviderId::Runpod)
+        .get_provider_placement_options_with_provider(DomainGpuCloudProviderId::Runpod, &providers)
         .await
         .expect("placement options");
 

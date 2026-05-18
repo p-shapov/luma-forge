@@ -564,6 +564,32 @@ The Native Layer SHALL preserve the existing Workspace Provisioning command cont
 - **THEN** the Native Layer SHALL keep those secrets behind secure storage and provider or worker call paths
 - **AND** command responses, Workspace metadata, logs, diagnostics, and generated frontend bindings MUST NOT expose those secrets
 
+### Requirement: Route provider-specific provisioning choreography through use-case steps
+Workspace Provisioning SHALL keep provider-specific provisioning sequence decisions inside provider-specific Workspace Provisioning step modules while preserving provider API access behind infrastructure gateways.
+
+#### Scenario: RunPod sync is dispatched at the Workspace Provisioning boundary
+- **WHEN** the Client syncs a RunPod Workspace whose lifecycle state is `provisioning`
+- **THEN** the Native Layer SHALL route the provisioning sequence through RunPod-specific Workspace Provisioning step code
+- **AND** the Native Layer SHALL continue to derive each safe action from authoritative Workspace metadata
+- **AND** the Native Layer SHALL continue to perform at most one provider, worker, or catalog mutation per sync call
+
+#### Scenario: Provider gateway remains infrastructure
+- **WHEN** RunPod-specific Workspace Provisioning step code needs to create, observe, discover, or delete provider resources
+- **THEN** it SHALL call provider resource gateway methods for low-level provider operations
+- **AND** it MUST NOT move Workspace lifecycle, progress, idempotency, or cleanup metadata decisions into the low-level provider client or provider registry
+
+#### Scenario: RunPod endpoint template is handled as endpoint implementation detail
+- **WHEN** a provisioning RunPod Workspace has a prepared environment and no active Provisioning Pod
+- **THEN** the RunPod Workspace Provisioning endpoint step SHALL manage both the RunPod serverless template and the RunPod Serverless Endpoint sequencing needed for the persistent runtime entry point
+- **AND** it SHALL preserve the existing RunPod endpoint template snapshot metadata required for resume, readiness, and cleanup
+- **AND** it SHALL preserve existing Serverless Endpoint snapshot behavior and failure classifications
+
+#### Scenario: Refactor preserves external contract
+- **WHEN** Workspace Provisioning provider step modules are refactored
+- **THEN** existing Tauri command request and response shapes SHALL remain compatible
+- **AND** generated frontend bindings MUST NOT require frontend changes because of the native module split
+- **AND** persisted Workspace Catalog metadata MUST remain readable without a migration for this change
+
 ### Requirement: Keep base runtime dependency installation out of Workspace Provisioning
 Workspace Provisioning SHALL treat base Python/PyTorch/ComfyUI runtime dependency installation as a Docker image build concern, not a provisioning concern.
 
@@ -623,3 +649,65 @@ Workspace Provisioning SHALL treat RunPod serverless template runtime environmen
 - **THEN** the Native Layer SHALL tolerate the legacy field for compatibility
 - **AND** any subsequent persisted Workspace snapshot SHALL omit the legacy runtime environment map
 - **AND** provisioning continuation SHALL use only safe template metadata for reuse, endpoint creation, readiness validation, and cleanup
+
+### Requirement: Manage Workspace Resources Through Workspace Resource Operations
+
+Workspace Provisioning SHALL delegate Workspace-owned provider resource lifecycle to a concrete `workspace_resources` native service that selects provider-specific resource implementation from the Workspace provider identity while preserving existing provisioning behavior, command contracts, persisted Workspace metadata, and generated frontend bindings.
+
+#### Scenario: Provisioning delegates resource lifecycle
+
+- **WHEN** Workspace Provisioning needs to create, observe, discover, delete, write snapshots for, or clear snapshots for Workspace-owned provider resources
+- **THEN** the Native Layer SHALL route that resource lifecycle work through `workspace_resources`
+- **AND** Workspace Provisioning SHALL remain responsible for initiation, lifecycle gating, concurrency guarding, phase ordering, Provisioner Worker coordination, and result shaping
+- **AND** Workspace Provisioning MUST NOT directly own provider resource snapshot write or clear logic after the resource operation boundary is introduced
+
+#### Scenario: Resource service dispatches by Workspace provider identity
+
+- **WHEN** `workspace_resources` performs Workspace-owned provider resource lifecycle work for a Workspace
+- **THEN** the Native Layer SHALL select the provider-specific resource implementation by matching the Workspace's persisted GPU Cloud Provider id
+- **AND** the Native Layer MUST NOT select the provider-specific resource implementation through a production alias that hardcodes RunPod before a Workspace is known
+- **AND** the Native Layer MUST NOT require a top-level `WorkspaceResourceOperations` trait to route Workspace Resource lifecycle calls
+
+#### Scenario: Resource operation persists matching snapshot state
+
+- **WHEN** a Workspace resource operation creates, observes, deletes, or confirms absence of a Workspace-owned provider resource
+- **THEN** the operation SHALL persist the matching Workspace metadata mutation before reporting success for that resource activity
+- **AND** the operation SHALL preserve known cleanup metadata when provider mutation, observation, or validation fails after a provider resource identifier is known
+- **AND** the operation SHALL return authoritative Workspace metadata for provisioning result derivation
+
+#### Scenario: Resource operations preserve one-action sync semantics
+
+- **WHEN** the Client syncs a Workspace whose lifecycle state is `provisioning`
+- **THEN** Workspace Provisioning and `workspace_resources` together SHALL perform at most one provider, worker, or catalog mutation activity for that sync call
+- **AND** moving resource lifecycle into `workspace_resources` MUST NOT allow a single sync call to create, delete, or persist multiple provisioning resources beyond the behavior already required by Workspace Provisioning
+
+#### Scenario: RunPod operations use low-level RunPod client
+
+- **WHEN** `workspace_resources` performs RunPod resource lifecycle work
+- **THEN** it SHALL keep raw RunPod HTTP request/response mapping inside `provider::runpod`
+- **AND** it SHALL keep Provider API Keys behind secure storage and provider-call paths
+- **AND** it MUST NOT expose Provider API Keys, Provisioner Worker bearer tokens, raw provider responses, or secret-bearing diagnostics through Workspace metadata, command responses, logs, or generated frontend bindings
+
+#### Scenario: RunPod endpoint template remains internal to endpoint operation
+
+- **WHEN** `workspace_resources` manages a RunPod Serverless Endpoint for a Workspace
+- **THEN** the RunPod endpoint operation SHALL manage the RunPod endpoint template as an internal implementation detail needed for Serverless Endpoint creation
+- **AND** the Workspace resource operation facade MUST NOT expose endpoint template as a separate top-level Workspace resource operation
+- **AND** the Native Layer SHALL continue to persist existing RunPod endpoint template snapshot metadata required for resume, readiness validation, and cleanup
+
+#### Scenario: Provider resources boundary is removed
+
+- **WHEN** Workspace resource lifecycle operations are refactored
+- **THEN** the Native Layer SHALL remove the generic `provider_resources` provider-resource gateway boundary from the provisioning path
+- **AND** provider setup and placement concerns MAY remain in provider registry code
+- **AND** raw RunPod API integration SHALL remain in `provider::runpod`
+- **AND** frontend command request and response shapes MUST remain compatible
+
+#### Scenario: Cleanup uses shared Workspace Resource lifecycle
+
+- **WHEN** Workspace Provisioning cancellation or future Workspace Resource Cleanup deletes known Workspace-owned resources
+- **THEN** the Native Layer SHALL use shared `workspace_resources` cleanup behavior
+- **AND** cleanup SHALL preserve the existing dependency-safe deletion order for RunPod resources
+- **AND** cleanup SHALL tolerate already-missing Provider Resources
+- **AND** cleanup SHALL delete the per-workspace Provisioner Worker bearer token when it exists without exposing secret values
+

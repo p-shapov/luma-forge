@@ -1,13 +1,11 @@
 use crate::{
-    domain::{provider_setup::GpuCloudProviderId, workspace::Workspace},
-    secrets::SecretStore,
+    domain::workspace::Workspace, secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
 };
 
-use super::context::{SyncStepResult, WorkspaceProvisioningContext};
-
-mod runpod;
+use super::super::super::context::{SyncStepResult, WorkspaceProvisioningContext};
+use crate::workspace_provisioning::helpers::result;
 
 pub(crate) async fn sync<S, W, R>(
     context: &WorkspaceProvisioningContext<'_, S, W, R>,
@@ -18,7 +16,10 @@ where
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
-    match workspace.gpu_cloud_provider_id {
-        GpuCloudProviderId::Runpod => runpod::sync(context, workspace).await,
-    }
+    let resource_config = context.resource_config();
+    Ok(context
+        .resources
+        .sync_network_volume(workspace, &resource_config)
+        .await?
+        .map(result))
 }

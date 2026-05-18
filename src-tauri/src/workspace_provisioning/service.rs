@@ -1,12 +1,10 @@
 use crate::{
-    domain::workspace::{
-        provisioning_state::{fail_workspace, reset_after_resource_cleanup},
-        WorkspaceLifecycleState,
-    },
-    provider_resources::ProviderResourceGateway,
-    provisioner_worker::ProvisionerWorkerGateway,
+    domain::workspace::{provisioning_state::fail_workspace, WorkspaceLifecycleState},
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::ProvisionerWorkerGateway,
+    workspace_provisioner::WorkspaceProvisionerService,
+    workspace_resources::WorkspaceResourceService,
 };
 
 use super::{
@@ -22,19 +20,20 @@ pub struct WorkspaceProvisioningConfig {
     pub volume_mount_path: String,
 }
 
-pub struct WorkspaceProvisioningService<S, P, W, R> {
+pub struct WorkspaceProvisioningService<S, W, R> {
     secrets: S,
-    providers: P,
+    resources: WorkspaceResourceService<S, W>,
     workspace_catalog: W,
     workers: R,
+    workspace_provisioner: WorkspaceProvisionerService,
     coordinator: WorkspaceProvisioningCoordinator,
     config: WorkspaceProvisioningConfig,
 }
 
-impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
+impl<S, W, R> WorkspaceProvisioningService<S, W, R> {
     pub fn new(
         secrets: S,
-        providers: P,
+        resources: WorkspaceResourceService<S, W>,
         workspace_catalog: W,
         workers: R,
         coordinator: WorkspaceProvisioningCoordinator,
@@ -42,29 +41,30 @@ impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
     ) -> Self {
         Self {
             secrets,
-            providers,
+            resources,
             workspace_catalog,
             workers,
+            workspace_provisioner: WorkspaceProvisionerService::new(),
             coordinator,
             config,
         }
     }
 
-    fn context(&self) -> WorkspaceProvisioningContext<'_, S, P, W, R> {
+    fn context(&self) -> WorkspaceProvisioningContext<'_, S, W, R> {
         WorkspaceProvisioningContext::new(
             &self.secrets,
-            &self.providers,
+            &self.resources,
             &self.workspace_catalog,
             &self.workers,
+            &self.workspace_provisioner,
             &self.config,
         )
     }
 }
 
-impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R>
+impl<S, W, R> WorkspaceProvisioningService<S, W, R>
 where
     S: SecretStore,
-    P: ProviderResourceGateway,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
@@ -103,22 +103,7 @@ where
             return Ok(result(workspace));
         }
 
-        if let Some(result) = steps::network_volume::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::provisioning_pod::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::environment::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::provisioning_pod::finish(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::endpoint_template::sync(&context, &mut workspace).await? {
-            return Ok(result);
-        }
-        if let Some(result) = steps::serverless_endpoint::sync(&context, &mut workspace).await? {
+        if let Some(result) = steps::sync(&context, &mut workspace).await? {
             return Ok(result);
         }
 
@@ -139,22 +124,16 @@ where
             return Err(WorkspaceProvisioningError::InvalidWorkspaceLifecycle);
         }
 
-        match crate::workspace_resource_cleanup::cleanup_known_resources(
-            &self.secrets,
-            &self.providers,
-            &workspace,
-        )
-        .await
-        {
-            Ok(()) => {
-                reset_after_resource_cleanup(&mut workspace);
+        match self.resources.cleanup_known_resources(&mut workspace).await {
+            Ok(updated_workspace) => {
+                workspace = updated_workspace;
             }
             Err(_) => {
                 fail_workspace(&mut workspace, failure::cancellation_cleanup_failed());
+                workspace = context.update_workspace(&workspace).await?;
             }
         }
 
-        let workspace = context.update_workspace(&workspace).await?;
         Ok(result(workspace))
     }
 }

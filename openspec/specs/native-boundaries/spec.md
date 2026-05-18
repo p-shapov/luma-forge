@@ -33,7 +33,7 @@ The Native command boundary SHALL expose a UI-safe provider setup recovery-requi
 
 ### Requirement: Provider clients are use-case independent
 
-Provider client implementations SHALL return provider-local results and errors instead of depending on setup, workspace setup, provisioning, or cleanup use-case error types.
+Provider client implementations SHALL return provider-local results and errors instead of depending on setup, workspace setup, provisioning, cleanup, or consumer-owned provider adapter error types.
 
 #### Scenario: RunPod identity validation fails
 
@@ -47,42 +47,11 @@ Provider client implementations SHALL return provider-local results and errors i
 - **THEN** the RunPod client SHALL return a provider-local error
 - **AND** the RunPod client MUST NOT return `WorkspaceSetupError`
 
-### Requirement: Provider registry maps provider errors to use-case errors
+#### Scenario: RunPod client is used by consumer-owned provider adapters
 
-The provider registry SHALL adapt provider-local client errors into the use-case error type required by each gateway trait implementation.
-
-#### Scenario: Provider setup validates identity
-
-- **WHEN** Provider Setup asks the provider registry to validate identity
-- **THEN** the provider registry SHALL call the provider client
-- **AND** the provider registry SHALL map provider-local failures into `ProviderSetupError`
-
-#### Scenario: Workspace Setup reads inventory
-
-- **WHEN** Workspace Setup asks the provider registry to fetch provider inventory
-- **THEN** the provider registry SHALL call the provider client
-- **AND** the provider registry SHALL map provider-local failures into `WorkspaceSetupError`
-
-### Requirement: Provider registry maps provisioning provider errors
-
-The provider registry SHALL adapt provider-local provisioning resource failures into provider-resource boundary errors while keeping provider clients and shared provider resource contracts independent from Workspace Provisioning modules.
-
-#### Scenario: Workspace Provisioning creates RunPod resources
-
-- **WHEN** Workspace Provisioning asks the provider registry through the provider resource gateway to create, observe, or delete RunPod provisioning resources
-- **THEN** the provider registry SHALL call the RunPod client
-- **AND** the provider registry SHALL map provider-local failures into provider-resource boundary errors
-- **AND** Workspace Provisioning SHALL map provider-resource boundary errors into Workspace Provisioning errors at the use-case boundary
-- **AND** the RunPod client MUST NOT return Workspace Provisioning error types
-- **AND** the provider resource boundary MUST NOT depend on Workspace Provisioning modules
-
-#### Scenario: Provider API Key is required for provisioning
-
-- **WHEN** Workspace Provisioning asks the provider registry to perform a RunPod provider mutation
-- **THEN** the provider registry SHALL read the RunPod Provider API Key through the secret store
-- **AND** the provider registry SHALL reject the operation with a provider-resource setup-prerequisite error when the key is missing or unreadable
-- **AND** Workspace Provisioning SHALL map that provider-resource setup-prerequisite error to the existing Workspace Provisioning setup-prerequisite error
-- **AND** the provider registry MUST NOT expose the Provider API Key to Workspace Provisioning response DTOs or Workspace metadata
+- **WHEN** Provider Setup, Workspace Setup, or Workspace Resource operations call the RunPod client through their own provider adapter code
+- **THEN** the RunPod client SHALL return provider-local results and errors
+- **AND** the RunPod client MUST NOT depend on Provider Setup, Workspace Setup, Workspace Provisioning, Workspace Resources, or Tauri command modules
 
 ### Requirement: Provider-local errors expose stable LumaForge-owned failure variants
 
@@ -116,26 +85,6 @@ Provider client implementations SHALL classify provider failures into stable Lum
 - **AND** rate limiting SHALL map to provider rate limiting
 - **AND** non-authentication `4xx` statuses SHALL map to provider request rejection
 - **AND** other non-success statuses SHALL map to provider API unavailability
-
-### Requirement: Provider registry maps provider errors to stable recovery semantics
-
-The provider registry SHALL map provider-local errors into boundary-appropriate errors for Provider Setup, Workspace Setup, and shared provider resource access without leaking provider transport details.
-
-#### Scenario: Provider setup and workspace setup map provider errors
-
-- **WHEN** Provider Setup or Workspace Setup receives a provider-local failure through the provider registry
-- **THEN** the registry SHALL map the provider-local error into the corresponding use-case error
-- **AND** unauthorized provider keys SHALL remain non-retryable setup recovery failures
-- **AND** provider API unavailability and rate limiting SHALL remain retryable provider availability failures
-- **AND** provider request rejection SHALL remain distinct from provider API unavailability
-
-#### Scenario: Workspace Provisioning maps provider resource errors
-
-- **WHEN** Workspace Provisioning receives a provider-resource boundary failure through the provider resource gateway
-- **THEN** Workspace Provisioning SHALL map rate limiting to a provider rate-limited provisioning error
-- **AND** Workspace Provisioning SHALL map request rejection to a provider request-rejected provisioning error
-- **AND** Workspace Provisioning SHALL preserve existing provider setup, authorization, availability, invalid response, not found, conflict, and indeterminate operation semantics
-- **AND** the mapped error MUST NOT expose provider transport details, Provider API Keys, bearer headers, raw provider payloads, or provider-specific error codes as domain contracts
 
 ### Requirement: Command errors expose stable UI-safe provider recovery metadata
 
@@ -656,7 +605,7 @@ The Native command boundary SHALL expose RunPod endpoint template metadata to Re
 
 ### Requirement: Provider resource contracts are use-case independent
 
-Provider resource contracts used to create, discover, observe, and delete GPU provider resources SHALL be owned by a native provider-resource boundary rather than by the Workspace Provisioning use case.
+Provider resource contracts used to create, discover, observe, and delete GPU provider resources SHALL be owned by the Workspace Resource boundary rather than by the Workspace Provisioning use case.
 
 #### Scenario: Workspace Provisioning mutates provider resources
 
@@ -672,11 +621,12 @@ Provider resource contracts used to create, discover, observe, and delete GPU pr
 - **AND** it MUST NOT import Workspace Provisioning modules solely to access provider resource CRUD abstractions
 - **AND** cleanup SHALL preserve its existing tolerance for provider resources that are already missing
 
-#### Scenario: Provider registry implements provider resource access
+#### Scenario: Workspace Resource operations implement provider resource access
 
-- **WHEN** the provider registry adapts RunPod resource operations for native use cases
-- **THEN** it SHALL implement the provider-neutral resource gateway without depending on Workspace Provisioning modules
-- **AND** it SHALL keep RunPod request/response DTOs, provider resource naming, fixed RunPod port values, and provider-local error interpretation inside the provider boundary
+- **WHEN** Workspace Resource-owned adapters perform RunPod resource operations for native use cases
+- **THEN** they SHALL implement the provider-neutral resource gateway without depending on Workspace Provisioning modules
+- **AND** they SHALL keep RunPod request construction, provider resource naming, fixed RunPod port values, secret-backed Provider API Key lookup, and provider-local error mapping inside the Workspace Resource boundary
+- **AND** RunPod request and response DTO parsing SHALL remain inside the RunPod provider client boundary
 
 ### Requirement: Workspace Provisioning service remains an orchestration boundary
 
@@ -701,4 +651,85 @@ The Workspace Provisioning application service SHALL orchestrate the provisionin
 - **THEN** the Tauri Workspace Provisioning commands SHALL keep their existing request and response payload shape
 - **AND** generated TypeScript binding compatibility SHALL be preserved unless a separate spec change explicitly changes the command contract
 - **AND** no Provider API Key, Provisioner Worker bearer token, raw provider payload, or provider transport detail may be added to command responses, Workspace metadata, logs, or diagnostics
+
+### Requirement: Consumer-owned provider adapters map provider errors to use-case errors
+
+Consumer-owned provider adapters SHALL adapt provider-local client errors into the use-case error type required by each gateway trait implementation.
+
+#### Scenario: Provider setup validates identity
+
+- **WHEN** Provider Setup asks its provider identity gateway to validate identity
+- **THEN** the Provider Setup-owned provider adapter SHALL call the provider client
+- **AND** the Provider Setup-owned provider adapter SHALL map provider-local failures into `ProviderSetupError`
+- **AND** the shared provider package MUST NOT own this Provider Setup error mapping
+
+#### Scenario: Workspace Setup reads inventory
+
+- **WHEN** Workspace Setup asks its provider placement gateway to fetch provider inventory
+- **THEN** the Workspace Setup-owned provider adapter SHALL call the provider client
+- **AND** the Workspace Setup-owned provider adapter SHALL map provider-local failures into `WorkspaceSetupError`
+- **AND** the shared provider package MUST NOT own this Workspace Setup error mapping
+
+### Requirement: Consumer-owned resource operations map provisioning provider errors
+
+Workspace Resource operation adapters SHALL adapt provider-local provisioning resource failures into workspace-resource boundary errors while keeping provider clients and workspace resource contracts independent from Workspace Provisioning modules.
+
+#### Scenario: Workspace Provisioning creates RunPod resources
+
+- **WHEN** Workspace Provisioning asks Workspace Resource operations to create, observe, or delete RunPod provisioning resources
+- **THEN** the Workspace Resource-owned RunPod operation adapter SHALL call the RunPod client
+- **AND** the Workspace Resource-owned RunPod operation adapter SHALL map provider-local failures into workspace-resource boundary errors
+- **AND** Workspace Provisioning SHALL map workspace-resource boundary errors into Workspace Provisioning errors at the use-case boundary
+- **AND** the RunPod client MUST NOT return Workspace Provisioning error types
+- **AND** the workspace resource boundary MUST NOT depend on Workspace Provisioning modules
+
+#### Scenario: Provider API Key is required for provisioning
+
+- **WHEN** Workspace Provisioning asks Workspace Resource operations to perform a RunPod provider mutation
+- **THEN** the Workspace Resource-owned RunPod operation adapter SHALL read the RunPod Provider API Key through the secret store
+- **AND** the Workspace Resource-owned RunPod operation adapter SHALL reject the operation with a workspace-resource setup-prerequisite error when the key is missing or unreadable
+- **AND** Workspace Provisioning SHALL map that workspace-resource setup-prerequisite error to the existing Workspace Provisioning setup-prerequisite error
+- **AND** the Workspace Resource-owned RunPod operation adapter MUST NOT expose the Provider API Key to Workspace Provisioning response DTOs or Workspace metadata
+
+### Requirement: Consumer-owned provider adapters map provider errors to stable recovery semantics
+
+Consumer-owned provider adapters SHALL map provider-local errors into boundary-appropriate errors for Provider Setup, Workspace Setup, and Workspace Resource access without leaking provider transport details.
+
+#### Scenario: Provider setup and workspace setup map provider errors
+
+- **WHEN** Provider Setup or Workspace Setup receives a provider-local failure through its own provider adapter
+- **THEN** the adapter SHALL map the provider-local error into the corresponding use-case error
+- **AND** unauthorized provider keys SHALL remain non-retryable setup recovery failures
+- **AND** provider API unavailability and rate limiting SHALL remain retryable provider availability failures where the use case exposes a retryable availability category
+- **AND** provider request rejection SHALL remain distinct from provider API unavailability
+- **AND** the shared provider package MUST NOT map provider-local errors into Provider Setup or Workspace Setup error types
+
+#### Scenario: Workspace Provisioning maps workspace resource errors
+
+- **WHEN** Workspace Provisioning receives a workspace-resource boundary failure through Workspace Resource operations
+- **THEN** Workspace Provisioning SHALL map rate limiting to a provider rate-limited provisioning error
+- **AND** Workspace Provisioning SHALL map request rejection to a provider request-rejected provisioning error
+- **AND** Workspace Provisioning SHALL preserve existing provider setup, authorization, availability, invalid response, not found, conflict, and indeterminate operation semantics
+- **AND** the mapped error MUST NOT expose provider transport details, Provider API Keys, bearer headers, raw provider payloads, or provider-specific error codes as domain contracts
+
+### Requirement: Workspace provisioner owns environment orchestration
+Workspace environment preparation orchestration SHALL live in a native workspace provisioner boundary that is separate from provider-resource operations and encapsulates the low-level Provisioner Worker protocol gateway.
+
+#### Scenario: Provider resources remain outside workspace provisioner
+- **WHEN** native code needs to create, discover, observe, or delete RunPod volumes, provisioning pods, endpoint templates, or serverless endpoints
+- **THEN** it SHALL use the Workspace Resource boundary
+- **AND** the workspace provisioner MUST NOT contain RunPod request or response DTOs
+- **AND** the workspace provisioner MUST NOT create, discover, observe, or delete provider resources
+
+#### Scenario: Worker protocol is encapsulated by workspace provisioner
+- **WHEN** native code needs to call the Provisioner Worker HTTP API or use Provisioner Worker status types
+- **THEN** it SHALL depend on the workspace provisioner boundary
+- **AND** the low-level Provisioner Worker protocol module SHALL be nested under the workspace provisioner boundary as `gateway`
+- **AND** crate-root native modules MUST NOT import a sibling `provisioner_worker` module
+
+#### Scenario: Workspace provisioning remains top-level coordinator
+- **WHEN** a Workspace Provisioning sync command selects the next safe provisioning activity
+- **THEN** Workspace Provisioning SHALL remain responsible for loading authoritative Workspace metadata, enforcing per-workspace sync coordination, sequencing provider-resource steps, and returning command-safe results
+- **AND** it MAY delegate environment preparation to the workspace provisioner
+- **AND** the workspace provisioner MUST NOT own the full Draft-to-Ready Workspace lifecycle
 
