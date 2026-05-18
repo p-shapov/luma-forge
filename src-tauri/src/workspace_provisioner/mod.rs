@@ -5,9 +5,6 @@ pub(crate) use gateway::{
     ProvisionerWorkerHttpGateway, ProvisionerWorkerJobStatus, ProvisionerWorkerStartRequest,
 };
 
-#[cfg(test)]
-pub(crate) use gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};
-
 use crate::{
     domain::workspace::{
         provisioning_state::fail_workspace, ProviderResourceStatus, Workspace,

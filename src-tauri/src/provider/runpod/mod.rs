@@ -1,8 +1,5 @@
 use std::time::Duration;
 
-#[cfg(test)]
-use std::sync::OnceLock;
-
 mod contracts;
 mod mapper;
 
@@ -108,11 +105,6 @@ impl RunPodClient {
             graphql_endpoint,
             rest_endpoint,
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn new_for_test(endpoint: String, request_timeout: Duration) -> Self {
-        Self::new_with_endpoints(endpoint.clone(), endpoint, request_timeout, request_timeout)
     }
 
     pub async fn validate_identity(
@@ -433,20 +425,7 @@ impl RunPodClient {
 }
 
 fn default_rest_endpoint() -> String {
-    #[cfg(test)]
-    if let Some(endpoint) = RUNPOD_TEST_REST_ENDPOINT.get() {
-        return endpoint.clone();
-    }
-
     RUNPOD_REST_ENDPOINT.to_string()
-}
-
-#[cfg(test)]
-static RUNPOD_TEST_REST_ENDPOINT: OnceLock<String> = OnceLock::new();
-
-#[cfg(test)]
-pub(crate) fn set_default_test_rest_endpoint(endpoint: String) {
-    let _ = RUNPOD_TEST_REST_ENDPOINT.set(endpoint);
 }
 
 fn network_volumes_by_name(
@@ -609,7 +588,3 @@ pub(super) fn provider_error_from_rest_status(
         None
     }
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

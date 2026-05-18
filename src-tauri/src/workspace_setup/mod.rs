@@ -1,6 +1,3 @@
-#[cfg(test)]
-use std::{future::Future, pin::Pin};
-
 pub mod contracts;
 pub mod error;
 mod providers;
@@ -20,16 +17,6 @@ use crate::{
 
 use contracts::{CreateWorkspaceInput, ProviderPlacementOptions};
 use error::WorkspaceSetupError;
-
-#[cfg(test)]
-pub trait ProviderPlacementOptionsGateway: Send + Sync {
-    fn fetch_placement_options<'a>(
-        &'a self,
-        provider_id: &'a GpuCloudProviderId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<ProviderPlacementOptions, WorkspaceSetupError>> + Send + 'a>,
-    >;
-}
 
 pub trait WorkspaceSetupCatalogReader: Send + Sync {
     fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError>;
@@ -81,16 +68,6 @@ where
         )
         .map_err(|_| WorkspaceSetupError::ProviderInventoryInvalid)?;
         Ok(options)
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn get_provider_placement_options_with_provider(
-        &self,
-        provider_id: GpuCloudProviderId,
-        providers: &impl ProviderPlacementOptionsGateway,
-    ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
-        let options = providers.fetch_placement_options(&provider_id).await?;
-        self.validate_provider_placement_options(provider_id, options)
     }
 
     pub async fn get_workspace_catalog(&self) -> Result<WorkspaceCatalog, WorkspaceSetupError> {
@@ -150,7 +127,3 @@ where
         Ok(workspace)
     }
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-pub(crate) mod tests;

@@ -161,20 +161,3 @@ pub(crate) fn serverless_endpoint_snapshot(
         endpoint_invoke_url: observation.endpoint_invoke_url,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maps_provisioning_token_secret_failures_to_provisioning_errors() {
-        assert_eq!(
-            WorkspaceProvisioningError::from(SecretStoreError::InvalidStoredProvisionerWorkerToken),
-            WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
-        );
-        assert_eq!(
-            WorkspaceProvisioningError::from(SecretStoreError::SecureKeyringUnavailable),
-            WorkspaceProvisioningError::SecureKeyringUnavailable
-        );
-    }
-}

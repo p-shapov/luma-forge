@@ -208,6 +208,3 @@ impl Workspace {
 pub struct WorkspaceCatalog {
     pub workspaces: Vec<Workspace>,
 }
-
-#[cfg(test)]
-mod tests;

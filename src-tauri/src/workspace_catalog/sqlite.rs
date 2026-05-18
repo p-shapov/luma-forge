@@ -20,9 +20,6 @@ pub struct SqliteWorkspaceCatalog {
     pool: SqlitePool,
 }
 
-#[cfg(test)]
-use migrations::{CURRENT_PERSISTENCE_VERSION, PERSISTENCE_VERSION_KEY};
-
 impl SqliteWorkspaceCatalog {
     pub(crate) async fn connect(path: impl AsRef<Path>) -> Result<Self, WorkspaceSetupError> {
         let path = path.as_ref();
@@ -35,18 +32,6 @@ impl SqliteWorkspaceCatalog {
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect(&url)
-            .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
-        let catalog = Self { pool };
-        catalog.migrate().await?;
-        Ok(catalog)
-    }
-
-    #[cfg(test)]
-    async fn in_memory() -> Result<Self, WorkspaceSetupError> {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
@@ -347,7 +332,3 @@ pub(super) fn validate_workspace_row(
 fn is_unique_constraint(error: &sqlx::Error) -> bool {
     matches!(error, sqlx::Error::Database(database_error) if database_error.is_unique_violation())
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

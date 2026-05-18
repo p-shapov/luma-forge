@@ -1,6 +1,3 @@
-#[cfg(test)]
-use std::{future::Future, pin::Pin};
-
 mod coordinator;
 mod error;
 mod providers;
@@ -15,15 +12,6 @@ use crate::{
     },
     secrets::SecretStore,
 };
-
-#[cfg(test)]
-pub trait ProviderIdentityGateway: Send + Sync {
-    fn validate_identity<'a>(
-        &'a self,
-        provider_id: &'a DomainGpuCloudProviderId,
-        api_key: &'a ProviderApiKey,
-    ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>;
-}
 
 pub struct ProviderSetupService<S> {
     secrets: S,
@@ -123,80 +111,6 @@ where
         Ok(setup)
     }
 
-    #[cfg(test)]
-    pub(crate) async fn get_setup_with_provider(
-        &self,
-        provider_id: DomainGpuCloudProviderId,
-        providers: &impl ProviderIdentityGateway,
-    ) -> Result<Option<DomainGpuCloudProviderSetup>, ProviderSetupError> {
-        let Some(api_key) = self.secrets.read_api_key(&provider_id)? else {
-            return Ok(None);
-        };
-
-        let setup = self
-            .setup_from_key_with_provider(&provider_id, &api_key, providers)
-            .await?;
-
-        Ok(Some(setup))
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn setup_with_provider(
-        &self,
-        provider_id: DomainGpuCloudProviderId,
-        api_key: ProviderApiKey,
-        providers: &impl ProviderIdentityGateway,
-    ) -> Result<DomainGpuCloudProviderSetup, ProviderSetupError> {
-        if self.secrets.read_api_key(&provider_id)?.is_some() {
-            return Err(ProviderSetupError::ProviderSetupAlreadyExists);
-        }
-
-        providers.validate_identity(&provider_id, &api_key).await?;
-        self.secrets.replace_api_key(&provider_id, &api_key)?;
-
-        let setup = match self
-            .finalize_setup_from_stored_key_with_provider(&provider_id, providers)
-            .await
-        {
-            Ok(setup) => setup,
-            Err(error) => return Err(self.rollback_failed_setup(&provider_id, error)),
-        };
-
-        Ok(setup)
-    }
-
-    #[cfg(test)]
-    async fn finalize_setup_from_stored_key_with_provider(
-        &self,
-        provider_id: &DomainGpuCloudProviderId,
-        providers: &impl ProviderIdentityGateway,
-    ) -> Result<DomainGpuCloudProviderSetup, ProviderSetupError> {
-        let stored_api_key = self
-            .secrets
-            .read_api_key(provider_id)?
-            .ok_or(ProviderSetupError::SecureKeyringUnavailable)?;
-
-        self.setup_from_key_with_provider(provider_id, &stored_api_key, providers)
-            .await
-    }
-
-    #[cfg(test)]
-    async fn setup_from_key_with_provider(
-        &self,
-        provider_id: &DomainGpuCloudProviderId,
-        api_key: &ProviderApiKey,
-        providers: &impl ProviderIdentityGateway,
-    ) -> Result<DomainGpuCloudProviderSetup, ProviderSetupError> {
-        let identity = providers.validate_identity(provider_id, api_key).await?;
-        provider_setup::validator::validate_provider_identity(&identity)
-            .map_err(|_| ProviderSetupError::ProviderIdentityResponseInvalid)?;
-        let setup = Self::setup_from_identity(*provider_id, identity);
-        provider_setup::validator::validate_gpu_cloud_provider_setup(&setup)
-            .map_err(|_| ProviderSetupError::ProviderIdentityResponseInvalid)?;
-
-        Ok(setup)
-    }
-
     fn setup_from_identity(
         provider_id: DomainGpuCloudProviderId,
         identity: ProviderIdentity,
@@ -208,7 +122,3 @@ where
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

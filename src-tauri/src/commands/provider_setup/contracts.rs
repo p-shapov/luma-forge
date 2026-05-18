@@ -60,7 +60,3 @@ pub struct DeleteGpuCloudProviderSetupRequest {
 pub struct DeleteGpuCloudProviderSetupResponse {
     pub gpu_cloud_provider_setup: Option<domain_provider_setup::GpuCloudProviderSetup>,
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

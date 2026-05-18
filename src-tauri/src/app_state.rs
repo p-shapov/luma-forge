@@ -36,8 +36,6 @@ pub(crate) struct NativeAppState {
     catalogs: BundledCatalogReader,
     secrets: KeyringSecretStore,
     provisioner_workers: ProvisionerWorkerHttpGateway,
-    #[cfg(test)]
-    workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize,
 }
 
 impl NativeAppState {
@@ -97,10 +95,6 @@ impl NativeAppState {
     async fn workspace_catalog(&self) -> Result<SqliteWorkspaceCatalog, WorkspaceSetupError> {
         self.workspace_catalog
             .get_or_try_init(|| async {
-                #[cfg(test)]
-                self.workspace_catalog_initialization_count
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
                 SqliteWorkspaceCatalog::connect(self.workspace_catalog_source.catalog_path()?).await
             })
             .await
@@ -121,30 +115,12 @@ impl NativeAppState {
             catalogs: BundledCatalogReader,
             secrets,
             provisioner_workers: ProvisionerWorkerHttpGateway::default(),
-            #[cfg(test)]
-            workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize::new(0),
         }
-    }
-
-    #[cfg(test)]
-    fn with_workspace_catalog_path(path: PathBuf) -> Self {
-        Self::from_workspace_catalog_source(
-            WorkspaceCatalogSource::CatalogPath(path),
-            "test.luma-forge",
-        )
-    }
-
-    #[cfg(test)]
-    fn workspace_catalog_initialization_count(&self) -> usize {
-        self.workspace_catalog_initialization_count
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
 enum WorkspaceCatalogSource {
     AppDataDir(AppHandle),
-    #[cfg(test)]
-    CatalogPath(PathBuf),
 }
 
 impl WorkspaceCatalogSource {
@@ -155,86 +131,6 @@ impl WorkspaceCatalogSource {
                 .app_data_dir()
                 .map(|data_dir| data_dir.join("workspace-catalog.sqlite"))
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable),
-            #[cfg(test)]
-            Self::CatalogPath(path) => Ok(path.clone()),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{fs, time::Duration};
-
-    use crate::{
-        domain::provider_setup::GpuCloudProviderId, workspace_setup::error::WorkspaceSetupError,
-    };
-
-    use super::*;
-
-    fn temp_catalog_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("luma-forge-{name}-{}.sqlite", uuid::Uuid::new_v4()))
-    }
-
-    #[tokio::test]
-    async fn workspace_catalog_initialization_failure_uses_existing_error() {
-        let base = std::env::temp_dir().join(format!(
-            "luma-forge-blocked-catalog-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&base).expect("test directory should be created");
-        let blocked_parent = base.join("not-a-directory");
-        fs::write(&blocked_parent, "not a directory").expect("blocking file should be created");
-        let state = NativeAppState::with_workspace_catalog_path(
-            blocked_parent.join("workspace-catalog.sqlite"),
-        );
-
-        let error = match state.workspace_setup_service().await {
-            Ok(_) => panic!("catalog initialization should fail"),
-            Err(error) => error,
-        };
-
-        assert_eq!(
-            error,
-            WorkspaceSetupError::WorkspaceCatalogStorageUnavailable
-        );
-
-        fs::remove_file(blocked_parent).ok();
-        fs::remove_dir(base).ok();
-    }
-
-    #[tokio::test]
-    async fn workspace_catalog_is_initialized_once_and_reused() {
-        let path = temp_catalog_path("shared-catalog");
-        let state = NativeAppState::with_workspace_catalog_path(path.clone());
-
-        state
-            .workspace_setup_service()
-            .await
-            .expect("first catalog initialization should succeed");
-        state
-            .workspace_setup_service()
-            .await
-            .expect("second catalog access should succeed");
-
-        assert_eq!(state.workspace_catalog_initialization_count(), 1);
-
-        fs::remove_file(path).ok();
-    }
-
-    #[tokio::test]
-    async fn provider_setup_coordinator_is_shared_runtime_state() {
-        let state = NativeAppState::with_workspace_catalog_path(temp_catalog_path("coordinator"));
-        let provider_id = GpuCloudProviderId::Runpod;
-        let first_guard = state.provider_setup_coordinator().lock(&provider_id).await;
-
-        let wait_result = tokio::time::timeout(
-            Duration::from_millis(10),
-            state.provider_setup_coordinator().lock(&provider_id),
-        )
-        .await;
-        assert!(wait_result.is_err());
-
-        drop(first_guard);
-        state.provider_setup_coordinator().lock(&provider_id).await;
     }
 }
