@@ -1,10 +1,15 @@
+use std::{future::Future, pin::Pin};
+
 use crate::{
     domain::workspace::Workspace,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
     workspace_provisioner::{WorkspaceProvisionerContext, WorkspaceProvisionerService},
-    workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceService},
+    workspace_resources::{
+        WorkspaceResourceConfig, WorkspaceResourceError, WorkspaceResourceService,
+        WorkspaceResourceSyncResult,
+    },
 };
 
 use super::{
@@ -14,19 +19,103 @@ use super::{
 pub(crate) type SyncStepResult =
     Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError>;
 
-pub(crate) struct WorkspaceProvisioningContext<'a, S, W, R> {
+pub(crate) trait WorkspaceProvisioningResources: Send + Sync {
+    fn sync_network_volume<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+        config: &'a WorkspaceResourceConfig,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+
+    fn sync_provisioning_pod<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+        config: &'a WorkspaceResourceConfig,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+
+    fn finish_provisioning_pod<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+
+    fn sync_serverless_endpoint<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+        config: &'a WorkspaceResourceConfig,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+
+    fn cleanup_known_resources<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceResourceError>> + Send + 'a>>;
+}
+
+impl<S, W> WorkspaceProvisioningResources for WorkspaceResourceService<S, W>
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+{
+    fn sync_network_volume<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+        config: &'a WorkspaceResourceConfig,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+        Box::pin(async move {
+            WorkspaceResourceService::sync_network_volume(self, workspace, config).await
+        })
+    }
+
+    fn sync_provisioning_pod<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+        config: &'a WorkspaceResourceConfig,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+        Box::pin(async move {
+            WorkspaceResourceService::sync_provisioning_pod(self, workspace, config).await
+        })
+    }
+
+    fn finish_provisioning_pod<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+        Box::pin(
+            async move { WorkspaceResourceService::finish_provisioning_pod(self, workspace).await },
+        )
+    }
+
+    fn sync_serverless_endpoint<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+        config: &'a WorkspaceResourceConfig,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+        Box::pin(async move {
+            WorkspaceResourceService::sync_serverless_endpoint(self, workspace, config).await
+        })
+    }
+
+    fn cleanup_known_resources<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceResourceError>> + Send + 'a>> {
+        Box::pin(
+            async move { WorkspaceResourceService::cleanup_known_resources(self, workspace).await },
+        )
+    }
+}
+
+pub(crate) struct WorkspaceProvisioningContext<'a, S, W, R, Q = WorkspaceResourceService<S, W>> {
     pub(crate) secrets: &'a S,
-    pub(crate) resources: &'a WorkspaceResourceService<S, W>,
+    pub(crate) resources: &'a Q,
     pub(crate) workspace_catalog: &'a W,
     pub(crate) workers: &'a R,
     pub(crate) workspace_provisioner: &'a WorkspaceProvisionerService,
     pub(crate) config: &'a WorkspaceProvisioningConfig,
 }
 
-impl<'a, S, W, R> WorkspaceProvisioningContext<'a, S, W, R> {
+impl<'a, S, W, R, Q> WorkspaceProvisioningContext<'a, S, W, R, Q> {
     pub(crate) fn new(
         secrets: &'a S,
-        resources: &'a WorkspaceResourceService<S, W>,
+        resources: &'a Q,
         workspace_catalog: &'a W,
         workers: &'a R,
         workspace_provisioner: &'a WorkspaceProvisionerService,
@@ -53,7 +142,7 @@ impl<'a, S, W, R> WorkspaceProvisioningContext<'a, S, W, R> {
     }
 }
 
-impl<S, W, R> WorkspaceProvisioningContext<'_, S, W, R>
+impl<S, W, R, Q> WorkspaceProvisioningContext<'_, S, W, R, Q>
 where
     S: SecretStore,
     W: WorkspaceCatalogRepository,
