@@ -14,18 +14,19 @@ use crate::{
     },
 };
 
-use crate::workspace_resources::{
-    WorkspaceResourceConfig, WorkspaceResourceContext, WorkspaceResourceSyncResult,
-};
+use crate::workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceSyncResult};
 
-pub(crate) async fn sync<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
+use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
+
+pub(crate) async fn sync<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
+    C: RunPodWorkspaceResourceClient,
 {
     if workspace.environment_prepared_at.is_none()
         && workspace.active_provisioning_pod_snapshot.is_none()
@@ -174,13 +175,14 @@ where
     Ok(None)
 }
 
-pub(crate) async fn finish<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
+pub(crate) async fn finish<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
     S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
+    C: RunPodWorkspaceResourceClient,
 {
     if workspace.environment_prepared_at.is_none() {
         return Ok(None);
@@ -211,8 +213,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_indeterminate_provider_operation<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
+async fn fail_for_indeterminate_provider_operation<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -223,8 +225,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_missing_provider_resource<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
+async fn fail_for_missing_provider_resource<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -235,8 +237,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_orphaned_provider_resources<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
+async fn fail_for_orphaned_provider_resources<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
     provider_resource_ids: Vec<String>,
@@ -249,4 +251,302 @@ where
         failure::orphaned_provider_resources(phase, provider_resource_ids),
     );
     context.update_workspace(workspace).await.map(Some)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{
+        finish_provisioning_pod_with_client, sync_provisioning_pod_with_client, test_support::*,
+    };
+    use crate::{
+        domain::workspace::{
+            ProviderResourceStatus, Workspace, WorkspaceProvisioningFailureCode,
+            WorkspaceProvisioningPhase,
+        },
+        provider::ProviderClientError,
+        secrets::SecretStoreError,
+        workspace_resources::{WorkspaceResourceError, WorkspaceResourceSyncResult},
+    };
+
+    async fn sync(
+        client: &FakeRunPodClient,
+        workspace: &mut Workspace,
+        secrets: &FakeSecretStore,
+        catalog: &FakeWorkspaceCatalog,
+    ) -> WorkspaceResourceSyncResult {
+        let context = context(secrets, catalog);
+        sync_provisioning_pod_with_client(client, &context, workspace, &config()).await
+    }
+
+    async fn finish(
+        client: &FakeRunPodClient,
+        workspace: &mut Workspace,
+        secrets: &FakeSecretStore,
+        catalog: &FakeWorkspaceCatalog,
+    ) -> WorkspaceResourceSyncResult {
+        let context = context(secrets, catalog);
+        finish_provisioning_pod_with_client(client, &context, workspace).await
+    }
+
+    #[tokio::test]
+    async fn waits_for_ready_volume() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Creating));
+
+        let result = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed");
+
+        assert!(result.is_none());
+        assert!(client.calls().is_empty());
+        assert!(secrets.write_tokens().is_empty());
+    }
+
+    #[tokio::test]
+    async fn creates_token_and_pod_when_volume_is_ready() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Ok(runpod_pod(
+            "pod-1",
+            ProviderResourceStatus::Creating,
+            Some("https://pod/status"),
+        )));
+
+        let updated = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("workspace should be persisted");
+
+        assert_eq!(secrets.write_tokens().len(), 1);
+        assert_eq!(
+            updated
+                .active_provisioning_pod_snapshot
+                .expect("pod should be active")
+                .provisioner_status_url,
+            "https://pod/status"
+        );
+        match &client.calls()[1] {
+            RunPodCall::CreatePod(request) => {
+                assert_eq!(request.name, "luma-forge-workspace-1-provisioner");
+                assert_eq!(request.volume_mount_path, "/workspace");
+                assert_eq!(request.network_volume_id, "volume-1");
+                assert!(request
+                    .env
+                    .contains_key("LUMA_FORGE_PROVISIONER_BEARER_TOKEN"));
+            }
+            call => panic!("unexpected call: {call:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_created_pod_without_status_url() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Ok(runpod_pod(
+            "pod-1",
+            ProviderResourceStatus::Creating,
+            None,
+        )));
+
+        let error = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect_err("missing status url should be invalid");
+
+        assert_eq!(error, WorkspaceResourceError::ProviderResponseInvalid);
+        assert!(catalog.updates().is_empty());
+    }
+
+    #[tokio::test]
+    async fn orphaned_pod_fails_before_create() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(vec![runpod_pod(
+            "orphan-pod",
+            ProviderResourceStatus::Running,
+            Some("https://pod/status"),
+        )]));
+
+        let updated = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("workspace should be persisted");
+
+        assert_eq!(
+            updated
+                .last_provisioning_failure
+                .expect("workspace should fail")
+                .code,
+            WorkspaceProvisioningFailureCode::ProviderOrphanedResources
+        );
+        assert!(secrets.write_tokens().is_empty());
+    }
+
+    #[tokio::test]
+    async fn indeterminate_pod_create_rediscovers_before_failing() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Err(ProviderClientError::Indeterminate));
+        client.push_discover_pods(Ok(Vec::new()));
+
+        let updated = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("workspace should be persisted");
+
+        assert_eq!(
+            updated
+                .last_provisioning_failure
+                .expect("workspace should fail")
+                .code,
+            WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate
+        );
+    }
+
+    #[tokio::test]
+    async fn refreshes_active_pod_and_fails_terminal_status() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.active_provisioning_pod_snapshot =
+            Some(pod_snapshot(ProviderResourceStatus::Creating));
+        client.push_get_pod(Ok(runpod_pod(
+            "pod-1",
+            ProviderResourceStatus::Failed,
+            Some("https://pod/new-status"),
+        )));
+
+        let updated = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("workspace should be persisted");
+
+        assert_eq!(
+            updated
+                .last_provisioning_failure
+                .expect("workspace should fail")
+                .phase,
+            WorkspaceProvisioningPhase::StartingProvisioningPod
+        );
+    }
+
+    #[tokio::test]
+    async fn unchanged_non_running_pod_returns_current_workspace_without_persisting() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.active_provisioning_pod_snapshot =
+            Some(pod_snapshot(ProviderResourceStatus::Creating));
+        client.push_get_pod(Ok(runpod_pod(
+            "pod-1",
+            ProviderResourceStatus::Creating,
+            Some("https://pod/status"),
+        )));
+
+        let result = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("current workspace should be returned");
+
+        assert_eq!(
+            result
+                .active_provisioning_pod_snapshot
+                .expect("pod should remain active")
+                .provider_resource_status,
+            ProviderResourceStatus::Creating
+        );
+        assert!(catalog.updates().is_empty());
+    }
+
+    #[tokio::test]
+    async fn prepared_environment_noops_sync() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
+        workspace.active_provisioning_pod_snapshot =
+            Some(pod_snapshot(ProviderResourceStatus::Running));
+
+        let result = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("sync should succeed");
+
+        assert!(result.is_none());
+        assert!(client.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn finish_deletes_pod_moves_snapshot_and_deletes_token() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
+        workspace.active_provisioning_pod_snapshot =
+            Some(pod_snapshot(ProviderResourceStatus::Running));
+        client.push_delete_pod(Ok(()));
+
+        let updated = finish(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("finish should succeed")
+            .expect("workspace should be persisted");
+
+        assert!(updated.active_provisioning_pod_snapshot.is_none());
+        assert_eq!(
+            updated
+                .last_provisioning_pod_snapshot
+                .expect("last pod should be recorded")
+                .provider_resource_status,
+            ProviderResourceStatus::Terminated
+        );
+        assert_eq!(
+            secrets.delete_token_calls(),
+            vec!["workspace-1".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn finish_tolerates_missing_pod_but_propagates_token_error() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        secrets.fail_delete_token(SecretStoreError::SecureKeyringUnavailable);
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
+        workspace.active_provisioning_pod_snapshot =
+            Some(pod_snapshot(ProviderResourceStatus::Running));
+        client.push_delete_pod(Err(ProviderClientError::NotFound));
+
+        let error = finish(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect_err("token delete error should propagate");
+
+        assert_eq!(error, WorkspaceResourceError::SecureKeyringUnavailable);
+        assert!(catalog.updates().is_empty());
+    }
 }
