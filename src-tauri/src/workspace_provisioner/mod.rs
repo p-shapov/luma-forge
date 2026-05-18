@@ -208,13 +208,14 @@ mod tests {
             workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
             workspace::{
                 ProvisioningPodSnapshot, WorkspaceCatalog, WorkspaceLifecycleState,
-                WorkspaceProvisioningFailureCode,
+                WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+                WorkspaceProvisioningPhase, WorkspaceProvisioningStatus,
             },
         },
         secrets::ProvisionerWorkerBearerToken,
         workspace_setup::error::WorkspaceSetupError,
     };
-    use gateway::ProvisionerWorkerStatus;
+    use gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};
     use std::{
         future::Future,
         pin::Pin,
@@ -363,16 +364,59 @@ mod tests {
     #[derive(Debug, Default)]
     struct FakeProvisionerWorkerGateway {
         status_calls: Mutex<Vec<String>>,
+        status_tokens: Mutex<Vec<String>>,
+        status_result: Mutex<Option<Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>>,
         start_calls: Mutex<Vec<String>>,
+        start_tokens: Mutex<Vec<String>>,
+        start_requests: Mutex<Vec<ProvisionerWorkerStartRequest>>,
+        start_result: Mutex<Option<Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>>,
     }
 
     impl FakeProvisionerWorkerGateway {
+        fn with_status_result(
+            result: Result<ProvisionerWorkerStatus, ProvisionerWorkerError>,
+        ) -> Self {
+            Self {
+                status_result: Mutex::new(Some(result)),
+                ..Self::default()
+            }
+        }
+
+        fn with_status_and_start_results(
+            status_result: Result<ProvisionerWorkerStatus, ProvisionerWorkerError>,
+            start_result: Result<ProvisionerWorkerStatus, ProvisionerWorkerError>,
+        ) -> Self {
+            Self {
+                status_result: Mutex::new(Some(status_result)),
+                start_result: Mutex::new(Some(start_result)),
+                ..Self::default()
+            }
+        }
+
         fn status_calls(&self) -> Vec<String> {
             self.status_calls.lock().expect("fake status calls").clone()
         }
 
+        fn status_tokens(&self) -> Vec<String> {
+            self.status_tokens
+                .lock()
+                .expect("fake status tokens")
+                .clone()
+        }
+
         fn start_calls(&self) -> Vec<String> {
             self.start_calls.lock().expect("fake start calls").clone()
+        }
+
+        fn start_tokens(&self) -> Vec<String> {
+            self.start_tokens.lock().expect("fake start tokens").clone()
+        }
+
+        fn start_requests(&self) -> Vec<ProvisionerWorkerStartRequest> {
+            self.start_requests
+                .lock()
+                .expect("fake start requests")
+                .clone()
         }
     }
 
@@ -380,8 +424,8 @@ mod tests {
         fn start<'a>(
             &'a self,
             provisioner_status_url: &'a str,
-            _token: &'a ProvisionerWorkerBearerToken,
-            _request: &'a ProvisionerWorkerStartRequest,
+            token: &'a ProvisionerWorkerBearerToken,
+            request: &'a ProvisionerWorkerStartRequest,
         ) -> Pin<
             Box<
                 dyn Future<Output = Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>
@@ -393,13 +437,29 @@ mod tests {
                 .lock()
                 .expect("fake start calls")
                 .push(provisioner_status_url.to_string());
-            Box::pin(async { Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None }) })
+            self.start_tokens
+                .lock()
+                .expect("fake start tokens")
+                .push(token.expose_secret().to_string());
+            self.start_requests
+                .lock()
+                .expect("fake start requests")
+                .push(request.clone());
+            let result = self
+                .start_result
+                .lock()
+                .expect("fake start result")
+                .clone()
+                .unwrap_or(Err(ProvisionerWorkerError::InvalidPayload {
+                    diagnostic: None,
+                }));
+            Box::pin(async move { result })
         }
 
         fn status<'a>(
             &'a self,
             provisioner_status_url: &'a str,
-            _token: &'a ProvisionerWorkerBearerToken,
+            token: &'a ProvisionerWorkerBearerToken,
         ) -> Pin<
             Box<
                 dyn Future<Output = Result<ProvisionerWorkerStatus, ProvisionerWorkerError>>
@@ -411,7 +471,19 @@ mod tests {
                 .lock()
                 .expect("fake status calls")
                 .push(provisioner_status_url.to_string());
-            Box::pin(async { Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None }) })
+            self.status_tokens
+                .lock()
+                .expect("fake status tokens")
+                .push(token.expose_secret().to_string());
+            let result = self
+                .status_result
+                .lock()
+                .expect("fake status result")
+                .clone()
+                .unwrap_or(Err(ProvisionerWorkerError::InvalidPayload {
+                    diagnostic: None,
+                }));
+            Box::pin(async move { result })
         }
     }
 
@@ -460,6 +532,35 @@ mod tests {
         workspace
     }
 
+    fn worker_status(
+        status: ProvisionerWorkerJobStatus,
+        phase: ProvisionerWorkerPhase,
+        progress_percent: Option<u8>,
+    ) -> ProvisionerWorkerStatus {
+        ProvisionerWorkerStatus {
+            status,
+            phase,
+            progress_percent,
+            diagnostic: None,
+        }
+    }
+
+    async fn sync_workspace(
+        workspace: &mut Workspace,
+        workers: &FakeProvisionerWorkerGateway,
+    ) -> Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError> {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+
+        service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, workers),
+                workspace,
+            )
+            .await
+    }
+
     async fn sync_with_token_result(
         token_result: Result<Option<String>, SecretStoreError>,
     ) -> (
@@ -472,6 +573,327 @@ mod tests {
         let secrets = FakeSecretStore::new(token_result);
         let catalog = FakeWorkspaceCatalog::default();
         let workers = FakeProvisionerWorkerGateway::default();
+        let mut workspace = running_workspace();
+
+        let result = service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, &workers),
+                &mut workspace,
+            )
+            .await
+            .expect("sync should not return infrastructure error")
+            .expect("sync should return failed workspace result");
+
+        (result, secrets, catalog, workers)
+    }
+
+    #[tokio::test]
+    async fn sync_environment_returns_none_when_environment_is_already_prepared() {
+        let workers = FakeProvisionerWorkerGateway::default();
+        let mut workspace = running_workspace();
+        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
+
+        let result = sync_workspace(&mut workspace, &workers)
+            .await
+            .expect("sync should not fail");
+
+        assert!(result.is_none());
+        assert!(workers.status_calls().is_empty());
+        assert!(workers.start_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn sync_environment_returns_none_without_active_provisioning_pod() {
+        let workers = FakeProvisionerWorkerGateway::default();
+        let mut workspace = running_workspace();
+        workspace.active_provisioning_pod_snapshot = None;
+
+        let result = sync_workspace(&mut workspace, &workers)
+            .await
+            .expect("sync should not fail");
+
+        assert!(result.is_none());
+        assert!(workers.status_calls().is_empty());
+        assert!(workers.start_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn sync_environment_returns_none_until_active_pod_is_running() {
+        let workers = FakeProvisionerWorkerGateway::default();
+        let mut workspace = running_workspace();
+        workspace
+            .active_provisioning_pod_snapshot
+            .as_mut()
+            .expect("active pod")
+            .provider_resource_status = ProviderResourceStatus::Creating;
+
+        let result = sync_workspace(&mut workspace, &workers)
+            .await
+            .expect("sync should not fail");
+
+        assert!(result.is_none());
+        assert!(workers.status_calls().is_empty());
+        assert!(workers.start_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn sync_environment_reports_readiness_progress_when_worker_is_unavailable() {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+        let workers = FakeProvisionerWorkerGateway::with_status_result(Err(
+            ProvisionerWorkerError::Unreachable,
+        ));
+        let mut workspace = running_workspace();
+
+        let result = service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, &workers),
+                &mut workspace,
+            )
+            .await
+            .expect("worker readiness lag should not be an infrastructure error")
+            .expect("readiness progress should be returned");
+
+        assert_eq!(secrets.read_worker_token_calls(), vec!["workspace-1"]);
+        assert_eq!(
+            workers.status_calls(),
+            vec!["https://worker.example/status"]
+        );
+        assert_eq!(workers.status_tokens(), vec!["worker-token"]);
+        assert!(workers.start_calls().is_empty());
+        assert!(catalog.updates().is_empty());
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+        assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Running);
+        assert_eq!(
+            result.progress.phase,
+            WorkspaceProvisioningPhase::PreparingEnvironment
+        );
+        assert_eq!(result.progress.percent, None);
+        assert_eq!(result.progress.failure, None);
+    }
+
+    #[tokio::test]
+    async fn sync_environment_starts_idle_worker_with_workspace_context() {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+        let workers = FakeProvisionerWorkerGateway::with_status_and_start_results(
+            Ok(worker_status(
+                ProvisionerWorkerJobStatus::Idle,
+                ProvisionerWorkerPhase::Idle,
+                None,
+            )),
+            Ok(worker_status(
+                ProvisionerWorkerJobStatus::Running,
+                ProvisionerWorkerPhase::ValidatingRuntime,
+                Some(37),
+            )),
+        );
+        let mut workspace = running_workspace();
+
+        let result = service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, &workers),
+                &mut workspace,
+            )
+            .await
+            .expect("sync should not fail")
+            .expect("worker progress should be returned");
+
+        assert_eq!(
+            workers.status_calls(),
+            vec!["https://worker.example/status"]
+        );
+        assert_eq!(workers.start_calls(), vec!["https://worker.example/status"]);
+        assert_eq!(workers.start_tokens(), vec!["worker-token"]);
+        assert!(catalog.updates().is_empty());
+        assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Running);
+        assert_eq!(
+            result.progress.phase,
+            WorkspaceProvisioningPhase::PreparingEnvironment
+        );
+        assert_eq!(result.progress.percent, Some(37));
+
+        let request = workers
+            .start_requests()
+            .pop()
+            .expect("start request should be captured");
+        assert_eq!(request.job_id, "workspace-1");
+        assert_eq!(request.workflow_preset.id, "preset-1");
+        assert_eq!(
+            request.resolved_runtime_image.provisioner_image_ref,
+            "provisioner:latest"
+        );
+        assert_eq!(
+            request.resolved_runtime_image.endpoint_image_ref,
+            "endpoint:latest"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_environment_returns_worker_progress_without_persisting_workspace() {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+        let workers = FakeProvisionerWorkerGateway::with_status_result(Ok(worker_status(
+            ProvisionerWorkerJobStatus::Running,
+            ProvisionerWorkerPhase::InstallingModels,
+            Some(42),
+        )));
+        let mut workspace = running_workspace();
+
+        let result = service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, &workers),
+                &mut workspace,
+            )
+            .await
+            .expect("sync should not fail")
+            .expect("worker progress should be returned");
+
+        assert_eq!(
+            workers.status_calls(),
+            vec!["https://worker.example/status"]
+        );
+        assert!(workers.start_calls().is_empty());
+        assert!(catalog.updates().is_empty());
+        assert_eq!(result.workspace, workspace);
+        assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Running);
+        assert_eq!(
+            result.progress.phase,
+            WorkspaceProvisioningPhase::PreparingEnvironment
+        );
+        assert_eq!(result.progress.percent, Some(42));
+    }
+
+    #[tokio::test]
+    async fn sync_environment_persists_prepared_timestamp_when_worker_succeeds() {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+        let workers = FakeProvisionerWorkerGateway::with_status_result(Ok(worker_status(
+            ProvisionerWorkerJobStatus::Succeeded,
+            ProvisionerWorkerPhase::Completed,
+            Some(100),
+        )));
+        let mut workspace = running_workspace();
+
+        let result = service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, &workers),
+                &mut workspace,
+            )
+            .await
+            .expect("sync should not fail")
+            .expect("prepared workspace should be returned");
+
+        let updates = catalog.updates();
+        assert_eq!(updates.len(), 1);
+        assert!(updates[0].environment_prepared_at.is_some());
+        assert!(updates[0].active_provisioning_pod_snapshot.is_some());
+        assert_eq!(result.workspace, updates[0]);
+    }
+
+    #[tokio::test]
+    async fn sync_environment_fails_workspace_for_unauthorized_worker() {
+        let (result, _, catalog, workers) =
+            sync_with_worker_error(ProvisionerWorkerError::Unauthorized).await;
+
+        assert_eq!(
+            workers.status_calls(),
+            vec!["https://worker.example/status"]
+        );
+        assert_eq!(catalog.updates().len(), 1);
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Failed
+        );
+        let failure = result.progress.failure.expect("failure should be present");
+        assert_eq!(
+            failure.code,
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized
+        );
+        assert_eq!(
+            failure.source,
+            WorkspaceProvisioningFailureSource::ProvisionerWorker
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_environment_fails_workspace_for_invalid_worker_response() {
+        let (result, _, catalog, _) =
+            sync_with_worker_error(ProvisionerWorkerError::InvalidPayload {
+                diagnostic: Some("bad status".to_string()),
+            })
+            .await;
+
+        assert_eq!(catalog.updates().len(), 1);
+        let failure = result.progress.failure.expect("failure should be present");
+        assert_eq!(
+            failure.code,
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
+        );
+        assert_eq!(failure.diagnostic.as_deref(), Some("bad status"));
+    }
+
+    #[tokio::test]
+    async fn sync_environment_fails_workspace_for_worker_terminal_failure() {
+        let (result, _, catalog, _) =
+            sync_with_worker_error(ProvisionerWorkerError::TerminalFailure {
+                diagnostic: Some("install failed".to_string()),
+            })
+            .await;
+
+        assert_eq!(catalog.updates().len(), 1);
+        let failure = result.progress.failure.expect("failure should be present");
+        assert_eq!(
+            failure.code,
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed
+        );
+        assert_eq!(failure.diagnostic.as_deref(), Some("install failed"));
+    }
+
+    #[tokio::test]
+    async fn sync_environment_propagates_worker_conflict_without_persisting_failure() {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+        let workers =
+            FakeProvisionerWorkerGateway::with_status_result(Err(ProvisionerWorkerError::Conflict));
+        let mut workspace = running_workspace();
+
+        let error = service
+            .sync_environment(
+                WorkspaceProvisionerContext::new(&secrets, &catalog, &workers),
+                &mut workspace,
+            )
+            .await
+            .expect_err("conflict should remain a command-level error");
+
+        assert_eq!(error, WorkspaceProvisioningError::ProvisionerWorkerConflict);
+        assert!(catalog.updates().is_empty());
+        assert_eq!(
+            workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+    }
+
+    async fn sync_with_worker_error(
+        error: ProvisionerWorkerError,
+    ) -> (
+        WorkspaceProvisioningResult,
+        FakeSecretStore,
+        FakeWorkspaceCatalog,
+        FakeProvisionerWorkerGateway,
+    ) {
+        let service = WorkspaceProvisionerService::new();
+        let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
+        let catalog = FakeWorkspaceCatalog::default();
+        let workers = FakeProvisionerWorkerGateway::with_status_result(Err(error));
         let mut workspace = running_workspace();
 
         let result = service

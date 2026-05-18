@@ -413,3 +413,179 @@ fn sanitize_diagnostic(diagnostic: String) -> String {
         .take(MAX_WORKER_DIAGNOSTIC_BYTES)
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::workspace::{WorkspaceProvisioningPhase, WorkspaceProvisioningStatus};
+
+    fn response(
+        status: Option<&str>,
+        phase: Option<&str>,
+        progress_percent: Option<u8>,
+    ) -> ProvisionerWorkerStatusResponse {
+        ProvisionerWorkerStatusResponse {
+            status: status.map(str::to_string),
+            job_id: Some("workspace-1".to_string()),
+            phase: phase.map(str::to_string),
+            progress_percent,
+            diagnostic: None,
+            diagnostic_message: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn status_from_response_accepts_idle_and_succeeded_without_phase() {
+        let idle = status_from_response(response(Some("idle"), None, None))
+            .expect("idle with no phase should be valid");
+        assert_eq!(idle.status, ProvisionerWorkerJobStatus::Idle);
+        assert_eq!(idle.phase, ProvisionerWorkerPhase::Idle);
+
+        let succeeded = status_from_response(response(Some("succeeded"), None, Some(100)))
+            .expect("succeeded with no phase should be valid");
+        assert_eq!(succeeded.status, ProvisionerWorkerJobStatus::Succeeded);
+        assert_eq!(succeeded.phase, ProvisionerWorkerPhase::Completed);
+        assert_eq!(succeeded.progress_percent, Some(100));
+    }
+
+    #[test]
+    fn status_from_response_rejects_running_without_phase() {
+        let error = status_from_response(response(Some("running"), None, Some(10)))
+            .expect_err("running without phase should be invalid");
+
+        assert_eq!(
+            error,
+            ProvisionerWorkerError::InvalidPayload { diagnostic: None }
+        );
+    }
+
+    #[test]
+    fn status_from_response_rejects_unsafe_progress_percent() {
+        let error = status_from_response(response(
+            Some("running"),
+            Some("installing_models"),
+            Some(101),
+        ))
+        .expect_err("progress above 100 should be invalid");
+
+        assert_eq!(
+            error,
+            ProvisionerWorkerError::InvalidPayload { diagnostic: None }
+        );
+    }
+
+    #[test]
+    fn status_from_response_maps_failed_payload_to_terminal_failure_with_sanitized_diagnostic() {
+        let mut payload = response(Some("failed"), Some("failed"), None);
+        payload.diagnostic =
+            Some("line1\u{0}\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9".to_string());
+
+        let error = status_from_response(payload)
+            .expect_err("failed status should become terminal worker failure");
+
+        assert_eq!(
+            error,
+            ProvisionerWorkerError::TerminalFailure {
+                diagnostic: Some(
+                    "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8".to_string()
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn status_from_response_normalizes_worker_phase_aliases() {
+        let runtime = status_from_response(response(
+            Some("running"),
+            Some("installing_comfyui"),
+            Some(20),
+        ))
+        .expect("runtime phase alias should be valid");
+        assert_eq!(runtime.phase, ProvisionerWorkerPhase::ValidatingRuntime);
+
+        let assets = status_from_response(response(
+            Some("running"),
+            Some("downloading_assets"),
+            Some(60),
+        ))
+        .expect("asset phase alias should be valid");
+        assert_eq!(assets.phase, ProvisionerWorkerPhase::InstallingModels);
+
+        let manifest = status_from_response(response(
+            Some("running"),
+            Some("verifying_assets"),
+            Some(90),
+        ))
+        .expect("manifest phase alias should be valid");
+        assert_eq!(manifest.phase, ProvisionerWorkerPhase::WritingManifest);
+    }
+
+    #[test]
+    fn progress_from_worker_status_maps_worker_status_to_workspace_progress() {
+        let running = progress_from_worker_status(&ProvisionerWorkerStatus {
+            status: ProvisionerWorkerJobStatus::Running,
+            phase: ProvisionerWorkerPhase::InstallingCustomNodes,
+            progress_percent: Some(55),
+            diagnostic: None,
+        });
+        assert_eq!(running.status, WorkspaceProvisioningStatus::Running);
+        assert_eq!(
+            running.phase,
+            WorkspaceProvisioningPhase::PreparingEnvironment
+        );
+        assert_eq!(running.percent, Some(55));
+        assert_eq!(running.failure, None);
+
+        let cancelling = progress_from_worker_status(&ProvisionerWorkerStatus {
+            status: ProvisionerWorkerJobStatus::Cancelling,
+            phase: ProvisionerWorkerPhase::Cancelled,
+            progress_percent: None,
+            diagnostic: None,
+        });
+        assert_eq!(cancelling.status, WorkspaceProvisioningStatus::Cancelling);
+        assert_eq!(cancelling.phase, WorkspaceProvisioningPhase::CleaningUp);
+
+        let completed = progress_from_worker_status(&ProvisionerWorkerStatus {
+            status: ProvisionerWorkerJobStatus::Succeeded,
+            phase: ProvisionerWorkerPhase::Completed,
+            progress_percent: Some(100),
+            diagnostic: None,
+        });
+        assert_eq!(completed.status, WorkspaceProvisioningStatus::Running);
+        assert_eq!(
+            completed.phase,
+            WorkspaceProvisioningPhase::CreatingEndpointTemplate
+        );
+    }
+
+    #[test]
+    fn worker_error_from_status_classifies_http_failures() {
+        assert_eq!(
+            worker_error_from_status(StatusCode::UNAUTHORIZED, None, true),
+            ProvisionerWorkerError::Unauthorized
+        );
+        assert_eq!(
+            worker_error_from_status(StatusCode::FORBIDDEN, None, true),
+            ProvisionerWorkerError::Unauthorized
+        );
+        assert_eq!(
+            worker_error_from_status(StatusCode::CONFLICT, None, true),
+            ProvisionerWorkerError::Conflict
+        );
+        assert_eq!(
+            worker_error_from_status(StatusCode::BAD_GATEWAY, None, true),
+            ProvisionerWorkerError::Unreachable
+        );
+        assert_eq!(
+            worker_error_from_status(StatusCode::BAD_REQUEST, Some("bad".to_string()), true),
+            ProvisionerWorkerError::InvalidPayload {
+                diagnostic: Some("bad".to_string())
+            }
+        );
+        assert_eq!(
+            worker_error_from_status(StatusCode::BAD_REQUEST, None, false),
+            ProvisionerWorkerError::Unreachable
+        );
+    }
+}
