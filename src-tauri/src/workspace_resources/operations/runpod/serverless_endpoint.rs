@@ -19,11 +19,11 @@ use crate::{
 };
 
 use crate::workspace_resources::{
-    WorkspaceResourceConfig, WorkspaceResourceService, WorkspaceResourceSyncResult,
+    WorkspaceResourceConfig, WorkspaceResourceContext, WorkspaceResourceSyncResult,
 };
 
 pub(crate) async fn sync<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
@@ -45,7 +45,7 @@ where
 }
 
 async fn sync_template<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
@@ -195,7 +195,7 @@ where
 }
 
 async fn sync_serverless_endpoint<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
@@ -326,7 +326,7 @@ where
 }
 
 async fn delete_tracked_serverless_endpoint<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
@@ -373,7 +373,7 @@ fn _serverless_endpoint_snapshot(
 }
 
 async fn fail_for_indeterminate_provider_operation<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -386,7 +386,7 @@ where
 }
 
 async fn fail_for_missing_provider_resource<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -399,7 +399,7 @@ where
 }
 
 async fn fail_for_orphaned_provider_resources<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
     provider_resource_ids: Vec<String>,

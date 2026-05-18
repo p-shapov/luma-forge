@@ -22,7 +22,7 @@ use crate::{
 };
 
 use crate::workspace_resources::{
-    WorkspaceResourceConfig, WorkspaceResourceService, WorkspaceResourceSyncResult,
+    WorkspaceResourceConfig, WorkspaceResourceContext, WorkspaceResourceSyncResult,
 };
 
 mod network_volume;
@@ -35,7 +35,7 @@ const RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT: u16 = 8188;
 const GIB_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub(crate) async fn sync_network_volume<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
@@ -47,7 +47,7 @@ where
 }
 
 pub(crate) async fn sync_provisioning_pod<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
@@ -59,7 +59,7 @@ where
 }
 
 pub(crate) async fn finish_provisioning_pod<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
@@ -70,7 +70,7 @@ where
 }
 
 pub(crate) async fn sync_serverless_endpoint<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
@@ -82,7 +82,7 @@ where
 }
 
 pub(crate) async fn cleanup_known_resources<S, W>(
-    context: &WorkspaceResourceService<S, W>,
+    context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &Workspace,
 ) -> Result<(), WorkspaceResourceError>
 where
@@ -186,7 +186,7 @@ fn remember_first_error(
     }
 }
 
-impl<S, W> WorkspaceResourceService<S, W>
+impl<S, W> WorkspaceResourceContext<'_, S, W>
 where
     S: SecretStore,
 {
@@ -531,7 +531,7 @@ mod tests {
 
     use crate::workspace_catalog::repository::UnavailableWorkspaceCatalog;
 
-    use crate::workspace_resources::WorkspaceResourceService;
+    use crate::workspace_resources::WorkspaceResourceContext;
 
     #[derive(Debug, Clone, Default)]
     struct EmptySecretStore;
@@ -607,8 +607,9 @@ mod tests {
 
     #[tokio::test]
     async fn provisioning_fails_before_provider_call_when_setup_missing() {
-        let resources =
-            WorkspaceResourceService::new(EmptySecretStore, UnavailableWorkspaceCatalog);
+        let secrets = EmptySecretStore;
+        let workspace_catalog = UnavailableWorkspaceCatalog;
+        let resources = WorkspaceResourceContext::new(&secrets, &workspace_catalog);
 
         let error = resources
             .create_network_volume(CreateNetworkVolumeInput {

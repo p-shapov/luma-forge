@@ -1,9 +1,11 @@
+mod context;
 mod contracts;
 mod error;
 mod naming;
 pub(crate) mod operations;
 mod service;
 
+pub(crate) use context::WorkspaceResourceContext;
 pub(crate) use contracts::{
     CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
     CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,

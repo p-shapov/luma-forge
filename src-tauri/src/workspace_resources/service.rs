@@ -7,7 +7,7 @@ use crate::{
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
-use super::{operations::runpod, WorkspaceResourceError};
+use super::{operations::runpod, WorkspaceResourceContext, WorkspaceResourceError};
 
 pub(crate) type WorkspaceResourceSyncResult = Result<Option<Workspace>, WorkspaceResourceError>;
 
@@ -18,8 +18,8 @@ pub(crate) struct WorkspaceResourceConfig {
 
 #[derive(Debug, Clone)]
 pub(crate) struct WorkspaceResourceService<S, W> {
-    pub(crate) secrets: S,
-    pub(crate) workspace_catalog: W,
+    secrets: S,
+    workspace_catalog: W,
 }
 
 impl<S, W> WorkspaceResourceService<S, W> {
@@ -29,20 +29,9 @@ impl<S, W> WorkspaceResourceService<S, W> {
             workspace_catalog,
         }
     }
-}
 
-impl<S, W> WorkspaceResourceService<S, W>
-where
-    W: WorkspaceCatalogRepository,
-{
-    pub(crate) async fn update_workspace(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<Workspace, WorkspaceResourceError> {
-        self.workspace_catalog
-            .update_workspace(workspace)
-            .await
-            .map_err(WorkspaceResourceError::from)
+    fn context(&self) -> WorkspaceResourceContext<'_, S, W> {
+        WorkspaceResourceContext::new(&self.secrets, &self.workspace_catalog)
     }
 }
 
@@ -56,9 +45,10 @@ where
         workspace: &mut Workspace,
         config: &WorkspaceResourceConfig,
     ) -> WorkspaceResourceSyncResult {
+        let context = self.context();
         match workspace.gpu_cloud_provider_id {
             GpuCloudProviderId::Runpod => {
-                runpod::sync_network_volume(self, workspace, config).await
+                runpod::sync_network_volume(&context, workspace, config).await
             }
         }
     }
@@ -68,9 +58,10 @@ where
         workspace: &mut Workspace,
         config: &WorkspaceResourceConfig,
     ) -> WorkspaceResourceSyncResult {
+        let context = self.context();
         match workspace.gpu_cloud_provider_id {
             GpuCloudProviderId::Runpod => {
-                runpod::sync_provisioning_pod(self, workspace, config).await
+                runpod::sync_provisioning_pod(&context, workspace, config).await
             }
         }
     }
@@ -79,8 +70,11 @@ where
         &self,
         workspace: &mut Workspace,
     ) -> WorkspaceResourceSyncResult {
+        let context = self.context();
         match workspace.gpu_cloud_provider_id {
-            GpuCloudProviderId::Runpod => runpod::finish_provisioning_pod(self, workspace).await,
+            GpuCloudProviderId::Runpod => {
+                runpod::finish_provisioning_pod(&context, workspace).await
+            }
         }
     }
 
@@ -89,9 +83,10 @@ where
         workspace: &mut Workspace,
         config: &WorkspaceResourceConfig,
     ) -> WorkspaceResourceSyncResult {
+        let context = self.context();
         match workspace.gpu_cloud_provider_id {
             GpuCloudProviderId::Runpod => {
-                runpod::sync_serverless_endpoint(self, workspace, config).await
+                runpod::sync_serverless_endpoint(&context, workspace, config).await
             }
         }
     }
@@ -100,10 +95,13 @@ where
         &self,
         workspace: &mut Workspace,
     ) -> Result<Workspace, WorkspaceResourceError> {
+        let context = self.context();
         match workspace.gpu_cloud_provider_id {
-            GpuCloudProviderId::Runpod => runpod::cleanup_known_resources(self, workspace).await?,
+            GpuCloudProviderId::Runpod => {
+                runpod::cleanup_known_resources(&context, workspace).await?
+            }
         }
         reset_after_resource_cleanup(workspace);
-        self.update_workspace(workspace).await
+        context.update_workspace(workspace).await
     }
 }
