@@ -60,3 +60,22 @@ pub struct DeleteGpuCloudProviderSetupRequest {
 pub struct DeleteGpuCloudProviderSetupResponse {
     pub gpu_cloud_provider_setup: Option<domain_provider_setup::GpuCloudProviderSetup>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_gpu_cloud_provider_request_debug_redacts_api_key() {
+        let request = SetupGpuCloudProviderRequest {
+            gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId::Runpod,
+            provider_api_key: "rp_raw_secret_value".to_string(),
+        };
+
+        let debug = format!("{request:?}");
+
+        assert!(debug.contains("provider_api_key"));
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("rp_raw_secret_value"));
+    }
+}
