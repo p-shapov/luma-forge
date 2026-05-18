@@ -3,13 +3,12 @@ mod bundled_catalog;
 mod commands;
 mod domain;
 mod provider;
-mod provider_resources;
 mod provider_setup;
 mod provisioner_worker;
 mod secrets;
 mod workspace_catalog;
 mod workspace_provisioning;
-mod workspace_resource_cleanup;
+mod workspace_resources;
 mod workspace_setup;
 
 use tauri::Manager;

@@ -1,7 +1,7 @@
 use crate::{
-    domain::workspace::Workspace, provider_resources::ProviderResourceGateway,
-    provisioner_worker::ProvisionerWorkerGateway, secrets::SecretStore,
-    workspace_catalog::repository::WorkspaceCatalogRepository,
+    domain::workspace::Workspace, provisioner_worker::ProvisionerWorkerGateway,
+    secrets::SecretStore, workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_resources::operations::WorkspaceResourceOperations,
 };
 
 use super::super::context::{SyncStepResult, WorkspaceProvisioningContext};
@@ -11,13 +11,13 @@ mod environment;
 mod network_volume;
 mod provisioning_pod;
 
-pub(crate) async fn sync<S, P, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, P, W, R>,
+pub(crate) async fn sync<S, Q, W, R>(
+    context: &WorkspaceProvisioningContext<'_, S, Q, W, R>,
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
     S: SecretStore,
-    P: ProviderResourceGateway,
+    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {

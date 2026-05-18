@@ -1,13 +1,14 @@
 mod contracts;
 mod error;
-mod gateway;
+mod naming;
+pub(crate) mod operations;
 
-pub use contracts::{
+pub(crate) use contracts::{
     CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
     CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
     DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput, EndpointTemplateObservation,
     NetworkVolumeObservation, ObserveProvisioningPodInput, ProvisioningPodObservation,
     ServerlessEndpointObservation,
 };
-pub use error::ProviderResourceError;
-pub use gateway::ProviderResourceGateway;
+pub(crate) use error::WorkspaceResourceError;
+pub(crate) use naming::provider_resource_name;

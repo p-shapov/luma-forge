@@ -14,6 +14,7 @@ use crate::{
         WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
         WorkspaceProvisioningService,
     },
+    workspace_resources::operations::runpod::RunPodWorkspaceResourceOperations,
     workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupService},
 };
 
@@ -33,7 +34,7 @@ pub(crate) type WorkspaceSetupWriteService = WorkspaceSetupService<
 >;
 pub(crate) type ProductionWorkspaceProvisioningService = WorkspaceProvisioningService<
     KeyringSecretStore,
-    ProviderClientRegistry,
+    RunPodWorkspaceResourceOperations<KeyringSecretStore, SqliteWorkspaceCatalog>,
     SqliteWorkspaceCatalog,
     ProvisionerWorkerHttpGateway,
 >;
@@ -89,9 +90,14 @@ impl NativeAppState {
             .workspace_catalog()
             .await
             .map_err(|_| WorkspaceProvisioningError::WorkspaceCatalogUnavailable)?;
+        let resources = RunPodWorkspaceResourceOperations::production(
+            self.secrets.clone(),
+            workspace_catalog.clone(),
+            RunPodClient::default(),
+        );
         Ok(WorkspaceProvisioningService::new(
             self.secrets.clone(),
-            self.providers.clone(),
+            resources,
             workspace_catalog,
             self.provisioner_workers.clone(),
             self.workspace_provisioning_coordinator.clone(),

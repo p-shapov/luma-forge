@@ -19,20 +19,20 @@ use crate::{
             WorkspaceProvisioningRecoveryAction,
         },
     },
-    provider_resources::{
-        CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
-        DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
-        EndpointTemplateObservation, NetworkVolumeObservation, ObserveProvisioningPodInput,
-        ProviderResourceError, ProviderResourceGateway, ProvisioningPodObservation,
-        ServerlessEndpointObservation,
-    },
     provisioner_worker::{
         ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerJobStatus,
         ProvisionerWorkerStartRequest, ProvisionerWorkerStatus,
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_resources::{
+        operations::runpod::{RunPodResourceGateway, RunPodWorkspaceResourceOperations},
+        CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
+        CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
+        DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
+        EndpointTemplateObservation, NetworkVolumeObservation, ObserveProvisioningPodInput,
+        ProvisioningPodObservation, ServerlessEndpointObservation, WorkspaceResourceError,
+    },
     workspace_setup::{
         error::WorkspaceSetupError,
         tests::{sample_runtime_snapshot, sample_workspace},
@@ -193,14 +193,14 @@ struct FakeProvider {
     create_endpoint_count: Arc<AtomicUsize>,
     get_endpoint_count: Arc<AtomicUsize>,
     delete_endpoint_count: Arc<AtomicUsize>,
-    create_volume_error: Option<ProviderResourceError>,
-    create_pod_error: Option<ProviderResourceError>,
-    create_template_error: Option<ProviderResourceError>,
-    create_endpoint_error: Option<ProviderResourceError>,
-    get_volume_error: Option<ProviderResourceError>,
-    get_pod_error: Option<ProviderResourceError>,
-    get_template_error: Option<ProviderResourceError>,
-    get_endpoint_error: Option<ProviderResourceError>,
+    create_volume_error: Option<WorkspaceResourceError>,
+    create_pod_error: Option<WorkspaceResourceError>,
+    create_template_error: Option<WorkspaceResourceError>,
+    create_endpoint_error: Option<WorkspaceResourceError>,
+    get_volume_error: Option<WorkspaceResourceError>,
+    get_pod_error: Option<WorkspaceResourceError>,
+    get_template_error: Option<WorkspaceResourceError>,
+    get_endpoint_error: Option<WorkspaceResourceError>,
     discovered_volumes: Vec<NetworkVolumeObservation>,
     subsequent_discovered_volumes: Option<Vec<NetworkVolumeObservation>>,
     discovered_pods: Vec<ProvisioningPodObservation>,
@@ -213,16 +213,25 @@ struct FakeProvider {
     get_pod_status_url: Option<Option<String>>,
     get_template_status: Option<ProviderResourceStatus>,
     get_endpoint_status: Option<ProviderResourceStatus>,
-    delete_endpoint_error: Option<ProviderResourceError>,
+    delete_endpoint_error: Option<WorkspaceResourceError>,
 }
 
-impl ProviderResourceGateway for FakeProvider {
+type TestWorkspaceResources =
+    RunPodWorkspaceResourceOperations<MemorySecretStore, MemoryWorkspaceCatalog, FakeProvider>;
+type TestWorkspaceProvisioningService = WorkspaceProvisioningService<
+    MemorySecretStore,
+    TestWorkspaceResources,
+    MemoryWorkspaceCatalog,
+    FakeWorker,
+>;
+
+impl RunPodResourceGateway for FakeProvider {
     fn create_network_volume<'a>(
         &'a self,
         _input: CreateNetworkVolumeInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<NetworkVolumeObservation, ProviderResourceError>>
+            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -246,7 +255,7 @@ impl ProviderResourceGateway for FakeProvider {
         _volume_id: &'a str,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<NetworkVolumeObservation, ProviderResourceError>>
+            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -272,7 +281,7 @@ impl ProviderResourceGateway for FakeProvider {
         _input: DiscoverNetworkVolumesInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, ProviderResourceError>>
+            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -292,7 +301,7 @@ impl ProviderResourceGateway for FakeProvider {
         &'a self,
         _provider_id: GpuCloudProviderId,
         _volume_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
         Box::pin(async move {
             self.delete_volume_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -304,7 +313,7 @@ impl ProviderResourceGateway for FakeProvider {
         input: CreateProvisioningPodInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ProvisioningPodObservation, ProviderResourceError>>
+            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -335,7 +344,7 @@ impl ProviderResourceGateway for FakeProvider {
         _input: DiscoverProvisioningPodsInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, ProviderResourceError>>
+            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -356,7 +365,7 @@ impl ProviderResourceGateway for FakeProvider {
         input: ObserveProvisioningPodInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ProvisioningPodObservation, ProviderResourceError>>
+            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -381,7 +390,7 @@ impl ProviderResourceGateway for FakeProvider {
         &'a self,
         _provider_id: GpuCloudProviderId,
         _pod_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
         Box::pin(async move {
             self.delete_pod_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -393,7 +402,7 @@ impl ProviderResourceGateway for FakeProvider {
         input: CreateEndpointTemplateInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<EndpointTemplateObservation, ProviderResourceError>>
+            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -426,7 +435,7 @@ impl ProviderResourceGateway for FakeProvider {
         _template_id: &'a str,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<EndpointTemplateObservation, ProviderResourceError>>
+            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -453,7 +462,7 @@ impl ProviderResourceGateway for FakeProvider {
         _input: DiscoverEndpointTemplatesInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<EndpointTemplateObservation>, ProviderResourceError>>
+            dyn Future<Output = Result<Vec<EndpointTemplateObservation>, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -473,7 +482,7 @@ impl ProviderResourceGateway for FakeProvider {
         &'a self,
         _provider_id: GpuCloudProviderId,
         _template_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
         Box::pin(async move {
             self.delete_template_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -485,7 +494,7 @@ impl ProviderResourceGateway for FakeProvider {
         _input: CreateServerlessEndpointInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ServerlessEndpointObservation, ProviderResourceError>>
+            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -509,7 +518,7 @@ impl ProviderResourceGateway for FakeProvider {
         _endpoint_id: &'a str,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<ServerlessEndpointObservation, ProviderResourceError>>
+            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -535,7 +544,7 @@ impl ProviderResourceGateway for FakeProvider {
         _input: DiscoverServerlessEndpointsInput,
     ) -> Pin<
         Box<
-            dyn Future<Output = Result<Vec<ServerlessEndpointObservation>, ProviderResourceError>>
+            dyn Future<Output = Result<Vec<ServerlessEndpointObservation>, WorkspaceResourceError>>
                 + Send
                 + 'a,
         >,
@@ -555,7 +564,7 @@ impl ProviderResourceGateway for FakeProvider {
         &'a self,
         _provider_id: GpuCloudProviderId,
         _endpoint_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), ProviderResourceError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
         Box::pin(async move {
             self.delete_endpoint_count.fetch_add(1, Ordering::SeqCst);
             if let Some(error) = &self.delete_endpoint_error {
@@ -805,7 +814,7 @@ async fn indeterminate_volume_create_marks_failed_without_losing_workspace() {
     workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        create_volume_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_volume_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         ..Default::default()
     };
     let service = service(catalog, provider);
@@ -833,7 +842,7 @@ async fn provider_command_failure_preserves_workspace_metadata() {
     workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        create_volume_error: Some(ProviderResourceError::ProviderRateLimited),
+        create_volume_error: Some(WorkspaceResourceError::ProviderRateLimited),
         ..Default::default()
     };
     let service = service(catalog.clone(), provider);
@@ -871,13 +880,16 @@ async fn sync_creates_provisioning_pod_and_stores_worker_token() {
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider::default();
     let worker_tokens = Arc::new(Mutex::new(HashMap::new()));
+    let secrets = MemorySecretStore {
+        api_key: Some("rp_123_secret".to_string()),
+        worker_tokens: worker_tokens.clone(),
+    };
+    let resources =
+        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider.clone());
     let service = WorkspaceProvisioningService::new(
-        MemorySecretStore {
-            api_key: Some("rp_123_secret".to_string()),
-            worker_tokens: worker_tokens.clone(),
-        },
-        provider.clone(),
-        catalog,
+        secrets,
+        resources,
+        catalog.clone(),
         FakeWorker::idle(),
         WorkspaceProvisioningCoordinator::default(),
         test_config(),
@@ -940,7 +952,7 @@ async fn indeterminate_pod_create_recovery_fails_with_orphaned_resource() {
         provisioning_workspace_with_ready_volume("018f6a40-0000-7000-8000-000000000001");
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        create_pod_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_pod_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         discovered_pods: Vec::new(),
         subsequent_discovered_pods: Some(vec![discovered_pod("pod-existing")]),
         ..Default::default()
@@ -1007,12 +1019,15 @@ async fn concurrent_sync_is_read_only() {
     let provider = FakeProvider::default();
     let coordinator = WorkspaceProvisioningCoordinator::default();
     let _guard = coordinator.try_enter(&workspace.id).expect("enter");
+    let secrets = MemorySecretStore {
+        api_key: Some("rp_123_secret".to_string()),
+        worker_tokens: Arc::default(),
+    };
+    let resources =
+        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider.clone());
     let service = WorkspaceProvisioningService::new(
-        MemorySecretStore {
-            api_key: Some("rp_123_secret".to_string()),
-            worker_tokens: Arc::default(),
-        },
-        provider.clone(),
+        secrets,
+        resources,
         catalog,
         FakeWorker::idle(),
         coordinator,
@@ -1543,7 +1558,7 @@ async fn cancel_marks_failed_and_preserves_metadata_when_cleanup_fails() {
     workspace.serverless_endpoint_snapshot = Some(endpoint_snapshot());
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        delete_endpoint_error: Some(ProviderResourceError::ProviderApiUnavailable),
+        delete_endpoint_error: Some(WorkspaceResourceError::ProviderApiUnavailable),
         ..Default::default()
     };
     let service = service_with_parts(catalog, provider, FakeWorker::idle(), Arc::default());
@@ -1823,7 +1838,7 @@ async fn indeterminate_volume_create_recovery_fails_with_orphaned_resource() {
     workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        create_volume_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_volume_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         subsequent_discovered_volumes: Some(vec![discovered_volume("volume-existing")]),
         ..Default::default()
     };
@@ -1852,7 +1867,7 @@ async fn indeterminate_template_create_recovery_fails_with_orphaned_resource() {
     workspace.environment_prepared_at = Some("2026-05-08T00:00:00Z".to_string());
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        create_template_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_template_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         subsequent_discovered_templates: Some(vec![discovered_template("template-existing")]),
         ..Default::default()
     };
@@ -1886,7 +1901,7 @@ async fn indeterminate_endpoint_create_recovery_fails_with_orphaned_resource() {
     });
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider {
-        create_endpoint_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_endpoint_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         subsequent_discovered_endpoints: Some(vec![discovered_endpoint("endpoint-existing")]),
         ..Default::default()
     };
@@ -1919,7 +1934,7 @@ async fn indeterminate_create_failures_do_not_retry_create_on_next_sync() {
         .await
         .expect("insert");
     let volume_provider = FakeProvider {
-        create_volume_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_volume_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         ..Default::default()
     };
     let volume_service = service(volume_catalog, volume_provider.clone());
@@ -1949,7 +1964,7 @@ async fn indeterminate_create_failures_do_not_retry_create_on_next_sync() {
         .await
         .expect("insert");
     let pod_provider = FakeProvider {
-        create_pod_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_pod_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         ..Default::default()
     };
     let pod_service = service(pod_catalog, pod_provider.clone());
@@ -1974,7 +1989,7 @@ async fn indeterminate_create_failures_do_not_retry_create_on_next_sync() {
         .await
         .expect("insert");
     let template_provider = FakeProvider {
-        create_template_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_template_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         ..Default::default()
     };
     let template_service = service_with_parts(
@@ -2016,7 +2031,7 @@ async fn indeterminate_create_failures_do_not_retry_create_on_next_sync() {
         .await
         .expect("insert");
     let endpoint_provider = FakeProvider {
-        create_endpoint_error: Some(ProviderResourceError::ProviderOperationIndeterminate),
+        create_endpoint_error: Some(WorkspaceResourceError::ProviderOperationIndeterminate),
         ..Default::default()
     };
     let endpoint_service = service_with_parts(
@@ -2061,7 +2076,7 @@ async fn missing_tracked_resources_mark_workspace_failed_without_recreate() {
         .await
         .expect("insert");
     let volume_provider = FakeProvider {
-        get_volume_error: Some(ProviderResourceError::ProviderResourceNotFound),
+        get_volume_error: Some(WorkspaceResourceError::ProviderResourceNotFound),
         ..Default::default()
     };
     let volume_service = service(volume_catalog, volume_provider.clone());
@@ -2092,7 +2107,7 @@ async fn missing_tracked_resources_mark_workspace_failed_without_recreate() {
         .await
         .expect("insert");
     let pod_provider = FakeProvider {
-        get_pod_error: Some(ProviderResourceError::ProviderResourceNotFound),
+        get_pod_error: Some(WorkspaceResourceError::ProviderResourceNotFound),
         ..Default::default()
     };
     let pod_service = service(pod_catalog, pod_provider.clone());
@@ -2121,7 +2136,7 @@ async fn missing_tracked_resources_mark_workspace_failed_without_recreate() {
         .await
         .expect("insert");
     let template_provider = FakeProvider {
-        get_template_error: Some(ProviderResourceError::ProviderResourceNotFound),
+        get_template_error: Some(WorkspaceResourceError::ProviderResourceNotFound),
         ..Default::default()
     };
     let template_service = service_with_parts(
@@ -2164,7 +2179,7 @@ async fn missing_tracked_resources_mark_workspace_failed_without_recreate() {
         .await
         .expect("insert");
     let endpoint_provider = FakeProvider {
-        get_endpoint_error: Some(ProviderResourceError::ProviderResourceNotFound),
+        get_endpoint_error: Some(WorkspaceResourceError::ProviderResourceNotFound),
         ..Default::default()
     };
     let endpoint_service = service_with_parts(
@@ -2234,12 +2249,15 @@ async fn cancel_conflict_returns_error_without_cleanup_side_effects() {
     let tokens = worker_token_map(&workspace.id);
     let coordinator = WorkspaceProvisioningCoordinator::default();
     let _guard = coordinator.try_enter(&workspace.id).expect("enter");
+    let secrets = MemorySecretStore {
+        api_key: Some("rp_123_secret".to_string()),
+        worker_tokens: tokens.clone(),
+    };
+    let resources =
+        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider.clone());
     let service = WorkspaceProvisioningService::new(
-        MemorySecretStore {
-            api_key: Some("rp_123_secret".to_string()),
-            worker_tokens: tokens.clone(),
-        },
-        provider.clone(),
+        secrets,
+        resources,
         catalog.clone(),
         FakeWorker::idle(),
         coordinator,
@@ -2273,8 +2291,7 @@ async fn cancel_conflict_returns_error_without_cleanup_side_effects() {
 fn service(
     catalog: MemoryWorkspaceCatalog,
     provider: FakeProvider,
-) -> WorkspaceProvisioningService<MemorySecretStore, FakeProvider, MemoryWorkspaceCatalog, FakeWorker>
-{
+) -> TestWorkspaceProvisioningService {
     service_with_parts(catalog, provider, FakeWorker::idle(), Arc::default())
 }
 
@@ -2283,14 +2300,16 @@ fn service_with_parts(
     provider: FakeProvider,
     worker: FakeWorker,
     worker_tokens: Arc<Mutex<HashMap<String, String>>>,
-) -> WorkspaceProvisioningService<MemorySecretStore, FakeProvider, MemoryWorkspaceCatalog, FakeWorker>
-{
+) -> TestWorkspaceProvisioningService {
+    let secrets = MemorySecretStore {
+        api_key: Some("rp_123_secret".to_string()),
+        worker_tokens,
+    };
+    let resources =
+        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider);
     WorkspaceProvisioningService::new(
-        MemorySecretStore {
-            api_key: Some("rp_123_secret".to_string()),
-            worker_tokens,
-        },
-        provider,
+        secrets,
+        resources,
         catalog,
         worker,
         WorkspaceProvisioningCoordinator::default(),

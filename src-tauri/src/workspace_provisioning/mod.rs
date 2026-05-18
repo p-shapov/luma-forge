@@ -1,7 +1,7 @@
 mod context;
 mod coordinator;
-mod failure;
-mod helpers;
+pub(crate) mod failure;
+pub(crate) mod helpers;
 mod service;
 mod steps;
 

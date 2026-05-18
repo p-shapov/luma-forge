@@ -3,14 +3,15 @@ use std::time::Duration;
 use crate::{
     domain::provider_setup::{GpuCloudProviderId, ProviderApiKey},
     provider::{error::ProviderClientError, runpod::RunPodClient, ProviderClientRegistry},
-    provider_resources::{
-        CreateNetworkVolumeInput, ProviderResourceError, ProviderResourceGateway,
-    },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    workspace_resources::{
+        operations::runpod::{RunPodResourceClient, RunPodResourceGateway},
+        CreateNetworkVolumeInput, WorkspaceResourceError,
+    },
     workspace_setup::{error::WorkspaceSetupError, ProviderPlacementOptionsGateway},
 };
 
-use super::{error_from_client_error, provider_resource_error_from_client_error};
+use super::error_from_client_error;
 
 #[derive(Debug, Clone, Default)]
 struct EmptySecretStore;
@@ -155,29 +156,29 @@ fn inventory_request_rejection_does_not_collapse_to_unavailable() {
 #[test]
 fn provisioning_request_rejection_maps_to_request_rejected() {
     assert_eq!(
-        provider_resource_error_from_client_error(ProviderClientError::RequestRejected),
-        ProviderResourceError::ProviderRequestRejected
+        WorkspaceResourceError::from(ProviderClientError::RequestRejected),
+        WorkspaceResourceError::ProviderRequestRejected
     );
 }
 
 #[test]
 fn provisioning_rate_limit_maps_to_rate_limited() {
     assert_eq!(
-        provider_resource_error_from_client_error(ProviderClientError::RateLimited),
-        ProviderResourceError::ProviderRateLimited
+        WorkspaceResourceError::from(ProviderClientError::RateLimited),
+        WorkspaceResourceError::ProviderRateLimited
     );
 }
 
 #[tokio::test]
 async fn provisioning_dispatch_reads_stored_key_before_runpod_call() {
-    let registry = ProviderClientRegistry::new(
+    let resources = RunPodResourceClient::new(
         ApiKeySecretStore {
             api_key: "rp_123_secret".to_string(),
         },
         RunPodClient::new_for_test("http://127.0.0.1:9".to_string(), Duration::from_millis(50)),
     );
 
-    let error = registry
+    let error = resources
         .create_network_volume(CreateNetworkVolumeInput {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
@@ -187,17 +188,20 @@ async fn provisioning_dispatch_reads_stored_key_before_runpod_call() {
         .await
         .expect_err("unreachable create should be indeterminate after dispatch");
 
-    assert_eq!(error, ProviderResourceError::ProviderOperationIndeterminate);
+    assert_eq!(
+        error,
+        WorkspaceResourceError::ProviderOperationIndeterminate
+    );
 }
 
 #[tokio::test]
 async fn provisioning_fails_before_provider_call_when_setup_missing() {
-    let registry = ProviderClientRegistry::new(
+    let resources = RunPodResourceClient::new(
         EmptySecretStore,
         RunPodClient::new_for_test("http://127.0.0.1:9".to_string(), Duration::from_millis(50)),
     );
 
-    let error = registry
+    let error = resources
         .create_network_volume(CreateNetworkVolumeInput {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
@@ -207,22 +211,22 @@ async fn provisioning_fails_before_provider_call_when_setup_missing() {
         .await
         .expect_err("missing setup should fail before provider call");
 
-    assert_eq!(error, ProviderResourceError::ProviderSetupIncomplete);
+    assert_eq!(error, WorkspaceResourceError::ProviderSetupIncomplete);
 }
 
 #[tokio::test]
 async fn provisioning_maps_runpod_transport_failure_to_provider_resource_error() {
-    let registry = ProviderClientRegistry::new(
+    let resources = RunPodResourceClient::new(
         ApiKeySecretStore {
             api_key: "rp_123_secret".to_string(),
         },
         RunPodClient::new_for_test("http://127.0.0.1:9".to_string(), Duration::from_millis(50)),
     );
 
-    let error = registry
+    let error = resources
         .get_network_volume(GpuCloudProviderId::Runpod, "missing-volume")
         .await
         .expect_err("unreachable get should map");
 
-    assert_eq!(error, ProviderResourceError::ProviderApiUnavailable);
+    assert_eq!(error, WorkspaceResourceError::ProviderApiUnavailable);
 }

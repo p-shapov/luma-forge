@@ -3,7 +3,6 @@ use crate::{
         provisioning_state::fail_workspace, Workspace, WorkspaceProvisioningPhase,
         WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
     },
-    provider_resources::ProviderResourceGateway,
     provisioner_worker::{
         progress_from_worker_status, ProvisionerWorkerGateway, ProvisionerWorkerJobStatus,
         ProvisionerWorkerStartRequest,
@@ -16,15 +15,16 @@ use crate::{
         helpers::{result, WorkspaceProvisioningResult},
         WorkspaceProvisioningError,
     },
+    workspace_resources::operations::WorkspaceResourceOperations,
 };
 
-pub(crate) async fn sync<S, P, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, P, W, R>,
+pub(crate) async fn sync<S, Q, W, R>(
+    context: &WorkspaceProvisioningContext<'_, S, Q, W, R>,
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
     S: SecretStore,
-    P: ProviderResourceGateway,
+    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
@@ -104,14 +104,14 @@ where
     }))
 }
 
-async fn handle_worker_error<S, P, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, P, W, R>,
+async fn handle_worker_error<S, Q, W, R>(
+    context: &WorkspaceProvisioningContext<'_, S, Q, W, R>,
     mut workspace: Workspace,
     error: WorkspaceProvisioningError,
 ) -> SyncStepResult
 where
     S: SecretStore,
-    P: ProviderResourceGateway,
+    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {

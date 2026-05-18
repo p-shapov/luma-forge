@@ -1,12 +1,9 @@
 use crate::{
-    domain::workspace::{
-        provisioning_state::{fail_workspace, reset_after_resource_cleanup},
-        WorkspaceLifecycleState,
-    },
-    provider_resources::ProviderResourceGateway,
+    domain::workspace::{provisioning_state::fail_workspace, WorkspaceLifecycleState},
     provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_resources::operations::WorkspaceResourceOperations,
 };
 
 use super::{
@@ -22,19 +19,19 @@ pub struct WorkspaceProvisioningConfig {
     pub volume_mount_path: String,
 }
 
-pub struct WorkspaceProvisioningService<S, P, W, R> {
+pub struct WorkspaceProvisioningService<S, Q, W, R> {
     secrets: S,
-    providers: P,
+    resources: Q,
     workspace_catalog: W,
     workers: R,
     coordinator: WorkspaceProvisioningCoordinator,
     config: WorkspaceProvisioningConfig,
 }
 
-impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
+impl<S, Q, W, R> WorkspaceProvisioningService<S, Q, W, R> {
     pub fn new(
         secrets: S,
-        providers: P,
+        resources: Q,
         workspace_catalog: W,
         workers: R,
         coordinator: WorkspaceProvisioningCoordinator,
@@ -42,7 +39,7 @@ impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
     ) -> Self {
         Self {
             secrets,
-            providers,
+            resources,
             workspace_catalog,
             workers,
             coordinator,
@@ -50,10 +47,10 @@ impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
         }
     }
 
-    fn context(&self) -> WorkspaceProvisioningContext<'_, S, P, W, R> {
+    fn context(&self) -> WorkspaceProvisioningContext<'_, S, Q, W, R> {
         WorkspaceProvisioningContext::new(
             &self.secrets,
-            &self.providers,
+            &self.resources,
             &self.workspace_catalog,
             &self.workers,
             &self.config,
@@ -61,10 +58,10 @@ impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R> {
     }
 }
 
-impl<S, P, W, R> WorkspaceProvisioningService<S, P, W, R>
+impl<S, Q, W, R> WorkspaceProvisioningService<S, Q, W, R>
 where
     S: SecretStore,
-    P: ProviderResourceGateway,
+    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
@@ -124,22 +121,16 @@ where
             return Err(WorkspaceProvisioningError::InvalidWorkspaceLifecycle);
         }
 
-        match crate::workspace_resource_cleanup::cleanup_known_resources(
-            &self.secrets,
-            &self.providers,
-            &workspace,
-        )
-        .await
-        {
-            Ok(()) => {
-                reset_after_resource_cleanup(&mut workspace);
+        match self.resources.cleanup_known_resources(&mut workspace).await {
+            Ok(updated_workspace) => {
+                workspace = updated_workspace;
             }
             Err(_) => {
                 fail_workspace(&mut workspace, failure::cancellation_cleanup_failed());
+                workspace = context.update_workspace(&workspace).await?;
             }
         }
 
-        let workspace = context.update_workspace(&workspace).await?;
         Ok(result(workspace))
     }
 }
