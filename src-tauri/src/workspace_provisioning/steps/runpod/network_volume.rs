@@ -1,19 +1,17 @@
 use crate::{
     domain::workspace::Workspace, provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore, workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_resources::operations::WorkspaceResourceOperations,
 };
 
 use super::super::super::context::{SyncStepResult, WorkspaceProvisioningContext};
 use crate::workspace_provisioning::helpers::result;
 
-pub(crate) async fn sync<S, Q, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, Q, W, R>,
+pub(crate) async fn sync<S, W, R>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R>,
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
     S: SecretStore,
-    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {

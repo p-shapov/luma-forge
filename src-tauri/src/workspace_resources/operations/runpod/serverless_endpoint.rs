@@ -10,6 +10,7 @@ use crate::{
             ServerlessEndpointSnapshot, Workspace, WorkspaceProvisioningPhase,
         },
     },
+    secrets::SecretStore,
     workspace_provisioning::{failure, helpers::serverless_endpoint_snapshot},
     workspace_resources::{
         CreateEndpointTemplateInput, CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput,
@@ -17,19 +18,18 @@ use crate::{
     },
 };
 
-use super::{
-    RunPodResourceGateway, RunPodWorkspaceResourceOperations, WorkspaceResourceConfig,
-    WorkspaceResourceSyncResult,
+use crate::workspace_resources::{
+    WorkspaceResourceConfig, WorkspaceResourceService, WorkspaceResourceSyncResult,
 };
 
-pub(crate) async fn sync<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+pub(crate) async fn sync<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     if workspace.environment_prepared_at.is_none()
         || workspace.active_provisioning_pod_snapshot.is_some()
@@ -44,14 +44,14 @@ where
     sync_serverless_endpoint(context, workspace).await
 }
 
-async fn sync_template<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn sync_template<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     let template_snapshot = runpod_template_snapshot(workspace);
     if let Some(template) = template_snapshot
@@ -63,7 +63,6 @@ where
         }
 
         match context
-            .resources
             .get_endpoint_template(workspace.gpu_cloud_provider_id, &template.template_id)
             .await
         {
@@ -80,7 +79,6 @@ where
                     return Ok(Some(result));
                 }
                 match context
-                    .resources
                     .delete_endpoint_template(
                         workspace.gpu_cloud_provider_id,
                         &refreshed_template.template_id,
@@ -108,7 +106,6 @@ where
     if template_snapshot.is_none() {
         let endpoint_worker_image_ref = workspace.resolved_runtime_image.endpoint_image_ref.clone();
         let discovered_templates = context
-            .resources
             .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -127,7 +124,6 @@ where
             .await;
         }
         let observation = match context
-            .resources
             .create_endpoint_template(CreateEndpointTemplateInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -139,7 +135,6 @@ where
             Ok(observation) => observation,
             Err(WorkspaceResourceError::ProviderOperationIndeterminate) => {
                 let discovered_templates = context
-                    .resources
                     .discover_endpoint_templates(DiscoverEndpointTemplatesInput {
                         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                         workspace_id: workspace.id.clone(),
@@ -179,7 +174,6 @@ where
     };
 
     let observation = match context
-        .resources
         .get_endpoint_template(workspace.gpu_cloud_provider_id, &template.template_id)
         .await
     {
@@ -200,13 +194,13 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn sync_serverless_endpoint<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn sync_serverless_endpoint<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     if workspace.serverless_endpoint_snapshot.is_none() {
         let volume = workspace
@@ -237,7 +231,6 @@ where
         let selected_gpu_id = selected_gpu_id.clone();
         let endpoint_keep_alive_seconds = *endpoint_keep_alive_seconds;
         let discovered_endpoints = context
-            .resources
             .discover_serverless_endpoints(DiscoverServerlessEndpointsInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -256,7 +249,6 @@ where
             .await;
         }
         let observation = match context
-            .resources
             .create_serverless_endpoint(CreateServerlessEndpointInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -271,7 +263,6 @@ where
             Ok(observation) => observation,
             Err(WorkspaceResourceError::ProviderOperationIndeterminate) => {
                 let discovered_endpoints = context
-                    .resources
                     .discover_serverless_endpoints(DiscoverServerlessEndpointsInput {
                         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                         workspace_id: workspace.id.clone(),
@@ -311,7 +302,6 @@ where
         .map(|snapshot| snapshot.provider_resource_id.clone())
     {
         let observation = match context
-            .resources
             .get_serverless_endpoint(workspace.gpu_cloud_provider_id, &endpoint_id)
             .await
         {
@@ -335,20 +325,19 @@ where
     Ok(None)
 }
 
-async fn delete_tracked_serverless_endpoint<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn delete_tracked_serverless_endpoint<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     let Some(endpoint) = workspace.serverless_endpoint_snapshot.clone() else {
         return Ok(None);
     };
 
     match context
-        .resources
         .delete_serverless_endpoint(
             workspace.gpu_cloud_provider_id,
             &endpoint.provider_resource_id,
@@ -383,37 +372,40 @@ fn _serverless_endpoint_snapshot(
     serverless_endpoint_snapshot(workspace, observation)
 }
 
-async fn fail_for_indeterminate_provider_operation<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_indeterminate_provider_operation<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
     fail_workspace(workspace, failure::indeterminate_provider_operation(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_missing_provider_resource<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_missing_provider_resource<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
     fail_workspace(workspace, failure::missing_provider_resource(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_orphaned_provider_resources<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_orphaned_provider_resources<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
     provider_resource_ids: Vec<String>,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
     fail_workspace(

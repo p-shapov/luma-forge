@@ -1,5 +1,8 @@
 use std::time::Duration;
 
+#[cfg(test)]
+use std::sync::OnceLock;
+
 mod contracts;
 mod mapper;
 
@@ -84,7 +87,7 @@ impl RunPodClient {
     fn new(endpoint: String, connect_timeout: Duration, request_timeout: Duration) -> Self {
         Self::new_with_endpoints(
             endpoint,
-            RUNPOD_REST_ENDPOINT.to_string(),
+            default_rest_endpoint(),
             connect_timeout,
             request_timeout,
         )
@@ -427,6 +430,23 @@ impl RunPodClient {
         }
         provider_error_from_rest_status(response.status()).map_or(Ok(()), Err)
     }
+}
+
+fn default_rest_endpoint() -> String {
+    #[cfg(test)]
+    if let Some(endpoint) = RUNPOD_TEST_REST_ENDPOINT.get() {
+        return endpoint.clone();
+    }
+
+    RUNPOD_REST_ENDPOINT.to_string()
+}
+
+#[cfg(test)]
+static RUNPOD_TEST_REST_ENDPOINT: OnceLock<String> = OnceLock::new();
+
+#[cfg(test)]
+pub(crate) fn set_default_test_rest_endpoint(endpoint: String) {
+    let _ = RUNPOD_TEST_REST_ENDPOINT.set(endpoint);
 }
 
 fn network_volumes_by_name(

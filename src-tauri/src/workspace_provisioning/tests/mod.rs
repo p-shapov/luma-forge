@@ -3,10 +3,15 @@ use super::*;
 use std::{
     collections::HashMap,
     future::Future,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
+    thread,
 };
+
+use serde_json::{json, Value};
 
 use crate::{
     domain::{
@@ -26,12 +31,10 @@ use crate::{
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
-        operations::runpod::{RunPodResourceGateway, RunPodWorkspaceResourceOperations},
-        CreateEndpointTemplateInput, CreateNetworkVolumeInput, CreateProvisioningPodInput,
-        CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput, DiscoverNetworkVolumesInput,
-        DiscoverProvisioningPodsInput, DiscoverServerlessEndpointsInput,
-        EndpointTemplateObservation, NetworkVolumeObservation, ObserveProvisioningPodInput,
+        provider_resource_name, CreateEndpointTemplateInput, CreateNetworkVolumeInput,
+        CreateProvisioningPodInput, EndpointTemplateObservation, NetworkVolumeObservation,
         ProvisioningPodObservation, ServerlessEndpointObservation, WorkspaceResourceError,
+        WorkspaceResourceService,
     },
     workspace_setup::{
         error::WorkspaceSetupError,
@@ -173,9 +176,11 @@ impl WorkspaceCatalogRepository for MemoryWorkspaceCatalog {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct FakeProvider {
+    api_key: String,
     create_volume_count: Arc<AtomicUsize>,
+    create_volume_inputs: Arc<Mutex<Vec<CreateNetworkVolumeInput>>>,
     get_volume_count: Arc<AtomicUsize>,
     delete_volume_count: Arc<AtomicUsize>,
     discover_volumes_count: Arc<AtomicUsize>,
@@ -216,364 +221,668 @@ struct FakeProvider {
     delete_endpoint_error: Option<WorkspaceResourceError>,
 }
 
-type TestWorkspaceResources =
-    RunPodWorkspaceResourceOperations<MemorySecretStore, MemoryWorkspaceCatalog, FakeProvider>;
-type TestWorkspaceProvisioningService = WorkspaceProvisioningService<
-    MemorySecretStore,
-    TestWorkspaceResources,
-    MemoryWorkspaceCatalog,
-    FakeWorker,
->;
+impl Default for FakeProvider {
+    fn default() -> Self {
+        static NEXT_PROVIDER_ID: AtomicUsize = AtomicUsize::new(1);
 
-impl RunPodResourceGateway for FakeProvider {
-    fn create_network_volume<'a>(
-        &'a self,
-        _input: CreateNetworkVolumeInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.create_volume_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.create_volume_error {
-                return Err(error.clone());
-            }
-            Ok(NetworkVolumeObservation {
-                provider_resource_id: "volume-1".to_string(),
-                provider_resource_status: ProviderResourceStatus::Ready,
-                mount_path: "/workspace".to_string(),
-            })
-        })
-    }
-
-    fn get_network_volume<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _volume_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<NetworkVolumeObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.get_volume_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.get_volume_error {
-                return Err(error.clone());
-            }
-            Ok(NetworkVolumeObservation {
-                provider_resource_id: _volume_id.to_string(),
-                provider_resource_status: self
-                    .get_volume_status
-                    .clone()
-                    .unwrap_or(ProviderResourceStatus::Ready),
-                mount_path: "/workspace".to_string(),
-            })
-        })
-    }
-
-    fn discover_network_volumes<'a>(
-        &'a self,
-        _input: DiscoverNetworkVolumesInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Vec<NetworkVolumeObservation>, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            let count = self.discover_volumes_count.fetch_add(1, Ordering::SeqCst);
-            if count > 0 {
-                if let Some(discovered_volumes) = &self.subsequent_discovered_volumes {
-                    return Ok(discovered_volumes.clone());
-                }
-            }
-            Ok(self.discovered_volumes.clone())
-        })
-    }
-
-    fn delete_network_volume<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _volume_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.delete_volume_count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        })
-    }
-
-    fn create_provisioning_pod<'a>(
-        &'a self,
-        input: CreateProvisioningPodInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.create_pod_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.create_pod_error {
-                return Err(error.clone());
-            }
-            self.create_pod_inputs
-                .lock()
-                .expect("create pod inputs")
-                .push(input.clone());
-            assert_eq!(
-                input.provisioner_worker_image_ref,
-                sample_provisioner_worker_image_ref()
-            );
-            Ok(ProvisioningPodObservation {
-                provider_resource_id: "pod-1".to_string(),
-                provider_resource_status: ProviderResourceStatus::Running,
-                provisioner_status_url: Some("http://203.0.113.10:30001/status".to_string()),
-            })
-        })
-    }
-
-    fn discover_provisioning_pods<'a>(
-        &'a self,
-        _input: DiscoverProvisioningPodsInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Vec<ProvisioningPodObservation>, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            let count = self.discover_pods_count.fetch_add(1, Ordering::SeqCst);
-            if count > 0 {
-                if let Some(discovered_pods) = &self.subsequent_discovered_pods {
-                    return Ok(discovered_pods.clone());
-                }
-            }
-            Ok(self.discovered_pods.clone())
-        })
-    }
-
-    fn get_provisioning_pod<'a>(
-        &'a self,
-        input: ObserveProvisioningPodInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ProvisioningPodObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.get_pod_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.get_pod_error {
-                return Err(error.clone());
-            }
-            Ok(ProvisioningPodObservation {
-                provider_resource_id: input.provider_resource_id,
-                provider_resource_status: ProviderResourceStatus::Running,
-                provisioner_status_url: self
-                    .get_pod_status_url
-                    .clone()
-                    .unwrap_or_else(|| Some("http://203.0.113.10:30001/status".to_string())),
-            })
-        })
-    }
-
-    fn delete_provisioning_pod<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _pod_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.delete_pod_count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        })
-    }
-
-    fn create_endpoint_template<'a>(
-        &'a self,
-        input: CreateEndpointTemplateInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.create_template_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.create_template_error {
-                return Err(error.clone());
-            }
-            self.create_template_inputs
-                .lock()
-                .expect("create template inputs")
-                .push(input.clone());
-            assert_eq!(
-                input.endpoint_worker_image_ref,
-                sample_endpoint_worker_image_ref()
-            );
-            Ok(EndpointTemplateObservation {
-                template_id: "template-1".to_string(),
-                endpoint_worker_image_ref: input.endpoint_worker_image_ref,
-                mount_path: "/workspace".to_string(),
-                provider_resource_status: ProviderResourceStatus::Ready,
-            })
-        })
-    }
-
-    fn get_endpoint_template<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _template_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<EndpointTemplateObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.get_template_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.get_template_error {
-                return Err(error.clone());
-            }
-            Ok(EndpointTemplateObservation {
-                template_id: _template_id.to_string(),
-                endpoint_worker_image_ref: sample_endpoint_worker_image_ref(),
-                mount_path: "/workspace".to_string(),
-                provider_resource_status: self
-                    .get_template_status
-                    .clone()
-                    .unwrap_or(ProviderResourceStatus::Ready),
-            })
-        })
-    }
-
-    fn discover_endpoint_templates<'a>(
-        &'a self,
-        _input: DiscoverEndpointTemplatesInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Vec<EndpointTemplateObservation>, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            let count = self.discover_templates_count.fetch_add(1, Ordering::SeqCst);
-            if count > 0 {
-                if let Some(discovered_templates) = &self.subsequent_discovered_templates {
-                    return Ok(discovered_templates.clone());
-                }
-            }
-            Ok(self.discovered_templates.clone())
-        })
-    }
-
-    fn delete_endpoint_template<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _template_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.delete_template_count.fetch_add(1, Ordering::SeqCst);
-            Ok(())
-        })
-    }
-
-    fn create_serverless_endpoint<'a>(
-        &'a self,
-        _input: CreateServerlessEndpointInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.create_endpoint_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.create_endpoint_error {
-                return Err(error.clone());
-            }
-            Ok(ServerlessEndpointObservation {
-                provider_resource_id: "endpoint-1".to_string(),
-                provider_resource_status: ProviderResourceStatus::Ready,
-                endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
-            })
-        })
-    }
-
-    fn get_serverless_endpoint<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _endpoint_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<ServerlessEndpointObservation, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.get_endpoint_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.get_endpoint_error {
-                return Err(error.clone());
-            }
-            Ok(ServerlessEndpointObservation {
-                provider_resource_id: _endpoint_id.to_string(),
-                provider_resource_status: self
-                    .get_endpoint_status
-                    .clone()
-                    .unwrap_or(ProviderResourceStatus::Ready),
-                endpoint_invoke_url: "https://api.runpod.ai/v2/endpoint-1/runsync".to_string(),
-            })
-        })
-    }
-
-    fn discover_serverless_endpoints<'a>(
-        &'a self,
-        _input: DiscoverServerlessEndpointsInput,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<Vec<ServerlessEndpointObservation>, WorkspaceResourceError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            let count = self.discover_endpoints_count.fetch_add(1, Ordering::SeqCst);
-            if count > 0 {
-                if let Some(discovered_endpoints) = &self.subsequent_discovered_endpoints {
-                    return Ok(discovered_endpoints.clone());
-                }
-            }
-            Ok(self.discovered_endpoints.clone())
-        })
-    }
-
-    fn delete_serverless_endpoint<'a>(
-        &'a self,
-        _provider_id: GpuCloudProviderId,
-        _endpoint_id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
-        Box::pin(async move {
-            self.delete_endpoint_count.fetch_add(1, Ordering::SeqCst);
-            if let Some(error) = &self.delete_endpoint_error {
-                return Err(error.clone());
-            }
-            Ok(())
-        })
+        let provider_id = NEXT_PROVIDER_ID.fetch_add(1, Ordering::SeqCst);
+        Self {
+            api_key: format!("rp_test_{provider_id}_secret"),
+            create_volume_count: Arc::default(),
+            create_volume_inputs: Arc::default(),
+            get_volume_count: Arc::default(),
+            delete_volume_count: Arc::default(),
+            discover_volumes_count: Arc::default(),
+            discover_pods_count: Arc::default(),
+            create_pod_count: Arc::default(),
+            create_pod_inputs: Arc::default(),
+            get_pod_count: Arc::default(),
+            delete_pod_count: Arc::default(),
+            discover_templates_count: Arc::default(),
+            create_template_count: Arc::default(),
+            create_template_inputs: Arc::default(),
+            get_template_count: Arc::default(),
+            delete_template_count: Arc::default(),
+            discover_endpoints_count: Arc::default(),
+            create_endpoint_count: Arc::default(),
+            get_endpoint_count: Arc::default(),
+            delete_endpoint_count: Arc::default(),
+            create_volume_error: None,
+            create_pod_error: None,
+            create_template_error: None,
+            create_endpoint_error: None,
+            get_volume_error: None,
+            get_pod_error: None,
+            get_template_error: None,
+            get_endpoint_error: None,
+            discovered_volumes: Vec::new(),
+            subsequent_discovered_volumes: None,
+            discovered_pods: Vec::new(),
+            subsequent_discovered_pods: None,
+            discovered_templates: Vec::new(),
+            subsequent_discovered_templates: None,
+            discovered_endpoints: Vec::new(),
+            subsequent_discovered_endpoints: None,
+            get_volume_status: None,
+            get_pod_status_url: None,
+            get_template_status: None,
+            get_endpoint_status: None,
+            delete_endpoint_error: None,
+        }
     }
 }
+
+#[derive(Debug, Clone)]
+struct RegisteredFakeProvider {
+    provider: FakeProvider,
+    workspace_id: String,
+}
+
+#[derive(Debug)]
+struct FakeRunPodServer {
+    providers: Arc<Mutex<HashMap<String, RegisteredFakeProvider>>>,
+}
+
+static FAKE_RUNPOD_SERVER: OnceLock<FakeRunPodServer> = OnceLock::new();
+
+fn register_fake_provider(catalog: &MemoryWorkspaceCatalog, provider: &FakeProvider) {
+    let server = FAKE_RUNPOD_SERVER.get_or_init(start_fake_runpod_server);
+    let workspace_id = catalog
+        .workspaces
+        .lock()
+        .expect("catalog lock")
+        .first()
+        .map(|workspace| workspace.id.clone())
+        .unwrap_or_else(|| "018f6a40-0000-7000-8000-000000000001".to_string());
+
+    server.providers.lock().expect("providers lock").insert(
+        provider.api_key.clone(),
+        RegisteredFakeProvider {
+            provider: provider.clone(),
+            workspace_id,
+        },
+    );
+}
+
+fn start_fake_runpod_server() -> FakeRunPodServer {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind fake RunPod server");
+    let endpoint = format!(
+        "http://{}",
+        listener
+            .local_addr()
+            .expect("fake RunPod server local address")
+    );
+    crate::provider::runpod::set_default_test_rest_endpoint(endpoint);
+
+    let providers = Arc::new(Mutex::new(HashMap::<String, RegisteredFakeProvider>::new()));
+    let server_providers = providers.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let providers = server_providers.clone();
+            thread::spawn(move || handle_fake_runpod_connection(stream, providers));
+        }
+    });
+
+    FakeRunPodServer { providers }
+}
+
+#[derive(Debug)]
+struct FakeHttpRequest {
+    method: String,
+    path: String,
+    authorization: Option<String>,
+    body: Vec<u8>,
+}
+
+fn handle_fake_runpod_connection(
+    mut stream: TcpStream,
+    providers: Arc<Mutex<HashMap<String, RegisteredFakeProvider>>>,
+) {
+    let Some(request) = read_fake_http_request(&mut stream) else {
+        return;
+    };
+    let (status, body) = handle_fake_runpod_request(request, providers);
+    let body = body.to_string();
+    let response = format!(
+        "HTTP/1.1 {status} OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
+}
+
+fn read_fake_http_request(stream: &mut TcpStream) -> Option<FakeHttpRequest> {
+    let mut buffer = Vec::new();
+    let mut scratch = [0_u8; 1024];
+    loop {
+        let read = stream.read(&mut scratch).ok()?;
+        if read == 0 {
+            return None;
+        }
+        buffer.extend_from_slice(&scratch[..read]);
+        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+
+    let header_end = buffer.windows(4).position(|window| window == b"\r\n\r\n")?;
+    let headers = String::from_utf8_lossy(&buffer[..header_end]);
+    let mut lines = headers.lines();
+    let mut request_line = lines.next()?.split_whitespace();
+    let method = request_line.next()?.to_string();
+    let path = request_line.next()?.to_string();
+
+    let mut authorization = None;
+    let mut content_length = 0_usize;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("authorization") {
+            authorization = Some(value.trim().to_string());
+        } else if name.eq_ignore_ascii_case("content-length") {
+            content_length = value.trim().parse().unwrap_or_default();
+        }
+    }
+
+    let body_start = header_end + 4;
+    while buffer.len() < body_start + content_length {
+        let read = stream.read(&mut scratch).ok()?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&scratch[..read]);
+    }
+
+    Some(FakeHttpRequest {
+        method,
+        path,
+        authorization,
+        body: buffer
+            .get(body_start..body_start + content_length)
+            .unwrap_or_default()
+            .to_vec(),
+    })
+}
+
+fn handle_fake_runpod_request(
+    request: FakeHttpRequest,
+    providers: Arc<Mutex<HashMap<String, RegisteredFakeProvider>>>,
+) -> (u16, Value) {
+    let Some(api_key) = request
+        .authorization
+        .as_deref()
+        .and_then(|value| value.strip_prefix("Bearer "))
+    else {
+        return (401, json!({}));
+    };
+
+    let Some(registered) = providers
+        .lock()
+        .expect("providers lock")
+        .get(api_key)
+        .cloned()
+    else {
+        return (401, json!({}));
+    };
+
+    fake_runpod_response(request, registered)
+}
+
+fn fake_runpod_response(
+    request: FakeHttpRequest,
+    registered: RegisteredFakeProvider,
+) -> (u16, Value) {
+    let path = request.path.trim_start_matches('/');
+    let segments = path.split('/').collect::<Vec<_>>();
+    match (request.method.as_str(), segments.as_slice()) {
+        ("GET", ["networkvolumes"]) => fake_discover_volumes(&registered),
+        ("POST", ["networkvolumes"]) => fake_create_volume(&request.body, &registered),
+        ("GET", ["networkvolumes", volume_id]) => fake_get_volume(volume_id, &registered.provider),
+        ("DELETE", ["networkvolumes", _]) => {
+            registered
+                .provider
+                .delete_volume_count
+                .fetch_add(1, Ordering::SeqCst);
+            (200, json!({}))
+        }
+        ("GET", ["pods"]) => fake_discover_pods(&registered),
+        ("POST", ["pods"]) => fake_create_pod(&request.body, &registered),
+        ("GET", ["pods", pod_id]) => fake_get_pod(pod_id, &registered.provider),
+        ("DELETE", ["pods", _]) => {
+            registered
+                .provider
+                .delete_pod_count
+                .fetch_add(1, Ordering::SeqCst);
+            (200, json!({}))
+        }
+        ("GET", ["templates"]) => fake_discover_templates(&registered),
+        ("POST", ["templates"]) => fake_create_template(&request.body, &registered),
+        ("GET", ["templates", template_id]) => fake_get_template(template_id, &registered.provider),
+        ("DELETE", ["templates", _]) => {
+            registered
+                .provider
+                .delete_template_count
+                .fetch_add(1, Ordering::SeqCst);
+            (200, json!({}))
+        }
+        ("GET", ["endpoints"]) => fake_discover_endpoints(&registered),
+        ("POST", ["endpoints"]) => fake_create_endpoint(&registered),
+        ("GET", ["endpoints", endpoint_id]) => fake_get_endpoint(endpoint_id, &registered.provider),
+        ("DELETE", ["endpoints", _]) => {
+            registered
+                .provider
+                .delete_endpoint_count
+                .fetch_add(1, Ordering::SeqCst);
+            error_response(registered.provider.delete_endpoint_error.as_ref())
+                .unwrap_or((200, json!({})))
+        }
+        _ => (404, json!({})),
+    }
+}
+
+fn fake_discover_volumes(registered: &RegisteredFakeProvider) -> (u16, Value) {
+    let call = registered
+        .provider
+        .discover_volumes_count
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let observations = if call > 1 {
+        registered
+            .provider
+            .subsequent_discovered_volumes
+            .as_ref()
+            .unwrap_or(&registered.provider.discovered_volumes)
+    } else {
+        &registered.provider.discovered_volumes
+    };
+    let name = provider_resource_name(&registered.workspace_id, "volume");
+    (
+        200,
+        Value::Array(
+            observations
+                .iter()
+                .map(|observation| {
+                    json!({
+                        "id": observation.provider_resource_id,
+                        "name": name,
+                        "status": runpod_status(&observation.provider_resource_status),
+                    })
+                })
+                .collect(),
+        ),
+    )
+}
+
+fn fake_create_volume(body: &[u8], registered: &RegisteredFakeProvider) -> (u16, Value) {
+    registered
+        .provider
+        .create_volume_count
+        .fetch_add(1, Ordering::SeqCst);
+    let payload = serde_json::from_slice::<Value>(body).unwrap_or_else(|_| json!({}));
+    registered
+        .provider
+        .create_volume_inputs
+        .lock()
+        .expect("volume inputs")
+        .push(CreateNetworkVolumeInput {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            workspace_id: registered.workspace_id.clone(),
+            datacenter_id: payload
+                .get("dataCenterId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            size_bytes: payload
+                .get("size")
+                .and_then(Value::as_u64)
+                .unwrap_or_default()
+                * 1024
+                * 1024
+                * 1024,
+        });
+    if let Some(response) = error_response(registered.provider.create_volume_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": "volume-1",
+            "name": provider_resource_name(&registered.workspace_id, "volume"),
+            "status": "READY",
+        }),
+    )
+}
+
+fn fake_get_volume(volume_id: &str, provider: &FakeProvider) -> (u16, Value) {
+    provider.get_volume_count.fetch_add(1, Ordering::SeqCst);
+    if let Some(response) = error_response(provider.get_volume_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": volume_id,
+            "name": "volume",
+            "status": runpod_status(provider.get_volume_status.as_ref().unwrap_or(&ProviderResourceStatus::Ready)),
+        }),
+    )
+}
+
+fn fake_discover_pods(registered: &RegisteredFakeProvider) -> (u16, Value) {
+    let call = registered
+        .provider
+        .discover_pods_count
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let observations = if call > 1 {
+        registered
+            .provider
+            .subsequent_discovered_pods
+            .as_ref()
+            .unwrap_or(&registered.provider.discovered_pods)
+    } else {
+        &registered.provider.discovered_pods
+    };
+    let name = provider_resource_name(&registered.workspace_id, "provisioner");
+    (
+        200,
+        Value::Array(
+            observations
+                .iter()
+                .map(|observation| {
+                    json!({
+                        "id": observation.provider_resource_id,
+                        "name": name,
+                        "podStatus": runpod_status(&observation.provider_resource_status),
+                    })
+                })
+                .collect(),
+        ),
+    )
+}
+
+fn fake_create_pod(body: &[u8], registered: &RegisteredFakeProvider) -> (u16, Value) {
+    registered
+        .provider
+        .create_pod_count
+        .fetch_add(1, Ordering::SeqCst);
+    let payload = serde_json::from_slice::<Value>(body).unwrap_or_else(|_| json!({}));
+    registered
+        .provider
+        .create_pod_inputs
+        .lock()
+        .expect("pod inputs")
+        .push(CreateProvisioningPodInput {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            workspace_id: registered.workspace_id.clone(),
+            provisioner_worker_image_ref: payload
+                .get("imageName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            datacenter_id: payload
+                .get("dataCenterIds")
+                .and_then(Value::as_array)
+                .and_then(|values| values.first())
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            selected_gpu_id: payload
+                .get("gpuTypeIds")
+                .and_then(Value::as_array)
+                .and_then(|values| values.first())
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            network_volume_id: payload
+                .get("networkVolumeId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            mount_path: payload
+                .get("volumeMountPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            bearer_token: ProvisionerWorkerBearerToken::new(
+                payload
+                    .get("env")
+                    .and_then(|env| env.get("LUMA_FORGE_PROVISIONER_BEARER_TOKEN"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("worker-token")
+                    .to_string(),
+            )
+            .expect("valid worker token"),
+        });
+    if let Some(response) = error_response(registered.provider.create_pod_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": "pod-1",
+            "name": provider_resource_name(&registered.workspace_id, "provisioner"),
+            "podStatus": "RUNNING",
+            "ports": ["8000/tcp"],
+            "publicIp": "203.0.113.10",
+            "portMappings": { "8000": 30001 },
+        }),
+    )
+}
+
+fn fake_get_pod(pod_id: &str, provider: &FakeProvider) -> (u16, Value) {
+    provider.get_pod_count.fetch_add(1, Ordering::SeqCst);
+    if let Some(response) = error_response(provider.get_pod_error.as_ref()) {
+        return response;
+    }
+    let mut payload = json!({
+        "id": pod_id,
+        "name": "pod",
+        "podStatus": "RUNNING",
+    });
+    if provider.get_pod_status_url != Some(None) {
+        payload["ports"] = json!(["8000/tcp"]);
+        payload["publicIp"] = json!("203.0.113.10");
+        payload["portMappings"] = json!({ "8000": 30001 });
+    }
+    (200, payload)
+}
+
+fn fake_discover_templates(registered: &RegisteredFakeProvider) -> (u16, Value) {
+    let call = registered
+        .provider
+        .discover_templates_count
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let observations = if call > 1 {
+        registered
+            .provider
+            .subsequent_discovered_templates
+            .as_ref()
+            .unwrap_or(&registered.provider.discovered_templates)
+    } else {
+        &registered.provider.discovered_templates
+    };
+    let name = provider_resource_name(&registered.workspace_id, "endpoint-template");
+    (
+        200,
+        Value::Array(
+            observations
+                .iter()
+                .map(|observation| {
+                    json!({
+                        "id": observation.template_id,
+                        "name": name,
+                        "imageName": observation.endpoint_worker_image_ref,
+                        "isServerless": true,
+                        "volumeMountPath": observation.mount_path,
+                        "status": runpod_status(&observation.provider_resource_status),
+                    })
+                })
+                .collect(),
+        ),
+    )
+}
+
+fn fake_create_template(body: &[u8], registered: &RegisteredFakeProvider) -> (u16, Value) {
+    registered
+        .provider
+        .create_template_count
+        .fetch_add(1, Ordering::SeqCst);
+    let payload = serde_json::from_slice::<Value>(body).unwrap_or_else(|_| json!({}));
+    registered
+        .provider
+        .create_template_inputs
+        .lock()
+        .expect("template inputs")
+        .push(CreateEndpointTemplateInput {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            workspace_id: registered.workspace_id.clone(),
+            endpoint_worker_image_ref: payload
+                .get("imageName")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            mount_path: payload
+                .get("volumeMountPath")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        });
+    if let Some(response) = error_response(registered.provider.create_template_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": "template-1",
+            "name": provider_resource_name(&registered.workspace_id, "endpoint-template"),
+            "imageName": payload.get("imageName").and_then(Value::as_str).unwrap_or_default(),
+            "isServerless": true,
+            "volumeMountPath": payload.get("volumeMountPath").and_then(Value::as_str).unwrap_or("/workspace"),
+            "status": "READY",
+        }),
+    )
+}
+
+fn fake_get_template(template_id: &str, provider: &FakeProvider) -> (u16, Value) {
+    provider.get_template_count.fetch_add(1, Ordering::SeqCst);
+    if let Some(response) = error_response(provider.get_template_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": template_id,
+            "name": "template",
+            "imageName": sample_endpoint_worker_image_ref(),
+            "isServerless": true,
+            "volumeMountPath": "/workspace",
+            "status": runpod_status(provider.get_template_status.as_ref().unwrap_or(&ProviderResourceStatus::Ready)),
+        }),
+    )
+}
+
+fn fake_discover_endpoints(registered: &RegisteredFakeProvider) -> (u16, Value) {
+    let call = registered
+        .provider
+        .discover_endpoints_count
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+    let observations = if call > 1 {
+        registered
+            .provider
+            .subsequent_discovered_endpoints
+            .as_ref()
+            .unwrap_or(&registered.provider.discovered_endpoints)
+    } else {
+        &registered.provider.discovered_endpoints
+    };
+    let name = provider_resource_name(&registered.workspace_id, "endpoint");
+    (
+        200,
+        Value::Array(
+            observations
+                .iter()
+                .map(|observation| {
+                    json!({
+                        "id": observation.provider_resource_id,
+                        "name": name,
+                        "status": runpod_status(&observation.provider_resource_status),
+                        "endpointUrl": observation.endpoint_invoke_url,
+                    })
+                })
+                .collect(),
+        ),
+    )
+}
+
+fn fake_create_endpoint(registered: &RegisteredFakeProvider) -> (u16, Value) {
+    registered
+        .provider
+        .create_endpoint_count
+        .fetch_add(1, Ordering::SeqCst);
+    if let Some(response) = error_response(registered.provider.create_endpoint_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": "endpoint-1",
+            "name": provider_resource_name(&registered.workspace_id, "endpoint"),
+            "status": "READY",
+            "endpointUrl": "https://api.runpod.ai/v2/endpoint-1/runsync",
+        }),
+    )
+}
+
+fn fake_get_endpoint(endpoint_id: &str, provider: &FakeProvider) -> (u16, Value) {
+    provider.get_endpoint_count.fetch_add(1, Ordering::SeqCst);
+    if let Some(response) = error_response(provider.get_endpoint_error.as_ref()) {
+        return response;
+    }
+    (
+        200,
+        json!({
+            "id": endpoint_id,
+            "name": "endpoint",
+            "status": runpod_status(provider.get_endpoint_status.as_ref().unwrap_or(&ProviderResourceStatus::Ready)),
+            "endpointUrl": format!("https://api.runpod.ai/v2/{endpoint_id}/runsync"),
+        }),
+    )
+}
+
+fn error_response(error: Option<&WorkspaceResourceError>) -> Option<(u16, Value)> {
+    let status = match error? {
+        WorkspaceResourceError::ProviderApiKeyUnauthorized => 401,
+        WorkspaceResourceError::ProviderRateLimited => 429,
+        WorkspaceResourceError::ProviderRequestRejected => 400,
+        WorkspaceResourceError::ProviderResourceNotFound => 404,
+        WorkspaceResourceError::ProviderOperationConflict => 409,
+        WorkspaceResourceError::ProviderOperationIndeterminate => 408,
+        WorkspaceResourceError::ProviderApiUnavailable => 500,
+        WorkspaceResourceError::ProviderResponseInvalid => return Some((200, json!({}))),
+        WorkspaceResourceError::WorkspaceCatalogUnavailable
+        | WorkspaceResourceError::ProviderSetupIncomplete
+        | WorkspaceResourceError::SecureKeyringUnavailable
+        | WorkspaceResourceError::ProvisionerWorkerTokenInvalid => 500,
+    };
+    Some((status, json!({})))
+}
+
+fn runpod_status(status: &ProviderResourceStatus) -> &'static str {
+    match status {
+        ProviderResourceStatus::Ready => "READY",
+        ProviderResourceStatus::Running => "RUNNING",
+        ProviderResourceStatus::Creating => "CREATING",
+        ProviderResourceStatus::Failed => "FAILED",
+        ProviderResourceStatus::Terminated => "TERMINATED",
+        ProviderResourceStatus::Unknown => "UNKNOWN",
+    }
+}
+
+type TestWorkspaceProvisioningService =
+    WorkspaceProvisioningService<MemorySecretStore, MemoryWorkspaceCatalog, FakeWorker>;
 
 #[derive(Debug, Clone)]
 struct FakeWorker {
@@ -708,6 +1017,15 @@ async fn sync_routes_runpod_workspace_through_provider_specific_steps() {
     );
     assert_eq!(provider.discover_volumes_count.load(Ordering::SeqCst), 1);
     assert_eq!(provider.create_volume_count.load(Ordering::SeqCst), 1);
+    let create_volume_inputs = provider
+        .create_volume_inputs
+        .lock()
+        .expect("create volume inputs");
+    assert_eq!(create_volume_inputs.len(), 1);
+    assert_eq!(
+        create_volume_inputs[0].gpu_cloud_provider_id,
+        workspace.gpu_cloud_provider_id
+    );
     assert!(result
         .workspace
         .persistent_storage_volume_snapshot
@@ -880,12 +1198,12 @@ async fn sync_creates_provisioning_pod_and_stores_worker_token() {
     catalog.insert_workspace(&workspace).await.expect("insert");
     let provider = FakeProvider::default();
     let worker_tokens = Arc::new(Mutex::new(HashMap::new()));
+    register_fake_provider(&catalog, &provider);
     let secrets = MemorySecretStore {
-        api_key: Some("rp_123_secret".to_string()),
+        api_key: Some(provider.api_key.clone()),
         worker_tokens: worker_tokens.clone(),
     };
-    let resources =
-        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider.clone());
+    let resources = WorkspaceResourceService::new(secrets.clone(), catalog.clone());
     let service = WorkspaceProvisioningService::new(
         secrets,
         resources,
@@ -1019,12 +1337,12 @@ async fn concurrent_sync_is_read_only() {
     let provider = FakeProvider::default();
     let coordinator = WorkspaceProvisioningCoordinator::default();
     let _guard = coordinator.try_enter(&workspace.id).expect("enter");
+    register_fake_provider(&catalog, &provider);
     let secrets = MemorySecretStore {
-        api_key: Some("rp_123_secret".to_string()),
+        api_key: Some(provider.api_key.clone()),
         worker_tokens: Arc::default(),
     };
-    let resources =
-        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider.clone());
+    let resources = WorkspaceResourceService::new(secrets.clone(), catalog.clone());
     let service = WorkspaceProvisioningService::new(
         secrets,
         resources,
@@ -2249,12 +2567,12 @@ async fn cancel_conflict_returns_error_without_cleanup_side_effects() {
     let tokens = worker_token_map(&workspace.id);
     let coordinator = WorkspaceProvisioningCoordinator::default();
     let _guard = coordinator.try_enter(&workspace.id).expect("enter");
+    register_fake_provider(&catalog, &provider);
     let secrets = MemorySecretStore {
-        api_key: Some("rp_123_secret".to_string()),
+        api_key: Some(provider.api_key.clone()),
         worker_tokens: tokens.clone(),
     };
-    let resources =
-        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider.clone());
+    let resources = WorkspaceResourceService::new(secrets.clone(), catalog.clone());
     let service = WorkspaceProvisioningService::new(
         secrets,
         resources,
@@ -2301,12 +2619,12 @@ fn service_with_parts(
     worker: FakeWorker,
     worker_tokens: Arc<Mutex<HashMap<String, String>>>,
 ) -> TestWorkspaceProvisioningService {
+    register_fake_provider(&catalog, &provider);
     let secrets = MemorySecretStore {
-        api_key: Some("rp_123_secret".to_string()),
+        api_key: Some(provider.api_key.clone()),
         worker_tokens,
     };
-    let resources =
-        RunPodWorkspaceResourceOperations::new(secrets.clone(), catalog.clone(), provider);
+    let resources = WorkspaceResourceService::new(secrets.clone(), catalog.clone());
     WorkspaceProvisioningService::new(
         secrets,
         resources,
@@ -2372,10 +2690,6 @@ fn template_snapshot(status: ProviderResourceStatus) -> RunPodEndpointTemplateSn
         mount_path: "/workspace".to_string(),
         provider_resource_status: status,
     }
-}
-
-fn sample_provisioner_worker_image_ref() -> String {
-    sample_runtime_snapshot().provisioner_image_ref
 }
 
 fn sample_endpoint_worker_image_ref() -> String {

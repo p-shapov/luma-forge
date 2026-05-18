@@ -15,16 +15,14 @@ use crate::{
         helpers::{result, WorkspaceProvisioningResult},
         WorkspaceProvisioningError,
     },
-    workspace_resources::operations::WorkspaceResourceOperations,
 };
 
-pub(crate) async fn sync<S, Q, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, Q, W, R>,
+pub(crate) async fn sync<S, W, R>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R>,
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
     S: SecretStore,
-    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
@@ -104,14 +102,13 @@ where
     }))
 }
 
-async fn handle_worker_error<S, Q, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, Q, W, R>,
+async fn handle_worker_error<S, W, R>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R>,
     mut workspace: Workspace,
     error: WorkspaceProvisioningError,
 ) -> SyncStepResult
 where
     S: SecretStore,
-    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {

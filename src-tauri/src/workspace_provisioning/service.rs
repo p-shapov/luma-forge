@@ -3,7 +3,7 @@ use crate::{
     provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_resources::operations::WorkspaceResourceOperations,
+    workspace_resources::WorkspaceResourceService,
 };
 
 use super::{
@@ -19,19 +19,19 @@ pub struct WorkspaceProvisioningConfig {
     pub volume_mount_path: String,
 }
 
-pub struct WorkspaceProvisioningService<S, Q, W, R> {
+pub struct WorkspaceProvisioningService<S, W, R> {
     secrets: S,
-    resources: Q,
+    resources: WorkspaceResourceService<S, W>,
     workspace_catalog: W,
     workers: R,
     coordinator: WorkspaceProvisioningCoordinator,
     config: WorkspaceProvisioningConfig,
 }
 
-impl<S, Q, W, R> WorkspaceProvisioningService<S, Q, W, R> {
+impl<S, W, R> WorkspaceProvisioningService<S, W, R> {
     pub fn new(
         secrets: S,
-        resources: Q,
+        resources: WorkspaceResourceService<S, W>,
         workspace_catalog: W,
         workers: R,
         coordinator: WorkspaceProvisioningCoordinator,
@@ -47,7 +47,7 @@ impl<S, Q, W, R> WorkspaceProvisioningService<S, Q, W, R> {
         }
     }
 
-    fn context(&self) -> WorkspaceProvisioningContext<'_, S, Q, W, R> {
+    fn context(&self) -> WorkspaceProvisioningContext<'_, S, W, R> {
         WorkspaceProvisioningContext::new(
             &self.secrets,
             &self.resources,
@@ -58,10 +58,9 @@ impl<S, Q, W, R> WorkspaceProvisioningService<S, Q, W, R> {
     }
 }
 
-impl<S, Q, W, R> WorkspaceProvisioningService<S, Q, W, R>
+impl<S, W, R> WorkspaceProvisioningService<S, W, R>
 where
     S: SecretStore,
-    Q: WorkspaceResourceOperations,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {

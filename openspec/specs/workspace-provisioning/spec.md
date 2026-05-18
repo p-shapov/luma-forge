@@ -652,7 +652,7 @@ Workspace Provisioning SHALL treat RunPod serverless template runtime environmen
 
 ### Requirement: Manage Workspace Resources Through Workspace Resource Operations
 
-Workspace Provisioning SHALL delegate Workspace-owned provider resource lifecycle to a `workspace_resources` native module while preserving existing provisioning behavior, command contracts, persisted Workspace metadata, and generated frontend bindings.
+Workspace Provisioning SHALL delegate Workspace-owned provider resource lifecycle to a concrete `workspace_resources` native service that selects provider-specific resource implementation from the Workspace provider identity while preserving existing provisioning behavior, command contracts, persisted Workspace metadata, and generated frontend bindings.
 
 #### Scenario: Provisioning delegates resource lifecycle
 
@@ -660,6 +660,13 @@ Workspace Provisioning SHALL delegate Workspace-owned provider resource lifecycl
 - **THEN** the Native Layer SHALL route that resource lifecycle work through `workspace_resources`
 - **AND** Workspace Provisioning SHALL remain responsible for initiation, lifecycle gating, concurrency guarding, phase ordering, Provisioner Worker coordination, and result shaping
 - **AND** Workspace Provisioning MUST NOT directly own provider resource snapshot write or clear logic after the resource operation boundary is introduced
+
+#### Scenario: Resource service dispatches by Workspace provider identity
+
+- **WHEN** `workspace_resources` performs Workspace-owned provider resource lifecycle work for a Workspace
+- **THEN** the Native Layer SHALL select the provider-specific resource implementation by matching the Workspace's persisted GPU Cloud Provider id
+- **AND** the Native Layer MUST NOT select the provider-specific resource implementation through a production alias that hardcodes RunPod before a Workspace is known
+- **AND** the Native Layer MUST NOT require a top-level `WorkspaceResourceOperations` trait to route Workspace Resource lifecycle calls
 
 #### Scenario: Resource operation persists matching snapshot state
 

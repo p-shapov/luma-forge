@@ -13,7 +13,7 @@ use crate::{
         WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
         WorkspaceProvisioningService,
     },
-    workspace_resources::operations::ProductionWorkspaceResourceOperations,
+    workspace_resources::WorkspaceResourceService,
     workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupService},
 };
 
@@ -24,7 +24,6 @@ pub(crate) type WorkspaceSetupWriteService =
     WorkspaceSetupService<BundledCatalogReader, KeyringSecretStore, SqliteWorkspaceCatalog>;
 pub(crate) type ProductionWorkspaceProvisioningService = WorkspaceProvisioningService<
     KeyringSecretStore,
-    ProductionWorkspaceResourceOperations<KeyringSecretStore, SqliteWorkspaceCatalog>,
     SqliteWorkspaceCatalog,
     ProvisionerWorkerHttpGateway,
 >;
@@ -77,10 +76,8 @@ impl NativeAppState {
             .workspace_catalog()
             .await
             .map_err(|_| WorkspaceProvisioningError::WorkspaceCatalogUnavailable)?;
-        let resources = ProductionWorkspaceResourceOperations::production(
-            self.secrets.clone(),
-            workspace_catalog.clone(),
-        );
+        let resources =
+            WorkspaceResourceService::new(self.secrets.clone(), workspace_catalog.clone());
         Ok(WorkspaceProvisioningService::new(
             self.secrets.clone(),
             resources,

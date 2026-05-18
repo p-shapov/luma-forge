@@ -3,25 +3,25 @@ use crate::{
         placement::PlacementPlan,
         workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
     },
+    secrets::SecretStore,
     workspace_provisioning::{failure, helpers::persistent_storage_volume_snapshot},
     workspace_resources::{
         CreateNetworkVolumeInput, DiscoverNetworkVolumesInput, WorkspaceResourceError,
     },
 };
 
-use super::{
-    RunPodResourceGateway, RunPodWorkspaceResourceOperations, WorkspaceResourceConfig,
-    WorkspaceResourceSyncResult,
+use crate::workspace_resources::{
+    WorkspaceResourceConfig, WorkspaceResourceService, WorkspaceResourceSyncResult,
 };
 
-pub(crate) async fn sync<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+pub(crate) async fn sync<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     _config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
+    S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     if workspace.persistent_storage_volume_snapshot.is_none() {
         let PlacementPlan::Runpod {
@@ -32,7 +32,6 @@ where
         let selected_datacenter_id = selected_datacenter_id.clone();
         let persistent_storage_volume_size_bytes = *persistent_storage_volume_size_bytes;
         let discovered_volumes = context
-            .resources
             .discover_network_volumes(DiscoverNetworkVolumesInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -51,7 +50,6 @@ where
             .await;
         }
         let observation = match context
-            .resources
             .create_network_volume(CreateNetworkVolumeInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -63,7 +61,6 @@ where
             Ok(observation) => observation,
             Err(WorkspaceResourceError::ProviderOperationIndeterminate) => {
                 let discovered_volumes = context
-                    .resources
                     .discover_network_volumes(DiscoverNetworkVolumesInput {
                         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                         workspace_id: workspace.id.clone(),
@@ -106,7 +103,6 @@ where
     };
 
     let observation = match context
-        .resources
         .get_network_volume(workspace.gpu_cloud_provider_id, &volume_id)
         .await
     {
@@ -127,8 +123,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_indeterminate_provider_operation<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_indeterminate_provider_operation<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -142,8 +138,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_missing_provider_resource<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_missing_provider_resource<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -157,8 +153,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_orphaned_provider_resources<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_orphaned_provider_resources<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
     provider_resource_ids: Vec<String>,

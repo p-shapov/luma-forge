@@ -14,20 +14,18 @@ use crate::{
     },
 };
 
-use super::{
-    RunPodResourceGateway, RunPodWorkspaceResourceOperations, WorkspaceResourceConfig,
-    WorkspaceResourceSyncResult,
+use crate::workspace_resources::{
+    WorkspaceResourceConfig, WorkspaceResourceService, WorkspaceResourceSyncResult,
 };
 
-pub(crate) async fn sync<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+pub(crate) async fn sync<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     if workspace.environment_prepared_at.is_none()
         && workspace.active_provisioning_pod_snapshot.is_none()
@@ -53,7 +51,6 @@ where
             ..
         } = &workspace.placement_plan;
         let discovered_pods = context
-            .resources
             .discover_provisioning_pods(DiscoverProvisioningPodsInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -78,7 +75,6 @@ where
             .write_provisioner_worker_token(&workspace.id, &token)
             .map_err(WorkspaceResourceError::from)?;
         let observation = match context
-            .resources
             .create_provisioning_pod(CreateProvisioningPodInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
@@ -94,7 +90,6 @@ where
             Ok(observation) => observation,
             Err(WorkspaceResourceError::ProviderOperationIndeterminate) => {
                 let discovered_pods = context
-                    .resources
                     .discover_provisioning_pods(DiscoverProvisioningPodsInput {
                         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                         workspace_id: workspace.id.clone(),
@@ -141,7 +136,6 @@ where
     };
 
     let observation = match context
-        .resources
         .get_provisioning_pod(ObserveProvisioningPodInput {
             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
             provider_resource_id: active_pod.provider_resource_id.clone(),
@@ -180,14 +174,13 @@ where
     Ok(None)
 }
 
-pub(crate) async fn finish<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+pub(crate) async fn finish<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
     S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
-    G: RunPodResourceGateway,
 {
     if workspace.environment_prepared_at.is_none() {
         return Ok(None);
@@ -198,7 +191,6 @@ where
     };
 
     match context
-        .resources
         .delete_provisioning_pod(
             workspace.gpu_cloud_provider_id,
             &active_pod.provider_resource_id,
@@ -219,8 +211,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_indeterminate_provider_operation<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_indeterminate_provider_operation<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -231,8 +223,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_missing_provider_resource<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_missing_provider_resource<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
@@ -243,8 +235,8 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
-async fn fail_for_orphaned_provider_resources<S, W, G>(
-    context: &RunPodWorkspaceResourceOperations<S, W, G>,
+async fn fail_for_orphaned_provider_resources<S, W>(
+    context: &WorkspaceResourceService<S, W>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
     provider_resource_ids: Vec<String>,
