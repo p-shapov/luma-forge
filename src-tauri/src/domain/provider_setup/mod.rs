@@ -55,3 +55,25 @@ pub struct ProviderIdentity {
     pub provider_user_email: String,
     pub provider_api_key_fingerprint: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_api_key_rejects_blank_values() {
+        assert_eq!(
+            ProviderApiKey::new(" \n\t".to_string()).map(|_| ()),
+            Err(ProviderApiKeyError)
+        );
+    }
+
+    #[test]
+    fn provider_api_key_exposes_secret_only_explicitly() {
+        let key = ProviderApiKey::new("rp_secret_value".to_string())
+            .expect("non-blank key should be accepted");
+
+        assert_eq!(key.expose_secret(), "rp_secret_value");
+        assert_eq!(format!("{key:?}"), "ProviderApiKey([REDACTED])");
+    }
+}
