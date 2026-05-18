@@ -11,14 +11,3 @@ pub(crate) fn export_typescript_bindings(builder: &Builder<tauri::Wry>) {
         .export(Typescript::default(), format!("{bindings_dir}/commands.ts"))
         .expect("failed to export typescript bindings");
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::commands;
-
-    #[test]
-    fn export_bindings() {
-        export_typescript_bindings(&commands::builder());
-    }
-}

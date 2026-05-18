@@ -5,18 +5,21 @@ use crate::{
     workspace_provisioner::ProvisionerWorkerGateway,
 };
 
-use super::context::{SyncStepResult, WorkspaceProvisioningContext};
+use super::context::{
+    SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources,
+};
 
 mod runpod;
 
-pub(crate) async fn sync<S, W, R>(
-    context: &WorkspaceProvisioningContext<'_, S, W, R>,
+pub(crate) async fn sync<S, W, R, Q>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
     S: SecretStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
 {
     match workspace.gpu_cloud_provider_id {
         GpuCloudProviderId::Runpod => runpod::sync(context, workspace).await,

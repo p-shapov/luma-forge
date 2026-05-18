@@ -68,3 +68,281 @@ pub fn validate_placement_plan(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{
+        placement::{
+            RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS, RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS,
+            RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS,
+        },
+        runtime::{RuntimeContract, RuntimeContractRevision},
+        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+    };
+
+    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const REQUIRED_VOLUME_SIZE: u64 = 80 * 1024 * 1024 * 1024;
+
+    fn runtime_catalog() -> RuntimeCatalog {
+        RuntimeCatalog {
+            contracts: vec![RuntimeContract {
+                id: "comfyui-python312-cu121".to_string(),
+                revisions: vec![RuntimeContractRevision {
+                    version: "1.0.0".to_string(),
+                    provisioner_image_ref: format!(
+                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"
+                    ),
+                    endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
+                }],
+            }],
+        }
+    }
+
+    fn workflow_preset() -> WorkflowPreset {
+        WorkflowPreset {
+            id: "comfyui-t2i-basic".to_string(),
+            version: "1.0.0".to_string(),
+            name: "ComfyUI Text to Image".to_string(),
+            workflow_execution_type: WorkflowExecutionType::T2i,
+            required_base_volume_size_bytes: REQUIRED_VOLUME_SIZE,
+            runtime_contract: RuntimeContractReference {
+                id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            required_model_assets: vec![],
+            required_custom_nodes: vec![],
+        }
+    }
+
+    fn workflow_catalog() -> WorkflowCatalog {
+        WorkflowCatalog {
+            workflow_presets: vec![workflow_preset()],
+        }
+    }
+
+    fn placement_plan() -> PlacementPlan {
+        PlacementPlan::Runpod {
+            selected_datacenter_id: "EU-RO-1".to_string(),
+            selected_gpu_id: "NVIDIA A40".to_string(),
+            persistent_storage_volume_size_bytes: REQUIRED_VOLUME_SIZE,
+            endpoint_keep_alive_seconds: RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+            selected_workflow_preset: workflow_preset(),
+        }
+    }
+
+    fn plan_with(
+        datacenter_id: &str,
+        gpu_id: &str,
+        volume_size: u64,
+        keep_alive_seconds: u32,
+        selected_workflow_preset: WorkflowPreset,
+    ) -> PlacementPlan {
+        PlacementPlan::Runpod {
+            selected_datacenter_id: datacenter_id.to_string(),
+            selected_gpu_id: gpu_id.to_string(),
+            persistent_storage_volume_size_bytes: volume_size,
+            endpoint_keep_alive_seconds: keep_alive_seconds,
+            selected_workflow_preset,
+        }
+    }
+
+    #[test]
+    fn validate_placement_plan_accepts_valid_plan() {
+        assert_eq!(
+            validate_placement_plan(
+                GpuCloudProviderId::Runpod,
+                &placement_plan(),
+                &workflow_catalog(),
+                &runtime_catalog(),
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn validate_placement_plan_accepts_keep_alive_boundaries() {
+        for keep_alive_seconds in [
+            RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS,
+            RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS,
+        ] {
+            let plan = plan_with(
+                "EU-RO-1",
+                "NVIDIA A40",
+                REQUIRED_VOLUME_SIZE,
+                keep_alive_seconds,
+                workflow_preset(),
+            );
+
+            assert_eq!(
+                validate_placement_plan(
+                    GpuCloudProviderId::Runpod,
+                    &plan,
+                    &workflow_catalog(),
+                    &runtime_catalog(),
+                ),
+                Ok(())
+            );
+        }
+    }
+
+    #[test]
+    fn validate_placement_plan_rejects_missing_selection_fields() {
+        let invalid_plans = [
+            (
+                plan_with(
+                    " ",
+                    "NVIDIA A40",
+                    REQUIRED_VOLUME_SIZE,
+                    RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+                    workflow_preset(),
+                ),
+                PlacementValidationError::DatacenterRequired,
+            ),
+            (
+                plan_with(
+                    "EU-RO-1",
+                    " ",
+                    REQUIRED_VOLUME_SIZE,
+                    RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+                    workflow_preset(),
+                ),
+                PlacementValidationError::GpuRequired,
+            ),
+        ];
+
+        for (plan, expected_error) in invalid_plans {
+            assert_eq!(
+                validate_placement_plan(
+                    GpuCloudProviderId::Runpod,
+                    &plan,
+                    &workflow_catalog(),
+                    &runtime_catalog(),
+                ),
+                Err(expected_error)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_placement_plan_rejects_stale_or_changed_workflow_preset() {
+        let missing_preset = plan_with(
+            "EU-RO-1",
+            "NVIDIA A40",
+            REQUIRED_VOLUME_SIZE,
+            RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+            WorkflowPreset {
+                id: "missing-preset".to_string(),
+                ..workflow_preset()
+            },
+        );
+        assert_eq!(
+            validate_placement_plan(
+                GpuCloudProviderId::Runpod,
+                &missing_preset,
+                &workflow_catalog(),
+                &runtime_catalog(),
+            ),
+            Err(PlacementValidationError::WorkflowPresetStale)
+        );
+
+        let changed_preset = plan_with(
+            "EU-RO-1",
+            "NVIDIA A40",
+            REQUIRED_VOLUME_SIZE,
+            RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+            WorkflowPreset {
+                name: "Changed".to_string(),
+                ..workflow_preset()
+            },
+        );
+        assert_eq!(
+            validate_placement_plan(
+                GpuCloudProviderId::Runpod,
+                &changed_preset,
+                &workflow_catalog(),
+                &runtime_catalog(),
+            ),
+            Err(PlacementValidationError::WorkflowPresetStale)
+        );
+    }
+
+    #[test]
+    fn validate_placement_plan_rejects_stale_runtime_contract_reference() {
+        let stale_runtime = plan_with(
+            "EU-RO-1",
+            "NVIDIA A40",
+            REQUIRED_VOLUME_SIZE,
+            RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+            WorkflowPreset {
+                runtime_contract: RuntimeContractReference {
+                    id: "comfyui-python312-cu121".to_string(),
+                    version: "2.0.0".to_string(),
+                },
+                ..workflow_preset()
+            },
+        );
+        let catalog = WorkflowCatalog {
+            workflow_presets: vec![stale_runtime.selected_workflow_preset().clone()],
+        };
+
+        assert_eq!(
+            validate_placement_plan(
+                GpuCloudProviderId::Runpod,
+                &stale_runtime,
+                &catalog,
+                &runtime_catalog(),
+            ),
+            Err(PlacementValidationError::WorkflowPresetStale)
+        );
+    }
+
+    #[test]
+    fn validate_placement_plan_rejects_volume_or_keep_alive_out_of_range() {
+        let invalid_plans = [
+            (
+                plan_with(
+                    "EU-RO-1",
+                    "NVIDIA A40",
+                    REQUIRED_VOLUME_SIZE - 1,
+                    RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+                    workflow_preset(),
+                ),
+                PlacementValidationError::StorageSizeBelowPresetMinimum,
+            ),
+            (
+                plan_with(
+                    "EU-RO-1",
+                    "NVIDIA A40",
+                    REQUIRED_VOLUME_SIZE,
+                    RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS - 1,
+                    workflow_preset(),
+                ),
+                PlacementValidationError::EndpointKeepAliveOutOfRange,
+            ),
+            (
+                plan_with(
+                    "EU-RO-1",
+                    "NVIDIA A40",
+                    REQUIRED_VOLUME_SIZE,
+                    RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS + 1,
+                    workflow_preset(),
+                ),
+                PlacementValidationError::EndpointKeepAliveOutOfRange,
+            ),
+        ];
+
+        for (plan, expected_error) in invalid_plans {
+            assert_eq!(
+                validate_placement_plan(
+                    GpuCloudProviderId::Runpod,
+                    &plan,
+                    &workflow_catalog(),
+                    &runtime_catalog(),
+                ),
+                Err(expected_error)
+            );
+        }
+    }
+}

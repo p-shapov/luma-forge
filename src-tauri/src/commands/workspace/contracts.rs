@@ -359,7 +359,3 @@ impl From<domain_workspace::Workspace> for CreateWorkspaceResponse {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

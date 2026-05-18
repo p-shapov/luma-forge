@@ -97,63 +97,148 @@ fn is_immutable_image_ref(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::runtime::{RuntimeContract, RuntimeContractRevision};
+    use crate::domain::runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision};
 
-    #[test]
-    fn rejects_duplicate_contract_ids() {
-        let mut catalog = valid_runtime_catalog();
-        catalog.contracts.push(catalog.contracts[0].clone());
+    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-        validate_runtime_catalog(&catalog).expect_err("duplicate id should fail");
+    fn image_ref(name: &str, digest: &str) -> String {
+        format!("ghcr.io/luma-forge/{name}@sha256:{digest}")
     }
 
-    #[test]
-    fn rejects_duplicate_revision_versions() {
-        let mut catalog = valid_runtime_catalog();
-        let revision = catalog.contracts[0].revisions[0].clone();
-        catalog.contracts[0].revisions.push(revision);
-
-        validate_runtime_catalog(&catalog).expect_err("duplicate revision version should fail");
+    fn valid_revision(version: &str) -> RuntimeContractRevision {
+        RuntimeContractRevision {
+            version: version.to_string(),
+            provisioner_image_ref: image_ref("provisioner", DIGEST_A),
+            endpoint_image_ref: image_ref("endpoint", DIGEST_B),
+        }
     }
 
-    #[test]
-    fn rejects_mutable_image_refs() {
-        let mut catalog = valid_runtime_catalog();
-        catalog.contracts[0].revisions[0].provisioner_image_ref =
-            "ghcr.io/luma-forge/provisioner-worker:latest".to_string();
-
-        validate_runtime_catalog(&catalog).expect_err("mutable image should fail");
-    }
-
-    #[test]
-    fn resolves_known_contract_version() {
-        let catalog = valid_runtime_catalog();
-
-        let snapshot = catalog
-            .resolve("comfyui-python312-cu121", "1.0.0")
-            .expect("snapshot");
-
-        assert_eq!(snapshot.contract_id, "comfyui-python312-cu121");
-        assert_eq!(snapshot.contract_version, "1.0.0");
-        validate_resolved_runtime_snapshot(&snapshot).expect("valid snapshot");
-    }
-
-    fn valid_runtime_catalog() -> RuntimeCatalog {
+    fn valid_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
             contracts: vec![RuntimeContract {
                 id: "comfyui-python312-cu121".to_string(),
-                revisions: vec![RuntimeContractRevision {
-                    version: "1.0.0".to_string(),
-                    provisioner_image_ref: format!(
-                        "ghcr.io/luma-forge/provisioner-worker@sha256:{}",
-                        "1".repeat(64)
-                    ),
-                    endpoint_image_ref: format!(
-                        "ghcr.io/luma-forge/endpoint-worker@sha256:{}",
-                        "2".repeat(64)
-                    ),
-                }],
+                revisions: vec![valid_revision("1.0.0")],
             }],
         }
+    }
+
+    #[test]
+    fn validate_runtime_catalog_accepts_valid_catalog() {
+        assert_eq!(validate_runtime_catalog(&valid_catalog()), Ok(()));
+    }
+
+    #[test]
+    fn validate_runtime_catalog_rejects_invalid_contract_shapes() {
+        let invalid_catalogs = [
+            RuntimeCatalog { contracts: vec![] },
+            RuntimeCatalog {
+                contracts: vec![RuntimeContract {
+                    id: "ComfyUI".to_string(),
+                    revisions: vec![valid_revision("1.0.0")],
+                }],
+            },
+            RuntimeCatalog {
+                contracts: vec![
+                    RuntimeContract {
+                        id: "comfyui-python312-cu121".to_string(),
+                        revisions: vec![valid_revision("1.0.0")],
+                    },
+                    RuntimeContract {
+                        id: "comfyui-python312-cu121".to_string(),
+                        revisions: vec![valid_revision("1.0.1")],
+                    },
+                ],
+            },
+            RuntimeCatalog {
+                contracts: vec![RuntimeContract {
+                    id: "comfyui-python312-cu121".to_string(),
+                    revisions: vec![],
+                }],
+            },
+        ];
+
+        for catalog in invalid_catalogs {
+            assert_eq!(
+                validate_runtime_catalog(&catalog),
+                Err(DomainValidationError)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_runtime_catalog_rejects_invalid_revision_shapes() {
+        let invalid_revisions = [
+            RuntimeContractRevision {
+                version: "01.0.0".to_string(),
+                ..valid_revision("1.0.0")
+            },
+            RuntimeContractRevision {
+                version: "1.0".to_string(),
+                ..valid_revision("1.0.0")
+            },
+            RuntimeContractRevision {
+                provisioner_image_ref: "ghcr.io/luma-forge/provisioner:latest".to_string(),
+                ..valid_revision("1.0.0")
+            },
+            RuntimeContractRevision {
+                endpoint_image_ref: image_ref(
+                    "endpoint",
+                    "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                ),
+                ..valid_revision("1.0.0")
+            },
+        ];
+
+        for revision in invalid_revisions {
+            let catalog = RuntimeCatalog {
+                contracts: vec![RuntimeContract {
+                    id: "comfyui-python312-cu121".to_string(),
+                    revisions: vec![revision],
+                }],
+            };
+
+            assert_eq!(
+                validate_runtime_catalog(&catalog),
+                Err(DomainValidationError)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_runtime_contract_reference_requires_existing_contract_revision() {
+        let catalog = valid_catalog();
+
+        assert_eq!(
+            validate_runtime_contract_reference("comfyui-python312-cu121", "1.0.0", &catalog),
+            Ok(())
+        );
+        assert_eq!(
+            validate_runtime_contract_reference("comfyui-python312-cu121", "2.0.0", &catalog),
+            Err(DomainValidationError)
+        );
+        assert_eq!(
+            validate_runtime_contract_reference("ComfyUI", "1.0.0", &catalog),
+            Err(DomainValidationError)
+        );
+    }
+
+    #[test]
+    fn validate_resolved_runtime_snapshot_reuses_runtime_shape_rules() {
+        let snapshot = valid_catalog()
+            .resolve("comfyui-python312-cu121", "1.0.0")
+            .expect("valid runtime should resolve");
+
+        assert_eq!(validate_resolved_runtime_snapshot(&snapshot), Ok(()));
+
+        let invalid_snapshot = ResolvedRuntimeImageSnapshot {
+            contract_version: "1.0".to_string(),
+            ..snapshot
+        };
+
+        assert_eq!(
+            validate_resolved_runtime_snapshot(&invalid_snapshot),
+            Err(DomainValidationError)
+        );
     }
 }

@@ -279,3 +279,105 @@ fn gpu_option_from_availability(availability: RunPodGpuAvailability) -> Option<G
         availability_score,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::runpod::contracts::RunPodUser;
+
+    fn provider_api_key(value: &str) -> ProviderApiKey {
+        ProviderApiKey::new(value.to_string()).expect("test key should be valid")
+    }
+
+    fn runpod_api_key(id: &str, is_active: bool) -> RunPodApiKey {
+        RunPodApiKey {
+            id: Some(id.to_string()),
+            is_active: Some(is_active),
+        }
+    }
+
+    fn identity_response(api_keys: Vec<RunPodApiKey>) -> GraphQlResponse<RunPodIdentityData> {
+        GraphQlResponse {
+            data: Some(RunPodIdentityData {
+                myself: Some(RunPodUser {
+                    email: Some("user@example.com".to_string()),
+                    api_keys: Some(api_keys),
+                }),
+            }),
+            errors: None,
+        }
+    }
+
+    #[test]
+    fn identity_response_maps_exactly_one_active_matching_api_key() {
+        let identity = identity_from_graphql_response(
+            &provider_api_key("rp_match_secret"),
+            identity_response(vec![
+                runpod_api_key("rp_other", true),
+                runpod_api_key("rp_match", true),
+            ]),
+        )
+        .expect("identity should map");
+
+        assert_eq!(identity.provider_user_email, "user@example.com");
+        assert_eq!(identity.provider_api_key_fingerprint, "rp_match");
+    }
+
+    #[test]
+    fn identity_response_rejects_inactive_matching_api_key() {
+        let result = identity_from_graphql_response(
+            &provider_api_key("rp_match_secret"),
+            identity_response(vec![runpod_api_key("rp_match", false)]),
+        );
+
+        assert_eq!(result, Err(ProviderClientError::Unauthorized));
+    }
+
+    #[test]
+    fn identity_response_rejects_missing_or_ambiguous_api_key_match() {
+        let missing = identity_from_graphql_response(
+            &provider_api_key("rp_match_secret"),
+            identity_response(vec![runpod_api_key("rp_other", true)]),
+        );
+        let ambiguous = identity_from_graphql_response(
+            &provider_api_key("rp_match_secret"),
+            identity_response(vec![
+                runpod_api_key("rp", true),
+                runpod_api_key("rp_match", true),
+            ]),
+        );
+
+        assert_eq!(missing, Err(ProviderClientError::ResponseInvalid));
+        assert_eq!(ambiguous, Err(ProviderClientError::ResponseInvalid));
+    }
+
+    #[test]
+    fn identity_response_classifies_auth_graphql_errors_as_unauthorized() {
+        let result = identity_from_graphql_response(
+            &provider_api_key("rp_match_secret"),
+            GraphQlResponse {
+                data: None,
+                errors: Some(vec![GraphQlError {
+                    message: "API key is forbidden".to_string(),
+                }]),
+            },
+        );
+
+        assert_eq!(result, Err(ProviderClientError::Unauthorized));
+    }
+
+    #[test]
+    fn identity_response_classifies_non_auth_graphql_errors_as_rejected() {
+        let result = identity_from_graphql_response(
+            &provider_api_key("rp_match_secret"),
+            GraphQlResponse {
+                data: None,
+                errors: Some(vec![GraphQlError {
+                    message: "query was rejected".to_string(),
+                }]),
+            },
+        );
+
+        assert_eq!(result, Err(ProviderClientError::RequestRejected));
+    }
+}

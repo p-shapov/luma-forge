@@ -117,7 +117,3 @@ impl From<WorkspaceProvisioningResult> for WorkspaceProvisioningResponse {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;

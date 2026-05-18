@@ -35,34 +35,66 @@ fn contains_control_character(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::provider_setup::{GpuCloudProviderId, GpuCloudProviderSetup};
-
     use super::*;
+    use crate::domain::provider_setup::GpuCloudProviderId;
 
-    #[test]
-    fn rejects_blank_provider_identity_fields() {
-        let identity = ProviderIdentity {
-            provider_user_email: " ".to_string(),
-            provider_api_key_fingerprint: "rp_123".to_string(),
-        };
-
-        let error = validate_provider_identity(&identity)
-            .expect_err("blank provider identity email should fail");
-
-        assert_eq!(error, DomainValidationError);
+    fn valid_identity() -> ProviderIdentity {
+        ProviderIdentity {
+            provider_user_email: "user@example.com".to_string(),
+            provider_api_key_fingerprint: "runpod-key-fingerprint".to_string(),
+        }
     }
 
     #[test]
-    fn rejects_control_characters_in_setup_snapshot() {
+    fn validate_provider_identity_accepts_non_blank_printable_fields() {
+        assert_eq!(validate_provider_identity(&valid_identity()), Ok(()));
+    }
+
+    #[test]
+    fn validate_provider_identity_rejects_blank_or_control_fields() {
+        let invalid_identities = [
+            ProviderIdentity {
+                provider_user_email: " ".to_string(),
+                ..valid_identity()
+            },
+            ProviderIdentity {
+                provider_api_key_fingerprint: "\t".to_string(),
+                ..valid_identity()
+            },
+            ProviderIdentity {
+                provider_user_email: "user\n@example.com".to_string(),
+                ..valid_identity()
+            },
+            ProviderIdentity {
+                provider_api_key_fingerprint: "fingerprint\r".to_string(),
+                ..valid_identity()
+            },
+        ];
+
+        for identity in invalid_identities {
+            assert_eq!(
+                validate_provider_identity(&identity),
+                Err(DomainValidationError)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_gpu_cloud_provider_setup_uses_same_identity_rules() {
         let setup = GpuCloudProviderSetup {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             provider_user_email: "user@example.com".to_string(),
-            provider_api_key_fingerprint: "rp_123\0".to_string(),
+            provider_api_key_fingerprint: "runpod-key-fingerprint".to_string(),
         };
+        assert_eq!(validate_gpu_cloud_provider_setup(&setup), Ok(()));
 
-        let error = validate_gpu_cloud_provider_setup(&setup)
-            .expect_err("control character in setup snapshot should fail");
-
-        assert_eq!(error, DomainValidationError);
+        let invalid_setup = GpuCloudProviderSetup {
+            provider_api_key_fingerprint: "\n".to_string(),
+            ..setup
+        };
+        assert_eq!(
+            validate_gpu_cloud_provider_setup(&invalid_setup),
+            Err(DomainValidationError)
+        );
     }
 }

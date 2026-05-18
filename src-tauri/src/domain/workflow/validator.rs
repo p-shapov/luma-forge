@@ -133,3 +133,245 @@ fn is_huggingface_repository_id(value: &str) -> bool {
                 })
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{
+        runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
+        workflow::{
+            CustomNode, CustomNodeInstall, ModelAsset, ModelAssetInstall, ModelAssetKind,
+            RuntimeContractReference, WorkflowExecutionType, WorkflowPreset,
+        },
+    };
+
+    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn runtime_catalog() -> RuntimeCatalog {
+        RuntimeCatalog {
+            contracts: vec![RuntimeContract {
+                id: "comfyui-python312-cu121".to_string(),
+                revisions: vec![RuntimeContractRevision {
+                    version: "1.0.0".to_string(),
+                    provisioner_image_ref: format!(
+                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"
+                    ),
+                    endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
+                }],
+            }],
+        }
+    }
+
+    fn valid_model_asset() -> ModelAsset {
+        ModelAsset {
+            id: "sdxl-base".to_string(),
+            name: "SDXL Base".to_string(),
+            model_asset_kind: ModelAssetKind::Checkpoint,
+            download_source: ModelAssetSource::Huggingface {
+                repository_id: "stabilityai/stable-diffusion-xl-base-1.0".to_string(),
+                file_path: "sd_xl_base_1.0.safetensors".to_string(),
+                revision: "462165984030d82259a11f4367a4eed129e94a7b".to_string(),
+            },
+            install: ModelAssetInstall {
+                comfyui_relative_path: "models/checkpoints/sd_xl_base_1.0.safetensors".to_string(),
+            },
+        }
+    }
+
+    fn valid_custom_node() -> CustomNode {
+        CustomNode {
+            id: "example-node".to_string(),
+            name: "Example Node".to_string(),
+            git_source: CustomNodeGitSource::Git {
+                repository_url: "https://github.com/example/node.git".to_string(),
+                revision: "0123456789abcdef0123456789abcdef01234567".to_string(),
+            },
+            install: CustomNodeInstall {
+                comfyui_custom_nodes_relative_path: "custom_nodes/example-node".to_string(),
+                python_requirements_path: Some(
+                    "custom_nodes/example-node/requirements.txt".to_string(),
+                ),
+            },
+        }
+    }
+
+    fn valid_preset(id: &str) -> WorkflowPreset {
+        WorkflowPreset {
+            id: id.to_string(),
+            version: "1.0.0".to_string(),
+            name: "ComfyUI Text to Image".to_string(),
+            workflow_execution_type: WorkflowExecutionType::T2i,
+            required_base_volume_size_bytes: 80 * 1024 * 1024 * 1024,
+            runtime_contract: RuntimeContractReference {
+                id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            required_model_assets: vec![valid_model_asset()],
+            required_custom_nodes: vec![valid_custom_node()],
+        }
+    }
+
+    fn valid_catalog() -> WorkflowCatalog {
+        WorkflowCatalog {
+            workflow_presets: vec![valid_preset("comfyui-t2i-basic")],
+        }
+    }
+
+    #[test]
+    fn validate_workflow_catalog_accepts_valid_catalog() {
+        assert_eq!(
+            validate_workflow_catalog(&valid_catalog(), &runtime_catalog()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn validate_workflow_catalog_rejects_invalid_preset_metadata() {
+        let invalid_catalogs = [
+            WorkflowCatalog {
+                workflow_presets: vec![],
+            },
+            WorkflowCatalog {
+                workflow_presets: vec![WorkflowPreset {
+                    id: " ".to_string(),
+                    ..valid_preset("comfyui-t2i-basic")
+                }],
+            },
+            WorkflowCatalog {
+                workflow_presets: vec![WorkflowPreset {
+                    required_base_volume_size_bytes: 0,
+                    ..valid_preset("comfyui-t2i-basic")
+                }],
+            },
+            WorkflowCatalog {
+                workflow_presets: vec![
+                    valid_preset("comfyui-t2i-basic"),
+                    valid_preset("comfyui-t2i-basic"),
+                ],
+            },
+            WorkflowCatalog {
+                workflow_presets: vec![WorkflowPreset {
+                    runtime_contract: RuntimeContractReference {
+                        id: "comfyui-python312-cu121".to_string(),
+                        version: "2.0.0".to_string(),
+                    },
+                    ..valid_preset("comfyui-t2i-basic")
+                }],
+            },
+        ];
+
+        for catalog in invalid_catalogs {
+            assert_eq!(
+                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                Err(DomainValidationError)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_workflow_catalog_rejects_unsafe_model_assets() {
+        let invalid_assets = [
+            ModelAsset {
+                id: " ".to_string(),
+                ..valid_model_asset()
+            },
+            ModelAsset {
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "../stable-diffusion".to_string(),
+                    file_path: "model.safetensors".to_string(),
+                    revision: "main".to_string(),
+                },
+                ..valid_model_asset()
+            },
+            ModelAsset {
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "owner/repo".to_string(),
+                    file_path: "../model.safetensors".to_string(),
+                    revision: "main".to_string(),
+                },
+                ..valid_model_asset()
+            },
+            ModelAsset {
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "owner/repo".to_string(),
+                    file_path: "model.safetensors".to_string(),
+                    revision: " ".to_string(),
+                },
+                ..valid_model_asset()
+            },
+            ModelAsset {
+                install: ModelAssetInstall {
+                    comfyui_relative_path: "/models/checkpoints/model.safetensors".to_string(),
+                },
+                ..valid_model_asset()
+            },
+        ];
+
+        for asset in invalid_assets {
+            let catalog = WorkflowCatalog {
+                workflow_presets: vec![WorkflowPreset {
+                    required_model_assets: vec![asset],
+                    ..valid_preset("comfyui-t2i-basic")
+                }],
+            };
+
+            assert_eq!(
+                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                Err(DomainValidationError)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_workflow_catalog_rejects_mutable_or_unsafe_custom_nodes() {
+        let invalid_nodes = [
+            CustomNode {
+                id: " ".to_string(),
+                ..valid_custom_node()
+            },
+            CustomNode {
+                git_source: CustomNodeGitSource::Git {
+                    repository_url: "github.com/example/node.git".to_string(),
+                    revision: "0123456789abcdef0123456789abcdef01234567".to_string(),
+                },
+                ..valid_custom_node()
+            },
+            CustomNode {
+                git_source: CustomNodeGitSource::Git {
+                    repository_url: "https://github.com/example/node.git".to_string(),
+                    revision: "main".to_string(),
+                },
+                ..valid_custom_node()
+            },
+            CustomNode {
+                install: CustomNodeInstall {
+                    comfyui_custom_nodes_relative_path: "nodes/example".to_string(),
+                    python_requirements_path: None,
+                },
+                ..valid_custom_node()
+            },
+            CustomNode {
+                install: CustomNodeInstall {
+                    comfyui_custom_nodes_relative_path: "custom_nodes/example".to_string(),
+                    python_requirements_path: Some("../requirements.txt".to_string()),
+                },
+                ..valid_custom_node()
+            },
+        ];
+
+        for node in invalid_nodes {
+            let catalog = WorkflowCatalog {
+                workflow_presets: vec![WorkflowPreset {
+                    required_custom_nodes: vec![node],
+                    ..valid_preset("comfyui-t2i-basic")
+                }],
+            };
+
+            assert_eq!(
+                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                Err(DomainValidationError)
+            );
+        }
+    }
+}

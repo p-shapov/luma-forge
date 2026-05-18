@@ -198,84 +198,44 @@ fn validate_runpod_endpoint_template_snapshot(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::domain::{
         placement::PlacementPlan,
-        provider_setup::GpuCloudProviderId,
         runtime::ResolvedRuntimeImageSnapshot,
         workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
-        workspace::{ProviderResourceStatus, Workspace, WorkspaceLifecycleState},
+        workspace::{
+            WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
+            WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
+            WorkspaceProvisioningRecoveryAction,
+        },
     };
 
-    use super::*;
+    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    #[test]
-    fn rejects_draft_workspace_with_resource_snapshot() {
-        let mut workspace = valid_draft_workspace("workspace-1");
-        workspace.persistent_storage_volume_snapshot = Some(PersistentStorageVolumeSnapshot {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            provider_resource_id: "volume-1".to_string(),
-            provider_resource_status: ProviderResourceStatus::Ready,
-            mount_path: "/workspace".to_string(),
-        });
-
-        let error =
-            validate_workspace(&workspace).expect_err("draft resource snapshot should fail");
-
-        assert_eq!(error, DomainValidationError);
-    }
-
-    #[test]
-    fn rejects_workspace_catalog_with_duplicate_ids() {
-        let catalog = WorkspaceCatalog {
-            workspaces: vec![
-                valid_draft_workspace("workspace-1"),
-                valid_draft_workspace("workspace-1"),
-            ],
-        };
-
-        let error =
-            validate_workspace_catalog(&catalog).expect_err("duplicate workspace id should fail");
-
-        assert_eq!(error, DomainValidationError);
-    }
-
-    fn valid_draft_workspace(id: &str) -> Workspace {
-        Workspace {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            id: id.to_string(),
-            name: "Workspace".to_string(),
-            lifecycle_state: WorkspaceLifecycleState::Draft,
-            placement_plan: placement_plan(),
-            resolved_runtime_image: runtime_snapshot(),
-            persistent_storage_volume_snapshot: None,
-            active_provisioning_pod_snapshot: None,
-            serverless_endpoint_snapshot: None,
-            last_provisioning_pod_snapshot: None,
-            provider_provisioning_snapshot: None,
-            environment_prepared_at: None,
-            last_provisioning_failure: None,
+    fn workflow_preset() -> WorkflowPreset {
+        WorkflowPreset {
+            id: "comfyui-t2i-basic".to_string(),
+            version: "1.0.0".to_string(),
+            name: "ComfyUI Text to Image".to_string(),
+            workflow_execution_type: WorkflowExecutionType::T2i,
+            required_base_volume_size_bytes: 80 * 1024 * 1024 * 1024,
+            runtime_contract: RuntimeContractReference {
+                id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            required_model_assets: vec![],
+            required_custom_nodes: vec![],
         }
     }
 
     fn placement_plan() -> PlacementPlan {
         PlacementPlan::Runpod {
             selected_datacenter_id: "EU-RO-1".to_string(),
-            selected_gpu_id: "NVIDIA RTX 4090".to_string(),
-            persistent_storage_volume_size_bytes: 85899345920,
+            selected_gpu_id: "NVIDIA A40".to_string(),
+            persistent_storage_volume_size_bytes: 80 * 1024 * 1024 * 1024,
             endpoint_keep_alive_seconds: 5,
-            selected_workflow_preset: WorkflowPreset {
-                id: "preset".to_string(),
-                version: "1.0.0".to_string(),
-                name: "Preset".to_string(),
-                workflow_execution_type: WorkflowExecutionType::T2i,
-                required_base_volume_size_bytes: 85899345920,
-                runtime_contract: RuntimeContractReference {
-                    id: "comfyui-python312-cu121".to_string(),
-                    version: "1.0.0".to_string(),
-                },
-                required_model_assets: vec![],
-                required_custom_nodes: vec![],
-            },
+            selected_workflow_preset: workflow_preset(),
         }
     }
 
@@ -283,8 +243,295 @@ mod tests {
         ResolvedRuntimeImageSnapshot {
             contract_id: "comfyui-python312-cu121".to_string(),
             contract_version: "1.0.0".to_string(),
-            provisioner_image_ref: "ghcr.io/luma-forge/provisioner-worker@sha256:1111111111111111111111111111111111111111111111111111111111111111".to_string(),
-            endpoint_image_ref: "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222".to_string(),
+            provisioner_image_ref: format!("ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"),
+            endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
         }
+    }
+
+    fn draft_workspace() -> Workspace {
+        Workspace::new_draft(
+            GpuCloudProviderId::Runpod,
+            "workspace-id".to_string(),
+            "Workspace".to_string(),
+            placement_plan(),
+            runtime_snapshot(),
+        )
+        .expect("valid draft workspace")
+    }
+
+    fn volume(status: ProviderResourceStatus) -> PersistentStorageVolumeSnapshot {
+        PersistentStorageVolumeSnapshot {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            provider_resource_id: "volume-id".to_string(),
+            provider_resource_status: status,
+            mount_path: "/workspace".to_string(),
+        }
+    }
+
+    fn pod(status: ProviderResourceStatus) -> ProvisioningPodSnapshot {
+        ProvisioningPodSnapshot {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            provider_resource_id: "pod-id".to_string(),
+            provider_resource_status: status,
+            provisioner_status_url: "https://worker.example/status".to_string(),
+        }
+    }
+
+    fn endpoint(status: ProviderResourceStatus) -> ServerlessEndpointSnapshot {
+        ServerlessEndpointSnapshot {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            provider_resource_id: "endpoint-id".to_string(),
+            provider_resource_status: status,
+            endpoint_invoke_url: "https://endpoint.example/run".to_string(),
+        }
+    }
+
+    fn template(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
+        RunPodEndpointTemplateSnapshot {
+            template_id: "template-id".to_string(),
+            provider_resource_status: status,
+            endpoint_worker_image_ref: runtime_snapshot().endpoint_image_ref,
+            mount_path: "/workspace".to_string(),
+        }
+    }
+
+    fn failure() -> WorkspaceProvisioningFailure {
+        WorkspaceProvisioningFailure {
+            code: WorkspaceProvisioningFailureCode::ReadinessValidationFailed,
+            phase: WorkspaceProvisioningPhase::ValidatingReadiness,
+            source: WorkspaceProvisioningFailureSource::Native,
+            retryable: true,
+            recovery_action: WorkspaceProvisioningRecoveryAction::Retry,
+            diagnostic: None,
+        }
+    }
+
+    fn ready_workspace(endpoint_status: ProviderResourceStatus) -> Workspace {
+        let mut workspace = draft_workspace();
+        workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
+        });
+        workspace.serverless_endpoint_snapshot = Some(endpoint(endpoint_status));
+        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
+        workspace
+    }
+
+    #[test]
+    fn validate_workspace_accepts_clean_draft_and_ready_with_running_endpoint() {
+        assert_eq!(validate_workspace(&draft_workspace()), Ok(()));
+        assert_eq!(
+            validate_workspace(&ready_workspace(ProviderResourceStatus::Running)),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn validate_workspace_rejects_invalid_metadata() {
+        let invalid_workspaces = [
+            Workspace {
+                id: " ".to_string(),
+                ..draft_workspace()
+            },
+            Workspace {
+                name: " ".to_string(),
+                ..draft_workspace()
+            },
+            Workspace {
+                resolved_runtime_image: ResolvedRuntimeImageSnapshot {
+                    contract_version: "1.0".to_string(),
+                    ..runtime_snapshot()
+                },
+                ..draft_workspace()
+            },
+            Workspace {
+                lifecycle_state: WorkspaceLifecycleState::Provisioning,
+                environment_prepared_at: Some(" ".to_string()),
+                ..draft_workspace()
+            },
+        ];
+
+        for workspace in invalid_workspaces {
+            assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
+        }
+    }
+
+    #[test]
+    fn validate_workspace_rejects_draft_with_provisioning_state() {
+        let invalid_workspaces = [
+            Workspace {
+                persistent_storage_volume_snapshot: Some(volume(ProviderResourceStatus::Ready)),
+                ..draft_workspace()
+            },
+            Workspace {
+                active_provisioning_pod_snapshot: Some(pod(ProviderResourceStatus::Running)),
+                ..draft_workspace()
+            },
+            Workspace {
+                serverless_endpoint_snapshot: Some(endpoint(ProviderResourceStatus::Ready)),
+                ..draft_workspace()
+            },
+            Workspace {
+                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
+                    endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
+                }),
+                ..draft_workspace()
+            },
+            Workspace {
+                environment_prepared_at: Some("2026-05-18T00:00:00Z".to_string()),
+                ..draft_workspace()
+            },
+            Workspace {
+                last_provisioning_failure: Some(failure()),
+                ..draft_workspace()
+            },
+        ];
+
+        for workspace in invalid_workspaces {
+            assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
+        }
+    }
+
+    #[test]
+    fn validate_workspace_rejects_failure_data_outside_failed_lifecycle() {
+        let workspace = Workspace {
+            lifecycle_state: WorkspaceLifecycleState::Provisioning,
+            last_provisioning_failure: Some(failure()),
+            ..draft_workspace()
+        };
+
+        assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
+    }
+
+    #[test]
+    fn validate_workspace_rejects_ready_without_complete_ready_state() {
+        let invalid_workspaces = [
+            Workspace {
+                persistent_storage_volume_snapshot: None,
+                ..ready_workspace(ProviderResourceStatus::Ready)
+            },
+            Workspace {
+                active_provisioning_pod_snapshot: Some(pod(ProviderResourceStatus::Running)),
+                ..ready_workspace(ProviderResourceStatus::Ready)
+            },
+            Workspace {
+                persistent_storage_volume_snapshot: Some(volume(ProviderResourceStatus::Creating)),
+                ..ready_workspace(ProviderResourceStatus::Ready)
+            },
+            Workspace {
+                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
+                    endpoint_template_snapshot: Some(template(ProviderResourceStatus::Creating)),
+                }),
+                ..ready_workspace(ProviderResourceStatus::Ready)
+            },
+            Workspace {
+                serverless_endpoint_snapshot: Some(endpoint(ProviderResourceStatus::Creating)),
+                ..ready_workspace(ProviderResourceStatus::Ready)
+            },
+            Workspace {
+                environment_prepared_at: None,
+                ..ready_workspace(ProviderResourceStatus::Ready)
+            },
+        ];
+
+        for workspace in invalid_workspaces {
+            assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
+        }
+    }
+
+    #[test]
+    fn validate_workspace_rejects_endpoint_without_template_snapshot() {
+        let mut workspace = draft_workspace();
+        workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+        workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Ready));
+        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot: None,
+        });
+
+        assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
+    }
+
+    #[test]
+    fn validate_workspace_rejects_invalid_resource_snapshots() {
+        let invalid_workspaces = [
+            Workspace {
+                lifecycle_state: WorkspaceLifecycleState::Provisioning,
+                persistent_storage_volume_snapshot: Some(PersistentStorageVolumeSnapshot {
+                    provider_resource_id: " ".to_string(),
+                    ..volume(ProviderResourceStatus::Ready)
+                }),
+                ..draft_workspace()
+            },
+            Workspace {
+                lifecycle_state: WorkspaceLifecycleState::Provisioning,
+                persistent_storage_volume_snapshot: Some(PersistentStorageVolumeSnapshot {
+                    mount_path: "../workspace".to_string(),
+                    ..volume(ProviderResourceStatus::Ready)
+                }),
+                ..draft_workspace()
+            },
+            Workspace {
+                lifecycle_state: WorkspaceLifecycleState::Provisioning,
+                active_provisioning_pod_snapshot: Some(ProvisioningPodSnapshot {
+                    provisioner_status_url: " ".to_string(),
+                    ..pod(ProviderResourceStatus::Running)
+                }),
+                ..draft_workspace()
+            },
+            Workspace {
+                lifecycle_state: WorkspaceLifecycleState::Provisioning,
+                serverless_endpoint_snapshot: Some(ServerlessEndpointSnapshot {
+                    endpoint_invoke_url: " ".to_string(),
+                    ..endpoint(ProviderResourceStatus::Ready)
+                }),
+                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
+                    endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
+                }),
+                ..draft_workspace()
+            },
+            Workspace {
+                lifecycle_state: WorkspaceLifecycleState::Provisioning,
+                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
+                    endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
+                        mount_path: "workspace".to_string(),
+                        ..template(ProviderResourceStatus::Ready)
+                    }),
+                }),
+                ..draft_workspace()
+            },
+        ];
+
+        for workspace in invalid_workspaces {
+            assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
+        }
+    }
+
+    #[test]
+    fn validate_workspace_catalog_rejects_duplicate_ids_or_invalid_workspace() {
+        let valid_workspace = draft_workspace();
+        assert_eq!(
+            validate_workspace_catalog(&WorkspaceCatalog {
+                workspaces: vec![valid_workspace.clone()]
+            }),
+            Ok(())
+        );
+
+        assert_eq!(
+            validate_workspace_catalog(&WorkspaceCatalog {
+                workspaces: vec![valid_workspace.clone(), valid_workspace.clone()]
+            }),
+            Err(DomainValidationError)
+        );
+
+        assert_eq!(
+            validate_workspace_catalog(&WorkspaceCatalog {
+                workspaces: vec![Workspace {
+                    name: " ".to_string(),
+                    ..valid_workspace
+                }]
+            }),
+            Err(DomainValidationError)
+        );
     }
 }

@@ -50,34 +50,136 @@ pub fn validate_provider_inventory(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{
-        provider_inventory::{Datacenter, GpuOption},
-        provider_setup::GpuCloudProviderId,
-    };
+    use crate::domain::provider_inventory::{Datacenter, GpuOption};
+
+    fn valid_gpu(id: &str) -> GpuOption {
+        GpuOption {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            id: id.to_string(),
+            name: format!("GPU {id}"),
+            vram_bytes: 24 * 1024 * 1024 * 1024,
+            availability_score: 80,
+        }
+    }
+
+    fn valid_datacenter(id: &str) -> Datacenter {
+        Datacenter {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            id: id.to_string(),
+            name: format!("Datacenter {id}"),
+            gpu_options: vec![valid_gpu("gpu-a")],
+        }
+    }
+
+    fn valid_inventory() -> ProviderInventory {
+        ProviderInventory {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            fetched_at: "2026-05-18T00:00:00Z".to_string(),
+            max_persistent_storage_volume_size_bytes: Some(100 * 1024 * 1024 * 1024),
+            datacenters: vec![valid_datacenter("dc-a")],
+        }
+    }
 
     #[test]
-    fn rejects_nested_provider_mismatch() {
-        let inventory = ProviderInventory {
-            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-            fetched_at: "2026-05-08T00:00:00Z".to_string(),
-            max_persistent_storage_volume_size_bytes: Some(1),
-            datacenters: vec![Datacenter {
-                gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                id: "EU-RO-1".to_string(),
-                name: "EU RO 1".to_string(),
-                gpu_options: vec![GpuOption {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+    fn validate_provider_inventory_accepts_valid_inventory() {
+        assert_eq!(
+            validate_provider_inventory(GpuCloudProviderId::Runpod, &valid_inventory()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn validate_provider_inventory_rejects_invalid_inventory_metadata() {
+        let invalid_inventories = [
+            ProviderInventory {
+                fetched_at: " ".to_string(),
+                ..valid_inventory()
+            },
+            ProviderInventory {
+                max_persistent_storage_volume_size_bytes: Some(0),
+                ..valid_inventory()
+            },
+        ];
+
+        for inventory in invalid_inventories {
+            assert_eq!(
+                validate_provider_inventory(GpuCloudProviderId::Runpod, &inventory),
+                Err(DomainValidationError)
+            );
+        }
+    }
+
+    #[test]
+    fn validate_provider_inventory_rejects_duplicate_or_blank_datacenters() {
+        let invalid_inventories = [
+            ProviderInventory {
+                datacenters: vec![valid_datacenter("dc-a"), valid_datacenter("dc-a")],
+                ..valid_inventory()
+            },
+            ProviderInventory {
+                datacenters: vec![Datacenter {
                     id: " ".to_string(),
-                    name: "NVIDIA RTX 4090".to_string(),
-                    vram_bytes: 24 * 1024 * 1024 * 1024,
-                    availability_score: 100,
+                    ..valid_datacenter("dc-a")
                 }],
-            }],
-        };
+                ..valid_inventory()
+            },
+            ProviderInventory {
+                datacenters: vec![Datacenter {
+                    name: " ".to_string(),
+                    ..valid_datacenter("dc-a")
+                }],
+                ..valid_inventory()
+            },
+        ];
 
-        let error = validate_provider_inventory(GpuCloudProviderId::Runpod, &inventory)
-            .expect_err("blank GPU id should fail");
+        for inventory in invalid_inventories {
+            assert_eq!(
+                validate_provider_inventory(GpuCloudProviderId::Runpod, &inventory),
+                Err(DomainValidationError)
+            );
+        }
+    }
 
-        assert_eq!(error, DomainValidationError);
+    #[test]
+    fn validate_provider_inventory_rejects_invalid_gpu_options_per_datacenter() {
+        let invalid_datacenters = [
+            Datacenter {
+                gpu_options: vec![valid_gpu("gpu-a"), valid_gpu("gpu-a")],
+                ..valid_datacenter("dc-a")
+            },
+            Datacenter {
+                gpu_options: vec![GpuOption {
+                    id: " ".to_string(),
+                    ..valid_gpu("gpu-a")
+                }],
+                ..valid_datacenter("dc-a")
+            },
+            Datacenter {
+                gpu_options: vec![GpuOption {
+                    name: " ".to_string(),
+                    ..valid_gpu("gpu-a")
+                }],
+                ..valid_datacenter("dc-a")
+            },
+            Datacenter {
+                gpu_options: vec![GpuOption {
+                    vram_bytes: 0,
+                    ..valid_gpu("gpu-a")
+                }],
+                ..valid_datacenter("dc-a")
+            },
+        ];
+
+        for datacenter in invalid_datacenters {
+            let inventory = ProviderInventory {
+                datacenters: vec![datacenter],
+                ..valid_inventory()
+            };
+
+            assert_eq!(
+                validate_provider_inventory(GpuCloudProviderId::Runpod, &inventory),
+                Err(DomainValidationError)
+            );
+        }
     }
 }
