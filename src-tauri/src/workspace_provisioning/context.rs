@@ -1,8 +1,9 @@
 use crate::{
     domain::workspace::Workspace,
-    provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::ProvisionerWorkerGateway,
+    workspace_provisioner::{WorkspaceProvisionerContext, WorkspaceProvisionerService},
     workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceService},
 };
 
@@ -18,6 +19,7 @@ pub(crate) struct WorkspaceProvisioningContext<'a, S, W, R> {
     pub(crate) resources: &'a WorkspaceResourceService<S, W>,
     pub(crate) workspace_catalog: &'a W,
     pub(crate) workers: &'a R,
+    pub(crate) workspace_provisioner: &'a WorkspaceProvisionerService,
     pub(crate) config: &'a WorkspaceProvisioningConfig,
 }
 
@@ -27,6 +29,7 @@ impl<'a, S, W, R> WorkspaceProvisioningContext<'a, S, W, R> {
         resources: &'a WorkspaceResourceService<S, W>,
         workspace_catalog: &'a W,
         workers: &'a R,
+        workspace_provisioner: &'a WorkspaceProvisionerService,
         config: &'a WorkspaceProvisioningConfig,
     ) -> Self {
         Self {
@@ -34,6 +37,7 @@ impl<'a, S, W, R> WorkspaceProvisioningContext<'a, S, W, R> {
             resources,
             workspace_catalog,
             workers,
+            workspace_provisioner,
             config,
         }
     }
@@ -42,6 +46,10 @@ impl<'a, S, W, R> WorkspaceProvisioningContext<'a, S, W, R> {
         WorkspaceResourceConfig {
             volume_mount_path: self.config.volume_mount_path.clone(),
         }
+    }
+
+    pub(crate) fn workspace_provisioner_context(&self) -> WorkspaceProvisionerContext<'_, S, W, R> {
+        WorkspaceProvisionerContext::new(self.secrets, self.workspace_catalog, self.workers)
     }
 }
 

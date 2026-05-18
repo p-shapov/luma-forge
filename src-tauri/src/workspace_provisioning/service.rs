@@ -1,8 +1,9 @@
 use crate::{
     domain::workspace::{provisioning_state::fail_workspace, WorkspaceLifecycleState},
-    provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::ProvisionerWorkerGateway,
+    workspace_provisioner::WorkspaceProvisionerService,
     workspace_resources::WorkspaceResourceService,
 };
 
@@ -24,6 +25,7 @@ pub struct WorkspaceProvisioningService<S, W, R> {
     resources: WorkspaceResourceService<S, W>,
     workspace_catalog: W,
     workers: R,
+    workspace_provisioner: WorkspaceProvisionerService,
     coordinator: WorkspaceProvisioningCoordinator,
     config: WorkspaceProvisioningConfig,
 }
@@ -42,6 +44,7 @@ impl<S, W, R> WorkspaceProvisioningService<S, W, R> {
             resources,
             workspace_catalog,
             workers,
+            workspace_provisioner: WorkspaceProvisionerService::new(),
             coordinator,
             config,
         }
@@ -53,6 +56,7 @@ impl<S, W, R> WorkspaceProvisioningService<S, W, R> {
             &self.resources,
             &self.workspace_catalog,
             &self.workers,
+            &self.workspace_provisioner,
             &self.config,
         )
     }

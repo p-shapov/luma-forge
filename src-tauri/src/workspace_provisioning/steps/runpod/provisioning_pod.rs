@@ -1,6 +1,7 @@
 use crate::{
-    domain::workspace::Workspace, provisioner_worker::ProvisionerWorkerGateway,
-    secrets::SecretStore, workspace_catalog::repository::WorkspaceCatalogRepository,
+    domain::workspace::Workspace, secrets::SecretStore,
+    workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::ProvisionerWorkerGateway,
 };
 
 use super::super::super::context::{SyncStepResult, WorkspaceProvisioningContext};

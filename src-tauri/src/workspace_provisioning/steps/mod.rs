@@ -1,8 +1,8 @@
 use crate::{
     domain::{provider_setup::GpuCloudProviderId, workspace::Workspace},
-    provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::ProvisionerWorkerGateway,
 };
 
 use super::context::{SyncStepResult, WorkspaceProvisioningContext};

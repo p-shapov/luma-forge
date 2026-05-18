@@ -24,12 +24,12 @@ use crate::{
             WorkspaceProvisioningRecoveryAction,
         },
     },
-    provisioner_worker::{
+    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::{
         ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerJobStatus,
         ProvisionerWorkerStartRequest, ProvisionerWorkerStatus,
     },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
-    workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
         provider_resource_name, CreateEndpointTemplateInput, CreateNetworkVolumeInput,
         CreateProvisioningPodInput, EndpointTemplateObservation, NetworkVolumeObservation,
@@ -908,9 +908,9 @@ impl FakeWorker {
             status: Arc::new(Mutex::new(ProvisionerWorkerStatus {
                 phase: match status {
                     ProvisionerWorkerJobStatus::Succeeded => {
-                        crate::provisioner_worker::ProvisionerWorkerPhase::Completed
+                        crate::workspace_provisioner::ProvisionerWorkerPhase::Completed
                     }
-                    _ => crate::provisioner_worker::ProvisionerWorkerPhase::Idle,
+                    _ => crate::workspace_provisioner::ProvisionerWorkerPhase::Idle,
                 },
                 status,
                 progress_percent: None,
@@ -949,7 +949,7 @@ impl ProvisionerWorkerGateway for FakeWorker {
                 .push(request.clone());
             Ok(ProvisionerWorkerStatus {
                 status: ProvisionerWorkerJobStatus::Running,
-                phase: crate::provisioner_worker::ProvisionerWorkerPhase::ValidatingRuntime,
+                phase: crate::workspace_provisioner::ProvisionerWorkerPhase::ValidatingRuntime,
                 progress_percent: Some(25),
                 diagnostic: None,
             })

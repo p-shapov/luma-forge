@@ -6,9 +6,9 @@ use tokio::sync::OnceCell;
 use crate::{
     bundled_catalog::reader::BundledCatalogReader,
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
-    provisioner_worker::ProvisionerWorkerHttpGateway,
     secrets::KeyringSecretStore,
     workspace_catalog::{repository::UnavailableWorkspaceCatalog, sqlite::SqliteWorkspaceCatalog},
+    workspace_provisioner::ProvisionerWorkerHttpGateway,
     workspace_provisioning::{
         WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
         WorkspaceProvisioningService,

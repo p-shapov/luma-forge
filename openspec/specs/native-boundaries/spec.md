@@ -712,3 +712,24 @@ Consumer-owned provider adapters SHALL map provider-local errors into boundary-a
 - **AND** Workspace Provisioning SHALL preserve existing provider setup, authorization, availability, invalid response, not found, conflict, and indeterminate operation semantics
 - **AND** the mapped error MUST NOT expose provider transport details, Provider API Keys, bearer headers, raw provider payloads, or provider-specific error codes as domain contracts
 
+### Requirement: Workspace provisioner owns environment orchestration
+Workspace environment preparation orchestration SHALL live in a native workspace provisioner boundary that is separate from provider-resource operations and encapsulates the low-level Provisioner Worker protocol gateway.
+
+#### Scenario: Provider resources remain outside workspace provisioner
+- **WHEN** native code needs to create, discover, observe, or delete RunPod volumes, provisioning pods, endpoint templates, or serverless endpoints
+- **THEN** it SHALL use the Workspace Resource boundary
+- **AND** the workspace provisioner MUST NOT contain RunPod request or response DTOs
+- **AND** the workspace provisioner MUST NOT create, discover, observe, or delete provider resources
+
+#### Scenario: Worker protocol is encapsulated by workspace provisioner
+- **WHEN** native code needs to call the Provisioner Worker HTTP API or use Provisioner Worker status types
+- **THEN** it SHALL depend on the workspace provisioner boundary
+- **AND** the low-level Provisioner Worker protocol module SHALL be nested under the workspace provisioner boundary as `gateway`
+- **AND** crate-root native modules MUST NOT import a sibling `provisioner_worker` module
+
+#### Scenario: Workspace provisioning remains top-level coordinator
+- **WHEN** a Workspace Provisioning sync command selects the next safe provisioning activity
+- **THEN** Workspace Provisioning SHALL remain responsible for loading authoritative Workspace metadata, enforcing per-workspace sync coordination, sequencing provider-resource steps, and returning command-safe results
+- **AND** it MAY delegate environment preparation to the workspace provisioner
+- **AND** the workspace provisioner MUST NOT own the full Draft-to-Ready Workspace lifecycle
+

@@ -2,9 +2,9 @@ use crate::{
     domain::workspace::{
         provisioning_state::is_workspace_ready, Workspace, WorkspaceLifecycleState,
     },
-    provisioner_worker::ProvisionerWorkerGateway,
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_provisioner::ProvisionerWorkerGateway,
 };
 
 use super::super::super::context::{SyncStepResult, WorkspaceProvisioningContext};

@@ -6,8 +6,8 @@ use crate::{
         ProvisioningPodSnapshot, ServerlessEndpointSnapshot, Workspace,
         WorkspaceProvisioningProgress,
     },
-    provisioner_worker::ProvisionerWorkerError,
     secrets::SecretStoreError,
+    workspace_provisioner::ProvisionerWorkerError,
     workspace_resources::{
         NetworkVolumeObservation, ProvisioningPodObservation, ServerlessEndpointObservation,
         WorkspaceResourceError,
