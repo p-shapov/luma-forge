@@ -5,7 +5,6 @@ use tokio::sync::OnceCell;
 
 use crate::{
     bundled_catalog::reader::BundledCatalogReader,
-    provider::{runpod::RunPodClient, ProviderClientRegistry},
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
     provisioner_worker::ProvisionerWorkerHttpGateway,
     secrets::KeyringSecretStore,
@@ -14,27 +13,18 @@ use crate::{
         WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
         WorkspaceProvisioningService,
     },
-    workspace_resources::operations::runpod::RunPodWorkspaceResourceOperations,
+    workspace_resources::operations::ProductionWorkspaceResourceOperations,
     workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupService},
 };
 
-pub(crate) type ProductionProviderSetupService =
-    ProviderSetupService<KeyringSecretStore, ProviderClientRegistry>;
-pub(crate) type WorkspaceSetupReadService = WorkspaceSetupService<
-    BundledCatalogReader,
-    KeyringSecretStore,
-    ProviderClientRegistry,
-    UnavailableWorkspaceCatalog,
->;
-pub(crate) type WorkspaceSetupWriteService = WorkspaceSetupService<
-    BundledCatalogReader,
-    KeyringSecretStore,
-    ProviderClientRegistry,
-    SqliteWorkspaceCatalog,
->;
+pub(crate) type ProductionProviderSetupService = ProviderSetupService<KeyringSecretStore>;
+pub(crate) type WorkspaceSetupReadService =
+    WorkspaceSetupService<BundledCatalogReader, KeyringSecretStore, UnavailableWorkspaceCatalog>;
+pub(crate) type WorkspaceSetupWriteService =
+    WorkspaceSetupService<BundledCatalogReader, KeyringSecretStore, SqliteWorkspaceCatalog>;
 pub(crate) type ProductionWorkspaceProvisioningService = WorkspaceProvisioningService<
     KeyringSecretStore,
-    RunPodWorkspaceResourceOperations<KeyringSecretStore, SqliteWorkspaceCatalog>,
+    ProductionWorkspaceResourceOperations<KeyringSecretStore, SqliteWorkspaceCatalog>,
     SqliteWorkspaceCatalog,
     ProvisionerWorkerHttpGateway,
 >;
@@ -46,7 +36,6 @@ pub(crate) struct NativeAppState {
     workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator,
     catalogs: BundledCatalogReader,
     secrets: KeyringSecretStore,
-    providers: ProviderClientRegistry,
     provisioner_workers: ProvisionerWorkerHttpGateway,
     #[cfg(test)]
     workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize,
@@ -59,14 +48,13 @@ impl NativeAppState {
     }
 
     pub(crate) fn provider_setup_service(&self) -> ProductionProviderSetupService {
-        ProviderSetupService::new(self.secrets.clone(), self.providers.clone())
+        ProviderSetupService::new(self.secrets.clone())
     }
 
     pub(crate) fn workspace_setup_read_service(&self) -> WorkspaceSetupReadService {
         WorkspaceSetupService::new(
             self.catalogs.clone(),
             self.secrets.clone(),
-            self.providers.clone(),
             UnavailableWorkspaceCatalog,
         )
     }
@@ -78,7 +66,6 @@ impl NativeAppState {
         Ok(WorkspaceSetupService::new(
             self.catalogs.clone(),
             self.secrets.clone(),
-            self.providers.clone(),
             workspace_catalog,
         ))
     }
@@ -90,10 +77,9 @@ impl NativeAppState {
             .workspace_catalog()
             .await
             .map_err(|_| WorkspaceProvisioningError::WorkspaceCatalogUnavailable)?;
-        let resources = RunPodWorkspaceResourceOperations::production(
+        let resources = ProductionWorkspaceResourceOperations::production(
             self.secrets.clone(),
             workspace_catalog.clone(),
-            RunPodClient::default(),
         );
         Ok(WorkspaceProvisioningService::new(
             self.secrets.clone(),
@@ -129,7 +115,6 @@ impl NativeAppState {
         app_identifier: impl AsRef<str>,
     ) -> Self {
         let secrets = KeyringSecretStore::new(app_identifier);
-        let providers = ProviderClientRegistry::new(secrets.clone(), RunPodClient::default());
 
         Self {
             workspace_catalog_source,
@@ -138,7 +123,6 @@ impl NativeAppState {
             workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator::default(),
             catalogs: BundledCatalogReader,
             secrets,
-            providers,
             provisioner_workers: ProvisionerWorkerHttpGateway::default(),
             #[cfg(test)]
             workspace_catalog_initialization_count: std::sync::atomic::AtomicUsize::new(0),

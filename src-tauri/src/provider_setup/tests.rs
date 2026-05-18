@@ -202,6 +202,47 @@ impl ProviderIdentityGateway for FakeProviderGateway {
     }
 }
 
+struct TestProviderSetupService {
+    inner: ProviderSetupService<MemorySecretStore>,
+    providers: FakeProviderGateway,
+}
+
+impl TestProviderSetupService {
+    fn new(store: MemorySecretStore, providers: FakeProviderGateway) -> Self {
+        Self {
+            inner: ProviderSetupService::new(store),
+            providers,
+        }
+    }
+
+    async fn get_setup(
+        &self,
+        provider_id: DomainGpuCloudProviderId,
+    ) -> Result<Option<crate::domain::provider_setup::GpuCloudProviderSetup>, ProviderSetupError>
+    {
+        self.inner
+            .get_setup_with_provider(provider_id, &self.providers)
+            .await
+    }
+
+    async fn setup(
+        &self,
+        provider_id: DomainGpuCloudProviderId,
+        api_key: ProviderApiKey,
+    ) -> Result<crate::domain::provider_setup::GpuCloudProviderSetup, ProviderSetupError> {
+        self.inner
+            .setup_with_provider(provider_id, api_key, &self.providers)
+            .await
+    }
+
+    fn delete_setup(
+        &self,
+        provider_id: DomainGpuCloudProviderId,
+    ) -> Result<(), ProviderSetupError> {
+        self.inner.delete_setup(provider_id)
+    }
+}
+
 fn identity(fingerprint: &str) -> ProviderIdentity {
     ProviderIdentity {
         provider_user_email: "user@example.com".to_string(),
@@ -228,7 +269,7 @@ async fn setup_with_coordinator(
 ) -> Result<crate::domain::provider_setup::GpuCloudProviderSetup, ProviderSetupError> {
     let provider_id = DomainGpuCloudProviderId::Runpod;
     let _guard = coordinator.lock(&provider_id).await;
-    ProviderSetupService::new(store, providers)
+    TestProviderSetupService::new(store, providers)
         .setup(provider_id, api_key(provider_api_key))
         .await
 }
@@ -240,7 +281,7 @@ async fn delete_with_coordinator(
 ) -> Result<(), ProviderSetupError> {
     let provider_id = DomainGpuCloudProviderId::Runpod;
     let _guard = coordinator.lock(&provider_id).await;
-    ProviderSetupService::new(store, providers).delete_setup(DomainGpuCloudProviderId::Runpod)
+    TestProviderSetupService::new(store, providers).delete_setup(DomainGpuCloudProviderId::Runpod)
 }
 
 async fn wait_for_validation_count(providers: &FakeProviderGateway, expected: usize) {
@@ -259,7 +300,7 @@ async fn wait_for_validation_count(providers: &FakeProviderGateway, expected: us
 
 #[tokio::test]
 async fn get_setup_returns_null_when_key_is_missing() {
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         MemorySecretStore::empty(),
         FakeProviderGateway::with_response("unused", Ok(identity("rp_123"))),
     );
@@ -274,7 +315,7 @@ async fn get_setup_returns_null_when_key_is_missing() {
 
 #[tokio::test]
 async fn get_setup_returns_live_status_for_valid_stored_key() {
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         MemorySecretStore::with_key("rp_123_secret"),
         FakeProviderGateway::with_response("rp_123_secret", Ok(identity("rp_123"))),
     );
@@ -295,7 +336,7 @@ async fn get_setup_returns_live_status_for_valid_stored_key() {
 #[tokio::test]
 async fn setup_maps_invalid_provider_identity() {
     let store = MemorySecretStore::empty();
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("rp_123_secret", Ok(invalid_identity())),
     );
@@ -311,7 +352,7 @@ async fn setup_maps_invalid_provider_identity() {
 
 #[tokio::test]
 async fn get_setup_maps_invalid_stored_key() {
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         MemorySecretStore::with_key(" "),
         FakeProviderGateway::with_responses(HashMap::new()),
     );
@@ -326,7 +367,7 @@ async fn get_setup_maps_invalid_stored_key() {
 
 #[tokio::test]
 async fn get_setup_maps_provider_api_unavailable() {
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         MemorySecretStore::with_key("stored-key"),
         FakeProviderGateway::with_response(
             "stored-key",
@@ -345,7 +386,7 @@ async fn get_setup_maps_provider_api_unavailable() {
 #[tokio::test]
 async fn setup_stores_new_key_after_validation() {
     let store = MemorySecretStore::empty();
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("new-key", Ok(identity("new"))),
     );
@@ -363,7 +404,7 @@ async fn setup_stores_new_key_after_validation() {
 async fn setup_revalidates_stored_key_after_writing() {
     let store = MemorySecretStore::empty();
     let providers = FakeProviderGateway::with_response("new-key", Ok(identity("new")));
-    let service = ProviderSetupService::new(store.clone(), providers.clone());
+    let service = TestProviderSetupService::new(store.clone(), providers.clone());
 
     let response = service
         .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
@@ -383,7 +424,7 @@ async fn setup_returns_status_from_re_read_stored_key() {
         ("new-key".to_string(), Ok(identity("submitted"))),
         ("stored-key".to_string(), Ok(identity("stored"))),
     ]));
-    let service = ProviderSetupService::new(store.clone(), providers.clone());
+    let service = TestProviderSetupService::new(store.clone(), providers.clone());
 
     let response = service
         .setup(DomainGpuCloudProviderId::Runpod, api_key("new-key"))
@@ -402,7 +443,7 @@ async fn setup_returns_status_from_re_read_stored_key() {
 async fn setup_maps_stored_key_re_read_failure() {
     let mut store = MemorySecretStore::empty();
     store.fail_read_when_key_present = true;
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("new-key", Ok(identity("new"))),
     );
@@ -420,7 +461,7 @@ async fn setup_maps_stored_key_re_read_failure() {
 async fn setup_rolls_back_stored_key_validation_failure() {
     let mut store = MemorySecretStore::empty();
     store.replace_key_override = Some("stored-key".to_string());
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_responses(HashMap::from([
             ("new-key".to_string(), Ok(identity("submitted"))),
@@ -445,7 +486,7 @@ async fn setup_maps_failed_finalization_rollback_to_recovery_required() {
     let mut store = MemorySecretStore::empty();
     store.fail_read_when_key_present = true;
     store.fail_delete = true;
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("new-key", Ok(identity("new"))),
     );
@@ -462,7 +503,7 @@ async fn setup_maps_failed_finalization_rollback_to_recovery_required() {
 #[tokio::test]
 async fn setup_rejects_existing_setup_before_validating_submitted_key() {
     let store = MemorySecretStore::with_key("old-key");
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("old-key", Ok(identity("old"))),
     );
@@ -554,7 +595,7 @@ async fn later_concurrent_setup_does_not_validate_submitted_key() {
 #[tokio::test]
 async fn setup_does_not_mutate_keyring_when_submitted_key_is_invalid() {
     let store = MemorySecretStore::empty();
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response(
             "new-key",
@@ -575,7 +616,7 @@ async fn setup_does_not_mutate_keyring_when_submitted_key_is_invalid() {
 async fn setup_maps_keyring_write_failure() {
     let mut store = MemorySecretStore::empty();
     store.fail_replace = true;
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("new-key", Ok(identity("new"))),
     );
@@ -600,7 +641,7 @@ fn provider_api_key_rejects_empty_secret_before_setup_service() {
 #[test]
 fn delete_setup_removes_existing_key() {
     let store = MemorySecretStore::with_key("stored-key");
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("stored-key", Ok(identity("stored"))),
     );
@@ -615,7 +656,7 @@ fn delete_setup_removes_existing_key() {
 #[test]
 fn delete_setup_removes_corrupt_stored_key() {
     let store = MemorySecretStore::with_key("");
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store.clone(),
         FakeProviderGateway::with_response("unused", Ok(identity("unused"))),
     );
@@ -629,7 +670,7 @@ fn delete_setup_removes_corrupt_stored_key() {
 
 #[test]
 fn delete_setup_errors_when_key_is_missing() {
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         MemorySecretStore::empty(),
         FakeProviderGateway::with_response("unused", Ok(identity("unused"))),
     );
@@ -645,7 +686,7 @@ fn delete_setup_errors_when_key_is_missing() {
 fn delete_setup_maps_keyring_entry_lookup_failure() {
     let mut store = MemorySecretStore::with_key("stored-key");
     store.fail_read = true;
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store,
         FakeProviderGateway::with_response("stored-key", Ok(identity("stored"))),
     );
@@ -661,7 +702,7 @@ fn delete_setup_maps_keyring_entry_lookup_failure() {
 fn delete_setup_maps_keyring_failure() {
     let mut store = MemorySecretStore::with_key("stored-key");
     store.fail_delete = true;
-    let service = ProviderSetupService::new(
+    let service = TestProviderSetupService::new(
         store,
         FakeProviderGateway::with_response("stored-key", Ok(identity("stored"))),
     );

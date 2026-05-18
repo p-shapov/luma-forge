@@ -47,11 +47,11 @@ impl<S, W> RunPodWorkspaceResourceOperations<S, W, RunPodResourceClient<S>>
 where
     S: Clone,
 {
-    pub(crate) fn production(secrets: S, workspace_catalog: W, runpod: RunPodClient) -> Self {
+    pub(crate) fn production(secrets: S, workspace_catalog: W) -> Self {
         Self::new(
             secrets.clone(),
             workspace_catalog,
-            RunPodResourceClient::new(secrets, runpod),
+            RunPodResourceClient::new(secrets, RunPodClient::default()),
         )
     }
 }
@@ -854,4 +854,212 @@ fn runpod_endpoint_observation(
 
 fn bytes_to_gib(bytes: u64) -> u64 {
     bytes.div_ceil(GIB_BYTES)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::{
+        domain::provider_setup::{GpuCloudProviderId, ProviderApiKey},
+        provider::{runpod::RunPodClient, ProviderClientError},
+        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+        workspace_resources::{CreateNetworkVolumeInput, WorkspaceResourceError},
+    };
+
+    use super::{RunPodResourceClient, RunPodResourceGateway};
+
+    #[derive(Debug, Clone, Default)]
+    struct EmptySecretStore;
+
+    impl SecretStore for EmptySecretStore {
+        fn has_api_key_entry(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+        ) -> Result<bool, SecretStoreError> {
+            Ok(false)
+        }
+
+        fn read_api_key(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+        ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
+            Ok(None)
+        }
+
+        fn replace_api_key(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+            _api_key: &ProviderApiKey,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not write secrets")
+        }
+
+        fn delete_api_key(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not delete secrets")
+        }
+
+        fn write_provisioner_worker_token(
+            &self,
+            _workspace_id: &str,
+            _token: &ProvisionerWorkerBearerToken,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not write provisioner tokens")
+        }
+
+        fn read_provisioner_worker_token(
+            &self,
+            _workspace_id: &str,
+        ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
+            unimplemented!("workspace resource tests do not read provisioner tokens")
+        }
+
+        fn delete_provisioner_worker_token(
+            &self,
+            _workspace_id: &str,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not delete provisioner tokens")
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct ApiKeySecretStore {
+        api_key: String,
+    }
+
+    impl SecretStore for ApiKeySecretStore {
+        fn has_api_key_entry(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+        ) -> Result<bool, SecretStoreError> {
+            Ok(true)
+        }
+
+        fn read_api_key(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+        ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
+            ProviderApiKey::new(self.api_key.clone())
+                .map(Some)
+                .map_err(|_| SecretStoreError::InvalidStoredProviderApiKey)
+        }
+
+        fn replace_api_key(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+            _api_key: &ProviderApiKey,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not write secrets")
+        }
+
+        fn delete_api_key(
+            &self,
+            _provider_id: &GpuCloudProviderId,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not delete secrets")
+        }
+
+        fn write_provisioner_worker_token(
+            &self,
+            _workspace_id: &str,
+            _token: &ProvisionerWorkerBearerToken,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not write provisioner tokens")
+        }
+
+        fn read_provisioner_worker_token(
+            &self,
+            _workspace_id: &str,
+        ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
+            unimplemented!("workspace resource tests do not read provisioner tokens")
+        }
+
+        fn delete_provisioner_worker_token(
+            &self,
+            _workspace_id: &str,
+        ) -> Result<(), SecretStoreError> {
+            unimplemented!("workspace resource tests do not delete provisioner tokens")
+        }
+    }
+
+    #[test]
+    fn provisioning_request_rejection_maps_to_request_rejected() {
+        assert_eq!(
+            WorkspaceResourceError::from(ProviderClientError::RequestRejected),
+            WorkspaceResourceError::ProviderRequestRejected
+        );
+    }
+
+    #[test]
+    fn provisioning_rate_limit_maps_to_rate_limited() {
+        assert_eq!(
+            WorkspaceResourceError::from(ProviderClientError::RateLimited),
+            WorkspaceResourceError::ProviderRateLimited
+        );
+    }
+
+    #[tokio::test]
+    async fn provisioning_dispatch_reads_stored_key_before_runpod_call() {
+        let resources = RunPodResourceClient::new(
+            ApiKeySecretStore {
+                api_key: "rp_123_secret".to_string(),
+            },
+            RunPodClient::new_for_test("http://127.0.0.1:9".to_string(), Duration::from_millis(50)),
+        );
+
+        let error = resources
+            .create_network_volume(CreateNetworkVolumeInput {
+                gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                size_bytes: 80 * 1024 * 1024 * 1024,
+            })
+            .await
+            .expect_err("unreachable create should be indeterminate after dispatch");
+
+        assert_eq!(
+            error,
+            WorkspaceResourceError::ProviderOperationIndeterminate
+        );
+    }
+
+    #[tokio::test]
+    async fn provisioning_fails_before_provider_call_when_setup_missing() {
+        let resources = RunPodResourceClient::new(
+            EmptySecretStore,
+            RunPodClient::new_for_test("http://127.0.0.1:9".to_string(), Duration::from_millis(50)),
+        );
+
+        let error = resources
+            .create_network_volume(CreateNetworkVolumeInput {
+                gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                workspace_id: "018f6a40-0000-7000-8000-000000000001".to_string(),
+                datacenter_id: "EU-RO-1".to_string(),
+                size_bytes: 80 * 1024 * 1024 * 1024,
+            })
+            .await
+            .expect_err("missing setup should fail before provider call");
+
+        assert_eq!(error, WorkspaceResourceError::ProviderSetupIncomplete);
+    }
+
+    #[tokio::test]
+    async fn provisioning_maps_runpod_transport_failure_to_provider_resource_error() {
+        let resources = RunPodResourceClient::new(
+            ApiKeySecretStore {
+                api_key: "rp_123_secret".to_string(),
+            },
+            RunPodClient::new_for_test("http://127.0.0.1:9".to_string(), Duration::from_millis(50)),
+        );
+
+        let error = resources
+            .get_network_volume(GpuCloudProviderId::Runpod, "missing-volume")
+            .await
+            .expect_err("unreachable get should map");
+
+        assert_eq!(error, WorkspaceResourceError::ProviderApiUnavailable);
+    }
 }

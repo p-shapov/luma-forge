@@ -1,7 +1,9 @@
+#[cfg(test)]
 use std::{future::Future, pin::Pin};
 
 pub mod contracts;
 pub mod error;
+mod providers;
 
 use crate::{
     domain::{
@@ -19,6 +21,7 @@ use crate::{
 use contracts::{CreateWorkspaceInput, ProviderPlacementOptions};
 use error::WorkspaceSetupError;
 
+#[cfg(test)]
 pub trait ProviderPlacementOptionsGateway: Send + Sync {
     fn fetch_placement_options<'a>(
         &'a self,
@@ -33,29 +36,26 @@ pub trait WorkspaceSetupCatalogReader: Send + Sync {
     fn runtime_catalog(&self) -> Result<RuntimeCatalog, WorkspaceSetupError>;
 }
 
-pub struct WorkspaceSetupService<C, S, P, W> {
+pub struct WorkspaceSetupService<C, S, W> {
     catalogs: C,
     secrets: S,
-    providers: P,
     workspace_catalog: W,
 }
 
-impl<C, S, P, W> WorkspaceSetupService<C, S, P, W> {
-    pub fn new(catalogs: C, secrets: S, providers: P, workspace_catalog: W) -> Self {
+impl<C, S, W> WorkspaceSetupService<C, S, W> {
+    pub fn new(catalogs: C, secrets: S, workspace_catalog: W) -> Self {
         Self {
             catalogs,
             secrets,
-            providers,
             workspace_catalog,
         }
     }
 }
 
-impl<C, S, P, W> WorkspaceSetupService<C, S, P, W>
+impl<C, S, W> WorkspaceSetupService<C, S, W>
 where
     C: WorkspaceSetupCatalogReader,
     S: SecretStore,
-    P: ProviderPlacementOptionsGateway,
     W: WorkspaceCatalogRepository,
 {
     pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError> {
@@ -66,13 +66,31 @@ where
         &self,
         provider_id: GpuCloudProviderId,
     ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
-        let options = self.providers.fetch_placement_options(&provider_id).await?;
+        let options = providers::fetch_placement_options(&self.secrets, &provider_id).await?;
+        self.validate_provider_placement_options(provider_id, options)
+    }
+
+    fn validate_provider_placement_options(
+        &self,
+        provider_id: GpuCloudProviderId,
+        options: ProviderPlacementOptions,
+    ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
         provider_inventory_validator::validate_provider_inventory(
             provider_id,
             &options.provider_inventory,
         )
         .map_err(|_| WorkspaceSetupError::ProviderInventoryInvalid)?;
         Ok(options)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn get_provider_placement_options_with_provider(
+        &self,
+        provider_id: GpuCloudProviderId,
+        providers: &impl ProviderPlacementOptionsGateway,
+    ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
+        let options = providers.fetch_placement_options(&provider_id).await?;
+        self.validate_provider_placement_options(provider_id, options)
     }
 
     pub async fn get_workspace_catalog(&self) -> Result<WorkspaceCatalog, WorkspaceSetupError> {

@@ -108,7 +108,7 @@ impl RunPodClient {
     }
 
     #[cfg(test)]
-    pub(super) fn new_for_test(endpoint: String, request_timeout: Duration) -> Self {
+    pub(crate) fn new_for_test(endpoint: String, request_timeout: Duration) -> Self {
         Self::new_with_endpoints(endpoint.clone(), endpoint, request_timeout, request_timeout)
     }
 

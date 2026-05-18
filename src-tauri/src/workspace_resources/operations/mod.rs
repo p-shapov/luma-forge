@@ -7,6 +7,8 @@ use super::WorkspaceResourceError;
 pub(crate) mod runpod;
 
 pub(crate) type WorkspaceResourceSyncResult = Result<Option<Workspace>, WorkspaceResourceError>;
+pub(crate) type ProductionWorkspaceResourceOperations<S, W> =
+    runpod::RunPodWorkspaceResourceOperations<S, W>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkspaceResourceConfig {
