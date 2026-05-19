@@ -2,8 +2,6 @@ pub mod contracts;
 pub mod error;
 mod providers;
 
-use std::{future::Future, pin::Pin};
-
 use crate::{
     domain::{
         placement::validator as placement_validator,
@@ -19,80 +17,56 @@ use crate::{
 
 use contracts::{CreateWorkspaceInput, ProviderPlacementOptions};
 use error::WorkspaceSetupError;
+pub use providers::{
+    WorkspaceSetupProviderCapability, WorkspaceSetupProviderRegistry,
+    WorkspaceSetupProviderResolver,
+};
 
 pub trait WorkspaceSetupCatalogReader: Send + Sync {
     fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError>;
     fn runtime_catalog(&self) -> Result<RuntimeCatalog, WorkspaceSetupError>;
 }
 
-pub trait ProviderPlacementOptionsFetcher<S>: Send + Sync {
-    fn fetch_placement_options<'a>(
-        &'a self,
-        secrets: &'a S,
-        provider_id: &'a GpuCloudProviderId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<ProviderPlacementOptions, WorkspaceSetupError>> + Send + 'a>,
-    >;
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ProductionProviderPlacementOptionsFetcher;
-
-impl<S> ProviderPlacementOptionsFetcher<S> for ProductionProviderPlacementOptionsFetcher
-where
-    S: SecretStore,
-{
-    fn fetch_placement_options<'a>(
-        &'a self,
-        secrets: &'a S,
-        provider_id: &'a GpuCloudProviderId,
-    ) -> Pin<
-        Box<dyn Future<Output = Result<ProviderPlacementOptions, WorkspaceSetupError>> + Send + 'a>,
-    > {
-        Box::pin(providers::fetch_placement_options(secrets, provider_id))
-    }
-}
-
-pub struct WorkspaceSetupService<C, S, W, F = ProductionProviderPlacementOptionsFetcher> {
+pub struct WorkspaceSetupService<C, S, W, R = WorkspaceSetupProviderRegistry> {
     catalogs: C,
     secrets: S,
     workspace_catalog: W,
-    placement_options_fetcher: F,
+    provider_registry: R,
 }
 
-impl<C, S, W> WorkspaceSetupService<C, S, W, ProductionProviderPlacementOptionsFetcher> {
+impl<C, S, W> WorkspaceSetupService<C, S, W, WorkspaceSetupProviderRegistry> {
     pub fn new(catalogs: C, secrets: S, workspace_catalog: W) -> Self {
-        Self::with_provider_placement_options_fetcher(
+        Self::with_provider_registry(
             catalogs,
             secrets,
             workspace_catalog,
-            ProductionProviderPlacementOptionsFetcher,
+            WorkspaceSetupProviderRegistry::default(),
         )
     }
 }
 
-impl<C, S, W, F> WorkspaceSetupService<C, S, W, F> {
-    pub fn with_provider_placement_options_fetcher(
+impl<C, S, W, R> WorkspaceSetupService<C, S, W, R> {
+    pub fn with_provider_registry(
         catalogs: C,
         secrets: S,
         workspace_catalog: W,
-        placement_options_fetcher: F,
+        provider_registry: R,
     ) -> Self {
         Self {
             catalogs,
             secrets,
             workspace_catalog,
-            placement_options_fetcher,
+            provider_registry,
         }
     }
 }
 
-impl<C, S, W, F> WorkspaceSetupService<C, S, W, F>
+impl<C, S, W, R> WorkspaceSetupService<C, S, W, R>
 where
     C: WorkspaceSetupCatalogReader,
     S: SecretStore,
     W: WorkspaceCatalogRepository,
-    F: ProviderPlacementOptionsFetcher<S>,
+    R: WorkspaceSetupProviderResolver,
 {
     pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError> {
         self.catalogs.workflow_catalog()
@@ -102,9 +76,14 @@ where
         &self,
         provider_id: GpuCloudProviderId,
     ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
+        let api_key = self
+            .secrets
+            .read_api_key(&provider_id)?
+            .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
         let options = self
-            .placement_options_fetcher
-            .fetch_placement_options(&self.secrets, &provider_id)
+            .provider_registry
+            .for_provider(&provider_id)
+            .get_provider_placement_options(&api_key)
             .await?;
         self.validate_provider_placement_options(provider_id, options)
     }
@@ -197,7 +176,11 @@ mod tests {
         },
         secrets::{ProvisionerWorkerBearerToken, SecretStoreError},
     };
-    use std::sync::{Arc, Mutex};
+    use std::{
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
 
     const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -555,12 +538,12 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
-    struct FakePlacementOptionsFetcher {
+    struct FakePlacementOptionsProvider {
         result: Mutex<Option<Result<ProviderPlacementOptions, WorkspaceSetupError>>>,
         calls: Mutex<Vec<GpuCloudProviderId>>,
     }
 
-    impl FakePlacementOptionsFetcher {
+    impl FakePlacementOptionsProvider {
         fn with_result(result: Result<ProviderPlacementOptions, WorkspaceSetupError>) -> Arc<Self> {
             Arc::new(Self {
                 result: Mutex::new(Some(result)),
@@ -571,19 +554,28 @@ mod tests {
         fn calls(&self) -> Vec<GpuCloudProviderId> {
             self.calls
                 .lock()
-                .expect("fake placement fetcher mutex")
+                .expect("fake placement provider mutex")
                 .clone()
         }
     }
 
-    impl<S> ProviderPlacementOptionsFetcher<S> for Arc<FakePlacementOptionsFetcher>
-    where
-        S: SecretStore,
-    {
-        fn fetch_placement_options<'a>(
+    impl WorkspaceSetupProviderResolver for Arc<FakePlacementOptionsProvider> {
+        fn for_provider(
+            &self,
+            provider_id: &GpuCloudProviderId,
+        ) -> &dyn WorkspaceSetupProviderCapability {
+            self.calls
+                .lock()
+                .expect("fake placement provider mutex")
+                .push(*provider_id);
+            self
+        }
+    }
+
+    impl WorkspaceSetupProviderCapability for Arc<FakePlacementOptionsProvider> {
+        fn get_provider_placement_options<'a>(
             &'a self,
-            _secrets: &'a S,
-            provider_id: &'a GpuCloudProviderId,
+            _api_key: &'a ProviderApiKey,
         ) -> Pin<
             Box<
                 dyn Future<Output = Result<ProviderPlacementOptions, WorkspaceSetupError>>
@@ -591,14 +583,10 @@ mod tests {
                     + 'a,
             >,
         > {
-            self.calls
-                .lock()
-                .expect("fake placement fetcher mutex")
-                .push(*provider_id);
             let result = self
                 .result
                 .lock()
-                .expect("fake placement fetcher mutex")
+                .expect("fake placement provider mutex")
                 .clone()
                 .expect("fake placement result");
 
@@ -742,34 +730,34 @@ mod tests {
         FakeCatalogReader,
         FakeSecretStore,
         FakeWorkspaceCatalog,
-        Arc<FakePlacementOptionsFetcher>,
+        Arc<FakePlacementOptionsProvider>,
     > {
-        WorkspaceSetupService::with_provider_placement_options_fetcher(
+        WorkspaceSetupService::with_provider_registry(
             catalogs,
             secrets,
             workspace_catalog,
-            FakePlacementOptionsFetcher::with_result(Ok(placement_options_with_inventory(
+            FakePlacementOptionsProvider::with_result(Ok(placement_options_with_inventory(
                 valid_inventory(),
             ))),
         )
     }
 
-    fn service_with_fetcher(
+    fn service_with_provider(
         catalogs: FakeCatalogReader,
         secrets: FakeSecretStore,
         workspace_catalog: FakeWorkspaceCatalog,
-        fetcher: Arc<FakePlacementOptionsFetcher>,
+        provider: Arc<FakePlacementOptionsProvider>,
     ) -> WorkspaceSetupService<
         FakeCatalogReader,
         FakeSecretStore,
         FakeWorkspaceCatalog,
-        Arc<FakePlacementOptionsFetcher>,
+        Arc<FakePlacementOptionsProvider>,
     > {
-        WorkspaceSetupService::with_provider_placement_options_fetcher(
+        WorkspaceSetupService::with_provider_registry(
             catalogs,
             secrets,
             workspace_catalog,
-            fetcher,
+            provider,
         )
     }
 
@@ -1107,7 +1095,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_provider_placement_options_rejects_missing_key_with_production_fetcher() {
+    async fn get_provider_placement_options_rejects_missing_key_with_production_registry() {
         let result = WorkspaceSetupService::new(
             FakeCatalogReader::valid(),
             FakeSecretStore::missing_api_key(),
@@ -1120,37 +1108,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_provider_placement_options_propagates_fetcher_errors() {
-        let fetcher = FakePlacementOptionsFetcher::with_result(Err(
+    async fn get_provider_placement_options_rejects_missing_key_before_provider_selection() {
+        let provider = FakePlacementOptionsProvider::with_result(Ok(
+            placement_options_with_inventory(valid_inventory()),
+        ));
+
+        let result = service_with_provider(
+            FakeCatalogReader::valid(),
+            FakeSecretStore::missing_api_key(),
+            FakeWorkspaceCatalog::empty(),
+            provider.clone(),
+        )
+        .get_provider_placement_options(GpuCloudProviderId::Runpod)
+        .await;
+
+        assert_eq!(result, Err(WorkspaceSetupError::ProviderSetupIncomplete));
+        assert_eq!(provider.calls(), Vec::<GpuCloudProviderId>::new());
+    }
+
+    #[tokio::test]
+    async fn get_provider_placement_options_propagates_provider_errors() {
+        let provider = FakePlacementOptionsProvider::with_result(Err(
             WorkspaceSetupError::ProviderApiUnavailable,
         ));
 
-        let result = service_with_fetcher(
+        let result = service_with_provider(
             FakeCatalogReader::valid(),
             FakeSecretStore::with_api_key("rp_key_secret"),
             FakeWorkspaceCatalog::empty(),
-            fetcher.clone(),
+            provider.clone(),
         )
         .get_provider_placement_options(GpuCloudProviderId::Runpod)
         .await;
 
         assert_eq!(result, Err(WorkspaceSetupError::ProviderApiUnavailable));
-        assert_eq!(fetcher.calls(), vec![GpuCloudProviderId::Runpod]);
+        assert_eq!(provider.calls(), vec![GpuCloudProviderId::Runpod]);
     }
 
     #[tokio::test]
     async fn get_provider_placement_options_validates_fetched_inventory() {
-        let invalid_fetcher = FakePlacementOptionsFetcher::with_result(Ok(
+        let invalid_provider = FakePlacementOptionsProvider::with_result(Ok(
             placement_options_with_inventory(ProviderInventory {
                 fetched_at: " ".to_string(),
                 ..valid_inventory()
             }),
         ));
-        let invalid_result = service_with_fetcher(
+        let invalid_result = service_with_provider(
             FakeCatalogReader::valid(),
             FakeSecretStore::with_api_key("rp_key_secret"),
             FakeWorkspaceCatalog::empty(),
-            invalid_fetcher,
+            invalid_provider,
         )
         .get_provider_placement_options(GpuCloudProviderId::Runpod)
         .await;
@@ -1161,12 +1168,12 @@ mod tests {
         );
 
         let options = placement_options_with_inventory(valid_inventory());
-        let valid_fetcher = FakePlacementOptionsFetcher::with_result(Ok(options.clone()));
-        let valid_result = service_with_fetcher(
+        let valid_provider = FakePlacementOptionsProvider::with_result(Ok(options.clone()));
+        let valid_result = service_with_provider(
             FakeCatalogReader::valid(),
             FakeSecretStore::with_api_key("rp_key_secret"),
             FakeWorkspaceCatalog::empty(),
-            valid_fetcher,
+            valid_provider,
         )
         .get_provider_placement_options(GpuCloudProviderId::Runpod)
         .await;
