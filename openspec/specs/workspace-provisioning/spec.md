@@ -720,3 +720,17 @@ Workspace Provisioning SHALL use Workspace Resources to synchronize provider-own
 - **AND** RunPod resource creation, discovery, observation, cleanup, error mapping, persistence, and failure semantics SHALL remain unchanged
 - **AND** Workspace Provisioning command contracts and user-facing behavior SHALL remain unchanged
 
+### Requirement: Select provider-specific Workspace Provisioning behavior through provider capability
+Workspace Provisioning SHALL centralize provider-specific provisioning flow selection behind a Workspace Provisioning provider capability selected by `GpuCloudProviderId`.
+
+#### Scenario: Shared sync delegates provider-specific flow
+- **WHEN** a provisioning Workspace is synced after shared lifecycle and concurrency checks pass
+- **THEN** the shared Workspace Provisioning service SHALL select the Workspace Provisioning provider capability for the Workspace provider id
+- **AND** provider-specific sync sequencing SHALL execute inside the selected provider capability
+- **AND** the RunPod provider capability SHALL preserve the existing RunPod sequence and behavior
+
+#### Scenario: Shared cancel delegates provider-specific cleanup
+- **WHEN** a provisioning Workspace cancellation passes shared lifecycle and concurrency checks
+- **THEN** the shared Workspace Provisioning service SHALL select the Workspace Provisioning provider capability for the Workspace provider id
+- **AND** provider-specific cancellation cleanup SHALL execute inside the selected provider capability
+- **AND** existing cleanup failure fallback semantics SHALL remain unchanged

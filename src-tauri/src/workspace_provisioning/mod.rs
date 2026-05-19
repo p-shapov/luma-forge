@@ -2,8 +2,8 @@ mod context;
 mod coordinator;
 pub(crate) mod failure;
 pub(crate) mod helpers;
+mod providers;
 mod service;
-mod steps;
 #[cfg(test)]
 mod test_support;
 
