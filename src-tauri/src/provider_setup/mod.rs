@@ -2,8 +2,6 @@ mod coordinator;
 mod error;
 mod providers;
 
-use std::{future::Future, pin::Pin};
-
 pub use coordinator::ProviderSetupCoordinator;
 pub use error::ProviderSetupError;
 
@@ -15,52 +13,34 @@ use crate::{
     secrets::SecretStore,
 };
 
-pub trait ProviderIdentityValidator: Send + Sync {
-    fn validate_identity<'a>(
-        &'a self,
-        provider_id: &'a DomainGpuCloudProviderId,
-        api_key: &'a ProviderApiKey,
-    ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>;
-}
+pub use providers::{
+    ProviderSetupCapability, ProviderSetupProviderRegistry, ProviderSetupProviderResolver,
+};
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ProductionProviderIdentityValidator;
-
-impl ProviderIdentityValidator for ProductionProviderIdentityValidator {
-    fn validate_identity<'a>(
-        &'a self,
-        provider_id: &'a DomainGpuCloudProviderId,
-        api_key: &'a ProviderApiKey,
-    ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>
-    {
-        Box::pin(providers::validate_identity(provider_id, api_key))
-    }
-}
-
-pub struct ProviderSetupService<S, V = ProductionProviderIdentityValidator> {
+pub struct ProviderSetupService<S, R = ProviderSetupProviderRegistry> {
     secrets: S,
-    identity_validator: V,
+    provider_registry: R,
 }
 
 impl<S> ProviderSetupService<S> {
     pub fn new(secrets: S) -> Self {
-        Self::with_identity_validator(secrets, ProductionProviderIdentityValidator)
+        Self::with_provider_registry(secrets, ProviderSetupProviderRegistry::default())
     }
 }
 
-impl<S, V> ProviderSetupService<S, V> {
-    pub fn with_identity_validator(secrets: S, identity_validator: V) -> Self {
+impl<S, R> ProviderSetupService<S, R> {
+    pub fn with_provider_registry(secrets: S, provider_registry: R) -> Self {
         Self {
             secrets,
-            identity_validator,
+            provider_registry,
         }
     }
 }
 
-impl<S, V> ProviderSetupService<S, V>
+impl<S, R> ProviderSetupService<S, R>
 where
     S: SecretStore,
-    V: ProviderIdentityValidator,
+    R: ProviderSetupProviderResolver,
 {
     pub async fn get_setup(
         &self,
@@ -84,8 +64,9 @@ where
             return Err(ProviderSetupError::ProviderSetupAlreadyExists);
         }
 
-        self.identity_validator
-            .validate_identity(&provider_id, &api_key)
+        self.provider_registry
+            .for_provider(&provider_id)
+            .validate_identity(&api_key)
             .await?;
         self.secrets.replace_api_key(&provider_id, &api_key)?;
 
@@ -139,8 +120,9 @@ where
         api_key: &ProviderApiKey,
     ) -> Result<DomainGpuCloudProviderSetup, ProviderSetupError> {
         let identity = self
-            .identity_validator
-            .validate_identity(provider_id, api_key)
+            .provider_registry
+            .for_provider(provider_id)
+            .validate_identity(api_key)
             .await?;
         provider_setup::validator::validate_provider_identity(&identity)
             .map_err(|_| ProviderSetupError::ProviderIdentityResponseInvalid)?;
@@ -169,6 +151,8 @@ mod tests {
     use crate::secrets::{ProvisionerWorkerBearerToken, SecretStoreError};
     use std::{
         collections::VecDeque,
+        future::Future,
+        pin::Pin,
         sync::{Arc, Mutex},
     };
 
@@ -322,45 +306,79 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
-    struct FakeIdentityValidator {
+    struct FakeProviderSetupCapability {
         results: Mutex<VecDeque<Result<ProviderIdentity, ProviderSetupError>>>,
         calls: Mutex<Vec<String>>,
     }
 
-    impl FakeIdentityValidator {
-        fn with_results(
-            results: impl IntoIterator<Item = Result<ProviderIdentity, ProviderSetupError>>,
-        ) -> Arc<Self> {
-            Arc::new(Self {
-                results: Mutex::new(results.into_iter().collect()),
-                calls: Mutex::new(Vec::new()),
-            })
-        }
-
+    impl FakeProviderSetupCapability {
         fn calls(&self) -> Vec<String> {
-            self.calls.lock().expect("fake validator mutex").clone()
+            self.calls.lock().expect("fake capability mutex").clone()
         }
     }
 
-    impl ProviderIdentityValidator for Arc<FakeIdentityValidator> {
+    impl ProviderSetupCapability for FakeProviderSetupCapability {
         fn validate_identity<'a>(
             &'a self,
-            _provider_id: &'a DomainGpuCloudProviderId,
             api_key: &'a ProviderApiKey,
         ) -> Pin<Box<dyn Future<Output = Result<ProviderIdentity, ProviderSetupError>> + Send + 'a>>
         {
             self.calls
                 .lock()
-                .expect("fake validator mutex")
+                .expect("fake capability mutex")
                 .push(api_key.expose_secret().to_string());
             let result = self
                 .results
                 .lock()
-                .expect("fake validator mutex")
+                .expect("fake capability mutex")
                 .pop_front()
-                .expect("fake validator result");
+                .expect("fake capability result");
 
             Box::pin(async move { result })
+        }
+    }
+
+    #[derive(Debug)]
+    struct FakeProviderSetupRegistry {
+        capability: FakeProviderSetupCapability,
+        provider_calls: Mutex<Vec<DomainGpuCloudProviderId>>,
+    }
+
+    impl FakeProviderSetupRegistry {
+        fn with_results(
+            results: impl IntoIterator<Item = Result<ProviderIdentity, ProviderSetupError>>,
+        ) -> Arc<Self> {
+            Arc::new(Self {
+                capability: FakeProviderSetupCapability {
+                    results: Mutex::new(results.into_iter().collect()),
+                    calls: Mutex::new(Vec::new()),
+                },
+                provider_calls: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn identity_calls(&self) -> Vec<String> {
+            self.capability.calls()
+        }
+
+        fn provider_calls(&self) -> Vec<DomainGpuCloudProviderId> {
+            self.provider_calls
+                .lock()
+                .expect("fake registry mutex")
+                .clone()
+        }
+    }
+
+    impl ProviderSetupProviderResolver for Arc<FakeProviderSetupRegistry> {
+        fn for_provider(
+            &self,
+            provider_id: &DomainGpuCloudProviderId,
+        ) -> &dyn ProviderSetupCapability {
+            self.provider_calls
+                .lock()
+                .expect("fake registry mutex")
+                .push(*provider_id);
+            &self.capability
         }
     }
 
@@ -377,31 +395,32 @@ mod tests {
 
     fn service(
         secrets: FakeSecretStore,
-        validator: Arc<FakeIdentityValidator>,
-    ) -> ProviderSetupService<FakeSecretStore, Arc<FakeIdentityValidator>> {
-        ProviderSetupService::with_identity_validator(secrets, validator)
+        registry: Arc<FakeProviderSetupRegistry>,
+    ) -> ProviderSetupService<FakeSecretStore, Arc<FakeProviderSetupRegistry>> {
+        ProviderSetupService::with_provider_registry(secrets, registry)
     }
 
     #[tokio::test]
     async fn get_setup_returns_none_when_no_key_is_stored() {
         let secrets = FakeSecretStore::default();
-        let validator = FakeIdentityValidator::with_results([]);
+        let registry = FakeProviderSetupRegistry::with_results([]);
 
-        let result = service(secrets.clone(), validator.clone())
+        let result = service(secrets.clone(), registry.clone())
             .get_setup(DomainGpuCloudProviderId::Runpod)
             .await;
 
         assert!(result.expect("get setup should succeed").is_none());
         assert_eq!(secrets.calls(), vec![SecretStoreCall::ReadApiKey]);
-        assert!(validator.calls().is_empty());
+        assert!(registry.identity_calls().is_empty());
+        assert!(registry.provider_calls().is_empty());
     }
 
     #[tokio::test]
     async fn get_setup_derives_redacted_state_from_stored_key() {
         let secrets = FakeSecretStore::with_api_key("rp_key_secret");
-        let validator = FakeIdentityValidator::with_results([Ok(valid_identity())]);
+        let registry = FakeProviderSetupRegistry::with_results([Ok(valid_identity())]);
 
-        let setup = service(secrets.clone(), validator.clone())
+        let setup = service(secrets.clone(), registry.clone())
             .get_setup(DomainGpuCloudProviderId::Runpod)
             .await
             .expect("get setup should succeed")
@@ -413,15 +432,19 @@ mod tests {
         );
         assert_eq!(setup.provider_user_email, "user@example.com");
         assert_eq!(setup.provider_api_key_fingerprint, "rp_key");
-        assert_eq!(validator.calls(), vec!["rp_key_secret".to_string()]);
+        assert_eq!(registry.identity_calls(), vec!["rp_key_secret".to_string()]);
+        assert_eq!(
+            registry.provider_calls(),
+            vec![DomainGpuCloudProviderId::Runpod]
+        );
     }
 
     #[tokio::test]
     async fn get_setup_reports_malformed_stored_key() {
         let secrets = FakeSecretStore::with_api_key(" \t");
-        let validator = FakeIdentityValidator::with_results([]);
+        let registry = FakeProviderSetupRegistry::with_results([]);
 
-        let result = service(secrets, validator)
+        let result = service(secrets, registry)
             .get_setup(DomainGpuCloudProviderId::Runpod)
             .await;
 
@@ -434,9 +457,9 @@ mod tests {
     #[tokio::test]
     async fn setup_rejects_existing_setup_before_provider_validation_or_mutation() {
         let secrets = FakeSecretStore::with_api_key("rp_existing_secret");
-        let validator = FakeIdentityValidator::with_results([]);
+        let registry = FakeProviderSetupRegistry::with_results([]);
 
-        let result = service(secrets.clone(), validator.clone())
+        let result = service(secrets.clone(), registry.clone())
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_new_secret"))
             .await;
 
@@ -444,7 +467,8 @@ mod tests {
             result,
             Err(ProviderSetupError::ProviderSetupAlreadyExists)
         ));
-        assert!(validator.calls().is_empty());
+        assert!(registry.identity_calls().is_empty());
+        assert!(registry.provider_calls().is_empty());
         assert_eq!(secrets.stored_key(), Some("rp_existing_secret".to_string()));
         assert_eq!(secrets.calls(), vec![SecretStoreCall::ReadApiKey]);
     }
@@ -452,11 +476,11 @@ mod tests {
     #[tokio::test]
     async fn setup_rejects_unauthorized_submitted_key_without_mutating_keyring() {
         let secrets = FakeSecretStore::default();
-        let validator = FakeIdentityValidator::with_results([Err(
+        let registry = FakeProviderSetupRegistry::with_results([Err(
             ProviderSetupError::ProviderApiKeyUnauthorized,
         )]);
 
-        let result = service(secrets.clone(), validator.clone())
+        let result = service(secrets.clone(), registry.clone())
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_bad_secret"))
             .await;
 
@@ -464,7 +488,11 @@ mod tests {
             result,
             Err(ProviderSetupError::ProviderApiKeyUnauthorized)
         ));
-        assert_eq!(validator.calls(), vec!["rp_bad_secret".to_string()]);
+        assert_eq!(registry.identity_calls(), vec!["rp_bad_secret".to_string()]);
+        assert_eq!(
+            registry.provider_calls(),
+            vec![DomainGpuCloudProviderId::Runpod]
+        );
         assert_eq!(secrets.stored_key(), None);
         assert_eq!(secrets.calls(), vec![SecretStoreCall::ReadApiKey]);
     }
@@ -472,7 +500,7 @@ mod tests {
     #[tokio::test]
     async fn setup_validates_writes_rereads_and_derives_setup_from_stored_key() {
         let secrets = FakeSecretStore::default();
-        let validator = FakeIdentityValidator::with_results([
+        let registry = FakeProviderSetupRegistry::with_results([
             Ok(ProviderIdentity {
                 provider_user_email: "submitted@example.com".to_string(),
                 provider_api_key_fingerprint: "submitted-key".to_string(),
@@ -480,7 +508,7 @@ mod tests {
             Ok(valid_identity()),
         ]);
 
-        let setup = service(secrets.clone(), validator.clone())
+        let setup = service(secrets.clone(), registry.clone())
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_key_secret"))
             .await
             .expect("setup should succeed");
@@ -496,8 +524,15 @@ mod tests {
             ]
         );
         assert_eq!(
-            validator.calls(),
+            registry.identity_calls(),
             vec!["rp_key_secret".to_string(), "rp_key_secret".to_string()]
+        );
+        assert_eq!(
+            registry.provider_calls(),
+            vec![
+                DomainGpuCloudProviderId::Runpod,
+                DomainGpuCloudProviderId::Runpod
+            ]
         );
     }
 
@@ -505,9 +540,9 @@ mod tests {
     async fn setup_reports_keyring_write_failure_without_success() {
         let secrets = FakeSecretStore::default();
         secrets.set_replace_error(SecretStoreError::SecureKeyringUnavailable);
-        let validator = FakeIdentityValidator::with_results([Ok(valid_identity())]);
+        let registry = FakeProviderSetupRegistry::with_results([Ok(valid_identity())]);
 
-        let result = service(secrets.clone(), validator)
+        let result = service(secrets.clone(), registry)
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_key_secret"))
             .await;
 
@@ -522,9 +557,9 @@ mod tests {
     async fn setup_rolls_back_when_stored_key_reread_fails() {
         let secrets = FakeSecretStore::default();
         secrets.fail_read(2, SecretStoreError::SecureKeyringUnavailable);
-        let validator = FakeIdentityValidator::with_results([Ok(valid_identity())]);
+        let registry = FakeProviderSetupRegistry::with_results([Ok(valid_identity())]);
 
-        let result = service(secrets.clone(), validator)
+        let result = service(secrets.clone(), registry)
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_key_secret"))
             .await;
 
@@ -547,12 +582,12 @@ mod tests {
     #[tokio::test]
     async fn setup_rolls_back_when_stored_key_validation_fails() {
         let secrets = FakeSecretStore::default();
-        let validator = FakeIdentityValidator::with_results([
+        let registry = FakeProviderSetupRegistry::with_results([
             Ok(valid_identity()),
             Err(ProviderSetupError::ProviderApiUnavailable),
         ]);
 
-        let result = service(secrets.clone(), validator)
+        let result = service(secrets.clone(), registry)
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_key_secret"))
             .await;
 
@@ -567,12 +602,12 @@ mod tests {
     async fn setup_reports_recovery_required_when_rollback_fails() {
         let secrets = FakeSecretStore::default();
         secrets.set_delete_error(SecretStoreError::SecureKeyringUnavailable);
-        let validator = FakeIdentityValidator::with_results([
+        let registry = FakeProviderSetupRegistry::with_results([
             Ok(valid_identity()),
             Err(ProviderSetupError::ProviderApiUnavailable),
         ]);
 
-        let result = service(secrets.clone(), validator)
+        let result = service(secrets.clone(), registry)
             .setup(DomainGpuCloudProviderId::Runpod, api_key("rp_key_secret"))
             .await;
 
@@ -586,9 +621,9 @@ mod tests {
     #[test]
     fn delete_setup_removes_existing_or_corrupt_local_entry_without_reading_provider_key() {
         let secrets = FakeSecretStore::with_api_key(" \t");
-        let validator = FakeIdentityValidator::with_results([]);
+        let registry = FakeProviderSetupRegistry::with_results([]);
 
-        service(secrets.clone(), validator)
+        service(secrets.clone(), registry)
             .delete_setup(DomainGpuCloudProviderId::Runpod)
             .expect("delete should succeed");
 
@@ -605,10 +640,10 @@ mod tests {
     #[test]
     fn delete_setup_reports_missing_setup() {
         let secrets = FakeSecretStore::default();
-        let validator = FakeIdentityValidator::with_results([]);
+        let registry = FakeProviderSetupRegistry::with_results([]);
 
         let result =
-            service(secrets.clone(), validator).delete_setup(DomainGpuCloudProviderId::Runpod);
+            service(secrets.clone(), registry).delete_setup(DomainGpuCloudProviderId::Runpod);
 
         assert_eq!(result, Err(ProviderSetupError::ProviderSetupNotFound));
         assert_eq!(secrets.calls(), vec![SecretStoreCall::HasApiKeyEntry]);

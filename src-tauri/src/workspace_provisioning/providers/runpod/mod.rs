@@ -1,11 +1,15 @@
+use std::{future::Future, pin::Pin};
+
 use crate::{
     domain::workspace::Workspace, secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
 };
 
-use super::super::context::{
-    SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources,
+use super::WorkspaceProvisioningProvider;
+use crate::workspace_provisioning::{
+    context::{SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    WorkspaceProvisioningError,
 };
 
 mod endpoint;
@@ -13,7 +17,41 @@ mod environment;
 mod network_volume;
 mod provisioning_pod;
 
-pub(crate) async fn sync<S, W, R, Q>(
+#[derive(Debug, Default)]
+pub(crate) struct RunPodWorkspaceProvisioningProvider;
+
+impl<S, W, R, Q> WorkspaceProvisioningProvider<S, W, R, Q> for RunPodWorkspaceProvisioningProvider
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+    R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
+{
+    fn sync<'a>(
+        &'a self,
+        context: &'a WorkspaceProvisioningContext<'_, S, W, R, Q>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = SyncStepResult> + Send + 'a>> {
+        Box::pin(async move { sync(context, workspace).await })
+    }
+
+    fn cancel<'a>(
+        &'a self,
+        context: &'a WorkspaceProvisioningContext<'_, S, W, R, Q>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceProvisioningError>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            context
+                .resources
+                .cleanup_known_resources(workspace)
+                .await
+                .map_err(Into::into)
+        })
+    }
+}
+
+async fn sync<S, W, R, Q>(
     context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
     workspace: &mut Workspace,
 ) -> SyncStepResult

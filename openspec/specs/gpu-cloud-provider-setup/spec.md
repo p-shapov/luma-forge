@@ -273,3 +273,16 @@ Provider Setup command errors SHALL provide enough UI-safe information for React
 - **THEN** React SHALL be able to distinguish whether the user should retry, enter a different key, delete/recover local setup, refresh setup status, or resolve local keyring access
 - **AND** the generated command error MUST NOT expose Provider API Keys or keyring internals
 
+### Requirement: Provider Setup provider dispatch is centralized
+The Provider Setup implementation SHALL centralize provider selection for provider-specific setup behavior.
+
+#### Scenario: Provider-specific validation is required
+- **WHEN** the shared Provider Setup service needs provider-specific setup validation for a supported `gpu_cloud_provider_id`
+- **THEN** it SHALL obtain the concrete provider setup capability from a centralized registry or factory
+- **AND** orchestration code SHALL avoid scattering `GpuCloudProviderId::Runpod` dispatch across the setup lifecycle
+
+#### Scenario: RunPod behavior is preserved
+- **WHEN** Provider Setup handles `runpod`
+- **THEN** the selected concrete capability SHALL preserve the existing RunPod identity validation behavior and error mapping
+- **AND** the generated command request and response contract MUST remain unchanged
+

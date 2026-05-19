@@ -12,7 +12,8 @@ use super::{
     coordinator::WorkspaceProvisioningCoordinator,
     failure,
     helpers::{result, WorkspaceProvisioningResult},
-    steps, WorkspaceProvisioningError,
+    providers::{WorkspaceProvisioningProviderRegistry, WorkspaceProvisioningProviderResolver},
+    WorkspaceProvisioningError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,17 +21,24 @@ pub struct WorkspaceProvisioningConfig {
     pub volume_mount_path: String,
 }
 
-pub struct WorkspaceProvisioningService<S, W, R, Q = WorkspaceResourceService<S, W>> {
+pub struct WorkspaceProvisioningService<
+    S,
+    W,
+    R,
+    Q = WorkspaceResourceService<S, W>,
+    P = WorkspaceProvisioningProviderRegistry,
+> {
     secrets: S,
     resources: Q,
     workspace_catalog: W,
     workers: R,
+    provider_registry: P,
     workspace_provisioner: WorkspaceProvisionerService,
     coordinator: WorkspaceProvisioningCoordinator,
     config: WorkspaceProvisioningConfig,
 }
 
-impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q> {
+impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q, WorkspaceProvisioningProviderRegistry> {
     pub fn new(
         secrets: S,
         resources: Q,
@@ -39,11 +47,34 @@ impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q> {
         coordinator: WorkspaceProvisioningCoordinator,
         config: WorkspaceProvisioningConfig,
     ) -> Self {
+        Self::with_provider_registry(
+            secrets,
+            resources,
+            workspace_catalog,
+            workers,
+            coordinator,
+            config,
+            WorkspaceProvisioningProviderRegistry::default(),
+        )
+    }
+}
+
+impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P> {
+    pub(crate) fn with_provider_registry(
+        secrets: S,
+        resources: Q,
+        workspace_catalog: W,
+        workers: R,
+        coordinator: WorkspaceProvisioningCoordinator,
+        config: WorkspaceProvisioningConfig,
+        provider_registry: P,
+    ) -> Self {
         Self {
             secrets,
             resources,
             workspace_catalog,
             workers,
+            provider_registry,
             workspace_provisioner: WorkspaceProvisionerService::new(),
             coordinator,
             config,
@@ -62,12 +93,13 @@ impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q> {
     }
 }
 
-impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q>
+impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P>
 where
     S: SecretStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
+    P: WorkspaceProvisioningProviderResolver<S, W, R, Q>,
 {
     pub async fn initiate(
         &self,
@@ -104,7 +136,12 @@ where
             return Ok(result(workspace));
         }
 
-        if let Some(result) = steps::sync(&context, &mut workspace).await? {
+        if let Some(result) = self
+            .provider_registry
+            .for_provider(&workspace.gpu_cloud_provider_id)
+            .sync(&context, &mut workspace)
+            .await?
+        {
             return Ok(result);
         }
 
@@ -125,7 +162,12 @@ where
             return Err(WorkspaceProvisioningError::InvalidWorkspaceLifecycle);
         }
 
-        match self.resources.cleanup_known_resources(&mut workspace).await {
+        match self
+            .provider_registry
+            .for_provider(&workspace.gpu_cloud_provider_id)
+            .cancel(&context, &mut workspace)
+            .await
+        {
             Ok(updated_workspace) => {
                 workspace = updated_workspace;
             }
@@ -141,13 +183,20 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        future::Future,
+        pin::Pin,
+        sync::{Arc, Mutex},
+    };
+
     use crate::{
         domain::{
             provider_setup::GpuCloudProviderId,
             workspace::{
-                ProviderResourceStatus, WorkspaceLifecycleState, WorkspaceProvisioningFailureCode,
-                WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
-                WorkspaceProvisioningRecoveryAction, WorkspaceProvisioningStatus,
+                ProviderResourceStatus, Workspace, WorkspaceLifecycleState,
+                WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+                WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
+                WorkspaceProvisioningStatus,
             },
         },
         secrets::SecretStoreError,
@@ -155,11 +204,140 @@ mod tests {
     };
 
     use super::*;
+    use crate::workspace_provisioning::context::SyncStepResult;
+    use crate::workspace_provisioning::providers::{
+        WorkspaceProvisioningProvider, WorkspaceProvisioningProviderResolver,
+    };
     use crate::workspace_provisioning::test_support::{
         pod, provisioning_workspace, service_parts, volume, workspace,
         FakeProvisionerWorkerGateway, FakeSecretStore, FakeWorkspaceCatalog,
         FakeWorkspaceResources,
     };
+
+    #[derive(Debug, Clone, Default)]
+    struct FakeProvisioningProvider {
+        calls: Arc<Mutex<Vec<&'static str>>>,
+        cancel_result: Arc<Mutex<Option<Result<Workspace, WorkspaceProvisioningError>>>>,
+    }
+
+    impl FakeProvisioningProvider {
+        fn calls(&self) -> Vec<&'static str> {
+            self.calls.lock().expect("fake provider calls").clone()
+        }
+
+        fn push_cancel_result(&self, result: Result<Workspace, WorkspaceProvisioningError>) {
+            *self.cancel_result.lock().expect("fake cancel result") = Some(result);
+        }
+    }
+
+    impl
+        WorkspaceProvisioningProvider<
+            FakeSecretStore,
+            FakeWorkspaceCatalog,
+            FakeProvisionerWorkerGateway,
+            FakeWorkspaceResources,
+        > for FakeProvisioningProvider
+    {
+        fn sync<'a>(
+            &'a self,
+            _context: &'a WorkspaceProvisioningContext<
+                '_,
+                FakeSecretStore,
+                FakeWorkspaceCatalog,
+                FakeProvisionerWorkerGateway,
+                FakeWorkspaceResources,
+            >,
+            workspace: &'a mut Workspace,
+        ) -> Pin<Box<dyn Future<Output = SyncStepResult> + Send + 'a>> {
+            Box::pin(async move {
+                self.calls.lock().expect("fake provider calls").push("sync");
+                Ok(Some(result(workspace.clone())))
+            })
+        }
+
+        fn cancel<'a>(
+            &'a self,
+            _context: &'a WorkspaceProvisioningContext<
+                '_,
+                FakeSecretStore,
+                FakeWorkspaceCatalog,
+                FakeProvisionerWorkerGateway,
+                FakeWorkspaceResources,
+            >,
+            workspace: &'a mut Workspace,
+        ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceProvisioningError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.calls
+                    .lock()
+                    .expect("fake provider calls")
+                    .push("cancel");
+                self.cancel_result
+                    .lock()
+                    .expect("fake cancel result")
+                    .take()
+                    .unwrap_or_else(|| Ok(workspace.clone()))
+            })
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct FakeProvisioningProviderResolver {
+        provider: FakeProvisioningProvider,
+    }
+
+    impl
+        WorkspaceProvisioningProviderResolver<
+            FakeSecretStore,
+            FakeWorkspaceCatalog,
+            FakeProvisionerWorkerGateway,
+            FakeWorkspaceResources,
+        > for FakeProvisioningProviderResolver
+    {
+        fn for_provider(
+            &self,
+            provider_id: &GpuCloudProviderId,
+        ) -> &dyn WorkspaceProvisioningProvider<
+            FakeSecretStore,
+            FakeWorkspaceCatalog,
+            FakeProvisionerWorkerGateway,
+            FakeWorkspaceResources,
+        > {
+            assert_eq!(*provider_id, GpuCloudProviderId::Runpod);
+            &self.provider
+        }
+    }
+
+    fn service_with_provider(
+        workspace: Workspace,
+        provider: FakeProvisioningProvider,
+    ) -> (
+        WorkspaceProvisioningService<
+            FakeSecretStore,
+            FakeWorkspaceCatalog,
+            FakeProvisionerWorkerGateway,
+            FakeWorkspaceResources,
+            FakeProvisioningProviderResolver,
+        >,
+        FakeWorkspaceCatalog,
+        FakeWorkspaceResources,
+    ) {
+        let catalog = FakeWorkspaceCatalog::with_workspace(workspace);
+        let resources = FakeWorkspaceResources::default();
+        let service = WorkspaceProvisioningService::with_provider_registry(
+            FakeSecretStore::with_api_key("provider-secret"),
+            resources.clone(),
+            catalog.clone(),
+            FakeProvisionerWorkerGateway::default(),
+            WorkspaceProvisioningCoordinator::default(),
+            WorkspaceProvisioningConfig {
+                volume_mount_path: "/workspace".to_string(),
+            },
+            FakeProvisioningProviderResolver { provider },
+        );
+
+        (service, catalog, resources)
+    }
 
     #[tokio::test]
     async fn initiate_transitions_draft_to_provisioning_without_resource_mutation() {
@@ -365,6 +543,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sync_delegates_to_provider_capability_after_shared_checks() {
+        let provider = FakeProvisioningProvider::default();
+        let (service, catalog, resources) =
+            service_with_provider(provisioning_workspace(), provider.clone());
+
+        let result = service
+            .sync("workspace-1")
+            .await
+            .expect("sync should delegate to provider");
+
+        assert_eq!(provider.calls(), vec!["sync"]);
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+        assert!(catalog.updates().is_empty());
+        assert!(resources.calls().is_empty());
+    }
+
+    #[tokio::test]
     async fn cancel_success_returns_cleanup_policy_result() {
         let (service, _, catalog, resources, _, _) = service_parts(provisioning_workspace());
         let clean_workspace = workspace();
@@ -385,6 +583,28 @@ mod tests {
             .persistent_storage_volume_snapshot
             .is_none());
         assert!(catalog.updates().is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancel_delegates_to_provider_capability_after_shared_checks() {
+        let provider = FakeProvisioningProvider::default();
+        let clean_workspace = workspace();
+        provider.push_cancel_result(Ok(clean_workspace));
+        let (service, catalog, resources) =
+            service_with_provider(provisioning_workspace(), provider.clone());
+
+        let result = service
+            .cancel("workspace-1")
+            .await
+            .expect("cancel should delegate to provider");
+
+        assert_eq!(provider.calls(), vec!["cancel"]);
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Draft
+        );
+        assert!(catalog.updates().is_empty());
+        assert!(resources.calls().is_empty());
     }
 
     #[tokio::test]
