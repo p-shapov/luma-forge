@@ -711,3 +711,12 @@ Workspace Provisioning SHALL delegate Workspace-owned provider resource lifecycl
 - **AND** cleanup SHALL tolerate already-missing Provider Resources
 - **AND** cleanup SHALL delete the per-workspace Provisioner Worker bearer token when it exists without exposing secret values
 
+### Requirement: Workspace Provisioning synchronizes provider resources through Workspace Resources
+Workspace Provisioning SHALL use Workspace Resources to synchronize provider-owned resources, and Workspace Resources SHALL select provider-specific behavior through a service-level provider capability.
+
+#### Scenario: RunPod provisioning resource sync remains unchanged
+- **WHEN** Workspace Provisioning synchronizes a RunPod workspace's network volume, provisioning pod, endpoint template, serverless endpoint, or known-resource cleanup
+- **THEN** Workspace Resources SHALL select the concrete RunPod Workspace Resources provider capability through centralized `GpuCloudProviderId` dispatch
+- **AND** RunPod resource creation, discovery, observation, cleanup, error mapping, persistence, and failure semantics SHALL remain unchanged
+- **AND** Workspace Provisioning command contracts and user-facing behavior SHALL remain unchanged
+
