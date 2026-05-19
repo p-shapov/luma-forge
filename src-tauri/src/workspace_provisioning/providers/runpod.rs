@@ -1,7 +1,10 @@
 use std::{future::Future, pin::Pin};
 
 use crate::{
-    domain::workspace::Workspace, secrets::SecretStore,
+    domain::workspace::{
+        provisioning_state::is_workspace_ready, Workspace, WorkspaceLifecycleState,
+    },
+    secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
 };
@@ -9,13 +12,9 @@ use crate::{
 use super::WorkspaceProvisioningProvider;
 use crate::workspace_provisioning::{
     context::{SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    helpers::result,
     WorkspaceProvisioningError,
 };
-
-mod endpoint;
-mod environment;
-mod network_volume;
-mod provisioning_pod;
 
 #[derive(Debug, Default)]
 pub(crate) struct RunPodWorkspaceProvisioningProvider;
@@ -61,20 +60,118 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    if let Some(result) = network_volume::sync(context, workspace).await? {
+    if let Some(result) = sync_network_volume(context, workspace).await? {
         return Ok(Some(result));
     }
-    if let Some(result) = provisioning_pod::sync(context, workspace).await? {
+    if let Some(result) = sync_provisioning_pod(context, workspace).await? {
         return Ok(Some(result));
     }
-    if let Some(result) = environment::sync(context, workspace).await? {
+    if let Some(result) = sync_environment(context, workspace).await? {
         return Ok(Some(result));
     }
-    if let Some(result) = provisioning_pod::finish(context, workspace).await? {
+    if let Some(result) = finish_provisioning_pod(context, workspace).await? {
         return Ok(Some(result));
     }
-    if let Some(result) = endpoint::sync(context, workspace).await? {
+    if let Some(result) = sync_endpoint(context, workspace).await? {
         return Ok(Some(result));
+    }
+
+    Ok(None)
+}
+
+async fn sync_network_volume<S, W, R, Q>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
+    workspace: &mut Workspace,
+) -> SyncStepResult
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+    R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
+{
+    let resource_config = context.resource_config();
+    Ok(context
+        .resources
+        .sync_network_volume(workspace, &resource_config)
+        .await?
+        .map(result))
+}
+
+async fn sync_provisioning_pod<S, W, R, Q>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
+    workspace: &mut Workspace,
+) -> SyncStepResult
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+    R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
+{
+    let resource_config = context.resource_config();
+    Ok(context
+        .resources
+        .sync_provisioning_pod(workspace, &resource_config)
+        .await?
+        .map(result))
+}
+
+async fn sync_environment<S, W, R, Q>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
+    workspace: &mut Workspace,
+) -> SyncStepResult
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+    R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
+{
+    context
+        .workspace_provisioner
+        .sync_environment(context.workspace_provisioner_context(), workspace)
+        .await
+}
+
+async fn finish_provisioning_pod<S, W, R, Q>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
+    workspace: &mut Workspace,
+) -> SyncStepResult
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+    R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
+{
+    Ok(context
+        .resources
+        .finish_provisioning_pod(workspace)
+        .await?
+        .map(result))
+}
+
+async fn sync_endpoint<S, W, R, Q>(
+    context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
+    workspace: &mut Workspace,
+) -> SyncStepResult
+where
+    S: SecretStore,
+    W: WorkspaceCatalogRepository,
+    R: ProvisionerWorkerGateway,
+    Q: WorkspaceProvisioningResources,
+{
+    let resource_config = context.resource_config();
+    if let Some(workspace) = context
+        .resources
+        .sync_serverless_endpoint(workspace, &resource_config)
+        .await?
+    {
+        return Ok(Some(result(workspace)));
+    }
+
+    if is_workspace_ready(workspace) {
+        workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
+        workspace.last_provisioning_failure = None;
+        let workspace = context.update_workspace(workspace).await?;
+        return Ok(Some(result(workspace)));
     }
 
     Ok(None)
@@ -83,10 +180,14 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        domain::workspace::{ProviderProvisioningSnapshot, ProviderResourceStatus},
+        domain::workspace::{
+            ProviderProvisioningSnapshot, ProviderResourceStatus, WorkspaceLifecycleState,
+            WorkspaceProvisioningStatus,
+        },
         workspace_provisioner::ProvisionerWorkerError,
         workspace_provisioning::test_support::{
-            endpoint, pod, provisioning_workspace, template, volume, FakeSecretStore, TestHarness,
+            endpoint, pod, provisioning_workspace, ready_provisioning_workspace, template, volume,
+            FakeSecretStore, TestHarness,
         },
     };
 
@@ -229,5 +330,27 @@ mod tests {
             ]
         );
         assert!(result.workspace.serverless_endpoint_snapshot.is_some());
+    }
+
+    #[tokio::test]
+    async fn sync_marks_workspace_ready_after_endpoint_readiness_criteria() {
+        let harness = TestHarness::new(ready_provisioning_workspace());
+        let mut workspace = ready_provisioning_workspace();
+
+        let result = super::sync_endpoint(&harness.context(), &mut workspace)
+            .await
+            .expect("endpoint sync should succeed")
+            .expect("ready transition should return result");
+
+        assert_eq!(harness.resources.calls(), vec!["endpoint"]);
+        assert_eq!(harness.catalog.updates().len(), 1);
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Ready
+        );
+        assert_eq!(
+            result.progress.status,
+            WorkspaceProvisioningStatus::Completed
+        );
     }
 }

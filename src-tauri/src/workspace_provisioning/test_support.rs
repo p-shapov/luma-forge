@@ -117,14 +117,6 @@ impl FakeSecretStore {
         self
     }
 
-    pub(crate) fn with_worker_token_result(
-        mut self,
-        result: Result<Option<String>, SecretStoreError>,
-    ) -> Self {
-        self.worker_token_result = Arc::new(Mutex::new(result));
-        self
-    }
-
     pub(crate) fn read_api_key_calls(&self) -> Vec<GpuCloudProviderId> {
         self.read_api_key_calls
             .lock()

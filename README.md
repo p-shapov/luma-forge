@@ -12,8 +12,9 @@ This roadmap is a living document. It captures the current implementation status
 - [x] **Workspace Setup**: native-owned creation of a local `Draft` Workspace from a bundled Workflow Preset and Placement Plan without creating provider resources.
 - [x] **Provisioner Worker**: container-side worker that prepares the mounted ComfyUI workspace and reports UI-safe provisioning progress.
 - [x] **RunPod Endpoint Worker**: define and implement the RunPod Serverless runtime contract between the Serverless Endpoint and the prepared ComfyUI environment.
-- [ ] **Workspace Provisioning Flow**: implement the native sync loop that creates provider resources, invokes the Provisioner Worker, creates the Serverless Endpoint, and moves a `Draft` Workspace to `Ready`.
-- [ ] **Onboarding UI**: build the user-facing setup path for provider setup, workspace setup, placement selection, provisioning progress, cancellation, and recovery states.
+- [x] **Workspace Provisioning Flow**: native sync loop that creates RunPod resources, invokes the Provisioner Worker, creates the Serverless Endpoint, supports cancellation, and moves a `Draft` Workspace to `Ready`.
+- [x] **Native Command Console**: development UI for provider setup, workspace setup, placement selection, provisioning progress sync, cancellation, and recovery/error inspection.
+- [ ] **Onboarding UI**: replace the command console with the user-facing setup path for provider setup, workspace setup, placement selection, provisioning progress, cancellation, and recovery states.
 - [ ] **Text-to-Image Generator**: build the first generation surface on top of a `Ready` Workspace and the RunPod Endpoint Worker contract. v1 targets the bundled text-to-image workflow rather than arbitrary user-authored ComfyUI workflows.
 
 ## App Boundaries
@@ -42,6 +43,12 @@ src-tauri/
   src/secrets/           Secure secret storage abstraction
   src/workspace_setup/   Workspace setup workflow
   src/workspace_catalog/ Workspace metadata persistence
+  src/workspace_resources/
+                         Provider resource lifecycle and cleanup operations
+  src/workspace_provisioner/
+                         Provisioner Worker gateway and environment sync logic
+  src/workspace_provisioning/
+                         Native workspace provisioning orchestration
 
 spec/
   domain.md              Product/domain overview
@@ -50,8 +57,10 @@ spec/
   ubiquitous-language/   Domain vocabulary
 
 workers/
+  Dockerfile             Shared worker image entrypoint
   provisioner/           Container-side worker for preparing ComfyUI workspaces
   runpod-endpoint/       RunPod endpoint worker for runtime generation
+  runtime-recipes/       Runtime image recipe schema and release tooling
 ```
 
 ## Key Flows
