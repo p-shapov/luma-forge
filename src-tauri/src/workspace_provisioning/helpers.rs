@@ -12,6 +12,7 @@ use crate::{
         NetworkVolumeObservation, ProvisioningPodObservation, ServerlessEndpointObservation,
         WorkspaceResourceError,
     },
+    workspace_setup::error::WorkspaceSetupError,
 };
 
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
@@ -22,6 +23,16 @@ pub enum WorkspaceProvisioningError {
     InvalidWorkspaceLifecycle,
     #[error("workspace catalog unavailable")]
     WorkspaceCatalogUnavailable,
+    #[error("workspace catalog storage unavailable")]
+    WorkspaceCatalogStorageUnavailable,
+    #[error("workspace catalog migration failed")]
+    WorkspaceCatalogMigrationFailed,
+    #[error("workspace catalog query failed")]
+    WorkspaceCatalogQueryFailed,
+    #[error("workspace catalog corrupt")]
+    WorkspaceCatalogCorrupt,
+    #[error("workspace catalog schema mismatch")]
+    WorkspaceCatalogSchemaMismatch,
     #[error("provider setup is incomplete")]
     ProviderSetupIncomplete,
     #[error("provider api key unauthorized")]
@@ -51,9 +62,23 @@ pub enum WorkspaceProvisioningError {
     #[error("provisioner worker conflict")]
     ProvisionerWorkerConflict,
     #[error("provisioner worker response invalid")]
-    ProvisionerWorkerResponseInvalid { diagnostic: Option<String> },
+    ProvisionerWorkerResponseInvalid,
     #[error("provisioner worker failed")]
-    ProvisionerWorkerFailed { diagnostic: Option<String> },
+    ProvisionerWorkerFailed,
+    #[error("provisioner worker git checkout failed")]
+    ProvisionerWorkerGitCheckoutFailed,
+    #[error("provisioner worker dependency install failed")]
+    ProvisionerWorkerDependencyInstallFailed,
+    #[error("provisioner worker asset download failed")]
+    ProvisionerWorkerAssetDownloadFailed,
+    #[error("provisioner worker asset auth required")]
+    ProvisionerWorkerAssetAuthRequired,
+    #[error("provisioner worker path validation failed")]
+    ProvisionerWorkerPathValidationFailed,
+    #[error("provisioner worker step timeout")]
+    ProvisionerWorkerStepTimeout,
+    #[error("provisioner worker unexpected error")]
+    ProvisionerWorkerUnexpectedError,
 }
 
 impl From<SecretStoreError> for WorkspaceProvisioningError {
@@ -74,6 +99,19 @@ impl From<WorkspaceResourceError> for WorkspaceProvisioningError {
             WorkspaceResourceError::WorkspaceCatalogUnavailable => {
                 Self::WorkspaceCatalogUnavailable
             }
+            WorkspaceResourceError::WorkspaceCatalogStorageUnavailable => {
+                Self::WorkspaceCatalogStorageUnavailable
+            }
+            WorkspaceResourceError::WorkspaceCatalogMigrationFailed => {
+                Self::WorkspaceCatalogMigrationFailed
+            }
+            WorkspaceResourceError::WorkspaceCatalogQueryFailed => {
+                Self::WorkspaceCatalogQueryFailed
+            }
+            WorkspaceResourceError::WorkspaceCatalogCorrupt => Self::WorkspaceCatalogCorrupt,
+            WorkspaceResourceError::WorkspaceCatalogSchemaMismatch => {
+                Self::WorkspaceCatalogSchemaMismatch
+            }
             WorkspaceResourceError::ProviderSetupIncomplete => Self::ProviderSetupIncomplete,
             WorkspaceResourceError::ProviderApiKeyUnauthorized => Self::ProviderApiKeyUnauthorized,
             WorkspaceResourceError::ProviderApiUnavailable => Self::ProviderApiUnavailable,
@@ -93,17 +131,58 @@ impl From<WorkspaceResourceError> for WorkspaceProvisioningError {
     }
 }
 
+pub(crate) fn catalog_error(error: WorkspaceSetupError) -> WorkspaceProvisioningError {
+    match error {
+        WorkspaceSetupError::WorkspaceCatalogUnavailable => {
+            WorkspaceProvisioningError::WorkspaceCatalogUnavailable
+        }
+        WorkspaceSetupError::WorkspaceCatalogStorageUnavailable => {
+            WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable
+        }
+        WorkspaceSetupError::WorkspaceCatalogMigrationFailed => {
+            WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
+        }
+        WorkspaceSetupError::WorkspaceCatalogQueryFailed => {
+            WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
+        }
+        WorkspaceSetupError::WorkspaceCatalogCorrupt => {
+            WorkspaceProvisioningError::WorkspaceCatalogCorrupt
+        }
+        WorkspaceSetupError::WorkspaceCatalogSchemaMismatch => {
+            WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch
+        }
+        _ => WorkspaceProvisioningError::WorkspaceCatalogUnavailable,
+    }
+}
+
 impl From<ProvisionerWorkerError> for WorkspaceProvisioningError {
     fn from(error: ProvisionerWorkerError) -> Self {
         match error {
             ProvisionerWorkerError::Unauthorized => Self::ProvisionerWorkerUnauthorized,
             ProvisionerWorkerError::Conflict => Self::ProvisionerWorkerConflict,
             ProvisionerWorkerError::Unreachable => Self::ProvisionerWorkerUnavailable,
-            ProvisionerWorkerError::InvalidPayload { diagnostic } => {
-                Self::ProvisionerWorkerResponseInvalid { diagnostic }
+            ProvisionerWorkerError::InvalidPayload => Self::ProvisionerWorkerResponseInvalid,
+            ProvisionerWorkerError::Failed => Self::ProvisionerWorkerFailed,
+            ProvisionerWorkerError::GitCheckoutFailed => {
+                WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
             }
-            ProvisionerWorkerError::TerminalFailure { diagnostic } => {
-                Self::ProvisionerWorkerFailed { diagnostic }
+            ProvisionerWorkerError::DependencyInstallFailed => {
+                WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
+            }
+            ProvisionerWorkerError::AssetDownloadFailed => {
+                WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
+            }
+            ProvisionerWorkerError::AssetAuthRequired => {
+                WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
+            }
+            ProvisionerWorkerError::PathValidationFailed => {
+                WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
+            }
+            ProvisionerWorkerError::StepTimeout => {
+                WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
+            }
+            ProvisionerWorkerError::UnexpectedError => {
+                WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError
             }
         }
     }
@@ -159,5 +238,94 @@ pub(crate) fn serverless_endpoint_snapshot(
         provider_resource_id: observation.provider_resource_id,
         provider_resource_status: observation.provider_resource_status,
         endpoint_invoke_url: observation.endpoint_invoke_url,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_catalog_errors_preserve_provisioning_categories() {
+        for (resource_error, expected) in [
+            (
+                WorkspaceResourceError::WorkspaceCatalogUnavailable,
+                WorkspaceProvisioningError::WorkspaceCatalogUnavailable,
+            ),
+            (
+                WorkspaceResourceError::WorkspaceCatalogStorageUnavailable,
+                WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable,
+            ),
+            (
+                WorkspaceResourceError::WorkspaceCatalogMigrationFailed,
+                WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed,
+            ),
+            (
+                WorkspaceResourceError::WorkspaceCatalogQueryFailed,
+                WorkspaceProvisioningError::WorkspaceCatalogQueryFailed,
+            ),
+            (
+                WorkspaceResourceError::WorkspaceCatalogCorrupt,
+                WorkspaceProvisioningError::WorkspaceCatalogCorrupt,
+            ),
+            (
+                WorkspaceResourceError::WorkspaceCatalogSchemaMismatch,
+                WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch,
+            ),
+        ] {
+            assert_eq!(WorkspaceProvisioningError::from(resource_error), expected);
+        }
+    }
+
+    #[test]
+    fn resource_command_errors_map_to_provisioning_categories() {
+        for (resource_error, expected) in [
+            (
+                WorkspaceResourceError::ProviderSetupIncomplete,
+                WorkspaceProvisioningError::ProviderSetupIncomplete,
+            ),
+            (
+                WorkspaceResourceError::ProviderApiKeyUnauthorized,
+                WorkspaceProvisioningError::ProviderApiKeyUnauthorized,
+            ),
+            (
+                WorkspaceResourceError::ProviderApiUnavailable,
+                WorkspaceProvisioningError::ProviderApiUnavailable,
+            ),
+            (
+                WorkspaceResourceError::ProviderRateLimited,
+                WorkspaceProvisioningError::ProviderRateLimited,
+            ),
+            (
+                WorkspaceResourceError::ProviderRequestRejected,
+                WorkspaceProvisioningError::ProviderRequestRejected,
+            ),
+            (
+                WorkspaceResourceError::ProviderResponseInvalid,
+                WorkspaceProvisioningError::ProviderResponseInvalid,
+            ),
+            (
+                WorkspaceResourceError::ProviderResourceNotFound,
+                WorkspaceProvisioningError::ProviderResourceNotFound,
+            ),
+            (
+                WorkspaceResourceError::ProviderOperationConflict,
+                WorkspaceProvisioningError::ProviderOperationConflict,
+            ),
+            (
+                WorkspaceResourceError::ProviderOperationIndeterminate,
+                WorkspaceProvisioningError::ProviderOperationIndeterminate,
+            ),
+            (
+                WorkspaceResourceError::SecureKeyringUnavailable,
+                WorkspaceProvisioningError::SecureKeyringUnavailable,
+            ),
+            (
+                WorkspaceResourceError::ProvisionerWorkerTokenInvalid,
+                WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid,
+            ),
+        ] {
+            assert_eq!(WorkspaceProvisioningError::from(resource_error), expected);
+        }
     }
 }

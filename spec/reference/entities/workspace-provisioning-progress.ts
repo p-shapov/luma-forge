@@ -39,7 +39,6 @@ export type WorkspaceProvisioningFailure = {
   source: WorkspaceProvisioningFailureSource;
   retryable: boolean;
   recovery_action: WorkspaceProvisioningRecoveryAction;
-  diagnostic: string | null;
 };
 
 export type WorkspaceProvisioningPhase =

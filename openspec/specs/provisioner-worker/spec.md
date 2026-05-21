@@ -64,8 +64,8 @@ The Provisioner Worker SHALL use the fixed image-baked ComfyUI runtime and SHALL
 
 - **WHEN** fixed image runtime access or workspace directory creation fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
-- **AND** `GET /status` SHALL include a UI-safe diagnostic message
-- **AND** the diagnostic message MUST NOT include secrets
+- **AND** `GET /status` SHALL include status, phase, progress percentage, and structured error metadata when available
+- **AND** the status payload MUST NOT include secrets
 
 ### Requirement: Prepare Custom Nodes
 The Provisioner Worker SHALL install required Custom Nodes declared by the selected Workflow Preset and SHALL install their allowed Python dependencies into the workspace overlay.
@@ -129,7 +129,7 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **WHEN** a provisioning job is active
 - **THEN** `GET /status` SHALL return the active job identifier, status `running`, current phase, updated timestamp, and optional progress percentage
 - **AND** the current phase SHALL use a stable worker phase value for the active preparation step
-- **AND** the response MAY include a UI-safe diagnostic message
+- **AND** the response MAY include structured error metadata
 
 #### Scenario: Job succeeds
 
@@ -144,7 +144,7 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL report terminal failure with UI-safe error metadata
 - **AND** the terminal error metadata SHALL use the standard worker error payload shape with `code`, `reason_code`, and `message`
-- **AND** the response MAY include a UI-safe diagnostic message
+- **AND** the response MAY include structured error metadata
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
 ### Requirement: Validate prepared environment
@@ -233,21 +233,21 @@ The Provisioner Worker SHALL map expected failure classes to stable UI-safe erro
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `git_checkout_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the Git checkout failure
-- **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
+- **AND** the error metadata MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Dependency installation fails
 - **WHEN** Custom Node dependency installation into the workspace overlay fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the dependency installation failure
-- **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
+- **AND** the error metadata MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Workspace overlay creation fails
 - **WHEN** the Provisioner Worker cannot create or validate the workspace overlay directory
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the workspace overlay failure
-- **AND** the diagnostic message MUST NOT include secrets or raw credential-bearing command output
+- **AND** the error metadata MUST NOT include secrets or raw credential-bearing command output
 
 #### Scenario: Model download fails
 - **WHEN** a public Hugging Face model asset cannot be downloaded because of transport, missing file, or unavailable service failure
@@ -375,9 +375,9 @@ The Provisioner Worker SHALL validate its runtime environment before starting th
 
 #### Scenario: Runtime configuration failure is machine-readable
 - **WHEN** runtime environment validation fails during process startup
-- **THEN** the Provisioner Worker SHALL write one structured diagnostic to stderr with code `configuration_error`
-- **AND** the diagnostic SHALL include the affected environment variable name and a stable reason code
-- **AND** the diagnostic MUST NOT include configured environment values or secrets
+- **THEN** the Provisioner Worker SHALL write one structured error record to stderr with code `configuration_error`
+- **AND** the error record SHALL include the affected environment variable name and a stable reason code
+- **AND** the error record MUST NOT include configured environment values or secrets
 - **AND** the process SHALL exit before binding the HTTP server
 
 ### Requirement: Preserve preparation behavior during internal preparation refactors
@@ -393,7 +393,7 @@ The Provisioner Worker SHALL preserve existing preparation behavior when the int
 #### Scenario: Preparation failure mapping remains equivalent
 
 - **WHEN** a Git checkout, overlay dependency installation, public Hugging Face asset download, fixed image runtime access, timeout, or final validation failure occurs during preparation
-- **THEN** the Provisioner Worker SHALL map the failure to the same UI-safe worker error class, job status, and diagnostic contract used before the internal refactor
+- **THEN** the Provisioner Worker SHALL map the failure to the same UI-safe worker error class, job status, and structured error contract used before the internal refactor
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
 #### Scenario: Prepared filesystem outputs remain equivalent
@@ -479,36 +479,36 @@ The Provisioner Worker SHALL handle unexpected preparation exceptions by recordi
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `unexpected_error`
 - **AND** `GET /status` SHALL include reason code `unexpected_exception`
-- **AND** the diagnostic message and error payload MUST NOT include the original exception message, stack trace, request body, raw command output, environment dump, bearer token, provider API key, or credential-bearing URL
+- **AND** the error payload MUST NOT include the original exception message, stack trace, request body, raw command output, environment dump, bearer token, provider API key, or credential-bearing URL
 - **AND** the worker thread MUST NOT re-raise the original exception after recording the sanitized terminal failure
 
-### Requirement: Keep worker status diagnostics safe for user-defined presets
+### Requirement: Keep worker status metadata safe for user-defined presets
 
-The Provisioner Worker SHALL treat Workflow Preset names, Custom Node names, and unsafe preset-provided identifiers as untrusted input when producing status diagnostics. Model asset display names MAY be included during model asset download progress after display-name validation.
+The Provisioner Worker SHALL treat Workflow Preset names, Custom Node names, and unsafe preset-provided identifiers as untrusted input when producing status or error metadata. Model asset display names MAY be included during model asset download progress after display-name validation.
 
 #### Scenario: Progress is reported for preset-declared Custom Node
 
 - **WHEN** preparation reports progress while installing a preset-declared Custom Node
 - **THEN** `GET /status` SHALL report the appropriate phase
-- **AND** the diagnostic message MAY include the Custom Node identifier only after the identifier has passed worker schema validation
-- **AND** the diagnostic message MUST NOT include the Custom Node display name or any unsafe identifier from the request payload
+- **AND** error metadata MAY include the Custom Node identifier only after the identifier has passed worker schema validation
+- **AND** error metadata MUST NOT include the Custom Node display name or any unsafe identifier from the request payload
 
 #### Scenario: Progress is reported for preset-declared model asset
 
 - **WHEN** preparation reports progress while downloading a preset-declared model asset
 - **THEN** `GET /status` SHALL report the appropriate phase
-- **AND** the diagnostic message MAY include the model asset display name after the display name has passed worker schema validation
-- **AND** the diagnostic message MAY include the model asset identifier only after the identifier has passed worker schema validation
-- **AND** the diagnostic message MUST NOT include any unsafe identifier from the request payload
+- **AND** error metadata MAY include the model asset display name after the display name has passed worker schema validation
+- **AND** error metadata MAY include the model asset identifier only after the identifier has passed worker schema validation
+- **AND** error metadata MUST NOT include any unsafe identifier from the request payload
 
 #### Scenario: Validation fails for missing preset-declared item
 
 - **WHEN** final validation finds a missing preset-declared Custom Node or model asset
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
-- **AND** the terminal diagnostic message and error payload message MAY include the missing item's identifier only after the identifier has passed worker schema validation
-- **AND** the terminal diagnostic message and error payload message MUST NOT include the item's display name or any unsafe identifier from the request payload
+- **AND** the terminal error payload message MAY include the missing item's identifier only after the identifier has passed worker schema validation
+- **AND** the terminal error payload message MUST NOT include the item's display name or any unsafe identifier from the request payload
 
-### Requirement: Validate preset-provided identifiers used by worker diagnostics
+### Requirement: Validate preset-provided identifiers used by worker error metadata
 
 The Provisioner Worker SHALL validate preset-provided identifiers before accepting a start request when those identifiers may be stored in worker status, runtime metadata, install report names, or future structured error context.
 
@@ -628,7 +628,7 @@ The Provisioner Worker SHALL emit output from long-running provisioning subproce
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include UI-safe structured error metadata
 - **AND** the worker console logs MAY include the subprocess output that explains the command failure
-- **AND** the status payload MUST NOT copy raw subprocess output into the UI-safe diagnostic message
+- **AND** the status payload MUST NOT copy raw subprocess output into UI-safe metadata
 
 ### Requirement: Install Custom Node dependencies into workspace overlay
 The Provisioner Worker SHALL install Custom Node Python dependency deltas into the workspace overlay and SHALL preserve the image-baked base virtual environment unchanged.

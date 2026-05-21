@@ -401,7 +401,7 @@ Workspace Setup MUST NOT create, modify, attach, or delete Provider Resources.
 
 ### Requirement: Keep Provider API Key secret during Workspace Setup
 
-Workspace Setup commands MUST NOT return, persist outside secure keyring, log, or include Provider API Keys in generated frontend types, command responses, errors, Workspace records, provider placement options responses, or diagnostics.
+Workspace Setup commands MUST NOT return, persist outside secure keyring, log, or include Provider API Keys in generated frontend types, command responses, errors, Workspace records, provider placement options responses, or metadata.
 
 #### Scenario: Provider placement options are returned
 

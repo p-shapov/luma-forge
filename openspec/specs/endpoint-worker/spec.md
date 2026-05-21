@@ -79,7 +79,7 @@ The RunPod Endpoint Worker SHALL execute accepted generation requests by using t
 #### Scenario: ComfyUI generation fails
 - **WHEN** ComfyUI rejects the workflow, fails during execution, times out, or does not produce an expected image output
 - **THEN** the RunPod Endpoint Worker SHALL fail the request with a stable UI-safe error code
-- **AND** the response MUST NOT include raw command output, filesystem secrets, provider API keys, or credential-bearing diagnostics
+- **AND** the response MUST NOT include raw command output, filesystem secrets, provider API keys, or credential-bearing details
 
 ### Requirement: Return minimal image output
 
@@ -98,7 +98,7 @@ The RunPod Endpoint Worker SHALL return generated image output using a RunPod-jo
 
 ### Requirement: Keep Endpoint Worker responses secret-safe
 
-The RunPod Endpoint Worker SHALL keep all provider responses, diagnostics, and logs free of secrets and unsafe internal details.
+The RunPod Endpoint Worker SHALL keep all provider responses, error metadata, and logs free of secrets and unsafe internal details.
 
 #### Scenario: Runtime error is reported safely
 
@@ -127,4 +127,3 @@ Workspace Provisioning SHALL NOT invoke the Endpoint Worker generation contract 
 - **AND** the user's first generation request fails in the Endpoint Worker
 - **THEN** the failure SHALL be treated as a generation/runtime failure
 - **AND** it MUST NOT retroactively mean that Workspace Provisioning submitted or should have submitted a hidden generation job
-

@@ -9,6 +9,16 @@ use crate::{
 pub(crate) enum WorkspaceResourceError {
     #[error("workspace catalog unavailable")]
     WorkspaceCatalogUnavailable,
+    #[error("workspace catalog storage unavailable")]
+    WorkspaceCatalogStorageUnavailable,
+    #[error("workspace catalog migration failed")]
+    WorkspaceCatalogMigrationFailed,
+    #[error("workspace catalog query failed")]
+    WorkspaceCatalogQueryFailed,
+    #[error("workspace catalog corrupt")]
+    WorkspaceCatalogCorrupt,
+    #[error("workspace catalog schema mismatch")]
+    WorkspaceCatalogSchemaMismatch,
     #[error("provider setup is incomplete")]
     ProviderSetupIncomplete,
     #[error("provider api key unauthorized")]
@@ -46,8 +56,22 @@ impl From<SecretStoreError> for WorkspaceResourceError {
 }
 
 impl From<WorkspaceSetupError> for WorkspaceResourceError {
-    fn from(_error: WorkspaceSetupError) -> Self {
-        Self::WorkspaceCatalogUnavailable
+    fn from(error: WorkspaceSetupError) -> Self {
+        match error {
+            WorkspaceSetupError::WorkspaceCatalogUnavailable => Self::WorkspaceCatalogUnavailable,
+            WorkspaceSetupError::WorkspaceCatalogStorageUnavailable => {
+                Self::WorkspaceCatalogStorageUnavailable
+            }
+            WorkspaceSetupError::WorkspaceCatalogMigrationFailed => {
+                Self::WorkspaceCatalogMigrationFailed
+            }
+            WorkspaceSetupError::WorkspaceCatalogQueryFailed => Self::WorkspaceCatalogQueryFailed,
+            WorkspaceSetupError::WorkspaceCatalogCorrupt => Self::WorkspaceCatalogCorrupt,
+            WorkspaceSetupError::WorkspaceCatalogSchemaMismatch => {
+                Self::WorkspaceCatalogSchemaMismatch
+            }
+            _ => Self::WorkspaceCatalogUnavailable,
+        }
     }
 }
 
@@ -62,6 +86,43 @@ impl From<ProviderClientError> for WorkspaceResourceError {
             ProviderClientError::NotFound => Self::ProviderResourceNotFound,
             ProviderClientError::Conflict => Self::ProviderOperationConflict,
             ProviderClientError::Indeterminate => Self::ProviderOperationIndeterminate,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_setup_catalog_errors_preserve_resource_categories() {
+        for (setup_error, expected) in [
+            (
+                WorkspaceSetupError::WorkspaceCatalogUnavailable,
+                WorkspaceResourceError::WorkspaceCatalogUnavailable,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogStorageUnavailable,
+                WorkspaceResourceError::WorkspaceCatalogStorageUnavailable,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogMigrationFailed,
+                WorkspaceResourceError::WorkspaceCatalogMigrationFailed,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogQueryFailed,
+                WorkspaceResourceError::WorkspaceCatalogQueryFailed,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogCorrupt,
+                WorkspaceResourceError::WorkspaceCatalogCorrupt,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogSchemaMismatch,
+                WorkspaceResourceError::WorkspaceCatalogSchemaMismatch,
+            ),
+        ] {
+            assert_eq!(WorkspaceResourceError::from(setup_error), expected);
         }
     }
 }

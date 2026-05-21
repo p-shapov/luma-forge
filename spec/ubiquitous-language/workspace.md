@@ -10,7 +10,7 @@ A Workspace includes:
 - timestamp proving the remote environment was prepared successfully
 - Provider Resource snapshot for the active Provisioning Pod, while provisioning is active
 - Provider Resource snapshot for the created Serverless Endpoint
-- historical Provisioning Pod snapshot when needed for diagnostics or cleanup
+- historical Provisioning Pod snapshot when needed for recovery or cleanup
 
 Lifecycle states: `Draft`, `Provisioning`, `Ready`, `Failed`.
 

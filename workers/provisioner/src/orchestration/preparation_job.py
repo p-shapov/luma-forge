@@ -18,7 +18,6 @@ class JobSnapshotPayload(TypedDict):
     job_id: str | None
     phase: str | None
     progress_percent: int | None
-    diagnostic_message: str | None
     error: WorkerErrorPayload | None
     updated_at: str
     provisioner_version: str
@@ -30,7 +29,6 @@ class JobSnapshot:
     job_id: str | None
     phase: str | None
     progress_percent: int | None
-    diagnostic_message: str | None
     error: WorkerErrorPayload | None
     updated_at: str
     provisioner_version: str
@@ -41,7 +39,6 @@ class JobSnapshot:
             "job_id": self.job_id,
             "phase": self.phase,
             "progress_percent": self.progress_percent,
-            "diagnostic_message": self.diagnostic_message,
             "error": self.error,
             "updated_at": self.updated_at,
             "provisioner_version": self.provisioner_version,
@@ -58,7 +55,6 @@ class JobManager:
             job_id=None,
             phase=None,
             progress_percent=None,
-            diagnostic_message=None,
             error=None,
             updated_at=_now(),
             provisioner_version=__version__,
@@ -83,7 +79,6 @@ class JobManager:
                 job_id=request.job_id,
                 phase="starting",
                 progress_percent=0,
-                diagnostic_message="Provisioning job accepted",
                 error=None,
                 updated_at=_now(),
                 provisioner_version=__version__,
@@ -103,14 +98,13 @@ class JobManager:
         try:
             self._provisioner.prepare(request, self._progress, cancel_event)
         except Cancelled:
-            self._terminal("cancelled", "Provisioning job cancelled", None)
+            self._terminal("cancelled", None)
         except WorkerError as error:
-            self._terminal("failed", error.message, error.to_dict())
+            self._terminal("failed", error.to_dict())
         except Exception:
             message = "Provisioning job failed"
             self._terminal(
                 "failed",
-                message,
                 {
                     "code": "unexpected_error",
                     "reason_code": "unexpected_exception",
@@ -119,16 +113,15 @@ class JobManager:
             )
         else:
             if cancel_event.is_set():
-                self._terminal("cancelled", "Provisioning job cancelled", None)
+                self._terminal("cancelled", None)
             else:
-                self._terminal("succeeded", "Provisioning job succeeded", None)
+                self._terminal("succeeded", None)
 
-    def _progress(self, phase: str, progress_percent: int | None, message: str | None) -> None:
+    def _progress(self, phase: str, progress_percent: int | None, _message: str | None) -> None:
         with self._lock:
             self._snapshot.status = "running"
             self._snapshot.phase = phase
             self._snapshot.progress_percent = progress_percent
-            self._snapshot.diagnostic_message = message
             self._snapshot.updated_at = _now()
             _log_event(
                 "provisioner_job_progress",
@@ -138,12 +131,11 @@ class JobManager:
                 progress_percent=progress_percent,
             )
 
-    def _terminal(self, status: str, message: str, error: WorkerErrorPayload | None) -> None:
+    def _terminal(self, status: str, error: WorkerErrorPayload | None) -> None:
         with self._lock:
             self._snapshot.status = status
             self._snapshot.phase = None
             self._snapshot.progress_percent = 100 if status == "succeeded" else self._snapshot.progress_percent
-            self._snapshot.diagnostic_message = message
             self._snapshot.error = error
             self._snapshot.updated_at = _now()
             _log_event(
@@ -162,7 +154,6 @@ def _copy_snapshot(snapshot: JobSnapshot) -> JobSnapshot:
         job_id=snapshot.job_id,
         phase=snapshot.phase,
         progress_percent=snapshot.progress_percent,
-        diagnostic_message=snapshot.diagnostic_message,
         error=snapshot.error.copy() if snapshot.error else None,
         updated_at=snapshot.updated_at,
         provisioner_version=snapshot.provisioner_version,

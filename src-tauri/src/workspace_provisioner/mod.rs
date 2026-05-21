@@ -17,7 +17,7 @@ use crate::{
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioning::{
         failure,
-        helpers::{result, WorkspaceProvisioningResult},
+        helpers::{catalog_error, result, WorkspaceProvisioningResult},
         WorkspaceProvisioningError,
     },
 };
@@ -192,12 +192,6 @@ fn now_rfc3339() -> Result<String, WorkspaceProvisioningError> {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .map_err(|_| WorkspaceProvisioningError::ProviderResponseInvalid)
-}
-
-fn catalog_error(
-    _error: crate::workspace_setup::error::WorkspaceSetupError,
-) -> WorkspaceProvisioningError {
-    WorkspaceProvisioningError::WorkspaceCatalogUnavailable
 }
 
 #[cfg(test)]
@@ -453,9 +447,7 @@ mod tests {
                 .lock()
                 .expect("fake start result")
                 .clone()
-                .unwrap_or(Err(ProvisionerWorkerError::InvalidPayload {
-                    diagnostic: None,
-                }));
+                .unwrap_or(Err(ProvisionerWorkerError::InvalidPayload));
             Box::pin(async move { result })
         }
 
@@ -483,9 +475,7 @@ mod tests {
                 .lock()
                 .expect("fake status result")
                 .clone()
-                .unwrap_or(Err(ProvisionerWorkerError::InvalidPayload {
-                    diagnostic: None,
-                }));
+                .unwrap_or(Err(ProvisionerWorkerError::InvalidPayload));
             Box::pin(async move { result })
         }
     }
@@ -544,7 +534,6 @@ mod tests {
             status,
             phase,
             progress_percent,
-            diagnostic: None,
         }
     }
 
@@ -829,10 +818,7 @@ mod tests {
     #[tokio::test]
     async fn sync_environment_fails_workspace_for_invalid_worker_response() {
         let (result, _, catalog, _) =
-            sync_with_worker_error(ProvisionerWorkerError::InvalidPayload {
-                diagnostic: Some("bad status".to_string()),
-            })
-            .await;
+            sync_with_worker_error(ProvisionerWorkerError::InvalidPayload).await;
 
         assert_eq!(catalog.updates().len(), 1);
         let failure = result.progress.failure.expect("failure should be present");
@@ -840,24 +826,19 @@ mod tests {
             failure.code,
             WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
         );
-        assert_eq!(failure.diagnostic.as_deref(), Some("bad status"));
     }
 
     #[tokio::test]
     async fn sync_environment_fails_workspace_for_worker_terminal_failure() {
         let (result, _, catalog, _) =
-            sync_with_worker_error(ProvisionerWorkerError::TerminalFailure {
-                diagnostic: Some("install failed".to_string()),
-            })
-            .await;
+            sync_with_worker_error(ProvisionerWorkerError::DependencyInstallFailed).await;
 
         assert_eq!(catalog.updates().len(), 1);
         let failure = result.progress.failure.expect("failure should be present");
         assert_eq!(
             failure.code,
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
         );
-        assert_eq!(failure.diagnostic.as_deref(), Some("install failed"));
     }
 
     #[tokio::test]

@@ -51,6 +51,13 @@ mod remote_types {
         ProvisionerWorkerUnauthorized,
         ProvisionerWorkerResponseInvalid,
         ProvisionerWorkerFailed,
+        ProvisionerWorkerGitCheckoutFailed,
+        ProvisionerWorkerDependencyInstallFailed,
+        ProvisionerWorkerAssetDownloadFailed,
+        ProvisionerWorkerAssetAuthRequired,
+        ProvisionerWorkerPathValidationFailed,
+        ProvisionerWorkerStepTimeout,
+        ProvisionerWorkerUnexpectedError,
         ReadinessValidationFailed,
         CancellationCleanupFailed,
         LegacyFailure,
@@ -85,7 +92,6 @@ mod remote_types {
         pub source: domain_workspace::WorkspaceProvisioningFailureSource,
         pub retryable: bool,
         pub recovery_action: domain_workspace::WorkspaceProvisioningRecoveryAction,
-        pub diagnostic: Option<String>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

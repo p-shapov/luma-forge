@@ -43,11 +43,10 @@ The Native Layer SHALL provide a workspace provisioner boundary that drives envi
 - **WHEN** the stored per-workspace Provisioner Worker bearer token is missing or invalid while the Workspace requires environment preparation
 - **THEN** the workspace provisioner SHALL mark the Workspace failed with structured Provisioner Worker failure detail
 - **AND** it SHALL persist the failed Workspace before reporting the result
-- **AND** it MUST NOT expose the missing, invalid, or expected token value in Workspace metadata, command responses, logs, or diagnostics
+- **AND** it MUST NOT expose the missing, invalid, or expected token value in Workspace metadata, command responses, logs, or error metadata
 
 #### Scenario: Worker terminal failure is persisted as workspace failure
 - **WHEN** the Provisioner Worker reports a terminal failure or an invalid non-retryable worker response while the Workspace requires environment preparation
 - **THEN** the workspace provisioner SHALL mark the Workspace failed with structured Provisioner Worker failure detail
-- **AND** it SHALL preserve UI-safe worker diagnostic metadata when available
+- **AND** it SHALL preserve UI-safe worker error metadata when available
 - **AND** it MUST NOT include secrets, request bodies, bearer headers, or credential-bearing URLs in the persisted failure detail
-

@@ -107,6 +107,13 @@ pub enum WorkspaceProvisioningFailureCode {
     ProvisionerWorkerUnauthorized,
     ProvisionerWorkerResponseInvalid,
     ProvisionerWorkerFailed,
+    ProvisionerWorkerGitCheckoutFailed,
+    ProvisionerWorkerDependencyInstallFailed,
+    ProvisionerWorkerAssetDownloadFailed,
+    ProvisionerWorkerAssetAuthRequired,
+    ProvisionerWorkerPathValidationFailed,
+    ProvisionerWorkerStepTimeout,
+    ProvisionerWorkerUnexpectedError,
     ReadinessValidationFailed,
     CancellationCleanupFailed,
     LegacyFailure,
@@ -138,7 +145,6 @@ pub struct WorkspaceProvisioningFailure {
     pub source: WorkspaceProvisioningFailureSource,
     pub retryable: bool,
     pub recovery_action: WorkspaceProvisioningRecoveryAction,
-    pub diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
