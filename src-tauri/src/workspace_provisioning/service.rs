@@ -1,8 +1,6 @@
 use crate::{
-    domain::workspace::WorkspaceLifecycleState,
-    secrets::AsyncSecretStore,
+    domain::workspace::WorkspaceLifecycleState, secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::{ProvisionerWorkerGateway, WorkspaceProvisionerService},
     workspace_resources::WorkspaceResourceService,
 };
 
@@ -10,8 +8,10 @@ use super::{
     context::{WorkspaceProvisioningContext, WorkspaceProvisioningResources},
     coordinator::WorkspaceProvisioningCoordinator,
     failure::{self, fail_workspace},
+    gateway::ProvisionerWorkerGateway,
     helpers::{progress_for_workspace, result, WorkspaceProvisioningResult},
     providers::{WorkspaceProvisioningProviderRegistry, WorkspaceProvisioningProviderResolver},
+    provisioner::WorkspaceProvisionerService,
     WorkspaceProvisioningError,
 };
 
@@ -212,7 +212,7 @@ mod tests {
             },
         },
         secrets::SecretStoreError,
-        workspace_provisioner::ProvisionerWorkerError,
+        workspace_provisioning::gateway::ProvisionerWorkerError,
         workspace_resources::WorkspaceResourceError,
         workspace_setup::error::WorkspaceSetupError,
     };

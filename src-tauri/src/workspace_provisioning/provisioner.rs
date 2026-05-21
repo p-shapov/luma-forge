@@ -1,22 +1,17 @@
-mod gateway;
-
-pub(crate) use gateway::{
-    ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerHttpGateway,
-    ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus, ProvisionerWorkerPhase,
-    ProvisionerWorkerStartRequest,
-};
-
-pub(crate) use gateway::ProvisionerWorkerStatus;
-
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
     secrets::{AsyncSecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioning::{
-        failure::{self, fail_workspace},
-        helpers::catalog_error,
-        WorkspaceProvisioningError,
+};
+
+use super::{
+    failure::{self, fail_workspace},
+    gateway::{
+        ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerJobStatus,
+        ProvisionerWorkerStartRequest, ProvisionerWorkerStatus,
     },
+    helpers::catalog_error,
+    WorkspaceProvisioningError,
 };
 
 pub(crate) type WorkspaceProvisionerSyncResult =
@@ -206,6 +201,7 @@ fn now_rfc3339() -> Result<String, WorkspaceProvisioningError> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};
     use super::*;
     use crate::{
         domain::{
@@ -221,7 +217,6 @@ mod tests {
         secrets::{ProvisionerWorkerBearerToken, SecretStore},
         workspace_setup::error::WorkspaceSetupError,
     };
-    use gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};
     use std::{
         future::Future,
         pin::Pin,

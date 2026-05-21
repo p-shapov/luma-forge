@@ -32,35 +32,45 @@ src/
   app/                   React app providers and application composition
   pages/                 Page-level UI
   routes/                TanStack Router route definitions
-  shared/                Shared UI primitives and generic utilities
-  generated/             Generated frontend contracts; do not edit manually
+  shared/                Shared UI primitives, generic utilities, and adapters
+  generated/             Generated frontend contracts and route tree; do not edit manually
 
 src-tauri/
+  src/app_state.rs       Native application state wiring
+  src/bundled_catalog/   Bundled workflow, provisioning, and endpoint catalog loading
   src/commands/          Tauri command adapters and generated binding export
-  src/domain/            Domain rules and validation
-  src/provider/          GPU provider registry and provider-facing logic
-  src/provider_setup/    Provider API key setup workflow
+  src/domain/            Provider, workflow, runtime, placement, and workspace rules
+  src/provider/          GPU provider inventory and provider-facing queries
+  src/provider_setup/    Provider API key validation and secure setup workflow
   src/secrets/           Secure secret storage abstraction
-  src/workspace_setup/   Workspace setup workflow
-  src/workspace_catalog/ Workspace metadata persistence
+  src/workspace_catalog/ SQLite-backed Workspace Catalog persistence
   src/workspace_resources/
-                         Provider resource lifecycle and cleanup operations
-  src/workspace_provisioner/
-                         Provisioner Worker gateway and environment sync logic
+                         Provider resource lifecycle, naming, state, and cleanup
+  src/workspace_setup/   Draft Workspace creation from catalog and placement input
   src/workspace_provisioning/
-                         Native workspace provisioning orchestration
+                         Native provisioning orchestration, RunPod provider adapter,
+                         Provisioner Worker gateway, progress sync, and failures
+  capabilities/          Tauri capability declarations
+  icons/                 Application icons
+  gen/                   Tauri-generated schemas
+
+openspec/
+  changes/               Proposed or in-progress OpenSpec changes
+  specs/                 Active capability specs
+  schemas/               Local schema definitions used by spec tooling
 
 spec/
   domain.md              Product/domain overview
+  architecture/          Architecture analysis and implementation notes
   flows/                 Critical flow specifications
   reference/             Type-level reference contracts
   ubiquitous-language/   Domain vocabulary
 
 workers/
   Dockerfile             Shared worker image entrypoint
-  provisioner/           Container-side worker for preparing ComfyUI workspaces
-  runpod-endpoint/       RunPod endpoint worker for runtime generation
-  runtime-recipes/       Runtime image recipe schema and release tooling
+  provisioner/           Container-side workspace preparation worker and tests
+  runpod-endpoint/       RunPod endpoint runtime generation worker and tests
+  runtime-recipes/       Runtime image recipe schema, catalog inputs, and release tooling
 ```
 
 ## Key Flows

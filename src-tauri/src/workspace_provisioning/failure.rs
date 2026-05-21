@@ -1,12 +1,11 @@
 use super::WorkspaceProvisioningError;
-use crate::{
-    domain::workspace::{
-        ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
-        WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
-        WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
-    },
-    workspace_provisioner::ProvisionerWorkerError,
+use crate::domain::workspace::{
+    ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
+    WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+    WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
 };
+
+use super::gateway::ProvisionerWorkerError;
 
 pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvisioningFailure) {
     workspace.lifecycle_state = WorkspaceLifecycleState::Failed;

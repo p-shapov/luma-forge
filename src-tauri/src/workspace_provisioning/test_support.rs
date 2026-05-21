@@ -19,10 +19,6 @@ use crate::{
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::{
-        ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerStartRequest,
-        ProvisionerWorkerStatus, WorkspaceProvisionerService,
-    },
     workspace_resources::{
         WorkspaceResourceConfig, WorkspaceResourceError, WorkspaceResourceSyncResult,
     },
@@ -31,6 +27,11 @@ use crate::{
 
 use super::{
     context::{WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    gateway::{
+        ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerStartRequest,
+        ProvisionerWorkerStatus,
+    },
+    provisioner::WorkspaceProvisionerService,
     WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningService,
 };
 

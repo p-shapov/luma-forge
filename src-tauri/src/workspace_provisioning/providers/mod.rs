@@ -6,11 +6,11 @@ use crate::{
     domain::{provider_setup::GpuCloudProviderId, workspace::Workspace},
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::ProvisionerWorkerGateway,
 };
 
 use super::{
     context::{SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    gateway::ProvisionerWorkerGateway,
     WorkspaceProvisioningError,
 };
 

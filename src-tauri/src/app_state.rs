@@ -11,8 +11,8 @@ use crate::{
     },
     secrets::{BlockingSecretStore, KeyringSecretStore},
     workspace_catalog::{repository::UnavailableWorkspaceCatalog, sqlite::SqliteWorkspaceCatalog},
-    workspace_provisioner::{ProvisionerWorkerHttpGateway, ProvisionerWorkerHttpGatewayInitError},
     workspace_provisioning::{
+        ProvisionerWorkerHttpGateway, ProvisionerWorkerHttpGatewayInitError,
         WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
         WorkspaceProvisioningService,
     },
@@ -203,7 +203,7 @@ impl WorkspaceCatalogSource {
 mod tests {
     use super::*;
     use crate::provider::runpod::RunPodHttpClientInitError;
-    use crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError;
+    use crate::workspace_provisioning::ProvisionerWorkerHttpGatewayInitError;
 
     #[test]
     fn app_state_creation_preserves_http_init_errors_for_command_services() {

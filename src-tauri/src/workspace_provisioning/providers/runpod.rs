@@ -4,15 +4,16 @@ use crate::{
     domain::workspace::{Workspace, WorkspaceLifecycleState},
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::ProvisionerWorkerGateway,
 };
 
 use super::WorkspaceProvisioningProvider;
 use crate::workspace_provisioning::{
     context::{SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    gateway::ProvisionerWorkerGateway,
     helpers::{
         progress_from_worker_status, result, result_with_progress, worker_readiness_progress,
     },
+    provisioner::WorkspaceProvisionerSyncOutcome,
     readiness::is_workspace_ready,
     WorkspaceProvisioningError,
 };
@@ -135,16 +136,13 @@ where
     };
 
     let result = match outcome {
-        crate::workspace_provisioner::WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
-            workspace,
-        ) => result(workspace),
-        crate::workspace_provisioner::WorkspaceProvisionerSyncOutcome::WorkerReadinessLag {
-            workspace,
-        } => result_with_progress(workspace, worker_readiness_progress()),
-        crate::workspace_provisioner::WorkspaceProvisionerSyncOutcome::WorkerStatus {
-            workspace,
-            status,
-        } => result_with_progress(workspace, progress_from_worker_status(&status)),
+        WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(workspace) => result(workspace),
+        WorkspaceProvisionerSyncOutcome::WorkerReadinessLag { workspace } => {
+            result_with_progress(workspace, worker_readiness_progress())
+        }
+        WorkspaceProvisionerSyncOutcome::WorkerStatus { workspace, status } => {
+            result_with_progress(workspace, progress_from_worker_status(&status))
+        }
     };
 
     Ok(Some(result))
@@ -198,12 +196,12 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::workspace_provisioning::gateway::ProvisionerWorkerError;
     use crate::{
         domain::workspace::{
             ProviderProvisioningSnapshot, ProviderResourceStatus, WorkspaceLifecycleState,
             WorkspaceProvisioningStatus,
         },
-        workspace_provisioner::ProvisionerWorkerError,
         workspace_provisioning::test_support::{
             endpoint, pod, provisioning_workspace, ready_provisioning_workspace, template, volume,
             FakeSecretStore, TestHarness,

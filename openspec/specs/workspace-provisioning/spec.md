@@ -248,6 +248,24 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **AND** temporary non-JSON proxy or readiness responses before the worker API is ready SHALL be treated as worker readiness lag rather than worker API contract failures
 - **AND** any persisted or returned error metadata SHALL remain UI-safe and secret-safe
 
+### Requirement: Own Provisioner Worker Integration Internally
+Workspace Provisioning SHALL own Provisioner Worker gateway communication and environment preparation synchronization inside the `workspace_provisioning` native module.
+
+#### Scenario: Worker gateway is internal to workspace provisioning
+- **WHEN** the Native Layer starts or observes Provisioner Worker preparation during Workspace Provisioning
+- **THEN** it SHALL use gateway types owned by `workspace_provisioning`
+- **AND** it MUST NOT depend on a standalone `workspace_provisioner` crate module
+
+#### Scenario: Worker behavior is preserved after module consolidation
+- **WHEN** Workspace Provisioning communicates with the Provisioner Worker after the module consolidation
+- **THEN** the request payloads, status parsing, progress derivation, persisted Workspace metadata updates, and UI-safe failure mapping SHALL remain behaviorally equivalent to the previous implementation
+- **AND** secrets MUST remain confined to secure storage and provider or worker call paths
+
+#### Scenario: Environment preparation remains part of provisioning orchestration
+- **WHEN** a provisioning Workspace reaches the environment preparation step
+- **THEN** Workspace Provisioning SHALL start or observe the Provisioner Worker job as part of its own sync orchestration
+- **AND** it MUST preserve the existing rule that each sync call performs at most one provider, worker, or catalog mutation
+
 ### Requirement: Provision RunPod Serverless Endpoint
 
 Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one RunPod Serverless Endpoint and the RunPod endpoint template needed to create it, without exposing endpoint template handling as a separate Workspace Provisioning phase or adopting pre-existing provider resources when local Workspace metadata has no matching snapshot.

@@ -7,10 +7,6 @@ use crate::{
         WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
     },
     secrets::SecretStoreError,
-    workspace_provisioner::{
-        ProvisionerWorkerError, ProvisionerWorkerJobStatus, ProvisionerWorkerPhase,
-        ProvisionerWorkerStatus,
-    },
     workspace_resources::{
         NetworkVolumeObservation, ProvisioningPodObservation, ServerlessEndpointObservation,
         WorkspaceResourceError,
@@ -18,7 +14,14 @@ use crate::{
     workspace_setup::error::WorkspaceSetupError,
 };
 
-use super::{failure::legacy_failure, readiness::has_ready_matching_endpoint_template};
+use super::{
+    failure::legacy_failure,
+    gateway::{
+        ProvisionerWorkerError, ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus,
+        ProvisionerWorkerPhase, ProvisionerWorkerStatus,
+    },
+    readiness::has_ready_matching_endpoint_template,
+};
 
 const PROGRESS_NOT_STARTED: u8 = 0;
 const PROGRESS_CREATING_VOLUME: u8 = 0;
@@ -174,10 +177,8 @@ impl From<ProvisionerWorkerError> for WorkspaceProvisioningError {
     }
 }
 
-impl From<crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError>
-    for WorkspaceProvisioningError
-{
-    fn from(_error: crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError) -> Self {
+impl From<ProvisionerWorkerHttpGatewayInitError> for WorkspaceProvisioningError {
+    fn from(_error: ProvisionerWorkerHttpGatewayInitError) -> Self {
         Self::ProvisionerWorkerUnavailable
     }
 }
@@ -769,9 +770,7 @@ mod tests {
     #[test]
     fn provisioner_worker_gateway_initialization_error_maps_to_worker_unavailable() {
         assert_eq!(
-            WorkspaceProvisioningError::from(
-                crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError,
-            ),
+            WorkspaceProvisioningError::from(ProvisionerWorkerHttpGatewayInitError),
             WorkspaceProvisioningError::ProvisionerWorkerUnavailable
         );
     }
