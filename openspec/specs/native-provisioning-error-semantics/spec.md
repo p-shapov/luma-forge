@@ -1,5 +1,8 @@
-## ADDED Requirements
+# native-provisioning-error-semantics Specification
 
+## Purpose
+TBD - created by archiving change native-provisioning-error-semantics. Update Purpose after archive.
+## Requirements
 ### Requirement: Native provisioning distinguishes command errors from persisted failures
 
 The Native Layer SHALL classify provisioning and resource-operation failures as either immediate command errors or persisted `WorkspaceProvisioningFailure` records according to whether durable Workspace recovery state is required.
@@ -95,3 +98,4 @@ The Native Layer SHALL manage Provisioner Worker bearer token cleanup according 
 - **AND** the token is missing or invalid
 - **THEN** Workspace Provisioning SHALL persist a structured failure indicating native state inconsistency
 - **AND** the persisted failure and command responses MUST NOT expose the token value
+
