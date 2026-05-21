@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::{provider_setup::GpuCloudProviderId, provider_setup::ProviderApiKey},
-    provider::ProviderClientError,
+    provider::{runpod::RunPodHttpClientInitError, ProviderClientError},
 };
 
 use super::{contracts::ProviderPlacementOptions, error::WorkspaceSetupError};
@@ -25,9 +25,17 @@ pub trait WorkspaceSetupProviderResolver: Send + Sync {
     ) -> &dyn WorkspaceSetupProviderCapability;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub struct WorkspaceSetupProviderRegistry {
     runpod: runpod::RunPodWorkspaceSetupProvider,
+}
+
+impl WorkspaceSetupProviderRegistry {
+    pub fn try_new() -> Result<Self, RunPodHttpClientInitError> {
+        Ok(Self {
+            runpod: runpod::RunPodWorkspaceSetupProvider::try_new()?,
+        })
+    }
 }
 
 impl WorkspaceSetupProviderResolver for WorkspaceSetupProviderRegistry {
@@ -57,12 +65,19 @@ pub(in crate::workspace_setup) fn workspace_setup_error_from_client_error(
 }
 
 #[cfg(test)]
+fn workspace_setup_error_from_runpod_init_error(
+    _error: RunPodHttpClientInitError,
+) -> WorkspaceSetupError {
+    WorkspaceSetupError::ProviderApiUnavailable
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn registry_selects_runpod_capability_for_runpod_provider() {
-        let registry = WorkspaceSetupProviderRegistry::default();
+        let registry = WorkspaceSetupProviderRegistry::try_new().expect("registry initializes");
 
         let capability = registry.for_provider(&GpuCloudProviderId::Runpod);
 
@@ -106,6 +121,16 @@ mod tests {
         assert_eq!(
             workspace_setup_error_from_client_error(ProviderClientError::Indeterminate),
             WorkspaceSetupError::ProviderResponseInvalid
+        );
+    }
+
+    #[test]
+    fn maps_runpod_http_initialization_errors_to_provider_unavailable() {
+        assert_eq!(
+            workspace_setup_error_from_runpod_init_error(
+                crate::provider::runpod::RunPodHttpClientInitError,
+            ),
+            WorkspaceSetupError::ProviderApiUnavailable
         );
     }
 }

@@ -1,7 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    provider::ProviderClientError, secrets::SecretStoreError,
+    provider::{runpod::RunPodHttpClientInitError, ProviderClientError},
+    secrets::SecretStoreError,
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -90,6 +91,12 @@ impl From<ProviderClientError> for WorkspaceResourceError {
     }
 }
 
+impl From<RunPodHttpClientInitError> for WorkspaceResourceError {
+    fn from(_error: RunPodHttpClientInitError) -> Self {
+        Self::ProviderApiUnavailable
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +131,13 @@ mod tests {
         ] {
             assert_eq!(WorkspaceResourceError::from(setup_error), expected);
         }
+    }
+
+    #[test]
+    fn runpod_http_initialization_error_maps_to_provider_unavailable() {
+        assert_eq!(
+            WorkspaceResourceError::from(crate::provider::runpod::RunPodHttpClientInitError),
+            WorkspaceResourceError::ProviderApiUnavailable
+        );
     }
 }

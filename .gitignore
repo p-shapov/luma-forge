@@ -29,4 +29,4 @@ workers/*/src/*.egg-info/
 *.sw?
 
 # OpenSpec directories
-openspec/changes/archive
+openspec/changes

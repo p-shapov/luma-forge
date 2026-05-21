@@ -433,7 +433,6 @@ mod test_fixtures {
             code: WorkspaceProvisioningFailureCode::ReadinessValidationFailed,
             phase: WorkspaceProvisioningPhase::ValidatingReadiness,
             source: WorkspaceProvisioningFailureSource::Native,
-            retryable: true,
             recovery_action: WorkspaceProvisioningRecoveryAction::Retry,
         }
     }

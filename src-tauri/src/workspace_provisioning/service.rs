@@ -1,8 +1,6 @@
 use crate::{
     domain::workspace::WorkspaceLifecycleState, secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::ProvisionerWorkerGateway,
-    workspace_provisioner::WorkspaceProvisionerService,
     workspace_resources::WorkspaceResourceService,
 };
 
@@ -10,8 +8,10 @@ use super::{
     context::{WorkspaceProvisioningContext, WorkspaceProvisioningResources},
     coordinator::WorkspaceProvisioningCoordinator,
     failure::{self, fail_workspace},
-    helpers::{result, WorkspaceProvisioningResult},
+    gateway::ProvisionerWorkerGateway,
+    helpers::{progress_for_workspace, result, WorkspaceProvisioningResult},
     providers::{WorkspaceProvisioningProviderRegistry, WorkspaceProvisioningProviderResolver},
+    provisioner::WorkspaceProvisionerService,
     WorkspaceProvisioningError,
 };
 
@@ -136,13 +136,25 @@ where
             return Ok(result(workspace));
         }
 
-        if let Some(result) = self
+        let sync_result = self
             .provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
             .sync(&context, &mut workspace)
-            .await?
-        {
-            return Ok(result);
+            .await;
+
+        match sync_result {
+            Ok(Some(result)) => return Ok(result),
+            Ok(None) => {}
+            Err(error) => {
+                if let Some(failure) =
+                    failure::provisioning_error(progress_for_workspace(&workspace).phase, &error)
+                {
+                    fail_workspace(&mut workspace, failure);
+                    let workspace = context.update_workspace(&workspace).await?;
+                    return Ok(result(workspace));
+                }
+                return Err(error);
+            }
         }
 
         Ok(result(workspace))
@@ -200,6 +212,7 @@ mod tests {
             },
         },
         secrets::SecretStoreError,
+        workspace_provisioning::gateway::ProvisionerWorkerError,
         workspace_resources::WorkspaceResourceError,
         workspace_setup::error::WorkspaceSetupError,
     };
@@ -218,12 +231,21 @@ mod tests {
     #[derive(Debug, Clone, Default)]
     struct FakeProvisioningProvider {
         calls: Arc<Mutex<Vec<&'static str>>>,
+        sync_result:
+            Arc<Mutex<Option<Result<WorkspaceProvisioningResult, WorkspaceProvisioningError>>>>,
         cancel_result: Arc<Mutex<Option<Result<Workspace, WorkspaceProvisioningError>>>>,
     }
 
     impl FakeProvisioningProvider {
         fn calls(&self) -> Vec<&'static str> {
             self.calls.lock().expect("fake provider calls").clone()
+        }
+
+        fn push_sync_result(
+            &self,
+            result: Result<WorkspaceProvisioningResult, WorkspaceProvisioningError>,
+        ) {
+            *self.sync_result.lock().expect("fake sync result") = Some(result);
         }
 
         fn push_cancel_result(&self, result: Result<Workspace, WorkspaceProvisioningError>) {
@@ -252,7 +274,12 @@ mod tests {
         ) -> Pin<Box<dyn Future<Output = SyncStepResult> + Send + 'a>> {
             Box::pin(async move {
                 self.calls.lock().expect("fake provider calls").push("sync");
-                Ok(Some(result(workspace.clone())))
+                self.sync_result
+                    .lock()
+                    .expect("fake sync result")
+                    .take()
+                    .transpose()
+                    .map(|sync_result| sync_result.or_else(|| Some(result(workspace.clone()))))
             })
         }
 
@@ -565,30 +592,205 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_provider_retryable_errors_do_not_persist_failure() {
-        for resource_error in [
-            WorkspaceResourceError::ProviderRateLimited,
-            WorkspaceResourceError::ProviderOperationConflict,
-            WorkspaceResourceError::ProviderRequestRejected,
+    async fn sync_provider_errors_persist_failure_without_retryable_metadata() {
+        for (resource_error, expected_code) in [
+            (
+                WorkspaceResourceError::ProviderApiUnavailable,
+                WorkspaceProvisioningFailureCode::ProviderApiUnavailable,
+            ),
+            (
+                WorkspaceResourceError::ProviderRateLimited,
+                WorkspaceProvisioningFailureCode::ProviderRateLimited,
+            ),
+            (
+                WorkspaceResourceError::ProviderOperationConflict,
+                WorkspaceProvisioningFailureCode::ProviderOperationConflict,
+            ),
+            (
+                WorkspaceResourceError::ProviderRequestRejected,
+                WorkspaceProvisioningFailureCode::ProviderRequestRejected,
+            ),
         ] {
             let (service, _, catalog, resources, _, _) = service_parts(provisioning_workspace());
             resources.push_network_volume_result(Err(resource_error.clone()));
 
-            let error = service
+            let result = service
                 .sync("workspace-1")
                 .await
-                .expect_err("sync should return provider command error");
+                .expect("sync should persist provider failure");
 
-            assert_eq!(error, WorkspaceProvisioningError::from(resource_error));
-            assert!(catalog.updates().is_empty());
+            assert_eq!(catalog.updates().len(), 1);
+            assert_eq!(
+                result.workspace.lifecycle_state,
+                WorkspaceLifecycleState::Failed
+            );
+            let failure = result
+                .workspace
+                .last_provisioning_failure
+                .expect("provider failure should be recorded");
+            assert_eq!(failure.code, expected_code);
+            assert_eq!(failure.source, WorkspaceProvisioningFailureSource::Provider);
+            assert_eq!(failure.phase, WorkspaceProvisioningPhase::CreatingVolume);
             assert_eq!(
                 catalog
                     .stored_workspace()
                     .expect("workspace should remain stored")
                     .lifecycle_state,
-                WorkspaceLifecycleState::Provisioning
+                WorkspaceLifecycleState::Failed
             );
         }
+    }
+
+    #[tokio::test]
+    async fn sync_secure_keyring_unavailable_remains_command_level_error() {
+        let provider = FakeProvisioningProvider::default();
+        provider.push_sync_result(Err(WorkspaceProvisioningError::SecureKeyringUnavailable));
+        let (service, catalog, _) = service_with_provider(provisioning_workspace(), provider);
+
+        let error = service
+            .sync("workspace-1")
+            .await
+            .expect_err("keyring outage should remain a command-level error");
+
+        assert_eq!(error, WorkspaceProvisioningError::SecureKeyringUnavailable);
+        assert!(catalog.updates().is_empty());
+        let workspace = catalog
+            .stored_workspace()
+            .expect("workspace should remain stored");
+        assert_eq!(
+            workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+        assert!(workspace.last_provisioning_failure.is_none());
+    }
+
+    #[tokio::test]
+    async fn sync_worker_conflict_remains_command_level_error() {
+        let provider = FakeProvisioningProvider::default();
+        provider.push_sync_result(Err(WorkspaceProvisioningError::ProvisionerWorkerConflict));
+        let (service, catalog, _) = service_with_provider(provisioning_workspace(), provider);
+
+        let error = service
+            .sync("workspace-1")
+            .await
+            .expect_err("worker conflict should remain a command-level error");
+
+        assert_eq!(error, WorkspaceProvisioningError::ProvisionerWorkerConflict);
+        assert!(catalog.updates().is_empty());
+        let workspace = catalog
+            .stored_workspace()
+            .expect("workspace should remain stored");
+        assert_eq!(
+            workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+        assert!(workspace.last_provisioning_failure.is_none());
+    }
+
+    #[tokio::test]
+    async fn sync_worker_terminal_subtypes_persist_granular_failures() {
+        for (worker_error, expected_code) in [
+            (
+                ProvisionerWorkerError::GitCheckoutFailed,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed,
+            ),
+            (
+                ProvisionerWorkerError::DependencyInstallFailed,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed,
+            ),
+            (
+                ProvisionerWorkerError::AssetDownloadFailed,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed,
+            ),
+            (
+                ProvisionerWorkerError::AssetAuthRequired,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired,
+            ),
+            (
+                ProvisionerWorkerError::PathValidationFailed,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed,
+            ),
+            (
+                ProvisionerWorkerError::StepTimeout,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout,
+            ),
+            (
+                ProvisionerWorkerError::UnexpectedError,
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError,
+            ),
+        ] {
+            let mut workspace = provisioning_workspace();
+            workspace.persistent_storage_volume_snapshot =
+                Some(volume(ProviderResourceStatus::Ready));
+            workspace.active_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Running));
+            let (service, _, catalog, resources, workers, _) = service_parts(workspace);
+            workers.push_status_result(Err(worker_error));
+
+            let result = service
+                .sync("workspace-1")
+                .await
+                .expect("sync should return failed workspace state");
+
+            assert_eq!(
+                resources.calls(),
+                vec!["network_volume", "provisioning_pod"]
+            );
+            assert_eq!(
+                result.workspace.lifecycle_state,
+                WorkspaceLifecycleState::Failed
+            );
+            assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Failed);
+
+            let failure = result
+                .workspace
+                .last_provisioning_failure
+                .expect("worker failure should be persisted");
+            assert_eq!(failure.code, expected_code);
+            assert_eq!(
+                failure.phase,
+                WorkspaceProvisioningPhase::PreparingEnvironment
+            );
+            assert_eq!(
+                failure.source,
+                WorkspaceProvisioningFailureSource::ProvisionerWorker
+            );
+            assert_eq!(
+                failure.recovery_action,
+                WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning
+            );
+            assert_eq!(
+                result.progress.failure.expect("progress failure").code,
+                expected_code
+            );
+            assert_eq!(catalog.updates().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn sync_worker_terminal_failure_returns_catalog_error_when_failure_cannot_persist() {
+        let mut workspace = provisioning_workspace();
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        workspace.active_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Running));
+        let (service, _, catalog, _, workers, _) = service_parts(workspace);
+        catalog.push_update_error(WorkspaceSetupError::WorkspaceCatalogQueryFailed);
+        workers.push_status_result(Err(ProvisionerWorkerError::DependencyInstallFailed));
+
+        let error = service
+            .sync("workspace-1")
+            .await
+            .expect_err("catalog failure should remain a command-level error");
+
+        assert_eq!(
+            error,
+            WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
+        );
+        assert_eq!(
+            catalog
+                .stored_workspace()
+                .expect("workspace should still be stored")
+                .lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
     }
 
     #[tokio::test]

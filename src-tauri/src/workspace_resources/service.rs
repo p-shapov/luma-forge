@@ -23,16 +23,6 @@ pub(crate) struct WorkspaceResourceService<S, W, R = WorkspaceResourceProviderRe
     provider_registry: R,
 }
 
-impl<S, W> WorkspaceResourceService<S, W, WorkspaceResourceProviderRegistry> {
-    pub(crate) fn new(secrets: S, workspace_catalog: W) -> Self {
-        Self::with_provider_registry(
-            secrets,
-            workspace_catalog,
-            WorkspaceResourceProviderRegistry::default(),
-        )
-    }
-}
-
 impl<S, W, R> WorkspaceResourceService<S, W, R> {
     pub(crate) fn with_provider_registry(
         secrets: S,

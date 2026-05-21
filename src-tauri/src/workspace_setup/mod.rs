@@ -34,17 +34,6 @@ pub struct WorkspaceSetupService<C, S, W, R = WorkspaceSetupProviderRegistry> {
     provider_registry: R,
 }
 
-impl<C, S, W> WorkspaceSetupService<C, S, W, WorkspaceSetupProviderRegistry> {
-    pub fn new(catalogs: C, secrets: S, workspace_catalog: W) -> Self {
-        Self::with_provider_registry(
-            catalogs,
-            secrets,
-            workspace_catalog,
-            WorkspaceSetupProviderRegistry::default(),
-        )
-    }
-}
-
 impl<C, S, W, R> WorkspaceSetupService<C, S, W, R> {
     pub fn with_provider_registry(
         catalogs: C,
@@ -1098,10 +1087,11 @@ mod tests {
 
     #[tokio::test]
     async fn get_provider_placement_options_rejects_missing_key_with_production_registry() {
-        let result = WorkspaceSetupService::new(
+        let result = WorkspaceSetupService::with_provider_registry(
             FakeCatalogReader::valid(),
             FakeSecretStore::missing_api_key(),
             FakeWorkspaceCatalog::empty(),
+            WorkspaceSetupProviderRegistry::try_new().expect("registry initializes"),
         )
         .get_provider_placement_options(GpuCloudProviderId::Runpod)
         .await;

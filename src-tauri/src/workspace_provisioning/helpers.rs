@@ -7,10 +7,6 @@ use crate::{
         WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
     },
     secrets::SecretStoreError,
-    workspace_provisioner::{
-        ProvisionerWorkerError, ProvisionerWorkerJobStatus, ProvisionerWorkerPhase,
-        ProvisionerWorkerStatus,
-    },
     workspace_resources::{
         NetworkVolumeObservation, ProvisioningPodObservation, ServerlessEndpointObservation,
         WorkspaceResourceError,
@@ -18,7 +14,14 @@ use crate::{
     workspace_setup::error::WorkspaceSetupError,
 };
 
-use super::{failure::legacy_failure, readiness::has_ready_matching_endpoint_template};
+use super::{
+    failure::legacy_failure,
+    gateway::{
+        ProvisionerWorkerError, ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus,
+        ProvisionerWorkerPhase, ProvisionerWorkerStatus,
+    },
+    readiness::has_ready_matching_endpoint_template,
+};
 
 const PROGRESS_NOT_STARTED: u8 = 0;
 const PROGRESS_CREATING_VOLUME: u8 = 0;
@@ -79,20 +82,6 @@ pub enum WorkspaceProvisioningError {
     ProvisionerWorkerResponseInvalid,
     #[error("provisioner worker failed")]
     ProvisionerWorkerFailed,
-    #[error("provisioner worker git checkout failed")]
-    ProvisionerWorkerGitCheckoutFailed,
-    #[error("provisioner worker dependency install failed")]
-    ProvisionerWorkerDependencyInstallFailed,
-    #[error("provisioner worker asset download failed")]
-    ProvisionerWorkerAssetDownloadFailed,
-    #[error("provisioner worker asset auth required")]
-    ProvisionerWorkerAssetAuthRequired,
-    #[error("provisioner worker path validation failed")]
-    ProvisionerWorkerPathValidationFailed,
-    #[error("provisioner worker step timeout")]
-    ProvisionerWorkerStepTimeout,
-    #[error("provisioner worker unexpected error")]
-    ProvisionerWorkerUnexpectedError,
 }
 
 impl From<SecretStoreError> for WorkspaceProvisioningError {
@@ -177,28 +166,20 @@ impl From<ProvisionerWorkerError> for WorkspaceProvisioningError {
             ProvisionerWorkerError::Unreachable => Self::ProvisionerWorkerUnavailable,
             ProvisionerWorkerError::InvalidPayload => Self::ProvisionerWorkerResponseInvalid,
             ProvisionerWorkerError::Failed => Self::ProvisionerWorkerFailed,
-            ProvisionerWorkerError::GitCheckoutFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
-            }
-            ProvisionerWorkerError::DependencyInstallFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
-            }
-            ProvisionerWorkerError::AssetDownloadFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
-            }
-            ProvisionerWorkerError::AssetAuthRequired => {
-                WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
-            }
-            ProvisionerWorkerError::PathValidationFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
-            }
-            ProvisionerWorkerError::StepTimeout => {
-                WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
-            }
-            ProvisionerWorkerError::UnexpectedError => {
-                WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError
-            }
+            ProvisionerWorkerError::GitCheckoutFailed
+            | ProvisionerWorkerError::DependencyInstallFailed
+            | ProvisionerWorkerError::AssetDownloadFailed
+            | ProvisionerWorkerError::AssetAuthRequired
+            | ProvisionerWorkerError::PathValidationFailed
+            | ProvisionerWorkerError::StepTimeout
+            | ProvisionerWorkerError::UnexpectedError => Self::ProvisionerWorkerFailed,
         }
+    }
+}
+
+impl From<ProvisionerWorkerHttpGatewayInitError> for WorkspaceProvisioningError {
+    fn from(_error: ProvisionerWorkerHttpGatewayInitError) -> Self {
+        Self::ProvisionerWorkerUnavailable
     }
 }
 
@@ -784,5 +765,13 @@ mod tests {
         ] {
             assert_eq!(WorkspaceProvisioningError::from(resource_error), expected);
         }
+    }
+
+    #[test]
+    fn provisioner_worker_gateway_initialization_error_maps_to_worker_unavailable() {
+        assert_eq!(
+            WorkspaceProvisioningError::from(ProvisionerWorkerHttpGatewayInitError),
+            WorkspaceProvisioningError::ProvisionerWorkerUnavailable
+        );
     }
 }

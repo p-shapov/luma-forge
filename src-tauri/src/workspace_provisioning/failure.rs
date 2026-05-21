@@ -5,6 +5,8 @@ use crate::domain::workspace::{
     WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
 };
 
+use super::gateway::ProvisionerWorkerError;
+
 pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvisioningFailure) {
     workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
     workspace.last_provisioning_failure = Some(failure);
@@ -15,7 +17,6 @@ pub(crate) fn legacy_failure() -> WorkspaceProvisioningFailure {
         code: WorkspaceProvisioningFailureCode::LegacyFailure,
         phase: WorkspaceProvisioningPhase::Failed,
         source: WorkspaceProvisioningFailureSource::Native,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
     }
 }
@@ -43,7 +44,6 @@ pub(crate) fn provider_resource_failure(
         },
         phase,
         source: WorkspaceProvisioningFailureSource::ProviderResource,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
     }
 }
@@ -55,9 +55,89 @@ pub(crate) fn indeterminate_provider_operation(
         code: WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
         phase,
         source: WorkspaceProvisioningFailureSource::Provider,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
     }
+}
+
+pub(crate) fn provisioning_error(
+    phase: WorkspaceProvisioningPhase,
+    error: &WorkspaceProvisioningError,
+) -> Option<WorkspaceProvisioningFailure> {
+    let (code, source, recovery_action) = match error {
+        WorkspaceProvisioningError::ProviderSetupIncomplete => (
+            WorkspaceProvisioningFailureCode::ProviderSetupIncomplete,
+            WorkspaceProvisioningFailureSource::Native,
+            WorkspaceProvisioningRecoveryAction::RecoverProviderSetup,
+        ),
+        WorkspaceProvisioningError::ProviderApiKeyUnauthorized => (
+            WorkspaceProvisioningFailureCode::ProviderApiKeyUnauthorized,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::RecoverProviderSetup,
+        ),
+        WorkspaceProvisioningError::ProviderApiUnavailable => (
+            WorkspaceProvisioningFailureCode::ProviderApiUnavailable,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::Retry,
+        ),
+        WorkspaceProvisioningError::ProviderRateLimited => (
+            WorkspaceProvisioningFailureCode::ProviderRateLimited,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::Retry,
+        ),
+        WorkspaceProvisioningError::ProviderRequestRejected => (
+            WorkspaceProvisioningFailureCode::ProviderRequestRejected,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::ReselectPlacement,
+        ),
+        WorkspaceProvisioningError::ProviderResponseInvalid => (
+            WorkspaceProvisioningFailureCode::ProviderResponseInvalid,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
+        ),
+        WorkspaceProvisioningError::ProviderResourceNotFound => (
+            WorkspaceProvisioningFailureCode::ProviderResourceMissing,
+            WorkspaceProvisioningFailureSource::ProviderResource,
+            WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        ),
+        WorkspaceProvisioningError::ProviderOperationConflict => (
+            WorkspaceProvisioningFailureCode::ProviderOperationConflict,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::Retry,
+        ),
+        WorkspaceProvisioningError::ProviderOperationIndeterminate => (
+            WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
+            WorkspaceProvisioningFailureSource::Provider,
+            WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        ),
+        WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid => (
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenInvalid,
+            WorkspaceProvisioningFailureSource::Native,
+            WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
+        ),
+        WorkspaceProvisioningError::ProvisionerWorkerUnavailable => (
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnavailable,
+            WorkspaceProvisioningFailureSource::ProvisionerWorker,
+            WorkspaceProvisioningRecoveryAction::Retry,
+        ),
+        WorkspaceProvisioningError::WorkspaceNotFound
+        | WorkspaceProvisioningError::InvalidWorkspaceLifecycle
+        | WorkspaceProvisioningError::WorkspaceCatalogUnavailable
+        | WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable
+        | WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
+        | WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
+        | WorkspaceProvisioningError::WorkspaceCatalogCorrupt
+        | WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch
+        | WorkspaceProvisioningError::SecureKeyringUnavailable
+        | WorkspaceProvisioningError::ProvisionerWorkerConflict => return None,
+        error => return worker_failure(phase, error),
+    };
+
+    Some(WorkspaceProvisioningFailure {
+        code,
+        phase,
+        source,
+        recovery_action,
+    })
 }
 
 pub(crate) fn missing_provider_resource(
@@ -67,7 +147,6 @@ pub(crate) fn missing_provider_resource(
         code: WorkspaceProvisioningFailureCode::ProviderResourceMissing,
         phase,
         source: WorkspaceProvisioningFailureSource::ProviderResource,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
     }
 }
@@ -79,7 +158,6 @@ pub(crate) fn orphaned_provider_resources(
         code: WorkspaceProvisioningFailureCode::ProviderOrphanedResources,
         phase,
         source: WorkspaceProvisioningFailureSource::ProviderResource,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
     }
 }
@@ -98,27 +176,6 @@ pub(crate) fn worker_failure(
         WorkspaceProvisioningError::ProvisionerWorkerFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed
         }
-        WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerStepTimeout => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError
-        }
         _ => return None,
     };
 
@@ -126,7 +183,50 @@ pub(crate) fn worker_failure(
         code,
         phase,
         source: WorkspaceProvisioningFailureSource::ProvisionerWorker,
-        retryable: false,
+        recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
+    })
+}
+
+pub(crate) fn provisioner_worker_failure(
+    phase: WorkspaceProvisioningPhase,
+    error: &ProvisionerWorkerError,
+) -> Option<WorkspaceProvisioningFailure> {
+    let code = match error {
+        ProvisionerWorkerError::Unauthorized => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized
+        }
+        ProvisionerWorkerError::InvalidPayload => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
+        }
+        ProvisionerWorkerError::Failed => WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,
+        ProvisionerWorkerError::GitCheckoutFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed
+        }
+        ProvisionerWorkerError::DependencyInstallFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
+        }
+        ProvisionerWorkerError::AssetDownloadFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed
+        }
+        ProvisionerWorkerError::AssetAuthRequired => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired
+        }
+        ProvisionerWorkerError::PathValidationFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed
+        }
+        ProvisionerWorkerError::StepTimeout => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout
+        }
+        ProvisionerWorkerError::UnexpectedError => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError
+        }
+        ProvisionerWorkerError::Conflict | ProvisionerWorkerError::Unreachable => return None,
+    };
+
+    Some(WorkspaceProvisioningFailure {
+        code,
+        phase,
+        source: WorkspaceProvisioningFailureSource::ProvisionerWorker,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
     })
 }
@@ -138,7 +238,6 @@ pub(crate) fn worker_token_missing(
         code: WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing,
         phase,
         source: WorkspaceProvisioningFailureSource::Native,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
     }
 }
@@ -150,7 +249,6 @@ pub(crate) fn worker_token_invalid(
         code: WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenInvalid,
         phase,
         source: WorkspaceProvisioningFailureSource::Native,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
     }
 }
@@ -162,7 +260,6 @@ pub(crate) fn readiness_validation_failed(
         code: WorkspaceProvisioningFailureCode::ReadinessValidationFailed,
         phase,
         source: WorkspaceProvisioningFailureSource::Native,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
     }
 }
@@ -172,7 +269,6 @@ pub(crate) fn cancellation_cleanup_failed() -> WorkspaceProvisioningFailure {
         code: WorkspaceProvisioningFailureCode::CancellationCleanupFailed,
         phase: WorkspaceProvisioningPhase::CleaningUp,
         source: WorkspaceProvisioningFailureSource::Native,
-        retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
     }
 }

@@ -2,14 +2,24 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::provider_setup::{ProviderApiKey, ProviderIdentity},
-    provider::runpod::RunPodClient,
+    provider::runpod::{RunPodClient, RunPodHttpClientInitError},
 };
 
 use super::{provider_setup_error_from_client_error, ProviderSetupCapability, ProviderSetupError};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(super) struct RunPodProviderSetupService {
     client: RunPodClient,
+}
+
+impl RunPodProviderSetupService {
+    pub(super) fn new(client: RunPodClient) -> Self {
+        Self { client }
+    }
+
+    pub(super) fn try_new() -> Result<Self, RunPodHttpClientInitError> {
+        Ok(Self::new(RunPodClient::try_new_default()?))
+    }
 }
 
 impl ProviderSetupCapability for RunPodProviderSetupService {

@@ -1,21 +1,17 @@
-mod gateway;
-
-pub(crate) use gateway::{
-    ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerHttpGateway,
-    ProvisionerWorkerJobStatus, ProvisionerWorkerPhase, ProvisionerWorkerStartRequest,
-};
-
-pub(crate) use gateway::ProvisionerWorkerStatus;
-
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
     secrets::{AsyncSecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioning::{
-        failure::{self, fail_workspace},
-        helpers::catalog_error,
-        WorkspaceProvisioningError,
+};
+
+use super::{
+    failure::{self, fail_workspace},
+    gateway::{
+        ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerJobStatus,
+        ProvisionerWorkerStartRequest, ProvisionerWorkerStatus,
     },
+    helpers::catalog_error,
+    WorkspaceProvisioningError,
 };
 
 pub(crate) type WorkspaceProvisionerSyncResult =
@@ -116,7 +112,7 @@ impl WorkspaceProvisionerService {
                 {
                     Ok(status) => status,
                     Err(error) => {
-                        return handle_worker_error(&context, workspace.clone(), error.into()).await
+                        return handle_worker_error(&context, workspace.clone(), error).await
                     }
                 }
             }
@@ -128,9 +124,7 @@ impl WorkspaceProvisionerService {
                 )));
             }
             Ok(status) => status,
-            Err(error) => {
-                return handle_worker_error(&context, workspace.clone(), error.into()).await
-            }
+            Err(error) => return handle_worker_error(&context, workspace.clone(), error).await,
         };
 
         Ok(Some(WorkspaceProvisionerSyncOutcome::WorkerStatus {
@@ -174,27 +168,28 @@ where
 async fn handle_worker_error<S, W, R>(
     context: &WorkspaceProvisionerContext<'_, S, W, R>,
     mut workspace: Workspace,
-    error: WorkspaceProvisioningError,
+    error: ProvisionerWorkerError,
 ) -> WorkspaceProvisionerSyncResult
 where
     W: WorkspaceCatalogRepository,
 {
-    if error == WorkspaceProvisioningError::ProvisionerWorkerUnavailable {
+    if error == ProvisionerWorkerError::Unreachable {
         return Ok(Some(WorkspaceProvisionerSyncOutcome::WorkerReadinessLag {
             workspace,
         }));
     }
 
-    if let Some(failure) =
-        failure::worker_failure(WorkspaceProvisioningPhase::PreparingEnvironment, &error)
-    {
+    if let Some(failure) = failure::provisioner_worker_failure(
+        WorkspaceProvisioningPhase::PreparingEnvironment,
+        &error,
+    ) {
         fail_workspace(&mut workspace, failure);
         let workspace = context.update_workspace(&workspace).await?;
         Ok(Some(WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
             workspace,
         )))
     } else {
-        Err(error)
+        Err(WorkspaceProvisioningError::from(error))
     }
 }
 
@@ -206,6 +201,7 @@ fn now_rfc3339() -> Result<String, WorkspaceProvisioningError> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};
     use super::*;
     use crate::{
         domain::{
@@ -221,7 +217,6 @@ mod tests {
         secrets::{ProvisionerWorkerBearerToken, SecretStore},
         workspace_setup::error::WorkspaceSetupError,
     };
-    use gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};
     use std::{
         future::Future,
         pin::Pin,

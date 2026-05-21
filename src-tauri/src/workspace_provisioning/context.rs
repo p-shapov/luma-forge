@@ -4,8 +4,6 @@ use crate::{
     domain::workspace::Workspace,
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::ProvisionerWorkerGateway,
-    workspace_provisioner::{WorkspaceProvisionerContext, WorkspaceProvisionerService},
     workspace_resources::{
         WorkspaceResourceConfig, WorkspaceResourceError, WorkspaceResourceService,
         WorkspaceResourceSyncResult,
@@ -13,7 +11,9 @@ use crate::{
 };
 
 use super::{
+    gateway::ProvisionerWorkerGateway,
     helpers::{catalog_error, WorkspaceProvisioningResult},
+    provisioner::{WorkspaceProvisionerContext, WorkspaceProvisionerService},
     WorkspaceProvisioningConfig, WorkspaceProvisioningError,
 };
 

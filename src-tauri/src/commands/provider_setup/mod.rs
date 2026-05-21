@@ -5,7 +5,7 @@ use crate::{
     domain::provider_setup::ProviderApiKey, provider_setup,
 };
 
-use crate::commands::CommandResult;
+use crate::commands::{error::NativeCommandError, CommandResult};
 use contracts::{
     DeleteGpuCloudProviderSetupRequest, DeleteGpuCloudProviderSetupResponse,
     GetGpuCloudProviderSetupRequest, GetGpuCloudProviderSetupResponse,
@@ -25,6 +25,7 @@ pub(crate) async fn get_gpu_cloud_provider_setup(
         .start();
     let result = app_state
         .provider_setup_service()
+        .map_err(NativeCommandError::from)?
         .get_setup(provider_id)
         .await
         .map(|setup| GetGpuCloudProviderSetupResponse {
@@ -54,6 +55,7 @@ pub(crate) async fn setup_gpu_cloud_provider(
 
         app_state
             .provider_setup_service()
+            .map_err(NativeCommandError::from)?
             .setup(provider_id, api_key)
             .await
             .map(|setup| SetupGpuCloudProviderResponse {
@@ -83,6 +85,7 @@ pub(crate) async fn delete_gpu_cloud_provider_setup(
 
         app_state
             .provider_setup_service()
+            .map_err(NativeCommandError::from)?
             .delete_setup(provider_id)
             .await
             .map(|()| DeleteGpuCloudProviderSetupResponse {

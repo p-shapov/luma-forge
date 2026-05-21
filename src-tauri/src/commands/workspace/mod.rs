@@ -21,6 +21,7 @@ pub(crate) fn get_workflow_catalog(
     let command_log = CommandLog::new("get_workflow_catalog").start();
     let result = app_state
         .workspace_setup_read_service()
+        .map_err(NativeCommandError::from)?
         .get_workflow_catalog()
         .map(Into::into)
         .map_err(Into::into);
@@ -39,6 +40,7 @@ pub(crate) async fn get_provider_placement_options(
         .start();
     let result = app_state
         .workspace_setup_read_service()
+        .map_err(NativeCommandError::from)?
         .get_provider_placement_options(provider_id)
         .await
         .map(Into::into)

@@ -19,10 +19,6 @@ use crate::{
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_provisioner::{
-        ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerStartRequest,
-        ProvisionerWorkerStatus, WorkspaceProvisionerService,
-    },
     workspace_resources::{
         WorkspaceResourceConfig, WorkspaceResourceError, WorkspaceResourceSyncResult,
     },
@@ -31,6 +27,11 @@ use crate::{
 
 use super::{
     context::{WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    gateway::{
+        ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerStartRequest,
+        ProvisionerWorkerStatus,
+    },
+    provisioner::WorkspaceProvisionerService,
     WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningService,
 };
 
@@ -216,17 +217,21 @@ impl SecretStore for FakeSecretStore {
 pub(crate) struct FakeWorkspaceCatalog {
     workspace: Arc<Mutex<Option<Workspace>>>,
     find_result: SharedFindWorkspaceResult,
+    update_result: SharedUpdateWorkspaceResult,
     updates: Arc<Mutex<Vec<Workspace>>>,
 }
 
 type FindWorkspaceResult = Result<Option<Workspace>, WorkspaceSetupError>;
 type SharedFindWorkspaceResult = Arc<Mutex<Option<FindWorkspaceResult>>>;
+type UpdateWorkspaceResult = Result<Workspace, WorkspaceSetupError>;
+type SharedUpdateWorkspaceResult = Arc<Mutex<Option<UpdateWorkspaceResult>>>;
 
 impl FakeWorkspaceCatalog {
     pub(crate) fn with_workspace(workspace: Workspace) -> Self {
         Self {
             workspace: Arc::new(Mutex::new(Some(workspace))),
             find_result: Arc::new(Mutex::new(None)),
+            update_result: Arc::new(Mutex::new(None)),
             updates: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -239,6 +244,7 @@ impl FakeWorkspaceCatalog {
         Self {
             workspace: Arc::new(Mutex::new(None)),
             find_result: Arc::new(Mutex::new(Some(Err(error)))),
+            update_result: Arc::new(Mutex::new(None)),
             updates: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -247,8 +253,13 @@ impl FakeWorkspaceCatalog {
         Self {
             workspace: Arc::new(Mutex::new(None)),
             find_result: Arc::new(Mutex::new(Some(Ok(None)))),
+            update_result: Arc::new(Mutex::new(None)),
             updates: Arc::new(Mutex::new(Vec::new())),
         }
+    }
+
+    pub(crate) fn push_update_error(&self, error: WorkspaceSetupError) {
+        *self.update_result.lock().expect("fake update result") = Some(Err(error));
     }
 
     pub(crate) fn updates(&self) -> Vec<Workspace> {
@@ -304,6 +315,14 @@ impl WorkspaceCatalogRepository for FakeWorkspaceCatalog {
                 .lock()
                 .expect("fake updates")
                 .push(workspace.clone());
+            if let Some(result) = self
+                .update_result
+                .lock()
+                .expect("fake update result")
+                .take()
+            {
+                return result;
+            }
             *self.workspace.lock().expect("fake workspace") = Some(workspace.clone());
             Ok(workspace.clone())
         })

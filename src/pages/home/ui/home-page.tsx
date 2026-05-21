@@ -36,6 +36,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@shared/components/ui/field";
@@ -317,9 +318,14 @@ export function HomePage() {
     ?? workflowPresets[0];
   const selectedDatacenter = datacenters.find(({ id }) => id === datacenterId)
     ?? datacenters[0];
-  const selectedGpu = selectedDatacenter?.gpu_options.find(({ id }) => id === gpuId)
-    ?? selectedDatacenter?.gpu_options[0];
+  const gpuOptions = selectedDatacenter?.gpu_options ?? [];
+  const selectedGpu = gpuOptions.find(({ id }) => id === gpuId)
+    ?? gpuOptions[0];
   const selectedGpuAvailable = isGpuAvailable(selectedGpu);
+  const placementOptionsLoaded = providerInventory !== null;
+  const noGpuAvailable = placementOptionsLoaded
+    && datacenters.length > 0
+    && !datacenters.some(datacenter => datacenter.gpu_options.some(isGpuAvailable));
   const keepAliveRange = endpointKeepAliveRange(providerPlacementCapabilities);
   const selectedEndpointKeepAliveSeconds = clampNumber(
     endpointKeepAliveSeconds,
@@ -925,7 +931,11 @@ export function HomePage() {
                           setGpuId("");
                         }}
                       >
-                        {datacenters.length === 0 && <NativeSelectOption value="">Load placement options first</NativeSelectOption>}
+                        {datacenters.length === 0 && (
+                          <NativeSelectOption value="">
+                            {placementOptionsLoaded ? "No available datacenters" : "Load placement options first"}
+                          </NativeSelectOption>
+                        )}
                         {datacenters.map(datacenter => (
                           <NativeSelectOption key={datacenter.id} value={datacenter.id}>
                             {datacenter.name}
@@ -939,13 +949,15 @@ export function HomePage() {
                         id="gpu"
                         className="w-full"
                         value={selectedGpu?.id ?? ""}
-                        disabled={(selectedDatacenter?.gpu_options.length ?? 0) === 0 || pendingCommand !== null}
+                        disabled={gpuOptions.length === 0 || pendingCommand !== null}
                         onChange={event => setGpuId(event.target.value)}
                       >
-                        {(selectedDatacenter?.gpu_options.length ?? 0) === 0 && (
-                          <NativeSelectOption value="">Load placement options first</NativeSelectOption>
+                        {gpuOptions.length === 0 && (
+                          <NativeSelectOption value="">
+                            {placementOptionsLoaded ? "No available GPUs" : "Load placement options first"}
+                          </NativeSelectOption>
                         )}
-                        {selectedDatacenter?.gpu_options.map(gpu => (
+                        {gpuOptions.map(gpu => (
                           <NativeSelectOption key={gpu.id} value={gpu.id}>
                             {gpuOptionLabel(gpu)}
                           </NativeSelectOption>
@@ -968,6 +980,14 @@ export function HomePage() {
                       )}
                     </Field>
                   </div>
+
+                  {noGpuAvailable && (
+                    <FieldError>
+                      No GPU is currently available in any loaded datacenter.
+                      {" "}
+                      Refresh placement options and try again later.
+                    </FieldError>
+                  )}
 
                   <Button disabled={!canCreateWorkspace || pendingCommand !== null} onClick={createWorkspace}>
                     <HugeiconsIcon icon={Add01Icon} strokeWidth={2} data-icon="inline-start" />

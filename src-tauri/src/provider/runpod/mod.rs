@@ -28,6 +28,7 @@ use mapper::{
     endpoint_from_response, identity_from_graphql_response, inventory_from_graphql_response,
     network_volume_from_response, pod_from_response, template_from_response,
 };
+use thiserror::Error;
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
 const RUNPOD_REST_ENDPOINT: &str = "https://rest.runpod.io/v1";
@@ -70,19 +71,25 @@ pub struct RunPodClient {
     rest_endpoint: String,
 }
 
-impl Default for RunPodClient {
-    fn default() -> Self {
-        Self::new(
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("RunPod HTTP client initialization failed")]
+pub struct RunPodHttpClientInitError;
+
+impl RunPodClient {
+    pub fn try_new_default() -> Result<Self, RunPodHttpClientInitError> {
+        Self::try_new(
             RUNPOD_GRAPHQL_ENDPOINT.to_string(),
             RUNPOD_CONNECT_TIMEOUT,
             RUNPOD_REQUEST_TIMEOUT,
         )
     }
-}
 
-impl RunPodClient {
-    fn new(endpoint: String, connect_timeout: Duration, request_timeout: Duration) -> Self {
-        Self::new_with_endpoints(
+    fn try_new(
+        endpoint: String,
+        connect_timeout: Duration,
+        request_timeout: Duration,
+    ) -> Result<Self, RunPodHttpClientInitError> {
+        Self::try_new_with_endpoints(
             endpoint,
             default_rest_endpoint(),
             connect_timeout,
@@ -90,21 +97,33 @@ impl RunPodClient {
         )
     }
 
-    fn new_with_endpoints(
+    fn try_new_with_endpoints(
         graphql_endpoint: String,
         rest_endpoint: String,
         connect_timeout: Duration,
         request_timeout: Duration,
-    ) -> Self {
-        Self {
-            http: reqwest::Client::builder()
+    ) -> Result<Self, RunPodHttpClientInitError> {
+        Self::with_http_client(
+            reqwest::Client::builder()
                 .connect_timeout(connect_timeout)
                 .timeout(request_timeout)
                 .build()
-                .expect("RunPod HTTP client should build"),
+                .map_err(|_| RunPodHttpClientInitError)?,
             graphql_endpoint,
             rest_endpoint,
-        }
+        )
+    }
+
+    fn with_http_client(
+        http: reqwest::Client,
+        graphql_endpoint: String,
+        rest_endpoint: String,
+    ) -> Result<Self, RunPodHttpClientInitError> {
+        Ok(Self {
+            http,
+            graphql_endpoint,
+            rest_endpoint,
+        })
     }
 
     pub async fn validate_identity(
