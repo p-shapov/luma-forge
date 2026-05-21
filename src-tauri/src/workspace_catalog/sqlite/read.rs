@@ -333,7 +333,7 @@ async fn read_provisioning_failure(
 ) -> Result<Option<WorkspaceProvisioningFailure>, WorkspaceSetupError> {
     let Some(row) = sqlx::query(
         r#"
-        SELECT code, phase, source, retryable, recovery_action
+        SELECT code, phase, source, recovery_action
         FROM workspace_provisioning_failures
         WHERE workspace_id = ?
         "#,
@@ -345,10 +345,6 @@ async fn read_provisioning_failure(
     else {
         return Ok(None);
     };
-
-    let retryable: i64 = row
-        .try_get("retryable")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
 
     Ok(Some(WorkspaceProvisioningFailure {
         code: parse_provisioning_failure_code(
@@ -366,11 +362,6 @@ async fn read_provisioning_failure(
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?
                 .as_str(),
         )?,
-        retryable: match retryable {
-            0 => false,
-            1 => true,
-            _ => return Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch),
-        },
         recovery_action: parse_provisioning_recovery_action(
             row.try_get::<String, _>("recovery_action")
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?

@@ -280,7 +280,7 @@ async fn persist_provisioning_failure(
     .bind(provisioning_failure_code_value(&failure.code))
     .bind(provisioning_phase_value(&failure.phase))
     .bind(provisioning_failure_source_value(&failure.source))
-    .bind(if failure.retryable { 1_i64 } else { 0_i64 })
+    .bind(0_i64)
     .bind(provisioning_recovery_action_value(&failure.recovery_action))
     .execute(&mut **transaction)
     .await
@@ -488,7 +488,7 @@ mod tests {
             failure
                 .try_get::<i64, _>("retryable")
                 .expect("failure retryable"),
-            1
+            0
         );
         assert_eq!(
             failure

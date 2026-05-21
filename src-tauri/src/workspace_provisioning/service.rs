@@ -10,7 +10,7 @@ use super::{
     context::{WorkspaceProvisioningContext, WorkspaceProvisioningResources},
     coordinator::WorkspaceProvisioningCoordinator,
     failure::{self, fail_workspace},
-    helpers::{result, WorkspaceProvisioningResult},
+    helpers::{progress_for_workspace, result, WorkspaceProvisioningResult},
     providers::{WorkspaceProvisioningProviderRegistry, WorkspaceProvisioningProviderResolver},
     WorkspaceProvisioningError,
 };
@@ -136,13 +136,25 @@ where
             return Ok(result(workspace));
         }
 
-        if let Some(result) = self
+        let sync_result = self
             .provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
             .sync(&context, &mut workspace)
-            .await?
-        {
-            return Ok(result);
+            .await;
+
+        match sync_result {
+            Ok(Some(result)) => return Ok(result),
+            Ok(None) => {}
+            Err(error) => {
+                if let Some(failure) =
+                    failure::provisioning_error(progress_for_workspace(&workspace).phase, &error)
+                {
+                    fail_workspace(&mut workspace, failure);
+                    let workspace = context.update_workspace(&workspace).await?;
+                    return Ok(result(workspace));
+                }
+                return Err(error);
+            }
         }
 
         Ok(result(workspace))
@@ -565,28 +577,51 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_provider_retryable_errors_do_not_persist_failure() {
-        for resource_error in [
-            WorkspaceResourceError::ProviderRateLimited,
-            WorkspaceResourceError::ProviderOperationConflict,
-            WorkspaceResourceError::ProviderRequestRejected,
+    async fn sync_provider_errors_persist_failure_without_retryable_metadata() {
+        for (resource_error, expected_code) in [
+            (
+                WorkspaceResourceError::ProviderApiUnavailable,
+                WorkspaceProvisioningFailureCode::ProviderApiUnavailable,
+            ),
+            (
+                WorkspaceResourceError::ProviderRateLimited,
+                WorkspaceProvisioningFailureCode::ProviderRateLimited,
+            ),
+            (
+                WorkspaceResourceError::ProviderOperationConflict,
+                WorkspaceProvisioningFailureCode::ProviderOperationConflict,
+            ),
+            (
+                WorkspaceResourceError::ProviderRequestRejected,
+                WorkspaceProvisioningFailureCode::ProviderRequestRejected,
+            ),
         ] {
             let (service, _, catalog, resources, _, _) = service_parts(provisioning_workspace());
             resources.push_network_volume_result(Err(resource_error.clone()));
 
-            let error = service
+            let result = service
                 .sync("workspace-1")
                 .await
-                .expect_err("sync should return provider command error");
+                .expect("sync should persist provider failure");
 
-            assert_eq!(error, WorkspaceProvisioningError::from(resource_error));
-            assert!(catalog.updates().is_empty());
+            assert_eq!(catalog.updates().len(), 1);
+            assert_eq!(
+                result.workspace.lifecycle_state,
+                WorkspaceLifecycleState::Failed
+            );
+            let failure = result
+                .workspace
+                .last_provisioning_failure
+                .expect("provider failure should be recorded");
+            assert_eq!(failure.code, expected_code);
+            assert_eq!(failure.source, WorkspaceProvisioningFailureSource::Provider);
+            assert_eq!(failure.phase, WorkspaceProvisioningPhase::CreatingVolume);
             assert_eq!(
                 catalog
                     .stored_workspace()
                     .expect("workspace should remain stored")
                     .lifecycle_state,
-                WorkspaceLifecycleState::Provisioning
+                WorkspaceLifecycleState::Failed
             );
         }
     }

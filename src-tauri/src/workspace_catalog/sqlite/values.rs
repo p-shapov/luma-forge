@@ -49,9 +49,21 @@ pub(super) fn provisioning_failure_code_value(
         WorkspaceProvisioningFailureCode::ProviderOrphanedResources => {
             "provider_orphaned_resources"
         }
+        WorkspaceProvisioningFailureCode::ProviderSetupIncomplete => "provider_setup_incomplete",
+        WorkspaceProvisioningFailureCode::ProviderApiKeyUnauthorized => {
+            "provider_api_key_unauthorized"
+        }
+        WorkspaceProvisioningFailureCode::ProviderApiUnavailable => "provider_api_unavailable",
+        WorkspaceProvisioningFailureCode::ProviderRateLimited => "provider_rate_limited",
+        WorkspaceProvisioningFailureCode::ProviderRequestRejected => "provider_request_rejected",
+        WorkspaceProvisioningFailureCode::ProviderResponseInvalid => "provider_response_invalid",
+        WorkspaceProvisioningFailureCode::ProviderOperationConflict => {
+            "provider_operation_conflict"
+        }
         WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate => {
             "provider_operation_indeterminate"
         }
+        WorkspaceProvisioningFailureCode::SecureKeyringUnavailable => "secure_keyring_unavailable",
         WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing => {
             "provisioner_worker_token_missing"
         }
@@ -60,6 +72,12 @@ pub(super) fn provisioning_failure_code_value(
         }
         WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized => {
             "provisioner_worker_unauthorized"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerUnavailable => {
+            "provisioner_worker_unavailable"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerConflict => {
+            "provisioner_worker_conflict"
         }
         WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid => {
             "provisioner_worker_response_invalid"
@@ -189,8 +207,28 @@ pub(super) fn parse_provisioning_failure_code(
         "provider_orphaned_resources" => {
             Ok(WorkspaceProvisioningFailureCode::ProviderOrphanedResources)
         }
+        "provider_setup_incomplete" => {
+            Ok(WorkspaceProvisioningFailureCode::ProviderSetupIncomplete)
+        }
+        "provider_api_key_unauthorized" => {
+            Ok(WorkspaceProvisioningFailureCode::ProviderApiKeyUnauthorized)
+        }
+        "provider_api_unavailable" => Ok(WorkspaceProvisioningFailureCode::ProviderApiUnavailable),
+        "provider_rate_limited" => Ok(WorkspaceProvisioningFailureCode::ProviderRateLimited),
+        "provider_request_rejected" => {
+            Ok(WorkspaceProvisioningFailureCode::ProviderRequestRejected)
+        }
+        "provider_response_invalid" => {
+            Ok(WorkspaceProvisioningFailureCode::ProviderResponseInvalid)
+        }
+        "provider_operation_conflict" => {
+            Ok(WorkspaceProvisioningFailureCode::ProviderOperationConflict)
+        }
         "provider_operation_indeterminate" => {
             Ok(WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate)
+        }
+        "secure_keyring_unavailable" => {
+            Ok(WorkspaceProvisioningFailureCode::SecureKeyringUnavailable)
         }
         "provisioner_worker_token_missing" => {
             Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing)
@@ -200,6 +238,12 @@ pub(super) fn parse_provisioning_failure_code(
         }
         "provisioner_worker_unauthorized" => {
             Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized)
+        }
+        "provisioner_worker_unavailable" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerUnavailable)
+        }
+        "provisioner_worker_conflict" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerConflict)
         }
         "provisioner_worker_response_invalid" => {
             Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid)
@@ -364,8 +408,40 @@ mod tests {
                 "provider_orphaned_resources",
             ),
             (
+                WorkspaceProvisioningFailureCode::ProviderSetupIncomplete,
+                "provider_setup_incomplete",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProviderApiKeyUnauthorized,
+                "provider_api_key_unauthorized",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProviderApiUnavailable,
+                "provider_api_unavailable",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProviderRateLimited,
+                "provider_rate_limited",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProviderRequestRejected,
+                "provider_request_rejected",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProviderResponseInvalid,
+                "provider_response_invalid",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProviderOperationConflict,
+                "provider_operation_conflict",
+            ),
+            (
                 WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
                 "provider_operation_indeterminate",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::SecureKeyringUnavailable,
+                "secure_keyring_unavailable",
             ),
             (
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing,
@@ -378,6 +454,14 @@ mod tests {
             (
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized,
                 "provisioner_worker_unauthorized",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerUnavailable,
+                "provisioner_worker_unavailable",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerConflict,
+                "provisioner_worker_conflict",
             ),
             (
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid,
