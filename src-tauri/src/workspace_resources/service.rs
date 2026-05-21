@@ -1,7 +1,7 @@
 use crate::{
-    domain::workspace::{provisioning_state::reset_after_resource_cleanup, Workspace},
-    secrets::SecretStore,
+    domain::workspace::Workspace, secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_resources::state::reset_after_resource_cleanup,
 };
 
 use super::{

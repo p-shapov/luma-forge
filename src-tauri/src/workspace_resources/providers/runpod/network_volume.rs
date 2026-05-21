@@ -4,9 +4,12 @@ use crate::{
         workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
     },
     secrets::SecretStore,
-    workspace_provisioning::{failure, helpers::persistent_storage_volume_snapshot},
+    workspace_provisioning::{
+        failure, failure::fail_workspace, helpers::persistent_storage_volume_snapshot,
+    },
     workspace_resources::{
-        CreateNetworkVolumeInput, DiscoverNetworkVolumesInput, WorkspaceResourceError,
+        state::is_terminal_provider_resource_status, CreateNetworkVolumeInput,
+        DiscoverNetworkVolumesInput, WorkspaceResourceError,
     },
 };
 
@@ -124,10 +127,7 @@ async fn fail_for_indeterminate_provider_operation<S, W, C>(
 where
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
-    crate::domain::workspace::provisioning_state::fail_workspace(
-        workspace,
-        failure::indeterminate_provider_operation(phase),
-    );
+    fail_workspace(workspace, failure::indeterminate_provider_operation(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 
@@ -139,10 +139,7 @@ async fn fail_for_missing_provider_resource<S, W, C>(
 where
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
-    crate::domain::workspace::provisioning_state::fail_workspace(
-        workspace,
-        failure::missing_provider_resource(phase),
-    );
+    fail_workspace(workspace, failure::missing_provider_resource(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 
@@ -154,10 +151,7 @@ async fn fail_for_orphaned_provider_resources<S, W, C>(
 where
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
-    crate::domain::workspace::provisioning_state::fail_workspace(
-        workspace,
-        failure::orphaned_provider_resources(phase),
-    );
+    fail_workspace(workspace, failure::orphaned_provider_resources(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 
@@ -166,11 +160,11 @@ fn fail_if_volume_status_is_terminal(workspace: &mut Workspace) {
         .persistent_storage_volume_snapshot
         .as_ref()
         .map(|snapshot| snapshot.provider_resource_status.clone())
-        .filter(crate::domain::workspace::provisioning_state::is_terminal_provider_resource_status)
+        .filter(is_terminal_provider_resource_status)
     {
         let failure =
             failure::provider_resource_failure(WorkspaceProvisioningPhase::CreatingVolume, &status);
-        crate::domain::workspace::provisioning_state::fail_workspace(workspace, failure);
+        fail_workspace(workspace, failure);
     }
 }
 

@@ -1,29 +1,37 @@
 mod gateway;
 
 pub(crate) use gateway::{
-    progress_from_worker_status, ProvisionerWorkerError, ProvisionerWorkerGateway,
-    ProvisionerWorkerHttpGateway, ProvisionerWorkerJobStatus, ProvisionerWorkerStartRequest,
+    ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerHttpGateway,
+    ProvisionerWorkerJobStatus, ProvisionerWorkerPhase, ProvisionerWorkerStartRequest,
 };
 
-#[cfg(test)]
 pub(crate) use gateway::ProvisionerWorkerStatus;
 
 use crate::{
-    domain::workspace::{
-        provisioning_state::fail_workspace, ProviderResourceStatus, Workspace,
-        WorkspaceProvisioningPhase, WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
-    },
+    domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
     secrets::{SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioning::{
-        failure,
-        helpers::{catalog_error, result, WorkspaceProvisioningResult},
+        failure::{self, fail_workspace},
+        helpers::catalog_error,
         WorkspaceProvisioningError,
     },
 };
 
 pub(crate) type WorkspaceProvisionerSyncResult =
-    Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError>;
+    Result<Option<WorkspaceProvisionerSyncOutcome>, WorkspaceProvisioningError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WorkspaceProvisionerSyncOutcome {
+    WorkspaceUpdated(Workspace),
+    WorkerReadinessLag {
+        workspace: Workspace,
+    },
+    WorkerStatus {
+        workspace: Workspace,
+        status: ProvisionerWorkerStatus,
+    },
+}
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct WorkspaceProvisionerService;
@@ -63,7 +71,9 @@ impl WorkspaceProvisionerService {
                     failure::worker_token_missing(WorkspaceProvisioningPhase::PreparingEnvironment),
                 );
                 let workspace = context.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
+                return Ok(Some(WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
+                    workspace,
+                )));
             }
             Err(SecretStoreError::InvalidStoredProvisionerWorkerToken) => {
                 fail_workspace(
@@ -71,7 +81,9 @@ impl WorkspaceProvisionerService {
                     failure::worker_token_invalid(WorkspaceProvisioningPhase::PreparingEnvironment),
                 );
                 let workspace = context.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
+                return Ok(Some(WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
+                    workspace,
+                )));
             }
             Err(error) => return Err(WorkspaceProvisioningError::from(error)),
         };
@@ -107,7 +119,9 @@ impl WorkspaceProvisionerService {
             Ok(status) if status.status == ProvisionerWorkerJobStatus::Succeeded => {
                 workspace.environment_prepared_at = Some(now_rfc3339()?);
                 let workspace = context.update_workspace(workspace).await?;
-                return Ok(Some(result(workspace)));
+                return Ok(Some(WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
+                    workspace,
+                )));
             }
             Ok(status) => status,
             Err(error) => {
@@ -115,9 +129,9 @@ impl WorkspaceProvisionerService {
             }
         };
 
-        Ok(Some(WorkspaceProvisioningResult {
+        Ok(Some(WorkspaceProvisionerSyncOutcome::WorkerStatus {
             workspace: workspace.clone(),
-            progress: progress_from_worker_status(&worker_status),
+            status: worker_status,
         }))
     }
 }
@@ -162,9 +176,8 @@ where
     W: WorkspaceCatalogRepository,
 {
     if error == WorkspaceProvisioningError::ProvisionerWorkerUnavailable {
-        return Ok(Some(WorkspaceProvisioningResult {
+        return Ok(Some(WorkspaceProvisionerSyncOutcome::WorkerReadinessLag {
             workspace,
-            progress: worker_readiness_progress(),
         }));
     }
 
@@ -173,18 +186,11 @@ where
     {
         fail_workspace(&mut workspace, failure);
         let workspace = context.update_workspace(&workspace).await?;
-        Ok(Some(result(workspace)))
+        Ok(Some(WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
+            workspace,
+        )))
     } else {
         Err(error)
-    }
-}
-
-fn worker_readiness_progress() -> WorkspaceProvisioningProgress {
-    WorkspaceProvisioningProgress {
-        status: WorkspaceProvisioningStatus::Running,
-        phase: WorkspaceProvisioningPhase::PreparingEnvironment,
-        percent: None,
-        failure: None,
     }
 }
 
@@ -206,7 +212,6 @@ mod tests {
             workspace::{
                 ProvisioningPodSnapshot, WorkspaceCatalog, WorkspaceLifecycleState,
                 WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
-                WorkspaceProvisioningPhase, WorkspaceProvisioningStatus,
             },
         },
         secrets::ProvisionerWorkerBearerToken,
@@ -540,7 +545,7 @@ mod tests {
     async fn sync_workspace(
         workspace: &mut Workspace,
         workers: &FakeProvisionerWorkerGateway,
-    ) -> Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError> {
+    ) -> WorkspaceProvisionerSyncResult {
         let service = WorkspaceProvisionerService::new();
         let secrets = FakeSecretStore::new(Ok(Some("worker-token".to_string())));
         let catalog = FakeWorkspaceCatalog::default();
@@ -556,7 +561,7 @@ mod tests {
     async fn sync_with_token_result(
         token_result: Result<Option<String>, SecretStoreError>,
     ) -> (
-        WorkspaceProvisioningResult,
+        WorkspaceProvisionerSyncOutcome,
         FakeSecretStore,
         FakeWorkspaceCatalog,
         FakeProvisionerWorkerGateway,
@@ -577,6 +582,14 @@ mod tests {
             .expect("sync should return failed workspace result");
 
         (result, secrets, catalog, workers)
+    }
+
+    fn outcome_workspace(outcome: &WorkspaceProvisionerSyncOutcome) -> &Workspace {
+        match outcome {
+            WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(workspace)
+            | WorkspaceProvisionerSyncOutcome::WorkerReadinessLag { workspace }
+            | WorkspaceProvisionerSyncOutcome::WorkerStatus { workspace, .. } => workspace,
+        }
     }
 
     #[tokio::test]
@@ -655,17 +668,14 @@ mod tests {
         assert_eq!(workers.status_tokens(), vec!["worker-token"]);
         assert!(workers.start_calls().is_empty());
         assert!(catalog.updates().is_empty());
+        assert!(matches!(
+            result,
+            WorkspaceProvisionerSyncOutcome::WorkerReadinessLag { .. }
+        ));
         assert_eq!(
-            result.workspace.lifecycle_state,
+            outcome_workspace(&result).lifecycle_state,
             WorkspaceLifecycleState::Provisioning
         );
-        assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Running);
-        assert_eq!(
-            result.progress.phase,
-            WorkspaceProvisioningPhase::PreparingEnvironment
-        );
-        assert_eq!(result.progress.percent, None);
-        assert_eq!(result.progress.failure, None);
     }
 
     #[tokio::test]
@@ -703,12 +713,17 @@ mod tests {
         assert_eq!(workers.start_calls(), vec!["https://worker.example/status"]);
         assert_eq!(workers.start_tokens(), vec!["worker-token"]);
         assert!(catalog.updates().is_empty());
-        assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Running);
         assert_eq!(
-            result.progress.phase,
-            WorkspaceProvisioningPhase::PreparingEnvironment
+            result,
+            WorkspaceProvisionerSyncOutcome::WorkerStatus {
+                workspace: workspace.clone(),
+                status: worker_status(
+                    ProvisionerWorkerJobStatus::Running,
+                    ProvisionerWorkerPhase::ValidatingRuntime,
+                    Some(37),
+                ),
+            }
         );
-        assert_eq!(result.progress.percent, Some(37));
 
         let request = workers
             .start_requests()
@@ -753,13 +768,17 @@ mod tests {
         );
         assert!(workers.start_calls().is_empty());
         assert!(catalog.updates().is_empty());
-        assert_eq!(result.workspace, workspace);
-        assert_eq!(result.progress.status, WorkspaceProvisioningStatus::Running);
         assert_eq!(
-            result.progress.phase,
-            WorkspaceProvisioningPhase::PreparingEnvironment
+            result,
+            WorkspaceProvisionerSyncOutcome::WorkerStatus {
+                workspace,
+                status: worker_status(
+                    ProvisionerWorkerJobStatus::Running,
+                    ProvisionerWorkerPhase::InstallingModels,
+                    Some(42),
+                ),
+            }
         );
-        assert_eq!(result.progress.percent, Some(42));
     }
 
     #[tokio::test]
@@ -787,7 +806,10 @@ mod tests {
         assert_eq!(updates.len(), 1);
         assert!(updates[0].environment_prepared_at.is_some());
         assert!(updates[0].active_provisioning_pod_snapshot.is_some());
-        assert_eq!(result.workspace, updates[0]);
+        assert_eq!(
+            result,
+            WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(updates[0].clone())
+        );
     }
 
     #[tokio::test]
@@ -801,10 +823,13 @@ mod tests {
         );
         assert_eq!(catalog.updates().len(), 1);
         assert_eq!(
-            result.workspace.lifecycle_state,
+            outcome_workspace(&result).lifecycle_state,
             WorkspaceLifecycleState::Failed
         );
-        let failure = result.progress.failure.expect("failure should be present");
+        let failure = outcome_workspace(&result)
+            .last_provisioning_failure
+            .clone()
+            .expect("failure should be present");
         assert_eq!(
             failure.code,
             WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized
@@ -821,7 +846,10 @@ mod tests {
             sync_with_worker_error(ProvisionerWorkerError::InvalidPayload).await;
 
         assert_eq!(catalog.updates().len(), 1);
-        let failure = result.progress.failure.expect("failure should be present");
+        let failure = outcome_workspace(&result)
+            .last_provisioning_failure
+            .clone()
+            .expect("failure should be present");
         assert_eq!(
             failure.code,
             WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
@@ -834,7 +862,10 @@ mod tests {
             sync_with_worker_error(ProvisionerWorkerError::DependencyInstallFailed).await;
 
         assert_eq!(catalog.updates().len(), 1);
-        let failure = result.progress.failure.expect("failure should be present");
+        let failure = outcome_workspace(&result)
+            .last_provisioning_failure
+            .clone()
+            .expect("failure should be present");
         assert_eq!(
             failure.code,
             WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
@@ -869,7 +900,7 @@ mod tests {
     async fn sync_with_worker_error(
         error: ProvisionerWorkerError,
     ) -> (
-        WorkspaceProvisioningResult,
+        WorkspaceProvisionerSyncOutcome,
         FakeSecretStore,
         FakeWorkspaceCatalog,
         FakeProvisionerWorkerGateway,
@@ -901,13 +932,13 @@ mod tests {
         assert!(workers.start_calls().is_empty());
         assert_eq!(catalog.updates().len(), 1);
         assert_eq!(
-            result.workspace.lifecycle_state,
+            outcome_workspace(&result).lifecycle_state,
             WorkspaceLifecycleState::Failed
         );
         assert_eq!(
-            result
-                .progress
-                .failure
+            outcome_workspace(&result)
+                .last_provisioning_failure
+                .clone()
                 .expect("failure should be present")
                 .code,
             WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing
@@ -925,13 +956,13 @@ mod tests {
         assert!(workers.start_calls().is_empty());
         assert_eq!(catalog.updates().len(), 1);
         assert_eq!(
-            result.workspace.lifecycle_state,
+            outcome_workspace(&result).lifecycle_state,
             WorkspaceLifecycleState::Failed
         );
         assert_eq!(
-            result
-                .progress
-                .failure
+            outcome_workspace(&result)
+                .last_provisioning_failure
+                .clone()
                 .expect("failure should be present")
                 .code,
             WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenInvalid

@@ -1,6 +1,5 @@
 use crate::{
-    domain::workspace::{provisioning_state::fail_workspace, WorkspaceLifecycleState},
-    secrets::SecretStore,
+    domain::workspace::WorkspaceLifecycleState, secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
     workspace_provisioner::WorkspaceProvisionerService,
@@ -10,7 +9,7 @@ use crate::{
 use super::{
     context::{WorkspaceProvisioningContext, WorkspaceProvisioningResources},
     coordinator::WorkspaceProvisioningCoordinator,
-    failure,
+    failure::{self, fail_workspace},
     helpers::{result, WorkspaceProvisioningResult},
     providers::{WorkspaceProvisioningProviderRegistry, WorkspaceProvisioningProviderResolver},
     WorkspaceProvisioningError,

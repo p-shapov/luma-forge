@@ -1,9 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use crate::{
-    domain::workspace::{
-        provisioning_state::is_workspace_ready, Workspace, WorkspaceLifecycleState,
-    },
+    domain::workspace::{Workspace, WorkspaceLifecycleState},
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
@@ -12,7 +10,10 @@ use crate::{
 use super::WorkspaceProvisioningProvider;
 use crate::workspace_provisioning::{
     context::{SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources},
-    helpers::result,
+    helpers::{
+        progress_from_worker_status, result, result_with_progress, worker_readiness_progress,
+    },
+    readiness::is_workspace_ready,
     WorkspaceProvisioningError,
 };
 
@@ -125,10 +126,28 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    context
+    let Some(outcome) = context
         .workspace_provisioner
         .sync_environment(context.workspace_provisioner_context(), workspace)
-        .await
+        .await?
+    else {
+        return Ok(None);
+    };
+
+    let result = match outcome {
+        crate::workspace_provisioner::WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
+            workspace,
+        ) => result(workspace),
+        crate::workspace_provisioner::WorkspaceProvisionerSyncOutcome::WorkerReadinessLag {
+            workspace,
+        } => result_with_progress(workspace, worker_readiness_progress()),
+        crate::workspace_provisioner::WorkspaceProvisionerSyncOutcome::WorkerStatus {
+            workspace,
+            status,
+        } => result_with_progress(workspace, progress_from_worker_status(&status)),
+    };
+
+    Ok(Some(result))
 }
 
 async fn finish_provisioning_pod<S, W, R, Q>(
