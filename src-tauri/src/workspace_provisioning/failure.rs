@@ -1,9 +1,24 @@
 use super::WorkspaceProvisioningError;
 use crate::domain::workspace::{
-    ProviderResourceStatus, WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
-    WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
-    WorkspaceProvisioningRecoveryAction,
+    ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
+    WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+    WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
 };
+
+pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvisioningFailure) {
+    workspace.lifecycle_state = WorkspaceLifecycleState::Failed;
+    workspace.last_provisioning_failure = Some(failure);
+}
+
+pub(crate) fn legacy_failure() -> WorkspaceProvisioningFailure {
+    WorkspaceProvisioningFailure {
+        code: WorkspaceProvisioningFailureCode::LegacyFailure,
+        phase: WorkspaceProvisioningPhase::Failed,
+        source: WorkspaceProvisioningFailureSource::Native,
+        retryable: false,
+        recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
+    }
+}
 
 pub(crate) fn provider_resource_failure(
     phase: WorkspaceProvisioningPhase,

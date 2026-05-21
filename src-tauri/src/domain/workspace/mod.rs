@@ -5,7 +5,6 @@ use super::{
     runtime::ResolvedRuntimeImageSnapshot,
 };
 
-pub(crate) mod provisioning_state;
 pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

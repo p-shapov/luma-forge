@@ -2,27 +2,49 @@ use crate::{
     domain::{
         placement::PlacementPlan,
         workspace::{
-            provisioning_state::{
-                endpoint_template_matches_workspace, fail_workspace,
-                is_terminal_provider_resource_status, runpod_template_snapshot,
-            },
             ProviderProvisioningSnapshot, ProviderResourceStatus, RunPodEndpointTemplateSnapshot,
             ServerlessEndpointSnapshot, Workspace, WorkspaceProvisioningPhase,
         },
     },
     secrets::SecretStore,
-    workspace_provisioning::{failure, helpers::serverless_endpoint_snapshot},
+    workspace_provisioning::{
+        failure, failure::fail_workspace, helpers::serverless_endpoint_snapshot,
+    },
     workspace_resources::contracts::{
         CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
     },
     workspace_resources::{
-        CreateServerlessEndpointInput, DiscoverServerlessEndpointsInput, WorkspaceResourceError,
+        state::is_terminal_provider_resource_status, CreateServerlessEndpointInput,
+        DiscoverServerlessEndpointsInput, WorkspaceResourceError,
     },
 };
 
 use crate::workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceSyncResult};
 
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
+
+fn runpod_template_snapshot(workspace: &Workspace) -> Option<RunPodEndpointTemplateSnapshot> {
+    match &workspace.provider_provisioning_snapshot {
+        Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot,
+        }) => endpoint_template_snapshot.clone(),
+        None => None,
+    }
+}
+
+fn endpoint_template_matches_workspace(
+    template: &RunPodEndpointTemplateSnapshot,
+    workspace: &Workspace,
+) -> bool {
+    template.provider_resource_status == ProviderResourceStatus::Ready
+        && template.endpoint_worker_image_ref == workspace.resolved_runtime_image.endpoint_image_ref
+        && template.mount_path
+            == workspace
+                .persistent_storage_volume_snapshot
+                .as_ref()
+                .map(|volume| volume.mount_path.clone())
+                .unwrap_or_default()
+}
 
 pub(crate) async fn sync<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,

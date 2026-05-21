@@ -2,15 +2,16 @@ use crate::{
     domain::{
         placement::PlacementPlan,
         workspace::{
-            provisioning_state::{fail_workspace, is_terminal_provider_resource_status},
             ProviderResourceStatus, ProvisioningPodSnapshot, Workspace, WorkspaceProvisioningPhase,
         },
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore},
-    workspace_provisioning::{failure, helpers::observed_provisioning_pod_snapshot},
+    workspace_provisioning::{
+        failure, failure::fail_workspace, helpers::observed_provisioning_pod_snapshot,
+    },
     workspace_resources::{
-        CreateProvisioningPodInput, DiscoverProvisioningPodsInput, ObserveProvisioningPodInput,
-        WorkspaceResourceError,
+        state::is_terminal_provider_resource_status, CreateProvisioningPodInput,
+        DiscoverProvisioningPodsInput, ObserveProvisioningPodInput, WorkspaceResourceError,
     },
 };
 

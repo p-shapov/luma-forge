@@ -5,13 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    domain::{
-        runtime::ResolvedRuntimeImageSnapshot,
-        workflow::WorkflowPreset,
-        workspace::{
-            WorkspaceProvisioningPhase, WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
-        },
-    },
+    domain::{runtime::ResolvedRuntimeImageSnapshot, workflow::WorkflowPreset},
     secrets::ProvisionerWorkerBearerToken,
 };
 
@@ -338,38 +332,6 @@ fn phase_from_response(
     }
 }
 
-pub fn progress_from_worker_status(
-    status: &ProvisionerWorkerStatus,
-) -> WorkspaceProvisioningProgress {
-    WorkspaceProvisioningProgress {
-        status: match status.status {
-            ProvisionerWorkerJobStatus::Idle | ProvisionerWorkerJobStatus::Running => {
-                WorkspaceProvisioningStatus::Running
-            }
-            ProvisionerWorkerJobStatus::Cancelling => WorkspaceProvisioningStatus::Cancelling,
-            ProvisionerWorkerJobStatus::Cancelled => WorkspaceProvisioningStatus::Cancelling,
-            ProvisionerWorkerJobStatus::Succeeded => WorkspaceProvisioningStatus::Running,
-            ProvisionerWorkerJobStatus::Failed => WorkspaceProvisioningStatus::Failed,
-        },
-        phase: match status.phase {
-            ProvisionerWorkerPhase::Idle
-            | ProvisionerWorkerPhase::Starting
-            | ProvisionerWorkerPhase::ResolvingWorkflow
-            | ProvisionerWorkerPhase::ValidatingRuntime
-            | ProvisionerWorkerPhase::InstallingModels
-            | ProvisionerWorkerPhase::InstallingCustomNodes
-            | ProvisionerWorkerPhase::WritingManifest => {
-                WorkspaceProvisioningPhase::PreparingEnvironment
-            }
-            ProvisionerWorkerPhase::Completed => WorkspaceProvisioningPhase::CreatingEndpoint,
-            ProvisionerWorkerPhase::Cancelled => WorkspaceProvisioningPhase::CleaningUp,
-            ProvisionerWorkerPhase::Failed => WorkspaceProvisioningPhase::Failed,
-        },
-        percent: status.progress_percent,
-        failure: None,
-    }
-}
-
 fn terminal_failure_from_worker_error(
     error: ProvisionerWorkerErrorResponse,
 ) -> ProvisionerWorkerError {
@@ -403,7 +365,6 @@ fn known_provisioner_worker_failure_code(value: &str) -> Option<ProvisionerWorke
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::workspace::{WorkspaceProvisioningPhase, WorkspaceProvisioningStatus};
 
     fn response(
         status: Option<&str>,
@@ -512,41 +473,6 @@ mod tests {
         ))
         .expect("manifest phase alias should be valid");
         assert_eq!(manifest.phase, ProvisionerWorkerPhase::WritingManifest);
-    }
-
-    #[test]
-    fn progress_from_worker_status_maps_worker_status_to_workspace_progress() {
-        let running = progress_from_worker_status(&ProvisionerWorkerStatus {
-            status: ProvisionerWorkerJobStatus::Running,
-            phase: ProvisionerWorkerPhase::InstallingCustomNodes,
-            progress_percent: Some(55),
-        });
-        assert_eq!(running.status, WorkspaceProvisioningStatus::Running);
-        assert_eq!(
-            running.phase,
-            WorkspaceProvisioningPhase::PreparingEnvironment
-        );
-        assert_eq!(running.percent, Some(55));
-        assert_eq!(running.failure, None);
-
-        let cancelling = progress_from_worker_status(&ProvisionerWorkerStatus {
-            status: ProvisionerWorkerJobStatus::Cancelling,
-            phase: ProvisionerWorkerPhase::Cancelled,
-            progress_percent: None,
-        });
-        assert_eq!(cancelling.status, WorkspaceProvisioningStatus::Cancelling);
-        assert_eq!(cancelling.phase, WorkspaceProvisioningPhase::CleaningUp);
-
-        let completed = progress_from_worker_status(&ProvisionerWorkerStatus {
-            status: ProvisionerWorkerJobStatus::Succeeded,
-            phase: ProvisionerWorkerPhase::Completed,
-            progress_percent: Some(100),
-        });
-        assert_eq!(completed.status, WorkspaceProvisioningStatus::Running);
-        assert_eq!(
-            completed.phase,
-            WorkspaceProvisioningPhase::CreatingEndpoint
-        );
     }
 
     #[test]

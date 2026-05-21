@@ -4,6 +4,7 @@ mod error;
 mod naming;
 mod providers;
 mod service;
+pub(crate) mod state;
 
 pub(crate) use context::WorkspaceResourceContext;
 pub(crate) use contracts::{
