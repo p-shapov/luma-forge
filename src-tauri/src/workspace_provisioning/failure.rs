@@ -59,7 +59,6 @@ pub(crate) fn missing_provider_resource(
 
 pub(crate) fn orphaned_provider_resources(
     phase: WorkspaceProvisioningPhase,
-    _provider_resource_ids: Vec<String>,
 ) -> WorkspaceProvisioningFailure {
     WorkspaceProvisioningFailure {
         code: WorkspaceProvisioningFailureCode::ProviderOrphanedResources,
