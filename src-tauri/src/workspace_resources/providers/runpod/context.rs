@@ -12,13 +12,15 @@ use crate::{
     },
     secrets::SecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
+    workspace_resources::contracts::{
+        CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
+    },
     workspace_resources::{
-        provider_resource_name, CreateEndpointTemplateInput, CreateNetworkVolumeInput,
-        CreateProvisioningPodInput, CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput,
-        DiscoverNetworkVolumesInput, DiscoverProvisioningPodsInput,
-        DiscoverServerlessEndpointsInput, EndpointTemplateObservation, NetworkVolumeObservation,
-        ObserveProvisioningPodInput, ProvisioningPodObservation, ServerlessEndpointObservation,
-        WorkspaceResourceContext, WorkspaceResourceError,
+        provider_resource_name, CreateNetworkVolumeInput, CreateProvisioningPodInput,
+        CreateServerlessEndpointInput, DiscoverNetworkVolumesInput, DiscoverProvisioningPodsInput,
+        DiscoverServerlessEndpointsInput, NetworkVolumeObservation, ObserveProvisioningPodInput,
+        ProvisioningPodObservation, ServerlessEndpointObservation, WorkspaceResourceContext,
+        WorkspaceResourceError,
     },
 };
 

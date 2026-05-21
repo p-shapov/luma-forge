@@ -99,8 +99,6 @@ pub(crate) fn progress_for_workspace(workspace: &Workspace) -> WorkspaceProvisio
                 || workspace.active_provisioning_pod_snapshot.is_some()
             {
                 WorkspaceProvisioningPhase::PreparingEnvironment
-            } else if runpod_template_snapshot(workspace).is_none() {
-                WorkspaceProvisioningPhase::CreatingEndpointTemplate
             } else if workspace.serverless_endpoint_snapshot.is_none() {
                 WorkspaceProvisioningPhase::CreatingEndpoint
             } else {
@@ -395,7 +393,7 @@ mod tests {
         workspace.active_provisioning_pod_snapshot = None;
         assert_eq!(
             progress_for_workspace(&workspace).phase,
-            WorkspaceProvisioningPhase::CreatingEndpointTemplate
+            WorkspaceProvisioningPhase::CreatingEndpoint
         );
 
         workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {

@@ -28,7 +28,6 @@ mod remote_types {
         CreatingVolume,
         StartingProvisioningPod,
         PreparingEnvironment,
-        CreatingEndpointTemplate,
         CreatingEndpoint,
         ValidatingReadiness,
         CleaningUp,

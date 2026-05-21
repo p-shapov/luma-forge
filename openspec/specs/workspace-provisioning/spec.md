@@ -234,39 +234,41 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **AND** temporary non-JSON proxy or readiness responses before the worker API is ready SHALL be treated as worker readiness lag rather than worker API contract failures
 - **AND** any persisted or returned error metadata SHALL remain UI-safe and secret-safe
 
-### Requirement: Provision RunPod Serverless Template
+### Requirement: Provision RunPod Serverless Endpoint
 
-Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one per-user RunPod serverless template for the Endpoint Worker image from the Workspace's resolved runtime image snapshot and persist its provider-specific template id before creating the Serverless Endpoint, without adopting pre-existing provider templates when local Workspace metadata has no matching snapshot.
+Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one RunPod Serverless Endpoint and the RunPod endpoint template needed to create it, without exposing endpoint template handling as a separate Workspace Provisioning phase or adopting pre-existing provider resources when local Workspace metadata has no matching snapshot.
 
-#### Scenario: Serverless template is created
+#### Scenario: Serverless template is created as endpoint setup
 
 - **WHEN** a provisioning Workspace has a prepared environment, no active provisioning pod, no RunPod endpoint template snapshot, and no RunPod serverless template with the stable Workspace-derived template name
 - **THEN** the Native Layer SHALL create a RunPod serverless template in the user's RunPod account using the immutable Endpoint Worker image ref from the Workspace's resolved runtime image snapshot
 - **AND** the template SHALL use mount path `/workspace`
 - **AND** the Native Layer SHALL persist the RunPod `template_id`, image reference, mount path, and provider status before creating an endpoint from that template
+- **AND** Workspace Provisioning Progress SHALL continue to expose this work as phase `creating_endpoint`
 
-#### Scenario: Same-name template is orphaned before create
+#### Scenario: Same-name template is orphaned before endpoint setup can create it
 
 - **WHEN** a provisioning Workspace has a prepared environment, no active provisioning pod, and no RunPod endpoint template snapshot
 - **AND** provider discovery finds one or more RunPod serverless templates with the stable Workspace-derived template name
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
-- **AND** the Native Layer SHALL persist structured failure detail with code `provider_orphaned_resources`, phase `creating_endpoint_template`, source `provider_resource`, and cleanup-oriented recovery action
+- **AND** the Native Layer SHALL persist structured failure detail with code `provider_orphaned_resources`, phase `creating_endpoint`, source `provider_resource`, and cleanup-oriented recovery action
 - **AND** the Native Layer SHALL retain known volume and template metadata for cleanup or inspection when safely representable
 - **AND** the Native Layer MUST NOT adopt the discovered template
 - **AND** the Native Layer MUST NOT create another RunPod serverless template
 
-#### Scenario: Template snapshot is observed
+#### Scenario: Template snapshot is observed during endpoint setup
 
 - **WHEN** a provisioning Workspace already has a RunPod endpoint template snapshot
 - **THEN** the Native Layer SHALL observe or validate that template before creating or validating the Serverless Endpoint
 - **AND** the Native Layer MUST NOT blindly create a second template
+- **AND** Workspace Provisioning Progress SHALL expose this work as phase `creating_endpoint`
 
-#### Scenario: Template creation result is indeterminate
+#### Scenario: Template creation result is indeterminate during endpoint setup
 
 - **WHEN** a RunPod serverless template creation request times out or returns an indeterminate response before a RunPod endpoint template snapshot is durable
 - **THEN** the Native Layer SHALL inspect durable Workspace metadata and discover provider resources by the stable Workspace-derived template name before retrying creation
-- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_orphaned_resources` when discovery finds one or more same-name templates
-- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_operation_indeterminate` when discovery finds no same-name template
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_orphaned_resources` and phase `creating_endpoint` when discovery finds one or more same-name templates
+- **AND** the Native Layer SHALL mark the Workspace `failed` with code `provider_operation_indeterminate` and phase `creating_endpoint` when discovery finds no same-name template
 - **AND** known volume metadata SHALL be retained for cleanup
 - **AND** the Native Layer MUST NOT retry template creation while the previous create outcome is unresolved
 
@@ -276,18 +278,14 @@ Workspace Provisioning SHALL create, detect orphaned owned resources for, or obs
 - **THEN** the Native Layer SHALL retain the persisted template snapshot
 - **AND** future cleanup SHALL have enough metadata to delete the template even though Workspace Resource Cleanup is out of scope for this change
 
-#### Scenario: Tracked template is missing during refresh
+#### Scenario: Tracked template is missing during endpoint setup refresh
 
 - **WHEN** a provisioning Workspace has a RunPod endpoint template snapshot
 - **AND** provider observation reports that the tracked template no longer exists
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
-- **AND** the Native Layer SHALL persist structured failure detail with code `provider_resource_missing`, phase `creating_endpoint_template`, and source `provider_resource`
+- **AND** the Native Layer SHALL persist structured failure detail with code `provider_resource_missing`, phase `creating_endpoint`, and source `provider_resource`
 - **AND** the Native Layer SHALL retain known volume and template metadata for cleanup or inspection
 - **AND** the Native Layer MUST NOT clear the template snapshot and create another template automatically
-
-### Requirement: Provision RunPod Serverless Endpoint
-
-Workspace Provisioning SHALL create, detect orphaned owned resources for, or observe one RunPod Serverless Endpoint from the persisted per-user template and attach the Workspace network volume, without adopting pre-existing provider endpoints when local Workspace metadata has no matching snapshot.
 
 #### Scenario: Serverless endpoint is created
 
@@ -325,9 +323,10 @@ Workspace Provisioning SHALL create, detect orphaned owned resources for, or obs
 
 #### Scenario: Endpoint setup fails
 
-- **WHEN** endpoint creation, endpoint observation, or endpoint metadata validation fails in a way that prevents safe continuation
+- **WHEN** endpoint template creation, endpoint template observation, endpoint creation, endpoint observation, or endpoint metadata validation fails in a way that prevents safe continuation
 - **THEN** the Native Layer SHALL mark the Workspace `failed`
 - **AND** the Native Layer SHALL retain known volume, template, and endpoint metadata for future cleanup
+- **AND** any persisted failure phase SHALL be `creating_endpoint`
 
 #### Scenario: Tracked endpoint is missing during refresh
 
@@ -835,4 +834,25 @@ Workspace Provisioning SHALL explicitly map `WorkspaceResourceError` categories 
 
 - **WHEN** regression tests exercise representative `WorkspaceResourceError` categories
 - **THEN** each category SHALL assert whether it returns as a command error or persists as Workspace failure
+
+### Requirement: Expose endpoint setup as a single provisioning phase
+Workspace Provisioning SHALL expose endpoint setup through the `creating_endpoint` phase without exposing RunPod endpoint template creation, observation, discovery, or validation as a separate domain, command, frontend, or persisted failure phase.
+
+#### Scenario: Progress reaches endpoint setup before template exists
+- **WHEN** a provisioning Workspace has a prepared environment, no active Provisioning Pod, no RunPod endpoint template snapshot, and no Serverless Endpoint snapshot
+- **THEN** Workspace Provisioning Progress SHALL report status `running`
+- **AND** Workspace Provisioning Progress SHALL report phase `creating_endpoint`
+- **AND** Workspace Provisioning Progress MUST NOT report phase `creating_endpoint_template`
+
+#### Scenario: Template failure is reported as endpoint creation failure
+- **WHEN** RunPod endpoint template creation, observation, discovery, or validation fails in a way that requires persisted Workspace failure metadata
+- **THEN** the Native Layer SHALL persist structured failure detail with phase `creating_endpoint`
+- **AND** the Native Layer MUST NOT persist phase `creating_endpoint_template`
+- **AND** the failure code, source, retryability, recovery action, and known cleanup metadata SHALL preserve the existing recovery semantics for the failed template operation
+
+#### Scenario: Legacy template phase is read
+- **WHEN** Workspace Provisioning reads existing persisted failure metadata whose phase value is `creating_endpoint_template`
+- **THEN** the Native Layer SHALL treat the value as `creating_endpoint`
+- **AND** subsequent command responses and generated frontend bindings MUST NOT expose `creating_endpoint_template`
+- **AND** subsequent writes MUST NOT emit `creating_endpoint_template`
 

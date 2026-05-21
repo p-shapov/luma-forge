@@ -12,9 +12,11 @@ use crate::{
     },
     secrets::SecretStore,
     workspace_provisioning::{failure, helpers::serverless_endpoint_snapshot},
+    workspace_resources::contracts::{
+        CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
+    },
     workspace_resources::{
-        CreateEndpointTemplateInput, CreateServerlessEndpointInput, DiscoverEndpointTemplatesInput,
-        DiscoverServerlessEndpointsInput, EndpointTemplateObservation, WorkspaceResourceError,
+        CreateServerlessEndpointInput, DiscoverServerlessEndpointsInput, WorkspaceResourceError,
     },
 };
 
@@ -117,7 +119,7 @@ where
             return fail_for_orphaned_provider_resources(
                 context,
                 workspace,
-                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                WorkspaceProvisioningPhase::CreatingEndpoint,
             )
             .await;
         }
@@ -142,14 +144,14 @@ where
                     return fail_for_orphaned_provider_resources(
                         context,
                         workspace,
-                        WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                        WorkspaceProvisioningPhase::CreatingEndpoint,
                     )
                     .await;
                 }
                 return fail_for_indeterminate_provider_operation(
                     context,
                     workspace,
-                    WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                    WorkspaceProvisioningPhase::CreatingEndpoint,
                 )
                 .await;
             }
@@ -176,7 +178,7 @@ where
             return fail_for_missing_provider_resource(
                 context,
                 workspace,
-                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+                WorkspaceProvisioningPhase::CreatingEndpoint,
             )
             .await;
         }
@@ -408,7 +410,7 @@ fn fail_if_template_status_is_terminal(workspace: &mut Workspace) {
         .filter(is_terminal_provider_resource_status)
     {
         let failure = failure::provider_resource_failure(
-            WorkspaceProvisioningPhase::CreatingEndpointTemplate,
+            WorkspaceProvisioningPhase::CreatingEndpoint,
             &status,
         );
         fail_workspace(workspace, failure);
@@ -620,7 +622,7 @@ mod tests {
                 .last_provisioning_failure
                 .expect("workspace should fail")
                 .phase,
-            WorkspaceProvisioningPhase::CreatingEndpointTemplate
+            WorkspaceProvisioningPhase::CreatingEndpoint
         );
     }
 
