@@ -1,19 +1,23 @@
 use std::{future::Future, path::Path, pin::Pin};
 
-use sqlx::{
-    sqlite::{SqlitePoolOptions, SqliteRow},
-    Row, SqlitePool,
-};
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool, SqliteTransaction};
 
 use crate::{
     domain::{
-        provider_setup::GpuCloudProviderId,
         workspace::validator as workspace_validator,
-        workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
+        workspace::{Workspace, WorkspaceCatalog},
     },
-    workspace_catalog::{migrations, repository::WorkspaceCatalogRepository},
+    workspace_catalog::{repository::WorkspaceCatalogRepository, schema_bootstrap},
     workspace_setup::error::WorkspaceSetupError,
 };
+
+mod read;
+mod values;
+mod write;
+
+use read::decode_workspace;
+use values::{gpu_cloud_provider_id_value, lifecycle_state_value};
+use write::{delete_workspace_details, persist_workspace_details};
 
 #[derive(Debug, Clone)]
 pub struct SqliteWorkspaceCatalog {
@@ -35,18 +39,18 @@ impl SqliteWorkspaceCatalog {
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
-        catalog.migrate().await?;
+        catalog.bootstrap_schema().await?;
         Ok(catalog)
     }
 
-    async fn migrate(&self) -> Result<(), WorkspaceSetupError> {
+    async fn bootstrap_schema(&self) -> Result<(), WorkspaceSetupError> {
         let mut transaction = self
             .pool
             .begin()
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
-        migrations::run(&mut transaction).await?;
+        schema_bootstrap::bootstrap_and_check(&mut transaction).await?;
 
         transaction
             .commit()
@@ -57,6 +61,24 @@ impl SqliteWorkspaceCatalog {
     }
 
     async fn find_workspace(&self, id: &str) -> Result<Option<Workspace>, WorkspaceSetupError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+        let workspace = Self::find_workspace_in_transaction(&mut transaction, id).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+        Ok(workspace)
+    }
+
+    async fn find_workspace_in_transaction(
+        transaction: &mut SqliteTransaction<'_>,
+        id: &str,
+    ) -> Result<Option<Workspace>, WorkspaceSetupError> {
         let Some(row) = sqlx::query(
             r#"
             SELECT
@@ -64,21 +86,51 @@ impl SqliteWorkspaceCatalog {
                 name,
                 gpu_cloud_provider_id,
                 lifecycle_state,
-                workflow_preset_id,
-                workspace_json
+                environment_prepared_at
             FROM workspaces
             WHERE id = ?
             "#,
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
         else {
             return Ok(None);
         };
 
-        decode_workspace_row(&row).map(Some)
+        decode_workspace(transaction, row).await.map(Some)
+    }
+
+    async fn list_workspaces_in_transaction(
+        transaction: &mut SqliteTransaction<'_>,
+    ) -> Result<WorkspaceCatalog, WorkspaceSetupError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                name,
+                gpu_cloud_provider_id,
+                lifecycle_state,
+                environment_prepared_at
+            FROM workspaces
+            ORDER BY created_at ASC
+            "#,
+        )
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+        let mut workspaces = Vec::with_capacity(rows.len());
+        for row in rows {
+            workspaces.push(decode_workspace(transaction, row).await?);
+        }
+
+        let catalog = WorkspaceCatalog { workspaces };
+        workspace_validator::validate_workspace_catalog(&catalog)
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+
+        Ok(catalog)
     }
 }
 
@@ -88,31 +140,16 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
     ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let rows = sqlx::query(
-                r#"
-                SELECT
-                    id,
-                    name,
-                    gpu_cloud_provider_id,
-                    lifecycle_state,
-                    workflow_preset_id,
-                    workspace_json
-                FROM workspaces
-                ORDER BY created_at ASC
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
-
-            let mut workspaces = Vec::with_capacity(rows.len());
-            for row in rows {
-                workspaces.push(decode_workspace_row(&row)?);
-            }
-
-            let catalog = WorkspaceCatalog { workspaces };
-            workspace_validator::validate_workspace_catalog(&catalog)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+            let mut transaction = self
+                .pool
+                .begin()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            let catalog = Self::list_workspaces_in_transaction(&mut transaction).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
             Ok(catalog)
         })
@@ -140,9 +177,11 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             let now = time::OffsetDateTime::now_utc()
                 .format(&time::format_description::well_known::Rfc3339)
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
-            let workspace_json = serde_json::to_string(workspace)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
-            let lifecycle_state = lifecycle_state_value(&workspace.lifecycle_state);
+            let mut transaction = self
+                .pool
+                .begin()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
             sqlx::query(
                 r#"
@@ -151,11 +190,10 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                     name,
                     gpu_cloud_provider_id,
                     lifecycle_state,
-                    workflow_preset_id,
                     created_at,
                     updated_at,
-                    workspace_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    environment_prepared_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 "#,
             )
             .bind(&workspace.id)
@@ -163,12 +201,11 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             .bind(gpu_cloud_provider_id_value(
                 &workspace.gpu_cloud_provider_id,
             ))
-            .bind(lifecycle_state)
-            .bind(&workspace.placement_plan.selected_workflow_preset().id)
+            .bind(lifecycle_state_value(&workspace.lifecycle_state))
             .bind(&now)
             .bind(&now)
-            .bind(workspace_json)
-            .execute(&self.pool)
+            .bind(&workspace.environment_prepared_at)
+            .execute(&mut *transaction)
             .await
             .map_err(|error| {
                 if is_unique_constraint(&error) {
@@ -177,6 +214,12 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                     WorkspaceSetupError::WorkspaceCatalogQueryFailed
                 }
             })?;
+
+            persist_workspace_details(&mut transaction, workspace).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
             self.find_workspace(&workspace.id)
                 .await?
@@ -201,9 +244,6 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             let now = time::OffsetDateTime::now_utc()
                 .format(&time::format_description::well_known::Rfc3339)
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
-            let workspace_json = serde_json::to_string(workspace)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
-            let lifecycle_state = lifecycle_state_value(&workspace.lifecycle_state);
 
             let result = sqlx::query(
                 r#"
@@ -212,9 +252,8 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                     name = ?,
                     gpu_cloud_provider_id = ?,
                     lifecycle_state = ?,
-                    workflow_preset_id = ?,
                     updated_at = ?,
-                    workspace_json = ?
+                    environment_prepared_at = ?
                 WHERE id = ?
                 "#,
             )
@@ -222,10 +261,9 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
             .bind(gpu_cloud_provider_id_value(
                 &workspace.gpu_cloud_provider_id,
             ))
-            .bind(lifecycle_state)
-            .bind(&workspace.placement_plan.selected_workflow_preset().id)
+            .bind(lifecycle_state_value(&workspace.lifecycle_state))
             .bind(&now)
-            .bind(workspace_json)
+            .bind(&workspace.environment_prepared_at)
             .bind(&workspace.id)
             .execute(&mut *transaction)
             .await
@@ -239,94 +277,18 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 return Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed);
             }
 
-            let row = sqlx::query(
-                r#"
-                SELECT
-                    id,
-                    name,
-                    gpu_cloud_provider_id,
-                    lifecycle_state,
-                    workflow_preset_id,
-                    workspace_json
-                FROM workspaces
-                WHERE id = ?
-                "#,
-            )
-            .bind(&workspace.id)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
-            let updated = decode_workspace_row(&row)?;
-
+            delete_workspace_details(&mut transaction, &workspace.id).await?;
+            persist_workspace_details(&mut transaction, workspace).await?;
             transaction
                 .commit()
                 .await
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
-            Ok(updated)
+            self.find_workspace(&workspace.id)
+                .await?
+                .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
         })
     }
-}
-
-fn gpu_cloud_provider_id_value(provider_id: &GpuCloudProviderId) -> &'static str {
-    match provider_id {
-        GpuCloudProviderId::Runpod => "runpod",
-    }
-}
-
-fn lifecycle_state_value(lifecycle_state: &WorkspaceLifecycleState) -> &'static str {
-    match lifecycle_state {
-        WorkspaceLifecycleState::Draft => "draft",
-        WorkspaceLifecycleState::Provisioning => "provisioning",
-        WorkspaceLifecycleState::Ready => "ready",
-        WorkspaceLifecycleState::Failed => "failed",
-    }
-}
-
-pub(super) fn decode_workspace_row(row: &SqliteRow) -> Result<Workspace, WorkspaceSetupError> {
-    let workspace_json: String = row
-        .try_get("workspace_json")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
-    let workspace: Workspace = serde_json::from_str(&workspace_json)
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
-
-    workspace_validator::validate_workspace(&workspace)
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
-    validate_workspace_row(row, &workspace)?;
-
-    Ok(workspace)
-}
-
-pub(super) fn validate_workspace_row(
-    row: &SqliteRow,
-    workspace: &Workspace,
-) -> Result<(), WorkspaceSetupError> {
-    let id: String = row
-        .try_get("id")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
-    let name: String = row
-        .try_get("name")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
-    let gpu_cloud_provider_id: String = row
-        .try_get("gpu_cloud_provider_id")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
-    let lifecycle_state: String = row
-        .try_get("lifecycle_state")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
-    let workflow_preset_id: String = row
-        .try_get("workflow_preset_id")
-        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
-
-    if id != workspace.id
-        || name != workspace.name
-        || gpu_cloud_provider_id != gpu_cloud_provider_id_value(&workspace.gpu_cloud_provider_id)
-        || lifecycle_state != lifecycle_state_value(&workspace.lifecycle_state)
-        || workflow_preset_id != workspace.placement_plan.selected_workflow_preset().id
-    {
-        return Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch);
-    }
-
-    Ok(())
 }
 
 fn is_unique_constraint(error: &sqlx::Error) -> bool {
@@ -334,21 +296,51 @@ fn is_unique_constraint(error: &sqlx::Error) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{
-        placement::PlacementPlan,
-        runtime::ResolvedRuntimeImageSnapshot,
-        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
-        workspace::{
-            PersistentStorageVolumeSnapshot, ProviderResourceStatus, WorkspaceLifecycleState,
+mod test_fixtures {
+    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+
+    use crate::{
+        domain::{
+            placement::PlacementPlan,
+            provider_setup::GpuCloudProviderId,
+            runtime::ResolvedRuntimeImageSnapshot,
+            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workspace::{
+                PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot,
+                ProviderResourceStatus, ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot,
+                ServerlessEndpointSnapshot, Workspace, WorkspaceLifecycleState,
+                WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
+                WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
+                WorkspaceProvisioningRecoveryAction,
+            },
         },
+        workspace_catalog::schema_bootstrap,
     };
 
     const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-    fn catalog_path(name: &str) -> std::path::PathBuf {
+    pub(super) async fn bootstrapped_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory database");
+        let mut transaction = pool
+            .begin()
+            .await
+            .expect("begin schema bootstrap transaction");
+        schema_bootstrap::bootstrap_and_check(&mut transaction)
+            .await
+            .expect("bootstrap schema");
+        transaction
+            .commit()
+            .await
+            .expect("commit schema bootstrap transaction");
+        pool
+    }
+
+    pub(super) fn catalog_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir()
             .join("luma-forge-workspace-catalog-tests")
             .join(format!("{name}-{}.sqlite", uuid::Uuid::new_v4()))
@@ -389,7 +381,7 @@ mod tests {
         }
     }
 
-    fn draft_workspace(id: &str, name: &str, workflow_preset_id: &str) -> Workspace {
+    pub(super) fn draft_workspace(id: &str, name: &str, workflow_preset_id: &str) -> Workspace {
         Workspace::new_draft(
             GpuCloudProviderId::Runpod,
             id.to_string(),
@@ -400,7 +392,7 @@ mod tests {
         .expect("valid draft workspace")
     }
 
-    fn volume(status: ProviderResourceStatus) -> PersistentStorageVolumeSnapshot {
+    pub(super) fn volume(status: ProviderResourceStatus) -> PersistentStorageVolumeSnapshot {
         PersistentStorageVolumeSnapshot {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             provider_resource_id: "volume-id".to_string(),
@@ -409,78 +401,92 @@ mod tests {
         }
     }
 
-    async fn insert_workspace_row(
-        catalog: &SqliteWorkspaceCatalog,
-        workspace: &Workspace,
-        workspace_json: String,
-    ) {
-        sqlx::query(
-            r#"
-            INSERT INTO workspaces (
-                id,
-                name,
-                gpu_cloud_provider_id,
-                lifecycle_state,
-                workflow_preset_id,
-                created_at,
-                updated_at,
-                workspace_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(&workspace.id)
-        .bind(&workspace.name)
-        .bind(gpu_cloud_provider_id_value(
-            &workspace.gpu_cloud_provider_id,
-        ))
-        .bind(lifecycle_state_value(&workspace.lifecycle_state))
-        .bind(&workspace.placement_plan.selected_workflow_preset().id)
-        .bind("2026-05-18T00:00:00Z")
-        .bind("2026-05-18T00:00:00Z")
-        .bind(workspace_json)
-        .execute(&catalog.pool)
-        .await
-        .expect("insert workspace row");
+    fn pod(status: ProviderResourceStatus) -> ProvisioningPodSnapshot {
+        ProvisioningPodSnapshot {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            provider_resource_id: "pod-id".to_string(),
+            provider_resource_status: status,
+            provisioner_status_url: "https://worker.example/status".to_string(),
+        }
     }
 
+    fn endpoint(status: ProviderResourceStatus) -> ServerlessEndpointSnapshot {
+        ServerlessEndpointSnapshot {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            provider_resource_id: "endpoint-id".to_string(),
+            provider_resource_status: status,
+            endpoint_invoke_url: "https://endpoint.example/run".to_string(),
+        }
+    }
+
+    fn template(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
+        RunPodEndpointTemplateSnapshot {
+            template_id: "template-id".to_string(),
+            provider_resource_status: status,
+            endpoint_worker_image_ref: runtime_snapshot().endpoint_image_ref,
+            mount_path: "/workspace".to_string(),
+        }
+    }
+
+    fn failure() -> WorkspaceProvisioningFailure {
+        WorkspaceProvisioningFailure {
+            code: WorkspaceProvisioningFailureCode::ReadinessValidationFailed,
+            phase: WorkspaceProvisioningPhase::ValidatingReadiness,
+            source: WorkspaceProvisioningFailureSource::Native,
+            retryable: true,
+            recovery_action: WorkspaceProvisioningRecoveryAction::Retry,
+            diagnostic: Some("readiness check failed".to_string()),
+        }
+    }
+
+    fn provisioning_workspace() -> Workspace {
+        let mut workspace = draft_workspace("workspace-provisioning", "Provisioning", "preset-a");
+        workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        workspace.active_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Running));
+        workspace
+    }
+
+    pub(super) fn ready_workspace() -> Workspace {
+        let mut workspace = draft_workspace("workspace-ready", "Ready", "preset-a");
+        workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
+            endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
+        });
+        workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Running));
+        workspace.last_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Terminated));
+        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
+        workspace
+    }
+
+    pub(super) fn provisioning_ready_and_failed_workspaces() -> [Workspace; 3] {
+        let mut failed = provisioning_workspace();
+        failed.id = "workspace-failed".to_string();
+        failed.name = "Failed".to_string();
+        failed.lifecycle_state = WorkspaceLifecycleState::Failed;
+        failed.last_provisioning_failure = Some(failure());
+
+        [provisioning_workspace(), ready_workspace(), failed]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        domain::workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
+        workspace_catalog::repository::WorkspaceCatalogRepository,
+        workspace_setup::error::WorkspaceSetupError,
+    };
+    use sqlx::Row;
+    use test_fixtures::{catalog_path, draft_workspace, volume};
+
     #[tokio::test]
-    async fn connect_migrates_new_database_and_lists_empty_catalog() {
+    async fn connect_lists_empty_catalog() {
         let catalog = SqliteWorkspaceCatalog::connect(catalog_path("empty"))
             .await
             .expect("connect catalog");
-
-        let version: String = sqlx::query(
-            r#"
-            SELECT value
-            FROM workspace_catalog_metadata
-            WHERE key = ?
-            "#,
-        )
-        .bind(migrations::PERSISTENCE_VERSION_KEY)
-        .fetch_one(&catalog.pool)
-        .await
-        .expect("read persistence version")
-        .try_get("value")
-        .expect("version value");
-        assert_eq!(version, migrations::CURRENT_PERSISTENCE_VERSION.to_string());
-
-        let index_count: i64 = sqlx::query(
-            r#"
-            SELECT COUNT(*) AS count
-            FROM sqlite_master
-            WHERE type = 'index'
-                AND name IN (
-                    'idx_workspaces_lifecycle_state',
-                    'idx_workspaces_workflow_preset_id'
-                )
-            "#,
-        )
-        .fetch_one(&catalog.pool)
-        .await
-        .expect("read indexes")
-        .try_get("count")
-        .expect("index count");
-        assert_eq!(index_count, 2);
 
         let listed = catalog.list_workspaces().await.expect("list workspaces");
         assert!(listed.workspaces.is_empty());
@@ -592,7 +598,9 @@ mod tests {
 
         workspace.name = "Updated Workspace".to_string();
         workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
-        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        workspace.persistent_storage_volume_snapshot = Some(volume(
+            crate::domain::workspace::ProviderResourceStatus::Ready,
+        ));
         let updated = catalog
             .update_workspace(&workspace)
             .await
@@ -601,9 +609,14 @@ mod tests {
 
         let row = sqlx::query(
             r#"
-            SELECT name, lifecycle_state, workflow_preset_id
+            SELECT
+                workspaces.name,
+                workspaces.lifecycle_state,
+                workspace_runpod_placements.selected_workflow_preset_id
             FROM workspaces
-            WHERE id = ?
+            JOIN workspace_runpod_placements
+                ON workspace_runpod_placements.workspace_id = workspaces.id
+            WHERE workspaces.id = ?
             "#,
         )
         .bind("workspace-a")
@@ -613,7 +626,7 @@ mod tests {
         let name: String = row.try_get("name").expect("name");
         let lifecycle_state: String = row.try_get("lifecycle_state").expect("lifecycle_state");
         let workflow_preset_id: String = row
-            .try_get("workflow_preset_id")
+            .try_get("selected_workflow_preset_id")
             .expect("workflow_preset_id");
         assert_eq!(name, "Updated Workspace");
         assert_eq!(lifecycle_state, "provisioning");
@@ -647,49 +660,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn find_and_list_report_corrupt_workspace_json() {
-        let catalog = SqliteWorkspaceCatalog::connect(catalog_path("corrupt-json"))
-            .await
-            .expect("connect catalog");
-        let workspace = draft_workspace("workspace-a", "Workspace A", "preset-a");
-        insert_workspace_row(&catalog, &workspace, "{not valid json".to_string()).await;
-
-        assert_eq!(
-            catalog.find_workspace_by_id("workspace-a").await,
-            Err(WorkspaceSetupError::WorkspaceCatalogCorrupt)
-        );
-        assert_eq!(
-            catalog.list_workspaces().await,
-            Err(WorkspaceSetupError::WorkspaceCatalogCorrupt)
-        );
-    }
-
-    #[tokio::test]
-    async fn find_and_list_report_schema_mismatch_between_columns_and_json() {
-        let catalog = SqliteWorkspaceCatalog::connect(catalog_path("schema-mismatch"))
-            .await
-            .expect("connect catalog");
-        let workspace = draft_workspace("workspace-a", "Workspace A", "preset-a");
-        let workspace_json = serde_json::to_string(&workspace).expect("serialize workspace");
-        insert_workspace_row(&catalog, &workspace, workspace_json).await;
-        sqlx::query("UPDATE workspaces SET lifecycle_state = ? WHERE id = ?")
-            .bind("ready")
-            .bind("workspace-a")
-            .execute(&catalog.pool)
-            .await
-            .expect("corrupt lifecycle column");
-
-        assert_eq!(
-            catalog.find_workspace_by_id("workspace-a").await,
-            Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)
-        );
-        assert_eq!(
-            catalog.list_workspaces().await,
-            Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)
-        );
-    }
-
-    #[tokio::test]
     async fn list_orders_workspaces_by_created_at() {
         let catalog = SqliteWorkspaceCatalog::connect(catalog_path("ordering"))
             .await
@@ -719,31 +689,5 @@ mod tests {
 
         let listed = catalog.list_workspaces().await.expect("list workspaces");
         assert_eq!(listed.workspaces, vec![second_inserted, first_inserted]);
-    }
-
-    #[tokio::test]
-    async fn migration_rejects_database_newer_than_current_version() {
-        let path = catalog_path("future-version");
-        let catalog = SqliteWorkspaceCatalog::connect(&path)
-            .await
-            .expect("connect catalog");
-        sqlx::query(
-            r#"
-            UPDATE workspace_catalog_metadata
-            SET value = ?
-            WHERE key = ?
-            "#,
-        )
-        .bind((migrations::CURRENT_PERSISTENCE_VERSION + 1).to_string())
-        .bind(migrations::PERSISTENCE_VERSION_KEY)
-        .execute(&catalog.pool)
-        .await
-        .expect("set future persistence version");
-        catalog.pool.close().await;
-
-        let error = SqliteWorkspaceCatalog::connect(&path)
-            .await
-            .expect_err("future persistence version should fail migration");
-        assert_eq!(error, WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     }
 }
