@@ -109,11 +109,6 @@ pub(crate) fn provisioning_error(
             WorkspaceProvisioningFailureSource::Provider,
             WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
         ),
-        WorkspaceProvisioningError::SecureKeyringUnavailable => (
-            WorkspaceProvisioningFailureCode::SecureKeyringUnavailable,
-            WorkspaceProvisioningFailureSource::Native,
-            WorkspaceProvisioningRecoveryAction::Retry,
-        ),
         WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid => (
             WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenInvalid,
             WorkspaceProvisioningFailureSource::Native,
@@ -124,11 +119,6 @@ pub(crate) fn provisioning_error(
             WorkspaceProvisioningFailureSource::ProvisionerWorker,
             WorkspaceProvisioningRecoveryAction::Retry,
         ),
-        WorkspaceProvisioningError::ProvisionerWorkerConflict => (
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerConflict,
-            WorkspaceProvisioningFailureSource::ProvisionerWorker,
-            WorkspaceProvisioningRecoveryAction::Retry,
-        ),
         WorkspaceProvisioningError::WorkspaceNotFound
         | WorkspaceProvisioningError::InvalidWorkspaceLifecycle
         | WorkspaceProvisioningError::WorkspaceCatalogUnavailable
@@ -136,7 +126,9 @@ pub(crate) fn provisioning_error(
         | WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
         | WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
         | WorkspaceProvisioningError::WorkspaceCatalogCorrupt
-        | WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch => return None,
+        | WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch
+        | WorkspaceProvisioningError::SecureKeyringUnavailable
+        | WorkspaceProvisioningError::ProvisionerWorkerConflict => return None,
         error => return worker_failure(phase, error),
     };
 

@@ -231,12 +231,21 @@ mod tests {
     #[derive(Debug, Clone, Default)]
     struct FakeProvisioningProvider {
         calls: Arc<Mutex<Vec<&'static str>>>,
+        sync_result:
+            Arc<Mutex<Option<Result<WorkspaceProvisioningResult, WorkspaceProvisioningError>>>>,
         cancel_result: Arc<Mutex<Option<Result<Workspace, WorkspaceProvisioningError>>>>,
     }
 
     impl FakeProvisioningProvider {
         fn calls(&self) -> Vec<&'static str> {
             self.calls.lock().expect("fake provider calls").clone()
+        }
+
+        fn push_sync_result(
+            &self,
+            result: Result<WorkspaceProvisioningResult, WorkspaceProvisioningError>,
+        ) {
+            *self.sync_result.lock().expect("fake sync result") = Some(result);
         }
 
         fn push_cancel_result(&self, result: Result<Workspace, WorkspaceProvisioningError>) {
@@ -265,7 +274,12 @@ mod tests {
         ) -> Pin<Box<dyn Future<Output = SyncStepResult> + Send + 'a>> {
             Box::pin(async move {
                 self.calls.lock().expect("fake provider calls").push("sync");
-                Ok(Some(result(workspace.clone())))
+                self.sync_result
+                    .lock()
+                    .expect("fake sync result")
+                    .take()
+                    .transpose()
+                    .map(|sync_result| sync_result.or_else(|| Some(result(workspace.clone()))))
             })
         }
 
@@ -625,6 +639,52 @@ mod tests {
                 WorkspaceLifecycleState::Failed
             );
         }
+    }
+
+    #[tokio::test]
+    async fn sync_secure_keyring_unavailable_remains_command_level_error() {
+        let provider = FakeProvisioningProvider::default();
+        provider.push_sync_result(Err(WorkspaceProvisioningError::SecureKeyringUnavailable));
+        let (service, catalog, _) = service_with_provider(provisioning_workspace(), provider);
+
+        let error = service
+            .sync("workspace-1")
+            .await
+            .expect_err("keyring outage should remain a command-level error");
+
+        assert_eq!(error, WorkspaceProvisioningError::SecureKeyringUnavailable);
+        assert!(catalog.updates().is_empty());
+        let workspace = catalog
+            .stored_workspace()
+            .expect("workspace should remain stored");
+        assert_eq!(
+            workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+        assert!(workspace.last_provisioning_failure.is_none());
+    }
+
+    #[tokio::test]
+    async fn sync_worker_conflict_remains_command_level_error() {
+        let provider = FakeProvisioningProvider::default();
+        provider.push_sync_result(Err(WorkspaceProvisioningError::ProvisionerWorkerConflict));
+        let (service, catalog, _) = service_with_provider(provisioning_workspace(), provider);
+
+        let error = service
+            .sync("workspace-1")
+            .await
+            .expect_err("worker conflict should remain a command-level error");
+
+        assert_eq!(error, WorkspaceProvisioningError::ProvisionerWorkerConflict);
+        assert!(catalog.updates().is_empty());
+        let workspace = catalog
+            .stored_workspace()
+            .expect("workspace should remain stored");
+        assert_eq!(
+            workspace.lifecycle_state,
+            WorkspaceLifecycleState::Provisioning
+        );
+        assert!(workspace.last_provisioning_failure.is_none());
     }
 
     #[tokio::test]

@@ -313,22 +313,19 @@ export function HomePage() {
 
   const workflowPresets = workflowCatalog?.workflow_presets ?? [];
   const datacenters = providerInventory?.datacenters ?? [];
-  const availableDatacenters = datacenters.filter(datacenter =>
-    datacenter.gpu_options.some(isGpuAvailable),
-  );
   const workspaces = workspaceCatalog?.workspaces ?? [];
   const selectedWorkflowPreset = workflowPresets.find(({ id }) => id === workflowPresetId)
     ?? workflowPresets[0];
-  const selectedDatacenter = availableDatacenters.find(({ id }) => id === datacenterId)
-    ?? availableDatacenters[0];
-  const availableGpuOptions = selectedDatacenter?.gpu_options.filter(isGpuAvailable) ?? [];
-  const selectedGpu = availableGpuOptions.find(({ id }) => id === gpuId)
-    ?? availableGpuOptions[0];
+  const selectedDatacenter = datacenters.find(({ id }) => id === datacenterId)
+    ?? datacenters[0];
+  const gpuOptions = selectedDatacenter?.gpu_options ?? [];
+  const selectedGpu = gpuOptions.find(({ id }) => id === gpuId)
+    ?? gpuOptions[0];
   const selectedGpuAvailable = isGpuAvailable(selectedGpu);
   const placementOptionsLoaded = providerInventory !== null;
   const noGpuAvailable = placementOptionsLoaded
     && datacenters.length > 0
-    && availableDatacenters.length === 0;
+    && !datacenters.some(datacenter => datacenter.gpu_options.some(isGpuAvailable));
   const keepAliveRange = endpointKeepAliveRange(providerPlacementCapabilities);
   const selectedEndpointKeepAliveSeconds = clampNumber(
     endpointKeepAliveSeconds,
@@ -350,13 +347,28 @@ export function HomePage() {
     + Math.round(selectedAdditionalStorageSizeGb * GIB);
   const requestedStorageSizeGb = Math.ceil(requestedStorageSizeBytes / GIB);
 
+  const canCreateWorkspace = Boolean(
+    workspaceName.trim().length > 0
+    && selectedWorkflowPreset !== undefined
+    && selectedDatacenter !== undefined
+    && selectedGpu !== undefined
+    && selectedGpuAvailable
+    && selectedAdditionalStorageSizeGb >= 0
+    && requestedStorageSizeBytes >= requiredBaseStorageSizeBytes
+    && requestedStorageSizeGb <= maxTotalStorageSizeGb
+    && keepAliveRange.supported
+    && selectedEndpointKeepAliveSeconds >= keepAliveRange.minSeconds
+    && selectedEndpointKeepAliveSeconds <= keepAliveRange.maxSeconds,
+  );
   const selectedProvisioningWorkspaceId = provisioningWorkspaceId || workspaces[0]?.id || "";
+  const canRunProvisioningCommand = selectedProvisioningWorkspaceId.trim().length > 0;
   const selectedProvisioningWorkspace = workspaces.find(({ id }) => id === selectedProvisioningWorkspaceId);
   const selectedProvisioningGpu = workspacePlacementGpu(providerInventory, selectedProvisioningWorkspace);
   const selectedProvisioningPlacementChecked = providerInventory !== null
     && selectedProvisioningWorkspace !== undefined;
   const selectedProvisioningGpuUnavailable = selectedProvisioningPlacementChecked
     && !isGpuAvailable(selectedProvisioningGpu);
+  const canStartProvisioningCommand = canRunProvisioningCommand && !selectedProvisioningGpuUnavailable;
   const selectedProvisioningProgress = provisioningProgressByWorkspaceId[selectedProvisioningWorkspaceId];
   const selectedProvisioningFailureText = provisioningFailureText(
     selectedProvisioningProgress?.failure ?? selectedProvisioningWorkspace?.last_provisioning_failure ?? null,
@@ -913,18 +925,18 @@ export function HomePage() {
                         id="datacenter"
                         className="w-full"
                         value={selectedDatacenter?.id ?? ""}
-                        disabled={availableDatacenters.length === 0 || pendingCommand !== null}
+                        disabled={datacenters.length === 0 || pendingCommand !== null}
                         onChange={(event) => {
                           setDatacenterId(event.target.value);
                           setGpuId("");
                         }}
                       >
-                        {availableDatacenters.length === 0 && (
+                        {datacenters.length === 0 && (
                           <NativeSelectOption value="">
                             {placementOptionsLoaded ? "No available datacenters" : "Load placement options first"}
                           </NativeSelectOption>
                         )}
-                        {availableDatacenters.map(datacenter => (
+                        {datacenters.map(datacenter => (
                           <NativeSelectOption key={datacenter.id} value={datacenter.id}>
                             {datacenter.name}
                           </NativeSelectOption>
@@ -937,15 +949,15 @@ export function HomePage() {
                         id="gpu"
                         className="w-full"
                         value={selectedGpu?.id ?? ""}
-                        disabled={availableGpuOptions.length === 0 || pendingCommand !== null}
+                        disabled={gpuOptions.length === 0 || pendingCommand !== null}
                         onChange={event => setGpuId(event.target.value)}
                       >
-                        {availableGpuOptions.length === 0 && (
+                        {gpuOptions.length === 0 && (
                           <NativeSelectOption value="">
                             {placementOptionsLoaded ? "No available GPUs" : "Load placement options first"}
                           </NativeSelectOption>
                         )}
-                        {availableGpuOptions.map(gpu => (
+                        {gpuOptions.map(gpu => (
                           <NativeSelectOption key={gpu.id} value={gpu.id}>
                             {gpuOptionLabel(gpu)}
                           </NativeSelectOption>
@@ -977,7 +989,7 @@ export function HomePage() {
                     </FieldError>
                   )}
 
-                  <Button disabled={pendingCommand !== null} onClick={createWorkspace}>
+                  <Button disabled={!canCreateWorkspace || pendingCommand !== null} onClick={createWorkspace}>
                     <HugeiconsIcon icon={Add01Icon} strokeWidth={2} data-icon="inline-start" />
                     Create workspace
                   </Button>
@@ -1092,7 +1104,7 @@ export function HomePage() {
 
                   <div className="flex flex-wrap gap-3">
                     <Button
-                      disabled={pendingCommand !== null}
+                      disabled={!canStartProvisioningCommand || pendingCommand !== null}
                       onClick={() => runProvisioningCommand("initiateWorkspaceProvisioning")}
                     >
                       <HugeiconsIcon icon={PlayIcon} strokeWidth={2} data-icon="inline-start" />
@@ -1100,7 +1112,7 @@ export function HomePage() {
                     </Button>
                     <Button
                       variant="outline"
-                      disabled={pendingCommand !== null}
+                      disabled={!canRunProvisioningCommand || pendingCommand !== null}
                       onClick={() => runProvisioningCommand("syncWorkspaceProvisioning")}
                     >
                       <HugeiconsIcon icon={RefreshIcon} strokeWidth={2} data-icon="inline-start" />
@@ -1108,7 +1120,7 @@ export function HomePage() {
                     </Button>
                     <Button
                       variant="destructive"
-                      disabled={pendingCommand !== null}
+                      disabled={!canRunProvisioningCommand || pendingCommand !== null}
                       onClick={() => runProvisioningCommand("cancelWorkspaceProvisioning")}
                     >
                       <HugeiconsIcon icon={StopIcon} strokeWidth={2} data-icon="inline-start" />
