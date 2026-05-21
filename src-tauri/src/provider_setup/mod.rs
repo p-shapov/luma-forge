@@ -10,7 +10,7 @@ use crate::{
         self, GpuCloudProviderId as DomainGpuCloudProviderId,
         GpuCloudProviderSetup as DomainGpuCloudProviderSetup, ProviderApiKey, ProviderIdentity,
     },
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
 };
 
 pub use providers::{
@@ -39,14 +39,14 @@ impl<S, R> ProviderSetupService<S, R> {
 
 impl<S, R> ProviderSetupService<S, R>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     R: ProviderSetupProviderResolver,
 {
     pub async fn get_setup(
         &self,
         provider_id: DomainGpuCloudProviderId,
     ) -> Result<Option<DomainGpuCloudProviderSetup>, ProviderSetupError> {
-        let Some(api_key) = self.secrets.read_api_key(&provider_id)? else {
+        let Some(api_key) = self.secrets.read_api_key(&provider_id).await? else {
             return Ok(None);
         };
 
@@ -60,7 +60,7 @@ where
         provider_id: DomainGpuCloudProviderId,
         api_key: ProviderApiKey,
     ) -> Result<DomainGpuCloudProviderSetup, ProviderSetupError> {
-        if self.secrets.read_api_key(&provider_id)?.is_some() {
+        if self.secrets.read_api_key(&provider_id).await?.is_some() {
             return Err(ProviderSetupError::ProviderSetupAlreadyExists);
         }
 
@@ -68,25 +68,25 @@ where
             .for_provider(&provider_id)
             .validate_identity(&api_key)
             .await?;
-        self.secrets.replace_api_key(&provider_id, &api_key)?;
+        self.secrets.replace_api_key(&provider_id, &api_key).await?;
 
         let setup = match self.finalize_setup_from_stored_key(&provider_id).await {
             Ok(setup) => setup,
-            Err(error) => return Err(self.rollback_failed_setup(&provider_id, error)),
+            Err(error) => return Err(self.rollback_failed_setup(&provider_id, error).await),
         };
 
         Ok(setup)
     }
 
-    pub fn delete_setup(
+    pub async fn delete_setup(
         &self,
         provider_id: DomainGpuCloudProviderId,
     ) -> Result<(), ProviderSetupError> {
-        if !self.secrets.has_api_key_entry(&provider_id)? {
+        if !self.secrets.has_api_key_entry(&provider_id).await? {
             return Err(ProviderSetupError::ProviderSetupNotFound);
         }
 
-        self.secrets.delete_api_key(&provider_id)?;
+        self.secrets.delete_api_key(&provider_id).await?;
 
         Ok(())
     }
@@ -97,18 +97,19 @@ where
     ) -> Result<DomainGpuCloudProviderSetup, ProviderSetupError> {
         let stored_api_key = self
             .secrets
-            .read_api_key(provider_id)?
+            .read_api_key(provider_id)
+            .await?
             .ok_or(ProviderSetupError::SecureKeyringUnavailable)?;
 
         self.setup_from_key(provider_id, &stored_api_key).await
     }
 
-    fn rollback_failed_setup(
+    async fn rollback_failed_setup(
         &self,
         provider_id: &DomainGpuCloudProviderId,
         finalization_error: ProviderSetupError,
     ) -> ProviderSetupError {
-        match self.secrets.delete_api_key(provider_id) {
+        match self.secrets.delete_api_key(provider_id).await {
             Ok(()) => finalization_error,
             Err(_) => ProviderSetupError::ProviderSetupRecoveryRequired,
         }
@@ -148,7 +149,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secrets::{ProvisionerWorkerBearerToken, SecretStoreError};
+    use crate::secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError};
     use std::{
         collections::VecDeque,
         future::Future,
@@ -618,13 +619,14 @@ mod tests {
         assert_eq!(secrets.stored_key(), Some("rp_key_secret".to_string()));
     }
 
-    #[test]
-    fn delete_setup_removes_existing_or_corrupt_local_entry_without_reading_provider_key() {
+    #[tokio::test]
+    async fn delete_setup_removes_existing_or_corrupt_local_entry_without_reading_provider_key() {
         let secrets = FakeSecretStore::with_api_key(" \t");
         let registry = FakeProviderSetupRegistry::with_results([]);
 
         service(secrets.clone(), registry)
             .delete_setup(DomainGpuCloudProviderId::Runpod)
+            .await
             .expect("delete should succeed");
 
         assert_eq!(secrets.stored_key(), None);
@@ -637,13 +639,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn delete_setup_reports_missing_setup() {
+    #[tokio::test]
+    async fn delete_setup_reports_missing_setup() {
         let secrets = FakeSecretStore::default();
         let registry = FakeProviderSetupRegistry::with_results([]);
 
-        let result =
-            service(secrets.clone(), registry).delete_setup(DomainGpuCloudProviderId::Runpod);
+        let result = service(secrets.clone(), registry)
+            .delete_setup(DomainGpuCloudProviderId::Runpod)
+            .await;
 
         assert_eq!(result, Err(ProviderSetupError::ProviderSetupNotFound));
         assert_eq!(secrets.calls(), vec![SecretStoreCall::HasApiKeyEntry]);

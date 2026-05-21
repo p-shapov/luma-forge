@@ -1,5 +1,5 @@
 use crate::{
-    domain::workspace::WorkspaceLifecycleState, secrets::SecretStore,
+    domain::workspace::WorkspaceLifecycleState, secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
     workspace_provisioner::WorkspaceProvisionerService,
@@ -94,7 +94,7 @@ impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P> {
 
 impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -111,6 +111,7 @@ where
         }
         self.secrets
             .read_api_key(&workspace.gpu_cloud_provider_id)
+            .await
             .map_err(WorkspaceProvisioningError::from)?
             .ok_or(WorkspaceProvisioningError::ProviderSetupIncomplete)?;
 

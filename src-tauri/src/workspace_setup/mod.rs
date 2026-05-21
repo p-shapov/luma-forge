@@ -11,7 +11,7 @@ use crate::{
         workflow::WorkflowCatalog,
         workspace::{Workspace, WorkspaceCatalog},
     },
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -64,7 +64,7 @@ impl<C, S, W, R> WorkspaceSetupService<C, S, W, R> {
 impl<C, S, W, R> WorkspaceSetupService<C, S, W, R>
 where
     C: WorkspaceSetupCatalogReader,
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     R: WorkspaceSetupProviderResolver,
 {
@@ -78,7 +78,8 @@ where
     ) -> Result<ProviderPlacementOptions, WorkspaceSetupError> {
         let api_key = self
             .secrets
-            .read_api_key(&provider_id)?
+            .read_api_key(&provider_id)
+            .await?
             .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
         let options = self
             .provider_registry
@@ -118,7 +119,8 @@ where
 
         let provider_id = request.gpu_cloud_provider_id;
         self.secrets
-            .read_api_key(&provider_id)?
+            .read_api_key(&provider_id)
+            .await?
             .ok_or(WorkspaceSetupError::ProviderSetupIncomplete)?;
 
         let workflow_catalog = self.catalogs.workflow_catalog()?;
@@ -174,7 +176,7 @@ mod tests {
             workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
             workspace::WorkspaceLifecycleState,
         },
-        secrets::{ProvisionerWorkerBearerToken, SecretStoreError},
+        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     };
     use std::{
         future::Future,

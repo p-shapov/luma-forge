@@ -103,8 +103,8 @@ If frontend test or type-check scripts are added later, run them for relevant fr
 For any changes in `src-tauri/`:
 
 - Run `cargo test`
-- Run `cargo clippy --fix --allow-dirty --allow-staged`
 - Run `cargo fmt`
+- Run `cargo clippy --all-targets --all-features -- -D warnings`
 
 ---
 

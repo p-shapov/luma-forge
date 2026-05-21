@@ -3,7 +3,7 @@ use crate::{
         placement::PlacementPlan,
         workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
     },
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_provisioning::{
         failure, failure::fail_workspace, helpers::persistent_storage_volume_snapshot,
     },
@@ -23,7 +23,7 @@ pub(crate) async fn sync<S, W, C>(
     _config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

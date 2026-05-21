@@ -6,7 +6,7 @@ use tokio::sync::OnceCell;
 use crate::{
     bundled_catalog::reader::BundledCatalogReader,
     provider_setup::{ProviderSetupCoordinator, ProviderSetupService},
-    secrets::KeyringSecretStore,
+    secrets::{BlockingSecretStore, KeyringSecretStore},
     workspace_catalog::{repository::UnavailableWorkspaceCatalog, sqlite::SqliteWorkspaceCatalog},
     workspace_provisioner::ProvisionerWorkerHttpGateway,
     workspace_provisioning::{
@@ -17,13 +17,15 @@ use crate::{
     workspace_setup::{error::WorkspaceSetupError, WorkspaceSetupService},
 };
 
-pub(crate) type ProductionProviderSetupService = ProviderSetupService<KeyringSecretStore>;
+type ProductionSecretStore = BlockingSecretStore<KeyringSecretStore>;
+
+pub(crate) type ProductionProviderSetupService = ProviderSetupService<ProductionSecretStore>;
 pub(crate) type WorkspaceSetupReadService =
-    WorkspaceSetupService<BundledCatalogReader, KeyringSecretStore, UnavailableWorkspaceCatalog>;
+    WorkspaceSetupService<BundledCatalogReader, ProductionSecretStore, UnavailableWorkspaceCatalog>;
 pub(crate) type WorkspaceSetupWriteService =
-    WorkspaceSetupService<BundledCatalogReader, KeyringSecretStore, SqliteWorkspaceCatalog>;
+    WorkspaceSetupService<BundledCatalogReader, ProductionSecretStore, SqliteWorkspaceCatalog>;
 pub(crate) type ProductionWorkspaceProvisioningService = WorkspaceProvisioningService<
-    KeyringSecretStore,
+    ProductionSecretStore,
     SqliteWorkspaceCatalog,
     ProvisionerWorkerHttpGateway,
 >;
@@ -34,7 +36,7 @@ pub(crate) struct NativeAppState {
     provider_setup_coordinator: ProviderSetupCoordinator,
     workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator,
     catalogs: BundledCatalogReader,
-    secrets: KeyringSecretStore,
+    secrets: ProductionSecretStore,
     provisioner_workers: ProvisionerWorkerHttpGateway,
 }
 
@@ -105,7 +107,7 @@ impl NativeAppState {
         workspace_catalog_source: WorkspaceCatalogSource,
         app_identifier: impl AsRef<str>,
     ) -> Self {
-        let secrets = KeyringSecretStore::new(app_identifier);
+        let secrets = BlockingSecretStore::new(KeyringSecretStore::new(app_identifier));
 
         Self {
             workspace_catalog_source,

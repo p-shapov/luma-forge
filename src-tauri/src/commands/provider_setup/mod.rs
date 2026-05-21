@@ -84,6 +84,7 @@ pub(crate) async fn delete_gpu_cloud_provider_setup(
         app_state
             .provider_setup_service()
             .delete_setup(provider_id)
+            .await
             .map(|()| DeleteGpuCloudProviderSetupResponse {
                 gpu_cloud_provider_setup: None,
             })

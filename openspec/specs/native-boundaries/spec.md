@@ -761,3 +761,88 @@ The Tauri command boundary SHALL map `WorkspaceProvisioningError` and related se
 - **THEN** each tested category SHALL assert code, reason, retryability, and recovery action
 - **AND** tests SHALL assert that mapped command errors remain implementation-safe
 
+### Requirement: Async native flows isolate blocking secret-store work
+
+The Native Layer SHALL ensure production secure keyring reads, writes, and deletes used by async native command flows execute behind a bounded blocking boundary instead of directly on Tokio async worker threads.
+
+#### Scenario: Provider Setup reads or writes a Provider API Key
+
+- **WHEN** an async Provider Setup command flow checks for, reads, replaces, or deletes a Provider API Key
+- **THEN** production secure keyring work SHALL execute through a blocking boundary such as `tokio::task::spawn_blocking`
+- **AND** the Provider Setup service SHALL preserve existing setup sequencing, rollback behavior, `SecretStoreError` mapping, and command-facing error codes
+- **AND** the command response and error MUST NOT include the submitted or stored Provider API Key
+
+#### Scenario: Workspace Setup reads a Provider API Key
+
+- **WHEN** an async Workspace Setup command flow reads a Provider API Key before provider placement lookup or Workspace creation
+- **THEN** production secure keyring work SHALL execute through a blocking boundary
+- **AND** Workspace Setup SHALL preserve existing provider-setup-incomplete and secure-keyring-unavailable behavior
+- **AND** the Workspace Setup response, error, generated frontend types, and persisted Workspace metadata MUST NOT include the Provider API Key
+
+#### Scenario: Workspace Resources accesses provider and worker secrets
+
+- **WHEN** async Workspace Resource operations read a Provider API Key or write, read, or delete a Provisioner Worker bearer token
+- **THEN** production secure keyring work SHALL execute through a blocking boundary
+- **AND** Workspace Resource error mapping SHALL preserve existing UI-safe recovery semantics
+- **AND** resource metadata, logs, command responses, and command errors MUST NOT include Provider API Keys or Provisioner Worker bearer tokens
+
+#### Scenario: Workspace Provisioning accesses provider and worker secrets
+
+- **WHEN** async Workspace Provisioning or Provisioner Worker synchronization reads a Provider API Key or Provisioner Worker bearer token
+- **THEN** production secure keyring work SHALL execute through a blocking boundary
+- **AND** provisioning status, provisioning failure metadata, command responses, and command errors MUST NOT include Provider API Keys or Provisioner Worker bearer tokens
+- **AND** existing provisioning lifecycle and recovery semantics SHALL remain unchanged
+
+### Requirement: Secret-store async boundary preserves existing secret contracts
+
+The secret-store boundary used by async application services SHALL preserve existing native secret value objects, redaction guarantees, and error classifications.
+
+#### Scenario: Provider API Key operation succeeds
+
+- **WHEN** an async service stores, reads, checks, or deletes a Provider API Key through the secret-store boundary
+- **THEN** the boundary SHALL use `ProviderApiKey` as the native secret value object
+- **AND** successful command responses SHALL expose only existing redacted setup or workspace state
+- **AND** generated frontend types MUST NOT include a Provider API Key field
+
+#### Scenario: Provisioner Worker token operation succeeds
+
+- **WHEN** an async service stores, reads, or deletes a Provisioner Worker bearer token through the secret-store boundary
+- **THEN** the boundary SHALL use `ProvisionerWorkerBearerToken` as the native secret value object
+- **AND** successful command responses, persisted Workspace metadata, provisioning progress, diagnostics, and generated frontend types MUST NOT include the token value
+
+#### Scenario: Stored Provider API Key is invalid
+
+- **WHEN** the secure keyring contains a stored Provider API Key value that cannot be parsed as `ProviderApiKey`
+- **THEN** the secret-store boundary SHALL report `SecretStoreError::InvalidStoredProviderApiKey`
+- **AND** downstream services SHALL preserve existing domain/application error mapping
+- **AND** command errors MUST NOT include the stored keyring value
+
+#### Scenario: Stored Provisioner Worker token is invalid
+
+- **WHEN** the secure keyring contains a stored Provisioner Worker bearer token value that cannot be parsed as `ProvisionerWorkerBearerToken`
+- **THEN** the secret-store boundary SHALL report `SecretStoreError::InvalidStoredProvisionerWorkerToken`
+- **AND** downstream services SHALL preserve existing domain/application error mapping
+- **AND** command errors, provisioning failure metadata, diagnostics, and logs MUST NOT include the stored token value
+
+#### Scenario: Blocking secret task fails
+
+- **WHEN** the production blocking boundary cannot complete a secure keyring operation because the keyring is unavailable or the blocking task fails
+- **THEN** the secret-store boundary SHALL map the failure to existing secure-keyring-unavailable behavior
+- **AND** downstream command errors SHALL remain UI-safe and compatible with existing frontend recovery behavior
+
+### Requirement: Secret-store awaits do not hold unsafe borrowed secret references
+
+Async native services and production secret-store adapters SHALL avoid holding borrowed secret references or synchronous lock guards across secret-store `.await` points.
+
+#### Scenario: Production adapter crosses the blocking boundary
+
+- **WHEN** the production secret-store adapter delegates a keyring operation to a blocking task
+- **THEN** it SHALL move only owned cloned provider identifiers, workspace identifiers, and native secret value objects into the blocking task
+- **AND** it MUST NOT move borrowed secret references from async service stack frames into the blocking task
+
+#### Scenario: Test fake records secret-store calls
+
+- **WHEN** a test fake implements the async secret-store boundary using synchronous in-memory state
+- **THEN** it SHALL complete synchronous lock-protected state access before returning from the operation
+- **AND** it MUST NOT hold a synchronous mutex guard across an `.await`
+

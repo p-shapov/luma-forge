@@ -6,7 +6,7 @@ use crate::{
             ServerlessEndpointSnapshot, Workspace, WorkspaceProvisioningPhase,
         },
     },
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_provisioning::{
         failure, failure::fail_workspace, helpers::serverless_endpoint_snapshot,
     },
@@ -52,7 +52,7 @@ pub(crate) async fn sync<S, W, C>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -75,7 +75,7 @@ async fn sync_template<S, W, C>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -217,7 +217,7 @@ async fn sync_serverless_endpoint<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -341,7 +341,7 @@ async fn delete_tracked_serverless_endpoint<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -390,7 +390,7 @@ async fn fail_for_indeterminate_provider_operation<S, W, C>(
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -404,7 +404,7 @@ async fn fail_for_missing_provider_resource<S, W, C>(
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -418,7 +418,7 @@ async fn fail_for_orphaned_provider_resources<S, W, C>(
     phase: WorkspaceProvisioningPhase,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

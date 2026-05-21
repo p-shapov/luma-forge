@@ -80,8 +80,8 @@ workers/
 | `bun run lint`                                                                                         | Run ESLint.                                 |
 | `bun run lint:fix`                                                                                     | Apply ESLint autofixes.                     |
 | `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run native tests.                           |
-| `cargo clippy --manifest-path src-tauri/Cargo.toml --fix --allow-dirty --allow-staged`                 | Run native linting with autofixes.          |
 | `cargo fmt --manifest-path src-tauri/Cargo.toml`                                                       | Format native code.                         |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict native linting.                  |
 | `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`         | Run provisioner worker tests.               |
 | `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests` | Run RunPod endpoint worker tests.           |
 

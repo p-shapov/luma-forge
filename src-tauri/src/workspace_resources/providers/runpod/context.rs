@@ -10,7 +10,7 @@ use crate::{
         RunPodCreateTemplateRequest, RunPodEndpointObservation, RunPodNetworkVolumeObservation,
         RunPodPodObservation, RunPodTemplateObservation,
     },
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::contracts::{
         CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
@@ -59,14 +59,16 @@ where
 
 impl<S, W, C> RunPodWorkspaceResourceContext<'_, S, W, C>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     C: RunPodWorkspaceResourceClient,
 {
     pub(super) async fn create_network_volume(
         &self,
         input: CreateNetworkVolumeInput,
     ) -> Result<NetworkVolumeObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .create_network_volume(
                 &api_key,
@@ -86,7 +88,7 @@ where
         provider_id: GpuCloudProviderId,
         volume_id: &str,
     ) -> Result<NetworkVolumeObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .get_network_volume(&api_key, volume_id)
             .await
@@ -98,7 +100,9 @@ where
         &self,
         input: DiscoverNetworkVolumesInput,
     ) -> Result<Vec<NetworkVolumeObservation>, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .find_network_volumes_by_name(
                 &api_key,
@@ -119,7 +123,7 @@ where
         provider_id: GpuCloudProviderId,
         volume_id: &str,
     ) -> Result<(), WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .delete_network_volume(&api_key, volume_id)
             .await
@@ -130,7 +134,9 @@ where
         &self,
         input: CreateProvisioningPodInput,
     ) -> Result<ProvisioningPodObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .create_pod(
                 &api_key,
@@ -157,7 +163,9 @@ where
         &self,
         input: DiscoverProvisioningPodsInput,
     ) -> Result<Vec<ProvisioningPodObservation>, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .find_pods_by_name(
                 &api_key,
@@ -177,7 +185,9 @@ where
         &self,
         input: ObserveProvisioningPodInput,
     ) -> Result<ProvisioningPodObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .get_pod(&api_key, &input.provider_resource_id)
             .await
@@ -190,7 +200,7 @@ where
         provider_id: GpuCloudProviderId,
         pod_id: &str,
     ) -> Result<(), WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .delete_pod(&api_key, pod_id)
             .await
@@ -201,7 +211,9 @@ where
         &self,
         input: CreateEndpointTemplateInput,
     ) -> Result<EndpointTemplateObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .create_template(
                 &api_key,
@@ -226,7 +238,9 @@ where
         &self,
         input: DiscoverEndpointTemplatesInput,
     ) -> Result<Vec<EndpointTemplateObservation>, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .find_templates_by_name(
                 &api_key,
@@ -247,7 +261,7 @@ where
         provider_id: GpuCloudProviderId,
         template_id: &str,
     ) -> Result<EndpointTemplateObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .get_template(&api_key, template_id)
             .await
@@ -260,7 +274,7 @@ where
         provider_id: GpuCloudProviderId,
         template_id: &str,
     ) -> Result<(), WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .delete_template(&api_key, template_id)
             .await
@@ -271,7 +285,9 @@ where
         &self,
         input: CreateServerlessEndpointInput,
     ) -> Result<ServerlessEndpointObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .create_endpoint(
                 &api_key,
@@ -297,7 +313,9 @@ where
         &self,
         input: DiscoverServerlessEndpointsInput,
     ) -> Result<Vec<ServerlessEndpointObservation>, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&input.gpu_cloud_provider_id)?;
+        let api_key = self
+            .provisioning_api_key(&input.gpu_cloud_provider_id)
+            .await?;
         self.client
             .find_endpoints_by_name(
                 &api_key,
@@ -318,7 +336,7 @@ where
         provider_id: GpuCloudProviderId,
         endpoint_id: &str,
     ) -> Result<ServerlessEndpointObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .get_endpoint(&api_key, endpoint_id)
             .await
@@ -331,19 +349,20 @@ where
         provider_id: GpuCloudProviderId,
         endpoint_id: &str,
     ) -> Result<(), WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id)?;
+        let api_key = self.provisioning_api_key(&provider_id).await?;
         self.client
             .delete_endpoint(&api_key, endpoint_id)
             .await
             .map_err(WorkspaceResourceError::from)
     }
 
-    fn provisioning_api_key(
+    async fn provisioning_api_key(
         &self,
         provider_id: &GpuCloudProviderId,
     ) -> Result<ProviderApiKey, WorkspaceResourceError> {
         self.secrets
             .read_api_key(provider_id)
+            .await
             .map_err(WorkspaceResourceError::from)?
             .ok_or(WorkspaceResourceError::ProviderSetupIncomplete)
     }

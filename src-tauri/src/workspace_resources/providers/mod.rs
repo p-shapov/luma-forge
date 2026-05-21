@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::{provider_setup::GpuCloudProviderId, workspace::Workspace},
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -62,7 +62,7 @@ pub(crate) struct WorkspaceResourceProviderRegistry {
 
 impl<S, W> WorkspaceResourceProviderResolver<S, W> for WorkspaceResourceProviderRegistry
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     fn for_provider(
@@ -80,7 +80,7 @@ mod tests {
     use super::*;
     use crate::{
         domain::provider_setup::ProviderApiKey,
-        secrets::{ProvisionerWorkerBearerToken, SecretStoreError},
+        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     };
 
     #[derive(Debug)]
