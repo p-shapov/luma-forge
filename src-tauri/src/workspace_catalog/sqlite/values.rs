@@ -113,7 +113,6 @@ pub(super) fn provisioning_phase_value(phase: &WorkspaceProvisioningPhase) -> &'
         WorkspaceProvisioningPhase::CreatingVolume => "creating_volume",
         WorkspaceProvisioningPhase::StartingProvisioningPod => "starting_provisioning_pod",
         WorkspaceProvisioningPhase::PreparingEnvironment => "preparing_environment",
-        WorkspaceProvisioningPhase::CreatingEndpointTemplate => "creating_endpoint_template",
         WorkspaceProvisioningPhase::CreatingEndpoint => "creating_endpoint",
         WorkspaceProvisioningPhase::ValidatingReadiness => "validating_readiness",
         WorkspaceProvisioningPhase::CleaningUp => "cleaning_up",
@@ -260,8 +259,9 @@ pub(super) fn parse_provisioning_phase(
         "creating_volume" => Ok(WorkspaceProvisioningPhase::CreatingVolume),
         "starting_provisioning_pod" => Ok(WorkspaceProvisioningPhase::StartingProvisioningPod),
         "preparing_environment" => Ok(WorkspaceProvisioningPhase::PreparingEnvironment),
-        "creating_endpoint_template" => Ok(WorkspaceProvisioningPhase::CreatingEndpointTemplate),
-        "creating_endpoint" => Ok(WorkspaceProvisioningPhase::CreatingEndpoint),
+        "creating_endpoint_template" | "creating_endpoint" => {
+            Ok(WorkspaceProvisioningPhase::CreatingEndpoint)
+        }
         "validating_readiness" => Ok(WorkspaceProvisioningPhase::ValidatingReadiness),
         "cleaning_up" => Ok(WorkspaceProvisioningPhase::CleaningUp),
         "completed" => Ok(WorkspaceProvisioningPhase::Completed),
@@ -477,10 +477,6 @@ mod tests {
                 "preparing_environment",
             ),
             (
-                WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                "creating_endpoint_template",
-            ),
-            (
                 WorkspaceProvisioningPhase::CreatingEndpoint,
                 "creating_endpoint",
             ),
@@ -495,6 +491,10 @@ mod tests {
             assert_eq!(provisioning_phase_value(&phase), value);
             assert_eq!(parse_provisioning_phase(value), Ok(phase));
         }
+        assert_eq!(
+            parse_provisioning_phase("creating_endpoint_template"),
+            Ok(WorkspaceProvisioningPhase::CreatingEndpoint)
+        );
         assert_eq!(
             parse_provisioning_phase("other"),
             Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)

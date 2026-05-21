@@ -154,18 +154,18 @@ This repo uses [`superpowers-bridge`](https://github.com/JiangWay/openspec-schem
 
 ### Entry Routing
 
-| Trigger you observe | What to do |
-|---|---|
-| User starts a narrative "design discussion / let's brainstorm" | Run verbal `superpowers:brainstorming`, but **do not** write to `docs/superpowers/specs/`. Once the conversation converges per the 5 criteria below, promote to `/opsx:propose` |
-| User invokes `/opsx:new` / `/opsx:ff` / `/opsx:propose` directly | Follow the schema's flow; artifact instructions inject at each step |
-| User explicitly says bug fix / typo / config tweak / doc update | Direct PR; **do not** open a change (see skip rules below) |
-| User is mid-change | Advance with `/opsx:continue`, `/opsx:apply`, `/opsx:verify`, or `/opsx:archive` |
+| Trigger you observe                                              | What to do                                                                                                                                                                      |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User starts a narrative "design discussion / let's brainstorm"   | Run verbal `superpowers:brainstorming`, but **do not** write to `docs/superpowers/specs/`. Once the conversation converges per the 5 criteria below, promote to `/opsx:propose` |
+| User invokes `/opsx:new` / `/opsx:ff` / `/opsx:propose` directly | Follow the schema's flow; artifact instructions inject at each step                                                                                                             |
+| User explicitly says bug fix / typo / config tweak / doc update  | Direct PR; **do not** open a change (see skip rules below)                                                                                                                      |
+| User is mid-change                                               | Advance with `/opsx:continue`, `/opsx:apply`, `/opsx:verify`, or `/opsx:archive`                                                                                                |
 
 ### When Not To Use Opsx
 
-| Scenario | Direct PR? |
-|---|---|
-| New feature / new capability / architectural change / breaking change | No. Use opsx |
+| Scenario                                                                                                              | Direct PR?         |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| New feature / new capability / architectural change / breaking change                                                 | No. Use opsx       |
 | Bug fix (no contract change) / test backfill / linter tweak / non-breaking upgrade / typo / docs / config value tweak | Yes. Use direct PR |
 
 Principle: **process ceremony scales with risk**. External contracts, schema, cross-system integration, and compliance use opsx. Otherwise use direct PR.

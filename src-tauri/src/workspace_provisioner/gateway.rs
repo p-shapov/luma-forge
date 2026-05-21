@@ -361,9 +361,7 @@ pub fn progress_from_worker_status(
             | ProvisionerWorkerPhase::WritingManifest => {
                 WorkspaceProvisioningPhase::PreparingEnvironment
             }
-            ProvisionerWorkerPhase::Completed => {
-                WorkspaceProvisioningPhase::CreatingEndpointTemplate
-            }
+            ProvisionerWorkerPhase::Completed => WorkspaceProvisioningPhase::CreatingEndpoint,
             ProvisionerWorkerPhase::Cancelled => WorkspaceProvisioningPhase::CleaningUp,
             ProvisionerWorkerPhase::Failed => WorkspaceProvisioningPhase::Failed,
         },
@@ -547,7 +545,7 @@ mod tests {
         assert_eq!(completed.status, WorkspaceProvisioningStatus::Running);
         assert_eq!(
             completed.phase,
-            WorkspaceProvisioningPhase::CreatingEndpointTemplate
+            WorkspaceProvisioningPhase::CreatingEndpoint
         );
     }
 

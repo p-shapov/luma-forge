@@ -85,7 +85,6 @@ pub enum WorkspaceProvisioningPhase {
     CreatingVolume,
     StartingProvisioningPod,
     PreparingEnvironment,
-    CreatingEndpointTemplate,
     CreatingEndpoint,
     ValidatingReadiness,
     CleaningUp,

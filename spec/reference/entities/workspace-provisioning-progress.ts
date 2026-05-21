@@ -46,7 +46,6 @@ export type WorkspaceProvisioningPhase =
   | "creating_volume"
   | "starting_provisioning_pod"
   | "preparing_environment"
-  | "creating_endpoint_template"
   | "creating_endpoint"
   | "validating_readiness"
   | "cleaning_up"

@@ -244,7 +244,7 @@ export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "pro
 
 export type WorkspaceProvisioningFailureSource = "native" | "provider" | "provider_resource" | "provisioner_worker";
 
-export type WorkspaceProvisioningPhase = "not_started" | "creating_volume" | "starting_provisioning_pod" | "preparing_environment" | "creating_endpoint_template" | "creating_endpoint" | "validating_readiness" | "cleaning_up" | "completed" | "failed";
+export type WorkspaceProvisioningPhase = "not_started" | "creating_volume" | "starting_provisioning_pod" | "preparing_environment" | "creating_endpoint" | "validating_readiness" | "cleaning_up" | "completed" | "failed";
 
 export type WorkspaceProvisioningProgress = {
 	status: WorkspaceProvisioningStatus,
@@ -275,4 +275,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-
