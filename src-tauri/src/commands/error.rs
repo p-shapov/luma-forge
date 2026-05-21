@@ -527,14 +527,7 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
             NativeCommandErrorCode::ProvisionerWorkerResponseInvalid
         }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
-        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
-        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
+        WorkspaceProvisioningError::ProvisionerWorkerFailed => {
             NativeCommandErrorCode::ProvisionerWorkerFailed
         }
     }
@@ -612,16 +605,7 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
         WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
             "Provisioner worker response is invalid."
         }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
-        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
-        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
-            "Provisioner worker failed."
-        }
+        WorkspaceProvisioningError::ProvisionerWorkerFailed => "Provisioner worker failed.",
     }
 }
 
@@ -676,14 +660,7 @@ fn provisioning_error_reason(error: &WorkspaceProvisioningError) -> Option<&'sta
         WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
             Some("worker_response_invalid")
         }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
-        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
-        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => Some("worker_failed"),
+        WorkspaceProvisioningError::ProvisionerWorkerFailed => Some("worker_failed"),
     }
 }
 
@@ -714,14 +691,7 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         | WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
         | WorkspaceProvisioningError::ProvisionerWorkerUnauthorized
         | WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid
-        | WorkspaceProvisioningError::ProvisionerWorkerFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
-        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
-        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
-        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
+        | WorkspaceProvisioningError::ProvisionerWorkerFailed => {
             Some("inspect_workspace_provisioning")
         }
     }
@@ -859,5 +829,22 @@ mod tests {
                 Some(recovery_action)
             );
         }
+    }
+
+    #[test]
+    fn provisioning_worker_failed_uses_defensive_generic_command_fallback() {
+        let command_error =
+            NativeCommandError::from(WorkspaceProvisioningError::ProvisionerWorkerFailed);
+
+        assert_eq!(
+            command_error.code,
+            NativeCommandErrorCode::ProvisionerWorkerFailed
+        );
+        assert!(!command_error.retryable);
+        assert_eq!(command_error.reason.as_deref(), Some("worker_failed"));
+        assert_eq!(
+            command_error.recovery_action.as_deref(),
+            Some("inspect_workspace_provisioning")
+        );
     }
 }

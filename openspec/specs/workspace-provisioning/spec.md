@@ -226,9 +226,20 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 #### Scenario: Provisioner Worker fails
 - **WHEN** the Provisioner Worker reports terminal failure or returns an unrecoverable worker API error
 - **THEN** the Native Layer SHALL mark the Workspace `failed`
+- **AND** the Native Layer SHALL persist a `WorkspaceProvisioningFailure` with source `provisioner_worker`, phase `preparing_environment`, and a stable UI-safe worker failure code
 - **AND** the Native Layer SHALL retain known volume and provisioning pod snapshots for future cleanup
 - **AND** returned error metadata SHALL be UI-safe and MUST NOT contain bearer tokens, Provider API Keys, raw command output, stack traces, or environment dumps
 - **AND** the Native Layer SHALL preserve stable UI-safe worker error metadata when the worker provides it
+- **AND** the Native Layer SHALL return authoritative Workspace metadata and Workspace Provisioning Progress instead of returning `Err(NativeCommandError)` when the failure has been persisted
+
+#### Scenario: Granular Provisioner Worker preparation failure is persisted
+- **WHEN** a provisioning sync observes terminal worker preparation failure cause `git_checkout_failed`, `dependency_install_failed`, `asset_download_failed`, `asset_auth_required`, `path_validation_failed`, `step_timeout`, or `unexpected_error`
+- **THEN** the Native Layer SHALL persist the matching `WorkspaceProvisioningFailureCode`
+- **AND** the persisted failure source SHALL be `provisioner_worker`
+- **AND** the persisted failure phase SHALL be `preparing_environment`
+- **AND** the persisted failure recovery action SHALL be `inspect_workspace_provisioning`
+- **AND** the sync response SHALL include authoritative failed Workspace metadata and failed Workspace Provisioning Progress
+- **AND** the sync response MUST NOT return a direct `NativeCommandErrorCode::ProvisionerWorkerFailed`
 
 #### Scenario: Provisioner Worker API contract error is classified distinctly
 - **WHEN** the Provisioner Worker returns an authenticated JSON validation error, malformed worker JSON success payload, unsupported status, unsafe progress percentage, or otherwise unrecoverable API contract response
@@ -809,6 +820,14 @@ Workspace Provisioning SHALL return command errors, non-mutating progress, or pe
 - **WHEN** the Provisioner Worker is unauthorized, returns an invalid unrecoverable response, reports terminal failure, or otherwise violates the worker API contract during environment preparation
 - **THEN** Workspace Provisioning SHALL persist a structured failure with provisioner-worker source and inspect-oriented or recovery-oriented action
 - **AND** persisted failure metadata MUST remain stable, UI-safe, and secret-safe
+- **AND** when the persisted failure is available, Workspace Provisioning SHALL return authoritative Workspace metadata and progress instead of a direct command error
+
+#### Scenario: Granular worker preparation subtype is not a command error
+
+- **WHEN** a terminal Provisioner Worker preparation subtype occurs during active provisioning sync
+- **THEN** Workspace Provisioning SHALL persist the granular worker failure code on the Workspace
+- **AND** Workspace Provisioning SHALL derive failed progress from the persisted Workspace failure
+- **AND** Workspace Provisioning MUST NOT allow that subtype to escape as `NativeCommandErrorCode::ProvisionerWorkerFailed` during normal sync handling
 
 #### Scenario: Worker token is missing or invalid during preparation
 

@@ -22,6 +22,7 @@ export default antfu({
     "src/generated/**",
     "openspec/**",
     "workers/**",
+    "AGENTS.md",
   ],
 }, {
   files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],

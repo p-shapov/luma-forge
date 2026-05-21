@@ -117,7 +117,7 @@ impl WorkspaceProvisionerService {
                 {
                     Ok(status) => status,
                     Err(error) => {
-                        return handle_worker_error(&context, workspace.clone(), error.into()).await
+                        return handle_worker_error(&context, workspace.clone(), error).await
                     }
                 }
             }
@@ -129,9 +129,7 @@ impl WorkspaceProvisionerService {
                 )));
             }
             Ok(status) => status,
-            Err(error) => {
-                return handle_worker_error(&context, workspace.clone(), error.into()).await
-            }
+            Err(error) => return handle_worker_error(&context, workspace.clone(), error).await,
         };
 
         Ok(Some(WorkspaceProvisionerSyncOutcome::WorkerStatus {
@@ -175,27 +173,28 @@ where
 async fn handle_worker_error<S, W, R>(
     context: &WorkspaceProvisionerContext<'_, S, W, R>,
     mut workspace: Workspace,
-    error: WorkspaceProvisioningError,
+    error: ProvisionerWorkerError,
 ) -> WorkspaceProvisionerSyncResult
 where
     W: WorkspaceCatalogRepository,
 {
-    if error == WorkspaceProvisioningError::ProvisionerWorkerUnavailable {
+    if error == ProvisionerWorkerError::Unreachable {
         return Ok(Some(WorkspaceProvisionerSyncOutcome::WorkerReadinessLag {
             workspace,
         }));
     }
 
-    if let Some(failure) =
-        failure::worker_failure(WorkspaceProvisioningPhase::PreparingEnvironment, &error)
-    {
+    if let Some(failure) = failure::provisioner_worker_failure(
+        WorkspaceProvisioningPhase::PreparingEnvironment,
+        &error,
+    ) {
         fail_workspace(&mut workspace, failure);
         let workspace = context.update_workspace(&workspace).await?;
         Ok(Some(WorkspaceProvisionerSyncOutcome::WorkspaceUpdated(
             workspace,
         )))
     } else {
-        Err(error)
+        Err(WorkspaceProvisioningError::from(error))
     }
 }
 

@@ -79,20 +79,6 @@ pub enum WorkspaceProvisioningError {
     ProvisionerWorkerResponseInvalid,
     #[error("provisioner worker failed")]
     ProvisionerWorkerFailed,
-    #[error("provisioner worker git checkout failed")]
-    ProvisionerWorkerGitCheckoutFailed,
-    #[error("provisioner worker dependency install failed")]
-    ProvisionerWorkerDependencyInstallFailed,
-    #[error("provisioner worker asset download failed")]
-    ProvisionerWorkerAssetDownloadFailed,
-    #[error("provisioner worker asset auth required")]
-    ProvisionerWorkerAssetAuthRequired,
-    #[error("provisioner worker path validation failed")]
-    ProvisionerWorkerPathValidationFailed,
-    #[error("provisioner worker step timeout")]
-    ProvisionerWorkerStepTimeout,
-    #[error("provisioner worker unexpected error")]
-    ProvisionerWorkerUnexpectedError,
 }
 
 impl From<SecretStoreError> for WorkspaceProvisioningError {
@@ -177,27 +163,13 @@ impl From<ProvisionerWorkerError> for WorkspaceProvisioningError {
             ProvisionerWorkerError::Unreachable => Self::ProvisionerWorkerUnavailable,
             ProvisionerWorkerError::InvalidPayload => Self::ProvisionerWorkerResponseInvalid,
             ProvisionerWorkerError::Failed => Self::ProvisionerWorkerFailed,
-            ProvisionerWorkerError::GitCheckoutFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
-            }
-            ProvisionerWorkerError::DependencyInstallFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
-            }
-            ProvisionerWorkerError::AssetDownloadFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
-            }
-            ProvisionerWorkerError::AssetAuthRequired => {
-                WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
-            }
-            ProvisionerWorkerError::PathValidationFailed => {
-                WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
-            }
-            ProvisionerWorkerError::StepTimeout => {
-                WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
-            }
-            ProvisionerWorkerError::UnexpectedError => {
-                WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError
-            }
+            ProvisionerWorkerError::GitCheckoutFailed
+            | ProvisionerWorkerError::DependencyInstallFailed
+            | ProvisionerWorkerError::AssetDownloadFailed
+            | ProvisionerWorkerError::AssetAuthRequired
+            | ProvisionerWorkerError::PathValidationFailed
+            | ProvisionerWorkerError::StepTimeout
+            | ProvisionerWorkerError::UnexpectedError => Self::ProvisionerWorkerFailed,
         }
     }
 }

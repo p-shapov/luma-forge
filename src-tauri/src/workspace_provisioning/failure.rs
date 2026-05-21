@@ -1,8 +1,11 @@
 use super::WorkspaceProvisioningError;
-use crate::domain::workspace::{
-    ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
-    WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
-    WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
+use crate::{
+    domain::workspace::{
+        ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
+        WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+        WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
+    },
+    workspace_provisioner::ProvisionerWorkerError,
 };
 
 pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvisioningFailure) {
@@ -182,28 +185,51 @@ pub(crate) fn worker_failure(
         WorkspaceProvisioningError::ProvisionerWorkerFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed
         }
-        WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed => {
+        _ => return None,
+    };
+
+    Some(WorkspaceProvisioningFailure {
+        code,
+        phase,
+        source: WorkspaceProvisioningFailureSource::ProvisionerWorker,
+        recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
+    })
+}
+
+pub(crate) fn provisioner_worker_failure(
+    phase: WorkspaceProvisioningPhase,
+    error: &ProvisionerWorkerError,
+) -> Option<WorkspaceProvisioningFailure> {
+    let code = match error {
+        ProvisionerWorkerError::Unauthorized => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized
+        }
+        ProvisionerWorkerError::InvalidPayload => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
+        }
+        ProvisionerWorkerError::Failed => WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,
+        ProvisionerWorkerError::GitCheckoutFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed
         }
-        WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed => {
+        ProvisionerWorkerError::DependencyInstallFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
         }
-        WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed => {
+        ProvisionerWorkerError::AssetDownloadFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed
         }
-        WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired => {
+        ProvisionerWorkerError::AssetAuthRequired => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired
         }
-        WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed => {
+        ProvisionerWorkerError::PathValidationFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed
         }
-        WorkspaceProvisioningError::ProvisionerWorkerStepTimeout => {
+        ProvisionerWorkerError::StepTimeout => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout
         }
-        WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
+        ProvisionerWorkerError::UnexpectedError => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError
         }
-        _ => return None,
+        ProvisionerWorkerError::Conflict | ProvisionerWorkerError::Unreachable => return None,
     };
 
     Some(WorkspaceProvisioningFailure {
