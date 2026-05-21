@@ -271,17 +271,7 @@ fn progress_phase_for_provisioning_workspace(workspace: &Workspace) -> Workspace
     {
         WorkspaceProvisioningPhase::CreatingVolume
     } else if workspace.environment_prepared_at.is_none() {
-        if workspace
-            .active_provisioning_pod_snapshot
-            .as_ref()
-            .is_some_and(|snapshot| {
-                snapshot.provider_resource_status == ProviderResourceStatus::Running
-            })
-        {
-            WorkspaceProvisioningPhase::PreparingEnvironment
-        } else {
-            WorkspaceProvisioningPhase::StartingProvisioningPod
-        }
+        WorkspaceProvisioningPhase::StartingProvisioningPod
     } else if workspace.active_provisioning_pod_snapshot.is_some()
         || !has_ready_matching_endpoint_template(workspace)
         || !workspace
@@ -518,9 +508,9 @@ mod tests {
         let progress = progress_for_workspace(&workspace);
         assert_eq!(
             progress.phase,
-            WorkspaceProvisioningPhase::PreparingEnvironment
+            WorkspaceProvisioningPhase::StartingProvisioningPod
         );
-        assert_eq!(progress.percent, Some(40));
+        assert_eq!(progress.percent, Some(10));
 
         workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
         workspace.active_provisioning_pod_snapshot = None;
@@ -580,6 +570,20 @@ mod tests {
         let progress = progress_for_workspace(&workspace);
         assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
         assert_eq!(progress.percent, Some(90));
+    }
+
+    #[test]
+    fn progress_for_workspace_keeps_running_pod_startup_until_worker_reports_preparation() {
+        let mut workspace = provisioning_workspace();
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        workspace.active_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Running));
+
+        let progress = progress_for_workspace(&workspace);
+        assert_eq!(
+            progress.phase,
+            WorkspaceProvisioningPhase::StartingProvisioningPod
+        );
+        assert_eq!(progress.percent, Some(10));
     }
 
     #[test]
