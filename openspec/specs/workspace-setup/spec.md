@@ -40,45 +40,67 @@ The Native Layer SHALL validate bundled Workflow Preset model asset install path
 
 ### Requirement: Read Workspace Catalog
 
-The Native Layer SHALL expose a command that returns the local SQLite-backed Workspace Catalog after required Workspace Catalog persistence migrations have completed.
+The Native Layer SHALL expose a command that returns the local SQLite-backed Workspace Catalog after required Workspace Catalog schema bootstrap and compatibility checks have completed.
 
 #### Scenario: Workspace Catalog is readable
 
 - **WHEN** the Client requests the Workspace Catalog
 - **THEN** the Native Layer SHALL initialize the SQLite-backed Workspace Catalog
-- **AND** the Native Layer SHALL apply required Workspace Catalog persistence migrations before decoding rows
+- **AND** the Native Layer SHALL complete required Workspace Catalog schema bootstrap and compatibility checks before decoding rows
 - **AND** the Native Layer SHALL return all persisted Workspace records known to the local app
 - **AND** the Native Layer SHALL verify that each returned persisted Workspace record is internally consistent with its indexed SQLite row data
 - **AND** the Native Layer SHALL treat the returned Workspace Catalog as authoritative durable state
 
 #### Scenario: Workspace Catalog is unavailable
 
-- **WHEN** the Client requests the Workspace Catalog and SQLite initialization, migration, read, decoding, or row consistency validation fails
+- **WHEN** the Client requests the Workspace Catalog and SQLite initialization, schema bootstrap, compatibility checking, read, decoding, or row consistency validation fails
 - **THEN** the Native Layer SHALL reject the request with `workspace_catalog_unavailable`
 - **AND** the Native Layer MUST NOT return partial Workspace Catalog data as authoritative
 
-### Requirement: Migrate Workspace Catalog persistence before use
+### Requirement: Bootstrap Workspace Catalog schema before use
 
-The Native Layer SHALL apply required Workspace Catalog SQLite schema migrations before using the Workspace Catalog for reads, duplicate checks, inserts, or post-insert re-reads. Pre-production legacy Workspace JSON compatibility migrations are not required by the current app contract.
+The Native Layer SHALL bootstrap and check the Workspace Catalog SQLite schema before using the Workspace Catalog for reads, duplicate checks, inserts, or post-insert re-reads. Pre-production legacy Workspace Catalog compatibility migrations, downgrade handling, and backfill hooks are not required by the current app contract.
 
-#### Scenario: Unversioned Workspace Catalog is migrated
+#### Scenario: Fresh Workspace Catalog schema is bootstrapped
 
-- **WHEN** the Native Layer opens an existing Workspace Catalog that has no recorded persistence version
-- **THEN** the Native Layer SHALL treat the catalog as version `0`
-- **AND** the Native Layer SHALL apply every required schema migration up to the current persistence version before returning or writing Workspace records
-- **AND** the Native Layer SHALL record the current persistence version only after all required migrations complete successfully
+- **WHEN** the Native Layer opens a Workspace Catalog that has no recorded persistence version and no existing Workspace Catalog tables
+- **THEN** the Native Layer SHALL treat the catalog as a fresh catalog
+- **AND** the Native Layer SHALL create the Workspace Catalog metadata table
+- **AND** the Native Layer SHALL create the current normalized Workspace Catalog schema
+- **AND** the Native Layer SHALL record the current persistence version only after the current schema is created successfully
 
-#### Scenario: Current Workspace Catalog is already migrated
+#### Scenario: Unversioned Workspace Catalog tables already exist
+
+- **WHEN** the Native Layer opens a Workspace Catalog that has no recorded persistence version but already contains Workspace Catalog tables
+- **THEN** the Native Layer SHALL reject the catalog operation with `workspace_catalog_migration_failed`
+- **AND** the Native Layer MUST NOT adopt, backfill, migrate, downgrade, read, or write the unversioned Workspace records
+
+#### Scenario: Current Workspace Catalog schema is checked
 
 - **WHEN** the Native Layer opens a Workspace Catalog whose recorded persistence version matches the current application persistence version
-- **THEN** the Native Layer SHALL use the existing Workspace records without rewriting them for legacy profile compatibility
+- **THEN** the Native Layer SHALL validate that the expected current Workspace Catalog schema is present before returning or writing Workspace records
+- **AND** the Native Layer SHALL use the existing Workspace records only after the schema check succeeds
 - **AND** normal Workspace Catalog read, duplicate check, insert, and row consistency validation rules SHALL still apply
 
 #### Scenario: Workspace Catalog was written by a newer app version
 
 - **WHEN** the Native Layer opens a Workspace Catalog whose recorded persistence version is greater than the current application persistence version
 - **THEN** the Native Layer SHALL reject the catalog operation with `workspace_catalog_migration_failed`
-- **AND** the Native Layer MUST NOT read, write, migrate, downgrade, or mutate Workspace records from the newer catalog version
+- **AND** the Native Layer MUST NOT read, write, migrate, downgrade, backfill, or mutate Workspace records from the newer catalog version
+
+### Requirement: Document pre-production Workspace Catalog reset
+
+The project documentation SHALL describe how developers can manually reset the local pre-production Workspace Catalog database when schema bootstrap or compatibility checks reject stale local state. This documentation SHALL be developer troubleshooting guidance only and MUST NOT define a production user recovery flow.
+
+#### Scenario: Developer resets stale local catalog state
+
+- **WHEN** a developer encounters a local Workspace Catalog startup failure during pre-production development
+- **THEN** the README SHALL identify the Workspace Catalog file as `workspace-catalog.sqlite` under the Tauri application data directory
+- **AND** the README SHALL include the macOS path pattern `~/Library/Application Support/<app identifier>/workspace-catalog.sqlite`
+- **AND** the README SHALL instruct the developer to stop the app before deleting the SQLite file
+- **AND** the README SHALL warn that deleting the file removes local Workspace Catalog records
+- **AND** the README SHALL warn that deleting the file does not clean up remote provider resources
+- **AND** the README MUST NOT present manual deletion as a supported production migration or downgrade path
 
 ### Requirement: Persist Workspace Catalog records as normalized SQLite fields
 
@@ -194,7 +216,7 @@ The Native Layer SHALL expose a `get_provider_placement_options` command that re
 
 ### Requirement: Create a Draft Workspace
 
-The Native Layer SHALL expose a command that creates one complete Workspace Catalog entry with lifecycle state `draft` from a client-generated Workspace UUID, name, GPU Cloud Provider id, and full selected Placement Plan. Draft Workspace lifecycle state and empty Provider Resource snapshot state SHALL be authored through the domain Workspace model, and the resulting domain Workspace SHALL be persisted as the authoritative Workspace Catalog record after required Workspace Catalog persistence migrations have completed.
+The Native Layer SHALL expose a command that creates one complete Workspace Catalog entry with lifecycle state `draft` from a client-generated Workspace UUID, name, GPU Cloud Provider id, and full selected Placement Plan. Draft Workspace lifecycle state and empty Provider Resource snapshot state SHALL be authored through the domain Workspace model, and the resulting domain Workspace SHALL be persisted as the authoritative Workspace Catalog record after required Workspace Catalog schema bootstrap and compatibility checks have completed.
 
 #### Scenario: Valid Workspace creation request
 
@@ -202,7 +224,7 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 - **THEN** the Native Layer SHALL validate the local provider key prerequisite, bundled Workflow Preset compatibility, placement structure, and RunPod endpoint keep-alive range before persistence
 - **AND** the RunPod Placement Plan SHALL include provider-specific endpoint keep-alive seconds
 - **AND** the Native Layer SHALL initialize the SQLite-backed Workspace Catalog
-- **AND** the Native Layer SHALL apply required Workspace Catalog persistence migrations before checking duplicates or writing the new Workspace record
+- **AND** the Native Layer SHALL complete required Workspace Catalog schema bootstrap and compatibility checks before checking duplicates or writing the new Workspace record
 - **AND** the Native Layer SHALL construct the Draft Workspace through the domain Workspace model
 - **AND** the domain-authored Workspace SHALL have lifecycle state `draft`
 - **AND** the domain-authored Workspace SHALL have empty Persistent Storage Volume, active Provisioning Pod, Serverless Endpoint, and last Provisioning Pod snapshots
@@ -216,7 +238,7 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 #### Scenario: Duplicate Workspace UUID
 
 - **WHEN** the Client submits a Workspace UUID that already exists in the Workspace Catalog
-- **THEN** the Native Layer SHALL apply required Workspace Catalog persistence migrations before evaluating the duplicate Workspace UUID
+- **THEN** the Native Layer SHALL complete required Workspace Catalog schema bootstrap and compatibility checks before evaluating the duplicate Workspace UUID
 - **AND** the Native Layer SHALL reject the request with `workspace_already_exists`
 - **AND** the Native Layer MUST NOT mutate the existing Workspace record
 - **AND** the Native Layer MUST NOT create a second Workspace record for the same Workspace UUID
@@ -236,9 +258,9 @@ The Native Layer SHALL expose a command that creates one complete Workspace Cata
 
 #### Scenario: Workspace Catalog write fails
 
-- **WHEN** the Client submits a valid Workspace creation request but Workspace Catalog migration, SQLite write, commit, re-read, or row consistency validation fails
+- **WHEN** the Client submits a valid Workspace creation request but Workspace Catalog schema bootstrap, compatibility checking, SQLite write, commit, re-read, or row consistency validation fails
 - **THEN** the Native Layer SHALL reject the request with `workspace_catalog_unavailable`
-- **AND** the Native Layer MUST NOT report Workspace creation success
+- **AND** the Native Layer MUST NOT return partial Workspace Catalog data as authoritative
 
 ### Requirement: Workspace Setup uses domain-native catalog data
 
@@ -560,11 +582,11 @@ Workspace Catalog read and write failures SHALL expose safe command-level catego
 - **WHEN** the Native Layer cannot resolve or create the app data directory or connect to the SQLite catalog file
 - **THEN** Workspace Catalog commands SHALL reject with a local storage or Workspace Catalog storage unavailable error
 
-#### Scenario: Workspace Catalog migration fails
+#### Scenario: Workspace Catalog bootstrap or compatibility check fails
 
-- **WHEN** Workspace Catalog initialization cannot apply or validate required persistence migrations
+- **WHEN** Workspace Catalog initialization cannot bootstrap or validate the required current schema
 - **THEN** Workspace Catalog commands SHALL reject with a Workspace Catalog migration failure error
-- **AND** the command response MUST NOT expose raw SQL, raw SQLx errors, or raw migration implementation details
+- **AND** the command response MUST NOT expose raw SQL, raw SQLx errors, or raw schema bootstrap implementation details
 
 #### Scenario: Workspace Catalog data is corrupt or inconsistent
 
@@ -600,4 +622,3 @@ Selected GPU validation SHALL remain provider placement validation and MUST NOT 
 - **WHEN** the selected GPU is unavailable, malformed, stale, or invalid for the provider placement request
 - **THEN** the Native Layer SHALL reject new placement or provisioning with a UI-safe placement error
 - **AND** it MUST NOT attempt to repair compatibility by changing base runtime or Custom Node Python dependencies
-

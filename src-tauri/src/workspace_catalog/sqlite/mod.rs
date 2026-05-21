@@ -7,7 +7,7 @@ use crate::{
         workspace::validator as workspace_validator,
         workspace::{Workspace, WorkspaceCatalog},
     },
-    workspace_catalog::{migrations, repository::WorkspaceCatalogRepository},
+    workspace_catalog::{repository::WorkspaceCatalogRepository, schema_bootstrap},
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -39,18 +39,18 @@ impl SqliteWorkspaceCatalog {
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogStorageUnavailable)?;
         let catalog = Self { pool };
-        catalog.migrate().await?;
+        catalog.bootstrap_schema().await?;
         Ok(catalog)
     }
 
-    async fn migrate(&self) -> Result<(), WorkspaceSetupError> {
+    async fn bootstrap_schema(&self) -> Result<(), WorkspaceSetupError> {
         let mut transaction = self
             .pool
             .begin()
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
 
-        migrations::run(&mut transaction).await?;
+        schema_bootstrap::bootstrap_and_check(&mut transaction).await?;
 
         transaction
             .commit()
@@ -297,22 +297,48 @@ fn is_unique_constraint(error: &sqlx::Error) -> bool {
 
 #[cfg(test)]
 mod test_fixtures {
-    use crate::domain::{
-        placement::PlacementPlan,
-        provider_setup::GpuCloudProviderId,
-        runtime::ResolvedRuntimeImageSnapshot,
-        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
-        workspace::{
-            PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
-            ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
-            Workspace, WorkspaceLifecycleState, WorkspaceProvisioningFailure,
-            WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
-            WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
+    use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+
+    use crate::{
+        domain::{
+            placement::PlacementPlan,
+            provider_setup::GpuCloudProviderId,
+            runtime::ResolvedRuntimeImageSnapshot,
+            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workspace::{
+                PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot,
+                ProviderResourceStatus, ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot,
+                ServerlessEndpointSnapshot, Workspace, WorkspaceLifecycleState,
+                WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
+                WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
+                WorkspaceProvisioningRecoveryAction,
+            },
         },
+        workspace_catalog::schema_bootstrap,
     };
 
     const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    pub(super) async fn bootstrapped_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("connect in-memory database");
+        let mut transaction = pool
+            .begin()
+            .await
+            .expect("begin schema bootstrap transaction");
+        schema_bootstrap::bootstrap_and_check(&mut transaction)
+            .await
+            .expect("bootstrap schema");
+        transaction
+            .commit()
+            .await
+            .expect("commit schema bootstrap transaction");
+        pool
+    }
 
     pub(super) fn catalog_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir()

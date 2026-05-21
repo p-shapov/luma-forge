@@ -294,27 +294,9 @@ async fn persist_provisioning_failure(
 mod tests {
     use super::*;
     use crate::{
-        domain::workspace::ProviderResourceStatus,
-        workspace_catalog::{migrations, sqlite::test_fixtures},
+        domain::workspace::ProviderResourceStatus, workspace_catalog::sqlite::test_fixtures,
     };
-    use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool};
-
-    async fn migrated_pool() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .expect("connect in-memory database");
-        let mut transaction = pool.begin().await.expect("begin migration transaction");
-        migrations::run(&mut transaction)
-            .await
-            .expect("run migrations");
-        transaction
-            .commit()
-            .await
-            .expect("commit migration transaction");
-        pool
-    }
+    use sqlx::Row;
 
     async fn insert_workspace_row(transaction: &mut SqliteTransaction<'_>, workspace: &Workspace) {
         sqlx::query(
@@ -348,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_workspace_details_writes_normalized_detail_rows() {
-        let pool = migrated_pool().await;
+        let pool = test_fixtures::bootstrapped_pool().await;
         let workspace = test_fixtures::ready_workspace();
         let mut transaction = pool.begin().await.expect("begin transaction");
         insert_workspace_row(&mut transaction, &workspace).await;
@@ -445,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_workspace_details_writes_failure_metadata() {
-        let pool = migrated_pool().await;
+        let pool = test_fixtures::bootstrapped_pool().await;
         let workspace = test_fixtures::provisioning_ready_and_failed_workspaces()
             .into_iter()
             .find(|workspace| workspace.last_provisioning_failure.is_some())
@@ -526,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_workspace_details_removes_all_normalized_detail_rows() {
-        let pool = migrated_pool().await;
+        let pool = test_fixtures::bootstrapped_pool().await;
         let workspace = test_fixtures::ready_workspace();
         let mut transaction = pool.begin().await.expect("begin transaction");
         insert_workspace_row(&mut transaction, &workspace).await;
