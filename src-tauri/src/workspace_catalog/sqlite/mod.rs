@@ -1,6 +1,6 @@
 use std::{future::Future, path::Path, pin::Pin};
 
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
+use sqlx::{sqlite::SqlitePoolOptions, SqlitePool, SqliteTransaction};
 
 use crate::{
     domain::{
@@ -61,6 +61,24 @@ impl SqliteWorkspaceCatalog {
     }
 
     async fn find_workspace(&self, id: &str) -> Result<Option<Workspace>, WorkspaceSetupError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+        let workspace = Self::find_workspace_in_transaction(&mut transaction, id).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+        Ok(workspace)
+    }
+
+    async fn find_workspace_in_transaction(
+        transaction: &mut SqliteTransaction<'_>,
+        id: &str,
+    ) -> Result<Option<Workspace>, WorkspaceSetupError> {
         let Some(row) = sqlx::query(
             r#"
             SELECT
@@ -74,14 +92,45 @@ impl SqliteWorkspaceCatalog {
             "#,
         )
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
         else {
             return Ok(None);
         };
 
-        decode_workspace(&self.pool, row).await.map(Some)
+        decode_workspace(transaction, row).await.map(Some)
+    }
+
+    async fn list_workspaces_in_transaction(
+        transaction: &mut SqliteTransaction<'_>,
+    ) -> Result<WorkspaceCatalog, WorkspaceSetupError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                id,
+                name,
+                gpu_cloud_provider_id,
+                lifecycle_state,
+                environment_prepared_at
+            FROM workspaces
+            ORDER BY created_at ASC
+            "#,
+        )
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+        let mut workspaces = Vec::with_capacity(rows.len());
+        for row in rows {
+            workspaces.push(decode_workspace(transaction, row).await?);
+        }
+
+        let catalog = WorkspaceCatalog { workspaces };
+        workspace_validator::validate_workspace_catalog(&catalog)
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+
+        Ok(catalog)
     }
 }
 
@@ -91,30 +140,16 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
     ) -> Pin<Box<dyn Future<Output = Result<WorkspaceCatalog, WorkspaceSetupError>> + Send + 'a>>
     {
         Box::pin(async move {
-            let rows = sqlx::query(
-                r#"
-                SELECT
-                    id,
-                    name,
-                    gpu_cloud_provider_id,
-                    lifecycle_state,
-                    environment_prepared_at
-                FROM workspaces
-                ORDER BY created_at ASC
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
-
-            let mut workspaces = Vec::with_capacity(rows.len());
-            for row in rows {
-                workspaces.push(decode_workspace(&self.pool, row).await?);
-            }
-
-            let catalog = WorkspaceCatalog { workspaces };
-            workspace_validator::validate_workspace_catalog(&catalog)
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
+            let mut transaction = self
+                .pool
+                .begin()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            let catalog = Self::list_workspaces_in_transaction(&mut transaction).await?;
+            transaction
+                .commit()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
             Ok(catalog)
         })

@@ -1,4 +1,4 @@
-use sqlx::{sqlite::SqliteRow, Row};
+use sqlx::{sqlite::SqliteRow, Row, SqliteTransaction};
 
 use crate::{
     domain::{
@@ -21,13 +21,10 @@ use super::values::{
     parse_provisioning_recovery_action,
 };
 
-pub(super) async fn decode_workspace<'e, E>(
-    executor: E,
+pub(super) async fn decode_workspace(
+    transaction: &mut SqliteTransaction<'_>,
     row: SqliteRow,
-) -> Result<Workspace, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite> + Copy,
-{
+) -> Result<Workspace, WorkspaceSetupError> {
     let id: String = row
         .try_get("id")
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
@@ -48,17 +45,18 @@ where
         .try_get("environment_prepared_at")
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
 
-    let placement_plan = read_placement(executor, &id).await?;
-    let resolved_runtime_image = read_runtime_image(executor, &id).await?;
+    let placement_plan = read_placement(transaction, &id).await?;
+    let resolved_runtime_image = read_runtime_image(transaction, &id).await?;
     let persistent_storage_volume_snapshot =
-        read_persistent_storage_volume_snapshot(executor, &id).await?;
+        read_persistent_storage_volume_snapshot(transaction, &id).await?;
     let active_provisioning_pod_snapshot =
-        read_provisioning_pod_snapshot(executor, &id, "active_provisioning_pod").await?;
-    let serverless_endpoint_snapshot = read_serverless_endpoint_snapshot(executor, &id).await?;
+        read_provisioning_pod_snapshot(transaction, &id, "active_provisioning_pod").await?;
+    let serverless_endpoint_snapshot = read_serverless_endpoint_snapshot(transaction, &id).await?;
     let last_provisioning_pod_snapshot =
-        read_provisioning_pod_snapshot(executor, &id, "last_provisioning_pod").await?;
-    let provider_provisioning_snapshot = read_provider_provisioning_snapshot(executor, &id).await?;
-    let last_provisioning_failure = read_provisioning_failure(executor, &id).await?;
+        read_provisioning_pod_snapshot(transaction, &id, "last_provisioning_pod").await?;
+    let provider_provisioning_snapshot =
+        read_provider_provisioning_snapshot(transaction, &id).await?;
+    let last_provisioning_failure = read_provisioning_failure(transaction, &id).await?;
 
     let workspace = Workspace {
         gpu_cloud_provider_id: provider_id,
@@ -82,13 +80,10 @@ where
     Ok(workspace)
 }
 
-async fn read_placement<'e, E>(
-    executor: E,
+async fn read_placement(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
-) -> Result<PlacementPlan, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
+) -> Result<PlacementPlan, WorkspaceSetupError> {
     let row = sqlx::query(
         r#"
         SELECT
@@ -103,7 +98,7 @@ where
         "#,
     )
     .bind(workspace_id)
-    .fetch_one(executor)
+    .fetch_one(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
 
@@ -141,13 +136,10 @@ where
     })
 }
 
-async fn read_runtime_image<'e, E>(
-    executor: E,
+async fn read_runtime_image(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
-) -> Result<ResolvedRuntimeImageSnapshot, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
+) -> Result<ResolvedRuntimeImageSnapshot, WorkspaceSetupError> {
     let row = sqlx::query(
         r#"
         SELECT contract_id, contract_version, provisioner_image_ref, endpoint_image_ref
@@ -156,7 +148,7 @@ where
         "#,
     )
     .bind(workspace_id)
-    .fetch_one(executor)
+    .fetch_one(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
 
@@ -176,14 +168,11 @@ where
     })
 }
 
-async fn read_resource_snapshot<'e, E>(
-    executor: E,
+async fn read_resource_snapshot(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
     role: &str,
-) -> Result<Option<SqliteRow>, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
+) -> Result<Option<SqliteRow>, WorkspaceSetupError> {
     sqlx::query(
         r#"
         SELECT
@@ -199,20 +188,17 @@ where
     )
     .bind(workspace_id)
     .bind(role)
-    .fetch_optional(executor)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)
 }
 
-async fn read_persistent_storage_volume_snapshot<'e, E>(
-    executor: E,
+async fn read_persistent_storage_volume_snapshot(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
-) -> Result<Option<PersistentStorageVolumeSnapshot>, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
+) -> Result<Option<PersistentStorageVolumeSnapshot>, WorkspaceSetupError> {
     let Some(row) =
-        read_resource_snapshot(executor, workspace_id, "persistent_storage_volume").await?
+        read_resource_snapshot(transaction, workspace_id, "persistent_storage_volume").await?
     else {
         return Ok(None);
     };
@@ -238,15 +224,12 @@ where
     }))
 }
 
-async fn read_provisioning_pod_snapshot<'e, E>(
-    executor: E,
+async fn read_provisioning_pod_snapshot(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
     role: &str,
-) -> Result<Option<ProvisioningPodSnapshot>, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
-    let Some(row) = read_resource_snapshot(executor, workspace_id, role).await? else {
+) -> Result<Option<ProvisioningPodSnapshot>, WorkspaceSetupError> {
+    let Some(row) = read_resource_snapshot(transaction, workspace_id, role).await? else {
         return Ok(None);
     };
 
@@ -271,14 +254,12 @@ where
     }))
 }
 
-async fn read_serverless_endpoint_snapshot<'e, E>(
-    executor: E,
+async fn read_serverless_endpoint_snapshot(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
-) -> Result<Option<ServerlessEndpointSnapshot>, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
-    let Some(row) = read_resource_snapshot(executor, workspace_id, "serverless_endpoint").await?
+) -> Result<Option<ServerlessEndpointSnapshot>, WorkspaceSetupError> {
+    let Some(row) =
+        read_resource_snapshot(transaction, workspace_id, "serverless_endpoint").await?
     else {
         return Ok(None);
     };
@@ -304,13 +285,10 @@ where
     }))
 }
 
-async fn read_provider_provisioning_snapshot<'e, E>(
-    executor: E,
+async fn read_provider_provisioning_snapshot(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
-) -> Result<Option<ProviderProvisioningSnapshot>, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
+) -> Result<Option<ProviderProvisioningSnapshot>, WorkspaceSetupError> {
     let template = sqlx::query(
         r#"
         SELECT template_id, provider_resource_status, endpoint_worker_image_ref, mount_path
@@ -319,7 +297,7 @@ where
         "#,
     )
     .bind(workspace_id)
-    .fetch_optional(executor)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
     .map(|row| {
@@ -349,13 +327,10 @@ where
     ))
 }
 
-async fn read_provisioning_failure<'e, E>(
-    executor: E,
+async fn read_provisioning_failure(
+    transaction: &mut SqliteTransaction<'_>,
     workspace_id: &str,
-) -> Result<Option<WorkspaceProvisioningFailure>, WorkspaceSetupError>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
+) -> Result<Option<WorkspaceProvisioningFailure>, WorkspaceSetupError> {
     let Some(row) = sqlx::query(
         r#"
         SELECT code, phase, source, retryable, recovery_action, diagnostic
@@ -364,7 +339,7 @@ where
         "#,
     )
     .bind(workspace_id)
-    .fetch_optional(executor)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
     else {
