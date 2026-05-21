@@ -80,6 +80,52 @@ The Native Layer SHALL apply required Workspace Catalog SQLite schema migrations
 - **THEN** the Native Layer SHALL reject the catalog operation with `workspace_catalog_migration_failed`
 - **AND** the Native Layer MUST NOT read, write, migrate, downgrade, or mutate Workspace records from the newer catalog version
 
+### Requirement: Persist Workspace Catalog records as normalized SQLite fields
+
+The Native Layer SHALL persist Workspace Catalog records through explicit SQLite fields and related rows for Workspace identity, lifecycle, placement, resolved runtime image, provider resource snapshots, provider provisioning snapshots, environment preparation metadata, and last provisioning failure metadata. A serialized full-Workspace JSON value MUST NOT be the authoritative source for Workspace Catalog reads or writes.
+
+#### Scenario: Draft Workspace is persisted without an authoritative JSON blob
+
+- **WHEN** the Native Layer creates a valid Draft Workspace
+- **THEN** the Native Layer SHALL persist the Workspace identity, name, GPU Cloud Provider id, lifecycle state, selected placement fields, selected Workflow Preset identity, and resolved runtime image fields as explicit SQLite data
+- **AND** the Native Layer SHALL persist empty provider resource snapshots, provider provisioning snapshot, environment prepared timestamp, and last provisioning failure as explicit absent values
+- **AND** the Native Layer MUST NOT require a serialized full-Workspace JSON value to reconstruct the returned Workspace
+
+#### Scenario: Provisioning metadata is persisted as normalized data
+
+- **WHEN** Workspace Provisioning updates a Workspace with provider resource snapshots, provider provisioning snapshots, environment preparation metadata, or last provisioning failure metadata
+- **THEN** the Native Layer SHALL persist each updated metadata group as explicit SQLite fields or related rows
+- **AND** the Native Layer SHALL update the Workspace lifecycle state and updated timestamp in the same durable operation
+- **AND** subsequent Workspace Catalog reads SHALL reconstruct the authoritative Workspace from the normalized SQLite data
+
+#### Scenario: Normalized row data is inconsistent
+
+- **WHEN** the Native Layer reads normalized Workspace Catalog data that cannot be reconstructed into a valid Workspace or whose related rows contradict the Workspace identity, GPU Cloud Provider, lifecycle, placement, runtime, or provider resource invariants
+- **THEN** the Native Layer SHALL reject the catalog operation with `workspace_catalog_schema_mismatch` or `workspace_catalog_corrupt`
+- **AND** the Native Layer MUST NOT return partial Workspace Catalog data as authoritative
+
+#### Scenario: Fresh normalized catalog schema is initialized
+
+- **WHEN** the Native Layer initializes the Workspace Catalog schema for the current app version
+- **THEN** the Native Layer SHALL create normalized SQLite tables and indexes required to persist Workspace Catalog records
+- **AND** the Native Layer MUST NOT create a required full-Workspace JSON column for authoritative reads or writes
+
+### Requirement: Preserve SQLite Workspace Catalog behavior across module split
+
+The Native Layer SHALL preserve SQLite Workspace Catalog repository behavior when the implementation is split from a single file into focused SQLite submodules.
+
+#### Scenario: Workspace Catalog repository operations are unchanged
+
+- **WHEN** the Native Layer lists, finds, inserts, or updates Workspace records through `SqliteWorkspaceCatalog`
+- **THEN** the SQLite-backed repository SHALL apply the same migrations, validation, persistence, decoding, duplicate detection, and UI-safe error mapping as before the module split
+- **AND** callers SHALL continue using the `workspace_catalog::sqlite::SqliteWorkspaceCatalog` module path
+
+#### Scenario: Workspace detail mappings are unchanged
+
+- **WHEN** the SQLite-backed repository persists and re-reads Workspace placement, runtime image, provider resource snapshots, provisioning metadata, or failure metadata
+- **THEN** the reconstructed Workspace domain object SHALL remain internally consistent with the persisted SQLite rows
+- **AND** the refactor MUST NOT introduce new SQLite tables, migrations, command payload fields, or generated TypeScript contract changes
+
 ### Requirement: Read provider placement inventory
 
 The Native Layer SHALL expose a `get_provider_placement_options` command that returns provider placement options for an explicit GPU Cloud Provider after validating local provider setup prerequisites. Placement options SHALL include live Provider Inventory and provider placement capabilities, and provider-specific inventory mapping SHALL only expose datacenters that can satisfy LumaForge's current provisioning prerequisites. Provider-specific placement option behavior SHALL be selected through a service-level Workspace Setup provider capability.
