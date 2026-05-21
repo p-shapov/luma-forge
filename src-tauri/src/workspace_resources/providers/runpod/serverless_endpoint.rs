@@ -118,10 +118,6 @@ where
                 context,
                 workspace,
                 WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                discovered_templates
-                    .into_iter()
-                    .map(|observation| observation.template_id)
-                    .collect(),
             )
             .await;
         }
@@ -147,10 +143,6 @@ where
                         context,
                         workspace,
                         WorkspaceProvisioningPhase::CreatingEndpointTemplate,
-                        discovered_templates
-                            .into_iter()
-                            .map(|observation| observation.template_id)
-                            .collect(),
                     )
                     .await;
                 }
@@ -244,10 +236,6 @@ where
                 context,
                 workspace,
                 WorkspaceProvisioningPhase::CreatingEndpoint,
-                discovered_endpoints
-                    .into_iter()
-                    .map(|observation| observation.provider_resource_id)
-                    .collect(),
             )
             .await;
         }
@@ -276,10 +264,6 @@ where
                         context,
                         workspace,
                         WorkspaceProvisioningPhase::CreatingEndpoint,
-                        discovered_endpoints
-                            .into_iter()
-                            .map(|observation| observation.provider_resource_id)
-                            .collect(),
                     )
                     .await;
                 }
@@ -408,17 +392,13 @@ async fn fail_for_orphaned_provider_resources<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
-    provider_resource_ids: Vec<String>,
 ) -> WorkspaceResourceSyncResult
 where
     S: SecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
-    fail_workspace(
-        workspace,
-        failure::orphaned_provider_resources(phase, provider_resource_ids),
-    );
+    fail_workspace(workspace, failure::orphaned_provider_resources(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 

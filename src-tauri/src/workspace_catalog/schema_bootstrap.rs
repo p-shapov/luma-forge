@@ -167,7 +167,6 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
             source TEXT NOT NULL,
             retryable INTEGER NOT NULL,
             recovery_action TEXT NOT NULL,
-            diagnostic TEXT,
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
         )
         "#,

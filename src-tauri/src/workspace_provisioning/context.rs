@@ -13,7 +13,8 @@ use crate::{
 };
 
 use super::{
-    helpers::WorkspaceProvisioningResult, WorkspaceProvisioningConfig, WorkspaceProvisioningError,
+    helpers::{catalog_error, WorkspaceProvisioningResult},
+    WorkspaceProvisioningConfig, WorkspaceProvisioningError,
 };
 
 pub(crate) type SyncStepResult =
@@ -168,10 +169,4 @@ where
             .await
             .map_err(catalog_error)
     }
-}
-
-fn catalog_error(
-    _error: crate::workspace_setup::error::WorkspaceSetupError,
-) -> WorkspaceProvisioningError {
-    WorkspaceProvisioningError::WorkspaceCatalogUnavailable
 }

@@ -142,7 +142,7 @@ The setup resource is uniquely identified by the requested provider.
 
 After a successful setup, the Native Layer (Tauri / Rust) rejects any subsequent setup request, regardless of whether the submitted key matches the existing key.
 
-The key fingerprint is used only for redacted status and diagnostics, not for accepting repeated setup requests.
+The key fingerprint is used only for redacted status and safe error metadata, not for accepting repeated setup requests.
 
 ## Cleanup / Rollback
 

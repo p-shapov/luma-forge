@@ -136,7 +136,6 @@ fn legacy_failure() -> WorkspaceProvisioningFailure {
         source: WorkspaceProvisioningFailureSource::Native,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-        diagnostic: None,
     }
 }
 
@@ -257,7 +256,6 @@ mod tests {
             source: WorkspaceProvisioningFailureSource::Native,
             retryable: true,
             recovery_action: WorkspaceProvisioningRecoveryAction::Retry,
-            diagnostic: Some("readiness check failed".to_string()),
         }
     }
 

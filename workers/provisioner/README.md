@@ -69,7 +69,7 @@ Remote provisioning must inject a unique per-pod bearer token through `LUMA_FORG
 
 ## Runtime Environment
 
-The worker validates runtime environment before binding the HTTP server. Invalid configured values fail startup instead of falling back silently. Startup configuration failures write one JSON diagnostic to stderr, exit with code `78`, and do not start the HTTP API:
+The worker validates runtime environment before binding the HTTP server. Invalid configured values fail startup instead of falling back silently. Startup configuration failures write one JSON error record to stderr, exit with code `78`, and do not start the HTTP API:
 
 ```json
 {
@@ -80,7 +80,7 @@ The worker validates runtime environment before binding the HTTP server. Invalid
 }
 ```
 
-The diagnostic never includes configured environment values or secrets.
+The error record never includes configured environment values or secrets.
 
 | Variable | Default | Validation |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ curl -X POST http://127.0.0.1:8000/start \
 
 ### `GET /status`
 
-Returns the current worker status with UI-safe diagnostics.
+Returns the current worker status with structured error metadata when a job fails.
 
 Example:
 
@@ -157,7 +157,6 @@ curl http://127.0.0.1:8000/status \
   "job_id": null,
   "phase": null,
   "progress_percent": null,
-  "diagnostic_message": null,
   "error": null,
   "updated_at": "2026-05-09T00:00:00Z",
   "provisioner_version": "1.0.0"
@@ -172,7 +171,6 @@ During an active job:
   "job_id": "workspace-id",
   "phase": "downloading_assets",
   "progress_percent": 56,
-  "diagnostic_message": "Downloading model asset SDXL Base 1.0",
   "error": null,
   "updated_at": "2026-05-09T00:00:00Z",
   "provisioner_version": "1.0.0"
@@ -189,7 +187,6 @@ Failure responses include UI-safe error metadata:
   "job_id": "workspace-id",
   "phase": null,
   "progress_percent": 56,
-  "diagnostic_message": "Hugging Face asset download failed",
   "error": {
     "code": "asset_download_failed",
     "reason_code": "asset_download_failed",

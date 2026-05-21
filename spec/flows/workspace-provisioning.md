@@ -147,9 +147,9 @@ Sync loop ends when status is `completed`, `failed`, `cancelled`, or `idle`.
   - Mutation guarantee: known Provider Resource identifiers are retained; Workspace is not marked `Ready` from unknown status.
   - Client behavior: shows failed or non-ready state and cleanup path.
 - Temporary provisioning compute failure
-  - Native behavior: terminates active Provisioning Pod when possible, retains pod diagnostics, and marks Workspace `Failed`.
+  - Native behavior: terminates active Provisioning Pod when possible, retains typed pod failure metadata, and marks Workspace `Failed`.
   - Mutation guarantee: known storage and pod metadata are retained for cleanup.
-  - Client behavior: shows failed status and diagnostics when safe to display.
+  - Client behavior: shows failed status and recovery action when safe to display.
 - Runtime entry point or readiness validation failure
   - Native behavior: marks Workspace `Failed` when endpoint setup, prepared runtime volume validation, resource presence validation, or Provider validation fails.
   - Mutation guarantee: existing resource snapshots are retained.

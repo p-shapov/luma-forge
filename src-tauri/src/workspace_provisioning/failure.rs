@@ -1,10 +1,9 @@
+use super::WorkspaceProvisioningError;
 use crate::domain::workspace::{
     ProviderResourceStatus, WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
     WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
     WorkspaceProvisioningRecoveryAction,
 };
-
-use super::WorkspaceProvisioningError;
 
 pub(crate) fn provider_resource_failure(
     phase: WorkspaceProvisioningPhase,
@@ -31,7 +30,6 @@ pub(crate) fn provider_resource_failure(
         source: WorkspaceProvisioningFailureSource::ProviderResource,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-        diagnostic: None,
     }
 }
 
@@ -44,7 +42,6 @@ pub(crate) fn indeterminate_provider_operation(
         source: WorkspaceProvisioningFailureSource::Provider,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-        diagnostic: None,
     }
 }
 
@@ -57,13 +54,11 @@ pub(crate) fn missing_provider_resource(
         source: WorkspaceProvisioningFailureSource::ProviderResource,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-        diagnostic: None,
     }
 }
 
 pub(crate) fn orphaned_provider_resources(
     phase: WorkspaceProvisioningPhase,
-    provider_resource_ids: Vec<String>,
 ) -> WorkspaceProvisioningFailure {
     WorkspaceProvisioningFailure {
         code: WorkspaceProvisioningFailureCode::ProviderOrphanedResources,
@@ -71,18 +66,6 @@ pub(crate) fn orphaned_provider_resources(
         source: WorkspaceProvisioningFailureSource::ProviderResource,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-        diagnostic: orphaned_resource_diagnostic(provider_resource_ids),
-    }
-}
-
-fn orphaned_resource_diagnostic(provider_resource_ids: Vec<String>) -> Option<String> {
-    if provider_resource_ids.is_empty() {
-        None
-    } else {
-        Some(format!(
-            "Discovered provider resource ids: {}",
-            provider_resource_ids.join(", ")
-        ))
     }
 }
 
@@ -90,19 +73,37 @@ pub(crate) fn worker_failure(
     phase: WorkspaceProvisioningPhase,
     error: &WorkspaceProvisioningError,
 ) -> Option<WorkspaceProvisioningFailure> {
-    let (code, diagnostic) = match error {
-        WorkspaceProvisioningError::ProvisionerWorkerUnauthorized => (
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized,
-            None,
-        ),
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { diagnostic } => (
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid,
-            diagnostic.clone(),
-        ),
-        WorkspaceProvisioningError::ProvisionerWorkerFailed { diagnostic } => (
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,
-            diagnostic.clone(),
-        ),
+    let code = match error {
+        WorkspaceProvisioningError::ProvisionerWorkerUnauthorized => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnauthorized
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerStepTimeout => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout
+        }
+        WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError
+        }
         _ => return None,
     };
 
@@ -112,7 +113,6 @@ pub(crate) fn worker_failure(
         source: WorkspaceProvisioningFailureSource::ProvisionerWorker,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-        diagnostic,
     })
 }
 
@@ -125,7 +125,6 @@ pub(crate) fn worker_token_missing(
         source: WorkspaceProvisioningFailureSource::Native,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-        diagnostic: None,
     }
 }
 
@@ -138,7 +137,6 @@ pub(crate) fn worker_token_invalid(
         source: WorkspaceProvisioningFailureSource::Native,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-        diagnostic: None,
     }
 }
 
@@ -151,7 +149,6 @@ pub(crate) fn readiness_validation_failed(
         source: WorkspaceProvisioningFailureSource::Native,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-        diagnostic: None,
     }
 }
 
@@ -162,6 +159,5 @@ pub(crate) fn cancellation_cleanup_failed() -> WorkspaceProvisioningFailure {
         source: WorkspaceProvisioningFailureSource::Native,
         retryable: false,
         recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-        diagnostic: None,
     }
 }

@@ -192,7 +192,6 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "running")
         self.assertEqual(payload["phase"], "materializing_runtime")
         self.assertEqual(payload["progress_percent"], 25)
-        self.assertEqual(payload["diagnostic_message"], "Validating image-baked ComfyUI runtime")
         self.assertNotIn(raw_output, str(payload))
 
     def test_failed_status_does_not_include_console_output(self):
@@ -217,7 +216,6 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], "dependency_install_failed")
         self.assertEqual(payload["error"]["reason_code"], "dependency_install_failed")
-        self.assertEqual(payload["diagnostic_message"], "Command failed: python -m")
         self.assertNotIn(raw_output, str(payload))
 
     def test_unexpected_job_error_is_sanitized(self):
@@ -237,7 +235,6 @@ class ApiTests(unittest.TestCase):
                 payload = _wait_for_status(server, "failed")
 
         self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["diagnostic_message"], "Provisioning job failed")
         self.assertEqual(payload["error"]["code"], "unexpected_error")
         self.assertEqual(payload["error"]["reason_code"], "unexpected_exception")
         self.assertNotIn(secret, str(payload))

@@ -170,7 +170,7 @@ The Native Layer SHALL derive `GpuCloudProviderSetup` from provider identity and
 
 ### Requirement: Keep Provider API Key secret from the Client
 
-The Native Layer MUST NOT return, persist outside secure keyring, log, or include Provider API Keys in generated frontend types, command responses, errors, or diagnostics.
+The Native Layer MUST NOT return, persist outside secure keyring, log, or include Provider API Keys in generated frontend types, command responses, errors, or metadata.
 
 #### Scenario: Setup status is returned
 
@@ -285,4 +285,3 @@ The Provider Setup implementation SHALL centralize provider selection for provid
 - **WHEN** Provider Setup handles `runpod`
 - **THEN** the selected concrete capability SHALL preserve the existing RunPod identity validation behavior and error mapping
 - **AND** the generated command request and response contract MUST remain unchanged
-

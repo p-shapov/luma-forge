@@ -95,7 +95,7 @@ If frontend test or type-check scripts are added later, run them for relevant fr
 - Keep side effects behind infrastructure modules: persistence, keyring access, filesystem/config access, HTTP clients, logging, and bundled/generated catalog loading.
 - Keep provider-specific request/response shapes, naming, authentication details, API quirks, and mapping code inside provider implementation modules.
 - Treat durable native state as Native-owned. Native code defines persistence and consistency boundaries; React consumes the resulting state through commands.
-- Keep secrets behind secure storage and provider-call paths. Secrets must not appear in domain snapshots, command responses, logs, diagnostics, or generated frontend types.
+- Keep secrets behind secure storage and provider-call paths. Secrets must not appear in domain snapshots, command responses, logs, metadata, or generated frontend types.
 - Treat generated command bindings as the frontend contract. Request and response types should be exported through `specta` / `tauri-specta` instead of duplicated by hand.
 
 **Verification Criteria**

@@ -65,6 +65,27 @@ pub(super) fn provisioning_failure_code_value(
             "provisioner_worker_response_invalid"
         }
         WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed => "provisioner_worker_failed",
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed => {
+            "provisioner_worker_git_checkout_failed"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed => {
+            "provisioner_worker_dependency_install_failed"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed => {
+            "provisioner_worker_asset_download_failed"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired => {
+            "provisioner_worker_asset_auth_required"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed => {
+            "provisioner_worker_path_validation_failed"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout => {
+            "provisioner_worker_step_timeout"
+        }
+        WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError => {
+            "provisioner_worker_unexpected_error"
+        }
         WorkspaceProvisioningFailureCode::ReadinessValidationFailed => {
             "readiness_validation_failed"
         }
@@ -186,6 +207,27 @@ pub(super) fn parse_provisioning_failure_code(
         }
         "provisioner_worker_failed" => {
             Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed)
+        }
+        "provisioner_worker_git_checkout_failed" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed)
+        }
+        "provisioner_worker_dependency_install_failed" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed)
+        }
+        "provisioner_worker_asset_download_failed" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed)
+        }
+        "provisioner_worker_asset_auth_required" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired)
+        }
+        "provisioner_worker_path_validation_failed" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed)
+        }
+        "provisioner_worker_step_timeout" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout)
+        }
+        "provisioner_worker_unexpected_error" => {
+            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError)
         }
         "readiness_validation_failed" => {
             Ok(WorkspaceProvisioningFailureCode::ReadinessValidationFailed)
@@ -344,6 +386,34 @@ mod tests {
             (
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,
                 "provisioner_worker_failed",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed,
+                "provisioner_worker_git_checkout_failed",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed,
+                "provisioner_worker_dependency_install_failed",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed,
+                "provisioner_worker_asset_download_failed",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetAuthRequired,
+                "provisioner_worker_asset_auth_required",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerPathValidationFailed,
+                "provisioner_worker_path_validation_failed",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerStepTimeout,
+                "provisioner_worker_step_timeout",
+            ),
+            (
+                WorkspaceProvisioningFailureCode::ProvisionerWorkerUnexpectedError,
+                "provisioner_worker_unexpected_error",
             ),
             (
                 WorkspaceProvisioningFailureCode::ReadinessValidationFailed,

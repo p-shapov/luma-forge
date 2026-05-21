@@ -62,10 +62,6 @@ where
                 context,
                 workspace,
                 WorkspaceProvisioningPhase::StartingProvisioningPod,
-                discovered_pods
-                    .into_iter()
-                    .map(|observation| observation.provider_resource_id)
-                    .collect(),
             )
             .await;
         }
@@ -101,10 +97,6 @@ where
                         context,
                         workspace,
                         WorkspaceProvisioningPhase::StartingProvisioningPod,
-                        discovered_pods
-                            .into_iter()
-                            .map(|observation| observation.provider_resource_id)
-                            .collect(),
                     )
                     .await;
                 }
@@ -115,7 +107,9 @@ where
                 )
                 .await;
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                return handle_pod_create_error_after_token_write(context, workspace, error).await;
+            }
         };
         workspace.active_provisioning_pod_snapshot = Some(ProvisioningPodSnapshot {
             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
@@ -213,6 +207,51 @@ where
     context.update_workspace(workspace).await.map(Some)
 }
 
+async fn handle_pod_create_error_after_token_write<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
+    workspace: &mut Workspace,
+    error: WorkspaceResourceError,
+) -> WorkspaceResourceSyncResult
+where
+    S: SecretStore,
+    W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
+    C: RunPodWorkspaceResourceClient,
+{
+    let discovered_pods = match context
+        .discover_provisioning_pods(DiscoverProvisioningPodsInput {
+            gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
+            workspace_id: workspace.id.clone(),
+        })
+        .await
+    {
+        Ok(discovered_pods) => discovered_pods,
+        Err(_) => return Err(error),
+    };
+
+    if !discovered_pods.is_empty() {
+        return fail_for_orphaned_provider_resources(
+            context,
+            workspace,
+            WorkspaceProvisioningPhase::StartingProvisioningPod,
+        )
+        .await;
+    }
+
+    cleanup_worker_token_after_determinate_create_failure(context, workspace);
+    Err(error)
+}
+
+fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
+    context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
+    workspace: &Workspace,
+) where
+    S: SecretStore,
+{
+    let _ = context
+        .secrets
+        .delete_provisioner_worker_token(&workspace.id);
+}
+
 async fn fail_for_indeterminate_provider_operation<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
@@ -241,15 +280,11 @@ async fn fail_for_orphaned_provider_resources<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
-    provider_resource_ids: Vec<String>,
 ) -> WorkspaceResourceSyncResult
 where
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
-    fail_workspace(
-        workspace,
-        failure::orphaned_provider_resources(phase, provider_resource_ids),
-    );
+    fail_workspace(workspace, failure::orphaned_provider_resources(phase));
     context.update_workspace(workspace).await.map(Some)
 }
 
@@ -371,6 +406,87 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn determinate_pod_create_failure_deletes_worker_token_best_effort() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Err(ProviderClientError::ApiUnavailable));
+        client.push_discover_pods(Ok(Vec::new()));
+
+        let error = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect_err("pod create should fail");
+
+        assert_eq!(error, WorkspaceResourceError::ProviderApiUnavailable);
+        assert_eq!(secrets.write_tokens().len(), 1);
+        assert_eq!(
+            secrets.delete_token_calls(),
+            vec!["workspace-1".to_string()]
+        );
+        assert!(catalog.updates().is_empty());
+    }
+
+    #[tokio::test]
+    async fn token_cleanup_failure_preserves_original_pod_create_error() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        secrets.fail_delete_token(SecretStoreError::SecureKeyringUnavailable);
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Err(ProviderClientError::RateLimited));
+        client.push_discover_pods(Ok(Vec::new()));
+
+        let error = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect_err("pod create should fail");
+
+        assert_eq!(error, WorkspaceResourceError::ProviderRateLimited);
+        assert_eq!(
+            secrets.delete_token_calls(),
+            vec!["workspace-1".to_string()]
+        );
+        assert!(catalog.updates().is_empty());
+    }
+
+    #[tokio::test]
+    async fn pod_found_after_create_error_preserves_token_and_persists_recovery_state() {
+        let client = FakeRunPodClient::default();
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Err(ProviderClientError::ResponseInvalid));
+        client.push_discover_pods(Ok(vec![runpod_pod(
+            "possible-pod",
+            ProviderResourceStatus::Running,
+            Some("https://pod/status"),
+        )]));
+
+        let updated = sync(&client, &mut workspace, &secrets, &catalog)
+            .await
+            .expect("possible pod should persist recovery state")
+            .expect("workspace should be persisted");
+
+        assert_eq!(
+            updated
+                .last_provisioning_failure
+                .expect("workspace should fail")
+                .code,
+            WorkspaceProvisioningFailureCode::ProviderOrphanedResources
+        );
+        assert!(secrets.delete_token_calls().is_empty());
+    }
+
+    #[tokio::test]
     async fn orphaned_pod_fails_before_create() {
         let client = FakeRunPodClient::default();
         let secrets = FakeSecretStore::default();
@@ -423,6 +539,7 @@ mod tests {
                 .code,
             WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate
         );
+        assert!(secrets.delete_token_calls().is_empty());
     }
 
     #[tokio::test]

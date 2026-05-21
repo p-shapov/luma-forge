@@ -13,7 +13,7 @@ Provider Resources may include:
 **Invariants:**
 
 - Active Provider Resources are referenced from local Workspace metadata.
-- Workspace metadata must retain enough Provider Resource metadata for readiness checks, retry decisions, diagnostics, and Workspace Resource Cleanup.
+- Workspace metadata must retain enough Provider Resource metadata for readiness checks, retry decisions, and Workspace Resource Cleanup.
 - Each Workspace owns its own Provider Resource set.
 - Provider Resources are not shared between Workspaces.
 

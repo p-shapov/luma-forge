@@ -210,7 +210,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 
 #### Scenario: Provisioner Worker progress is reported
 - **WHEN** the Provisioner Worker reports `running` or `cancelling` status for the active Workspace job
-- **THEN** the Native Layer SHALL derive Workspace Provisioning Progress from the worker status, phase, progress percentage, and UI-safe diagnostic metadata
+- **THEN** the Native Layer SHALL derive Workspace Provisioning Progress from the worker status, phase, and progress percentage
 - **AND** the Native Layer SHALL map worker-specific phase names into Workspace Provisioning phases without exposing worker implementation details as durable domain state
 - **AND** the Native Layer MUST NOT persist worker progress as authoritative lifecycle state
 
@@ -224,7 +224,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **WHEN** the Provisioner Worker reports terminal failure or returns an unrecoverable worker API error
 - **THEN** the Native Layer SHALL mark the Workspace `failed`
 - **AND** the Native Layer SHALL retain known volume and provisioning pod snapshots for future cleanup
-- **AND** returned diagnostics SHALL be UI-safe and MUST NOT contain bearer tokens, Provider API Keys, raw command output, stack traces, or environment dumps
+- **AND** returned error metadata SHALL be UI-safe and MUST NOT contain bearer tokens, Provider API Keys, raw command output, stack traces, or environment dumps
 - **AND** the Native Layer SHALL preserve stable UI-safe worker error metadata when the worker provides it
 
 #### Scenario: Provisioner Worker API contract error is classified distinctly
@@ -232,7 +232,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **THEN** the Native Layer SHALL classify the failure as a worker response or request contract problem
 - **AND** the Native Layer MUST NOT classify that worker JSON response as worker unavailability
 - **AND** temporary non-JSON proxy or readiness responses before the worker API is ready SHALL be treated as worker readiness lag rather than worker API contract failures
-- **AND** any persisted or returned diagnostics SHALL remain UI-safe and secret-safe
+- **AND** any persisted or returned error metadata SHALL remain UI-safe and secret-safe
 
 ### Requirement: Provision RunPod Serverless Template
 
@@ -438,19 +438,19 @@ The Native Layer SHALL centralize deletion of known Workspace-owned provisioning
 
 ### Requirement: Preserve Secret Safety During Provisioning
 
-Workspace Provisioning SHALL keep Provider API Keys and Provisioner Worker bearer tokens out of Workspace metadata, command responses, logs, diagnostics, and generated frontend bindings.
+Workspace Provisioning SHALL keep Provider API Keys and Provisioner Worker bearer tokens out of Workspace metadata, command responses, logs, error metadata, and generated frontend bindings.
 
 #### Scenario: Provider API Key is used
 
 - **WHEN** Workspace Provisioning calls RunPod
 - **THEN** the Native Layer SHALL read the Provider API Key from secure storage through the provider registry
-- **AND** the Provider API Key MUST NOT be written to Workspace Catalog metadata, command responses, logs, diagnostics, or generated frontend types
+- **AND** the Provider API Key MUST NOT be written to Workspace Catalog metadata, command responses, logs, error metadata, or generated frontend types
 
 #### Scenario: Provisioner bearer token is stored
 
 - **WHEN** Workspace Provisioning creates a temporary Provisioning Pod
 - **THEN** the Native Layer SHALL store the Provisioner Worker bearer token in a per-workspace keyring entry separate from Provider API Key storage
-- **AND** the bearer token MUST NOT be written to Workspace Catalog metadata, command responses, logs, diagnostics, or generated frontend types
+- **AND** the bearer token MUST NOT be written to Workspace Catalog metadata, command responses, logs, error metadata, or generated frontend types
 
 #### Scenario: Provisioner bearer token is removed
 
@@ -510,9 +510,9 @@ Workspace Provisioning SHALL persist a structured, UI-safe provisioning failure 
 
 - **WHEN** the Provisioner Worker reports terminal failure or returns an unrecoverable worker API error during provisioning
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
-- **AND** the Native Layer SHALL persist a structured provisioning failure detail with a stable failure code, failed phase, provisioner-worker source, retryability, recovery action, and only sanitized diagnostics
+- **AND** the Native Layer SHALL persist a structured provisioning failure detail with a stable failure code, failed phase, provisioner-worker source, retryability, and recovery action
 - **AND** the Native Layer SHALL include stable UI-safe worker error code or reason metadata when provided by the worker contract
-- **AND** the Native Layer SHALL preserve sanitized diagnostics for both terminal worker job failures and unrecoverable worker API contract failures when the worker provides them
+- **AND** the Native Layer SHALL preserve stable typed worker failure codes for both terminal worker job failures and unrecoverable worker API contract failures when the worker provides them
 - **AND** the Native Layer SHALL retain known volume and provisioning pod snapshots for future cleanup
 
 #### Scenario: Unsafe continuation is recorded
@@ -538,7 +538,7 @@ Workspace Provisioning SHALL persist a structured, UI-safe provisioning failure 
 #### Scenario: Failure details are secret-safe
 
 - **WHEN** the Native Layer records or returns structured provisioning failure detail
-- **THEN** the failure detail MUST NOT include Provider API Keys, Provisioner Worker bearer tokens, raw provider responses, provider-specific secret-bearing URLs, raw command output, stack traces, environment dumps, unsanitized worker diagnostics, worker request bodies, or raw worker responses
+- **THEN** the failure detail MUST NOT include Provider API Keys, Provisioner Worker bearer tokens, raw provider responses, provider-specific secret-bearing URLs, raw command output, stack traces, environment dumps, worker request bodies, or raw worker responses
 
 ### Requirement: Preserve Workspace Provisioning Behavior During Native Refactor
 The Native Layer SHALL preserve the existing Workspace Provisioning command contract, durable sync semantics, cleanup metadata guarantees, and secret-safety behavior when the native provisioning implementation is split into focused Rust modules.
@@ -562,7 +562,7 @@ The Native Layer SHALL preserve the existing Workspace Provisioning command cont
 #### Scenario: Refactored implementation preserves secret safety
 - **WHEN** Workspace Provisioning reads Provider API Keys or Provisioner Worker bearer tokens during initiate, sync, or cancel
 - **THEN** the Native Layer SHALL keep those secrets behind secure storage and provider or worker call paths
-- **AND** command responses, Workspace metadata, logs, diagnostics, and generated frontend bindings MUST NOT expose those secrets
+- **AND** command responses, Workspace metadata, logs, error metadata, and generated frontend bindings MUST NOT expose those secrets
 
 ### Requirement: Route provider-specific provisioning choreography through use-case steps
 Workspace Provisioning SHALL keep provider-specific provisioning sequence decisions inside provider-specific Workspace Provisioning step modules while preserving provider API access behind infrastructure gateways.
@@ -686,7 +686,7 @@ Workspace Provisioning SHALL delegate Workspace-owned provider resource lifecycl
 - **WHEN** `workspace_resources` performs RunPod resource lifecycle work
 - **THEN** it SHALL keep raw RunPod HTTP request/response mapping inside `provider::runpod`
 - **AND** it SHALL keep Provider API Keys behind secure storage and provider-call paths
-- **AND** it MUST NOT expose Provider API Keys, Provisioner Worker bearer tokens, raw provider responses, or secret-bearing diagnostics through Workspace metadata, command responses, logs, or generated frontend bindings
+- **AND** it MUST NOT expose Provider API Keys, Provisioner Worker bearer tokens, raw provider responses, or secret-bearing details through Workspace metadata, command responses, logs, or generated frontend bindings
 
 #### Scenario: RunPod endpoint template remains internal to endpoint operation
 
@@ -734,3 +734,105 @@ Workspace Provisioning SHALL centralize provider-specific provisioning flow sele
 - **THEN** the shared Workspace Provisioning service SHALL select the Workspace Provisioning provider capability for the Workspace provider id
 - **AND** provider-specific cancellation cleanup SHALL execute inside the selected provider capability
 - **AND** existing cleanup failure fallback semantics SHALL remain unchanged
+
+### Requirement: Provisioning preserves Workspace Catalog error categories
+
+Workspace Provisioning SHALL preserve Workspace Catalog error categories received from Workspace Setup, Workspace Catalog repository operations, or Workspace Resources instead of collapsing them into generic catalog unavailability.
+
+#### Scenario: Initiate provisioning sees specific catalog error
+
+- **WHEN** initiating Workspace Provisioning fails because loading or updating the Workspace Catalog returns storage unavailable, migration failed, query failed, corrupt data, or schema mismatch
+- **THEN** Workspace Provisioning SHALL return the corresponding provisioning error category as an immediate command failure
+- **AND** the Native Layer MUST NOT create, modify, or delete Provider Resources
+- **AND** the Native Layer MUST NOT persist a new Workspace failure for the catalog failure
+
+#### Scenario: Sync provisioning sees specific catalog error
+
+- **WHEN** syncing Workspace Provisioning fails because loading or updating the Workspace Catalog returns storage unavailable, migration failed, query failed, corrupt data, or schema mismatch
+- **THEN** Workspace Provisioning SHALL return the corresponding provisioning error category as an immediate command failure
+- **AND** Workspace Provisioning MUST NOT hide the original catalog category behind generic Workspace Catalog unavailable behavior
+
+### Requirement: Provisioning persists recovery-required resource failures
+
+Workspace Provisioning SHALL persist `WorkspaceProvisioningFailure` records when resource-operation failures require user inspection, cleanup, or durable recovery state.
+
+#### Scenario: Provider operation is indeterminate
+
+- **WHEN** a provider resource create, observe, or cleanup operation is indeterminate and provider resource state may be unsafe
+- **THEN** Workspace Provisioning SHALL persist a structured failure with provider-resource source and cleanup-oriented recovery action
+- **AND** Workspace Provisioning MUST NOT return only a generic command error for the unsafe state
+
+#### Scenario: Tracked provider resource is missing
+
+- **WHEN** a tracked provider resource is missing during observation or cleanup
+- **THEN** Workspace Provisioning SHALL persist a structured failure with provider-resource source and cleanup-oriented recovery action
+- **AND** known Workspace metadata and cleanup metadata SHALL be retained
+
+#### Scenario: Orphaned provider resources are discovered
+
+- **WHEN** provider discovery finds Workspace-owned or same-name provider resources that cannot be safely adopted
+- **THEN** Workspace Provisioning SHALL persist a structured failure with cleanup-oriented recovery action and stable UI-safe failure metadata
+- **AND** Workspace Provisioning MUST NOT adopt the resource or create a duplicate resource
+
+#### Scenario: Cancellation cleanup is incomplete
+
+- **WHEN** cancellation cannot confirm deletion of all known provider resources or required local Provisioner Worker token cleanup
+- **THEN** Workspace Provisioning SHALL persist a structured failure with cleanup-oriented recovery action
+- **AND** Workspace Provisioning MUST NOT return the Workspace to `draft`
+
+### Requirement: Provisioning handles provider and worker transient failures by phase
+
+Workspace Provisioning SHALL return command errors, non-mutating progress, or persisted failures for provider and worker failures according to phase-specific recovery semantics.
+
+#### Scenario: Provider API is unavailable or rate limited before unsafe mutation
+
+- **WHEN** provider API unavailability or rate limiting occurs before provider state becomes unsafe
+- **THEN** Workspace Provisioning SHALL return a retryable command error or non-mutating progress according to the current phase
+- **AND** Workspace Provisioning MUST NOT persist a failure solely for the transient provider condition
+
+#### Scenario: Provider request is rejected or response is invalid
+
+- **WHEN** a provider request is rejected or a provider response is invalid
+- **THEN** Workspace Provisioning SHALL return a command error or persist a structured failure according to whether the current phase has created unsafe provider/resource state
+- **AND** the chosen behavior SHALL preserve stable UI-safe reason and recovery action metadata
+
+#### Scenario: Worker readiness lag is non-terminal
+
+- **WHEN** the Provisioner Worker is temporarily unreachable while Native can safely continue observing the active provisioning pod
+- **THEN** Workspace Provisioning SHALL continue reporting running or readiness progress
+- **AND** Workspace Provisioning MUST NOT persist failure state for normal worker startup lag
+
+#### Scenario: Worker terminal or contract failure is persisted
+
+- **WHEN** the Provisioner Worker is unauthorized, returns an invalid unrecoverable response, reports terminal failure, or otherwise violates the worker API contract during environment preparation
+- **THEN** Workspace Provisioning SHALL persist a structured failure with provisioner-worker source and inspect-oriented or recovery-oriented action
+- **AND** persisted failure metadata MUST remain stable, UI-safe, and secret-safe
+
+#### Scenario: Worker token is missing or invalid during preparation
+
+- **WHEN** Workspace Provisioning needs a stored Provisioner Worker bearer token to communicate with an active provisioning pod
+- **AND** the stored token is missing or invalid
+- **THEN** Workspace Provisioning SHALL persist a structured failure as native state inconsistency
+- **AND** command responses and persisted failure metadata MUST NOT include the token value
+
+### Requirement: Provisioning maps resource errors explicitly
+
+Workspace Provisioning SHALL explicitly map `WorkspaceResourceError` categories into immediate command errors, non-mutating progress, or persisted `WorkspaceProvisioningFailure` records.
+
+#### Scenario: Resource error escapes as command error
+
+- **WHEN** Workspace Resources returns a catalog, secret/keyring, transient provider availability, conflict, or other category that does not require durable Workspace recovery state
+- **THEN** Workspace Provisioning SHALL map it to the corresponding `WorkspaceProvisioningError`
+- **AND** the command boundary SHALL map it into stable UI-safe command metadata
+
+#### Scenario: Resource error becomes persisted failure
+
+- **WHEN** Workspace Resources returns provider operation uncertainty, provider resource missing, orphaned resource, cleanup failure, terminal worker failure, or token lifecycle state inconsistency
+- **THEN** Workspace Provisioning SHALL persist the corresponding structured Workspace failure when catalog persistence is available
+- **AND** Workspace progress SHALL expose the persisted failure through generated binding-safe types
+
+#### Scenario: Mapping behavior is covered by tests
+
+- **WHEN** regression tests exercise representative `WorkspaceResourceError` categories
+- **THEN** each category SHALL assert whether it returns as a command error or persists as Workspace failure
+

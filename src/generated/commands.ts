@@ -238,10 +238,9 @@ export type WorkspaceProvisioningFailure = {
 	source: WorkspaceProvisioningFailureSource,
 	retryable: boolean,
 	recovery_action: WorkspaceProvisioningRecoveryAction,
-	diagnostic: string | null,
 };
 
-export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_operation_indeterminate" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
+export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_operation_indeterminate" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_git_checkout_failed" | "provisioner_worker_dependency_install_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
 
 export type WorkspaceProvisioningFailureSource = "native" | "provider" | "provider_resource" | "provisioner_worker";
 

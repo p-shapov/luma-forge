@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define native-side command logging behavior for local debugging without exposing secrets, raw command payloads, provider transport details, or unsafe diagnostics.
+Define native-side command logging behavior for local debugging without exposing secrets, raw command payloads, provider transport details, or unsafe implementation details.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ The Native Layer SHALL log safe lifecycle records for Tauri command execution at
 
 ### Requirement: Native command logs exclude sensitive values
 
-Native command logging MUST NOT persist secrets, raw credential-bearing payloads, or unsafe implementation diagnostics.
+Native command logging MUST NOT persist secrets, raw credential-bearing payloads, or unsafe implementation details.
 
 #### Scenario: Provider setup command receives an API key
 
@@ -59,7 +59,7 @@ Native command logging MUST NOT persist secrets, raw credential-bearing payloads
 
 - **WHEN** a native command reads or uses a stored Provider API Key
 - **THEN** native command logs MUST NOT include the stored Provider API Key
-- **AND** native command logs MUST NOT include raw keyring diagnostics
+- **AND** native command logs MUST NOT include raw keyring details
 
 #### Scenario: Native command calls a provider API
 
@@ -76,11 +76,11 @@ Application services SHALL NOT be required to depend on Tauri runtime APIs or di
 - **WHEN** a Tauri command calls an application service and receives a result
 - **THEN** the command boundary SHALL log the command outcome without requiring the service to perform direct logging
 
-#### Scenario: Future service-level diagnostics are needed
+#### Scenario: Future service-level events are needed
 
-- **WHEN** a future multi-phase workflow needs internal service diagnostics that command boundary logs cannot express
-- **THEN** the application service SHALL receive diagnostics through a Tauri-independent dependency injection boundary
-- **AND** the diagnostics boundary SHALL expose typed, safe diagnostic events rather than arbitrary raw log strings
+- **WHEN** a future multi-phase workflow needs internal service events that command boundary logs cannot express
+- **THEN** the application service SHALL receive events through a Tauri-independent dependency injection boundary
+- **AND** the event boundary SHALL expose typed, safe events rather than arbitrary raw log strings
 
 ### Requirement: Tracing is not used for native command logging
 
@@ -92,10 +92,10 @@ Native command logging SHALL use the Rust `log` facade and the Tauri logging plu
 - **THEN** the native crate SHALL depend on the Rust `log` facade and the official Tauri logging plugin
 - **AND** the native crate MUST NOT retain direct `tracing` or `tracing-subscriber` dependencies solely for this logging capability
 
-#### Scenario: Existing native diagnostic log usage is preserved
+#### Scenario: Existing native log usage is preserved
 
-- **WHEN** existing native diagnostic log statements are migrated
-- **THEN** they SHALL continue to log only UI-safe diagnostic metadata
+- **WHEN** existing native log statements are migrated
+- **THEN** they SHALL continue to log only UI-safe metadata
 - **AND** they SHALL use the same native logging stack as command boundary logs
 
 ### Requirement: Native command logs include only stable UI-safe command metadata

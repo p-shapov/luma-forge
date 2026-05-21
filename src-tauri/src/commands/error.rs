@@ -467,6 +467,21 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable => {
             NativeCommandErrorCode::WorkspaceCatalogUnavailable
         }
+        WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable => {
+            NativeCommandErrorCode::WorkspaceCatalogStorageUnavailable
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed => {
+            NativeCommandErrorCode::WorkspaceCatalogMigrationFailed
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogQueryFailed => {
+            NativeCommandErrorCode::WorkspaceCatalogQueryFailed
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogCorrupt => {
+            NativeCommandErrorCode::WorkspaceCatalogCorrupt
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch => {
+            NativeCommandErrorCode::WorkspaceCatalogSchemaMismatch
+        }
         WorkspaceProvisioningError::ProviderSetupIncomplete => {
             NativeCommandErrorCode::ProviderSetupIncomplete
         }
@@ -509,10 +524,17 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         WorkspaceProvisioningError::ProvisionerWorkerConflict => {
             NativeCommandErrorCode::ProvisionerWorkerConflict
         }
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. } => {
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
             NativeCommandErrorCode::ProvisionerWorkerResponseInvalid
         }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => {
+        WorkspaceProvisioningError::ProvisionerWorkerFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
+        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
+        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
             NativeCommandErrorCode::ProvisionerWorkerFailed
         }
     }
@@ -522,6 +544,9 @@ fn provisioning_error_retryable(error: &WorkspaceProvisioningError) -> bool {
     matches!(
         error,
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable
+            | WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable
+            | WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
+            | WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
             | WorkspaceProvisioningError::ProviderApiUnavailable
             | WorkspaceProvisioningError::ProviderRateLimited
             | WorkspaceProvisioningError::ProviderOperationConflict
@@ -540,6 +565,19 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
         }
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable => {
             "Workspace catalog is unavailable."
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable => {
+            "Workspace catalog storage is unavailable."
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed => {
+            "Workspace catalog migration failed."
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogQueryFailed => {
+            "Workspace catalog query failed."
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogCorrupt => "Workspace catalog data is corrupt.",
+        WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch => {
+            "Workspace catalog row data is inconsistent."
         }
         WorkspaceProvisioningError::ProviderSetupIncomplete => {
             "GPU cloud provider setup is incomplete."
@@ -571,10 +609,19 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
         WorkspaceProvisioningError::ProvisionerWorkerConflict => {
             "Provisioner worker operation is currently in conflict."
         }
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. } => {
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
             "Provisioner worker response is invalid."
         }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => "Provisioner worker failed.",
+        WorkspaceProvisioningError::ProvisionerWorkerFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
+        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
+        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
+            "Provisioner worker failed."
+        }
     }
 }
 
@@ -595,6 +642,19 @@ fn provisioning_error_reason(error: &WorkspaceProvisioningError) -> Option<&'sta
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable => {
             Some("workspace_catalog_unavailable")
         }
+        WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable => {
+            Some("workspace_catalog_storage_unavailable")
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed => {
+            Some("workspace_catalog_migration_failed")
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogQueryFailed => {
+            Some("workspace_catalog_query_failed")
+        }
+        WorkspaceProvisioningError::WorkspaceCatalogCorrupt => Some("workspace_catalog_corrupt"),
+        WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch => {
+            Some("workspace_catalog_schema_mismatch")
+        }
         WorkspaceProvisioningError::ProviderSetupIncomplete => Some("setup_incomplete"),
         WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("provider_rejected_key"),
         WorkspaceProvisioningError::ProviderApiUnavailable => Some("provider_unavailable"),
@@ -613,10 +673,17 @@ fn provisioning_error_reason(error: &WorkspaceProvisioningError) -> Option<&'sta
         WorkspaceProvisioningError::ProvisionerWorkerUnauthorized => Some("worker_unauthorized"),
         WorkspaceProvisioningError::ProvisionerWorkerUnavailable => Some("worker_unavailable"),
         WorkspaceProvisioningError::ProvisionerWorkerConflict => Some("worker_conflict"),
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. } => {
+        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
             Some("worker_response_invalid")
         }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => Some("worker_failed"),
+        WorkspaceProvisioningError::ProvisionerWorkerFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
+        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
+        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => Some("worker_failed"),
     }
 }
 
@@ -625,6 +692,9 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         WorkspaceProvisioningError::WorkspaceNotFound => Some("refresh_workspace_catalog"),
         WorkspaceProvisioningError::InvalidWorkspaceLifecycle => Some("refresh_workspace"),
         WorkspaceProvisioningError::WorkspaceCatalogUnavailable
+        | WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable
+        | WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
+        | WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
         | WorkspaceProvisioningError::ProviderApiUnavailable
         | WorkspaceProvisioningError::ProviderRateLimited
         | WorkspaceProvisioningError::ProviderOperationConflict
@@ -632,6 +702,10 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         | WorkspaceProvisioningError::SecureKeyringUnavailable
         | WorkspaceProvisioningError::ProvisionerWorkerUnavailable
         | WorkspaceProvisioningError::ProvisionerWorkerConflict => Some("retry"),
+        WorkspaceProvisioningError::WorkspaceCatalogCorrupt
+        | WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch => {
+            Some("recover_workspace_catalog")
+        }
         WorkspaceProvisioningError::ProviderSetupIncomplete
         | WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("recover_provider_setup"),
         WorkspaceProvisioningError::ProviderRequestRejected => Some("reselect_placement"),
@@ -639,9 +713,151 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         | WorkspaceProvisioningError::ProviderResourceNotFound
         | WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
         | WorkspaceProvisioningError::ProvisionerWorkerUnauthorized
-        | WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid { .. }
-        | WorkspaceProvisioningError::ProvisionerWorkerFailed { .. } => {
+        | WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid
+        | WorkspaceProvisioningError::ProvisionerWorkerFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerGitCheckoutFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerDependencyInstallFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetDownloadFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerAssetAuthRequired
+        | WorkspaceProvisioningError::ProvisionerWorkerPathValidationFailed
+        | WorkspaceProvisioningError::ProvisionerWorkerStepTimeout
+        | WorkspaceProvisioningError::ProvisionerWorkerUnexpectedError => {
             Some("inspect_workspace_provisioning")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provisioning_catalog_errors_map_to_granular_command_errors() {
+        for (error, code, retryable, reason, recovery_action) in [
+            (
+                WorkspaceProvisioningError::WorkspaceCatalogUnavailable,
+                NativeCommandErrorCode::WorkspaceCatalogUnavailable,
+                true,
+                "workspace_catalog_unavailable",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable,
+                NativeCommandErrorCode::WorkspaceCatalogStorageUnavailable,
+                true,
+                "workspace_catalog_storage_unavailable",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed,
+                NativeCommandErrorCode::WorkspaceCatalogMigrationFailed,
+                true,
+                "workspace_catalog_migration_failed",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::WorkspaceCatalogQueryFailed,
+                NativeCommandErrorCode::WorkspaceCatalogQueryFailed,
+                true,
+                "workspace_catalog_query_failed",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::WorkspaceCatalogCorrupt,
+                NativeCommandErrorCode::WorkspaceCatalogCorrupt,
+                false,
+                "workspace_catalog_corrupt",
+                "recover_workspace_catalog",
+            ),
+            (
+                WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch,
+                NativeCommandErrorCode::WorkspaceCatalogSchemaMismatch,
+                false,
+                "workspace_catalog_schema_mismatch",
+                "recover_workspace_catalog",
+            ),
+        ] {
+            let command_error = NativeCommandError::from(error);
+
+            assert_eq!(command_error.code, code);
+            assert_eq!(command_error.retryable, retryable);
+            assert_eq!(command_error.reason.as_deref(), Some(reason));
+            assert_eq!(
+                command_error.recovery_action.as_deref(),
+                Some(recovery_action)
+            );
+        }
+    }
+
+    #[test]
+    fn provisioning_command_errors_map_stable_recovery_metadata() {
+        for (error, code, retryable, reason, recovery_action) in [
+            (
+                WorkspaceProvisioningError::SecureKeyringUnavailable,
+                NativeCommandErrorCode::SecureKeyringUnavailable,
+                true,
+                "secure_keyring_unavailable",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::ProviderApiUnavailable,
+                NativeCommandErrorCode::ProviderApiUnavailable,
+                true,
+                "provider_unavailable",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::ProviderRateLimited,
+                NativeCommandErrorCode::ProviderRateLimited,
+                true,
+                "provider_rate_limited",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::ProviderOperationConflict,
+                NativeCommandErrorCode::ProviderOperationConflict,
+                true,
+                "provider_operation_conflict",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::ProvisionerWorkerUnavailable,
+                NativeCommandErrorCode::ProvisionerWorkerUnavailable,
+                true,
+                "worker_unavailable",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::ProvisionerWorkerConflict,
+                NativeCommandErrorCode::ProvisionerWorkerConflict,
+                true,
+                "worker_conflict",
+                "retry",
+            ),
+            (
+                WorkspaceProvisioningError::ProviderRequestRejected,
+                NativeCommandErrorCode::ProviderRequestRejected,
+                false,
+                "provider_request_rejected",
+                "reselect_placement",
+            ),
+            (
+                WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid,
+                NativeCommandErrorCode::ProvisionerWorkerTokenInvalid,
+                false,
+                "stored_secret_invalid",
+                "inspect_workspace_provisioning",
+            ),
+        ] {
+            let command_error = NativeCommandError::from(error);
+
+            assert_eq!(command_error.code, code);
+            assert_eq!(command_error.retryable, retryable);
+            assert_eq!(command_error.reason.as_deref(), Some(reason));
+            assert_eq!(
+                command_error.recovery_action.as_deref(),
+                Some(recovery_action)
+            );
         }
     }
 }

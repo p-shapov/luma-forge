@@ -16,7 +16,6 @@ use crate::{
 };
 
 const PROVISIONER_WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-const MAX_WORKER_DIAGNOSTIC_BYTES: usize = 512;
 
 #[derive(Debug, Clone)]
 pub struct ProvisionerWorkerHttpGateway {
@@ -142,7 +141,6 @@ pub struct ProvisionerWorkerStatus {
     pub status: ProvisionerWorkerJobStatus,
     pub phase: ProvisionerWorkerPhase,
     pub progress_percent: Option<u8>,
-    pub diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,9 +176,23 @@ pub enum ProvisionerWorkerError {
     #[error("provisioner worker unreachable")]
     Unreachable,
     #[error("provisioner worker payload invalid")]
-    InvalidPayload { diagnostic: Option<String> },
-    #[error("provisioner worker terminal failure")]
-    TerminalFailure { diagnostic: Option<String> },
+    InvalidPayload,
+    #[error("provisioner worker failed")]
+    Failed,
+    #[error("provisioner worker git checkout failed")]
+    GitCheckoutFailed,
+    #[error("provisioner worker dependency install failed")]
+    DependencyInstallFailed,
+    #[error("provisioner worker asset download failed")]
+    AssetDownloadFailed,
+    #[error("provisioner worker asset auth required")]
+    AssetAuthRequired,
+    #[error("provisioner worker path validation failed")]
+    PathValidationFailed,
+    #[error("provisioner worker step timeout")]
+    StepTimeout,
+    #[error("provisioner worker unexpected error")]
+    UnexpectedError,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,8 +201,6 @@ struct ProvisionerWorkerStatusResponse {
     job_id: Option<String>,
     phase: Option<String>,
     progress_percent: Option<u8>,
-    diagnostic: Option<String>,
-    diagnostic_message: Option<String>,
     error: Option<ProvisionerWorkerErrorResponse>,
 }
 
@@ -198,7 +208,6 @@ struct ProvisionerWorkerStatusResponse {
 struct ProvisionerWorkerErrorResponse {
     code: Option<String>,
     reason_code: Option<String>,
-    message: Option<String>,
 }
 
 async fn parse_worker_response(
@@ -207,16 +216,7 @@ async fn parse_worker_response(
     let status = response.status();
     let is_worker_json = has_json_content_type(response.headers());
     if !status.is_success() {
-        let diagnostic = if is_worker_json {
-            response
-                .json::<ProvisionerWorkerErrorResponse>()
-                .await
-                .ok()
-                .and_then(diagnostic_from_worker_error)
-        } else {
-            None
-        };
-        return Err(worker_error_from_status(status, diagnostic, is_worker_json));
+        return Err(worker_error_from_status(status, is_worker_json));
     }
 
     if !is_worker_json {
@@ -230,23 +230,19 @@ async fn parse_worker_response(
     status_from_response(payload)
 }
 
-fn worker_error_from_status(
-    status: StatusCode,
-    diagnostic: Option<String>,
-    is_worker_json: bool,
-) -> ProvisionerWorkerError {
+fn worker_error_from_status(status: StatusCode, is_worker_json: bool) -> ProvisionerWorkerError {
     match status {
         _ if !is_worker_json => ProvisionerWorkerError::Unreachable,
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => ProvisionerWorkerError::Unauthorized,
         StatusCode::CONFLICT => ProvisionerWorkerError::Conflict,
         status if status.is_server_error() => ProvisionerWorkerError::Unreachable,
-        _ => ProvisionerWorkerError::InvalidPayload { diagnostic },
+        _ => ProvisionerWorkerError::InvalidPayload,
     }
 }
 
 fn success_payload_error(is_worker_json: bool) -> ProvisionerWorkerError {
     if is_worker_json {
-        ProvisionerWorkerError::InvalidPayload { diagnostic: None }
+        ProvisionerWorkerError::InvalidPayload
     } else {
         ProvisionerWorkerError::Unreachable
     }
@@ -266,7 +262,7 @@ fn has_json_content_type(headers: &HeaderMap) -> bool {
 fn worker_url(provisioner_status_url: &str, path: &str) -> Result<String, ProvisionerWorkerError> {
     let base_url = provisioner_status_url
         .strip_suffix("/status")
-        .ok_or(ProvisionerWorkerError::InvalidPayload { diagnostic: None })?;
+        .ok_or(ProvisionerWorkerError::InvalidPayload)?;
     Ok(format!("{base_url}/{path}"))
 }
 
@@ -281,31 +277,28 @@ fn status_from_response(
         Some("cancelled") => ProvisionerWorkerJobStatus::Cancelled,
         Some("succeeded") => ProvisionerWorkerJobStatus::Succeeded,
         Some("failed") => ProvisionerWorkerJobStatus::Failed,
-        _ => return Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None }),
+        _ => return Err(ProvisionerWorkerError::InvalidPayload),
     };
     let phase = phase_from_response(response.phase.as_deref(), &status)?;
     if response
         .progress_percent
         .is_some_and(|percent| percent > 100)
     {
-        return Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None });
+        return Err(ProvisionerWorkerError::InvalidPayload);
     }
 
-    let diagnostic = response
+    let failure = response
         .error
-        .and_then(diagnostic_from_worker_error)
-        .or(response.diagnostic_message)
-        .or(response.diagnostic)
-        .map(sanitize_diagnostic);
+        .map(terminal_failure_from_worker_error)
+        .unwrap_or(ProvisionerWorkerError::Failed);
     if status == ProvisionerWorkerJobStatus::Failed {
-        return Err(ProvisionerWorkerError::TerminalFailure { diagnostic });
+        return Err(failure);
     }
 
     Ok(ProvisionerWorkerStatus {
         status,
         phase,
         progress_percent: response.progress_percent,
-        diagnostic,
     })
 }
 
@@ -338,10 +331,10 @@ fn phase_from_response(
             ProvisionerWorkerJobStatus::Cancelled => Ok(ProvisionerWorkerPhase::Cancelled),
             ProvisionerWorkerJobStatus::Failed => Ok(ProvisionerWorkerPhase::Failed),
             ProvisionerWorkerJobStatus::Running | ProvisionerWorkerJobStatus::Cancelling => {
-                Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None })
+                Err(ProvisionerWorkerError::InvalidPayload)
             }
         },
-        Some(_) => Err(ProvisionerWorkerError::InvalidPayload { diagnostic: None }),
+        Some(_) => Err(ProvisionerWorkerError::InvalidPayload),
     }
 }
 
@@ -379,39 +372,34 @@ pub fn progress_from_worker_status(
     }
 }
 
-fn diagnostic_from_worker_error(error: ProvisionerWorkerErrorResponse) -> Option<String> {
-    let mut parts = Vec::new();
-    if let Some(code) = non_blank(error.code) {
-        parts.push(format!("code: {code}"));
-    }
-    if let Some(reason_code) = non_blank(error.reason_code) {
-        parts.push(format!("reason_code: {reason_code}"));
-    }
-    if let Some(message) = non_blank(error.message) {
-        parts.push(format!("message: {message}"));
-    }
-
-    (!parts.is_empty()).then(|| sanitize_diagnostic(parts.join("\n")))
+fn terminal_failure_from_worker_error(
+    error: ProvisionerWorkerErrorResponse,
+) -> ProvisionerWorkerError {
+    provisioner_worker_failure_code(error.code.as_deref(), error.reason_code.as_deref())
 }
 
-fn non_blank(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+fn provisioner_worker_failure_code(
+    code: Option<&str>,
+    reason_code: Option<&str>,
+) -> ProvisionerWorkerError {
+    reason_code
+        .and_then(known_provisioner_worker_failure_code)
+        .or_else(|| code.and_then(known_provisioner_worker_failure_code))
+        .unwrap_or(ProvisionerWorkerError::Failed)
 }
 
-fn sanitize_diagnostic(diagnostic: String) -> String {
-    diagnostic
-        .chars()
-        .filter(|character| !character.is_control() || *character == '\n')
-        .collect::<String>()
-        .lines()
-        .take(8)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .chars()
-        .take(MAX_WORKER_DIAGNOSTIC_BYTES)
-        .collect()
+fn known_provisioner_worker_failure_code(value: &str) -> Option<ProvisionerWorkerError> {
+    match value {
+        "git_checkout_failed" => ProvisionerWorkerError::GitCheckoutFailed,
+        "dependency_install_failed" => ProvisionerWorkerError::DependencyInstallFailed,
+        "asset_download_failed" => ProvisionerWorkerError::AssetDownloadFailed,
+        "asset_auth_required" => ProvisionerWorkerError::AssetAuthRequired,
+        "path_validation_failed" => ProvisionerWorkerError::PathValidationFailed,
+        "step_timeout" => ProvisionerWorkerError::StepTimeout,
+        "unexpected_exception" | "unexpected_error" => ProvisionerWorkerError::UnexpectedError,
+        _ => return None,
+    }
+    .into()
 }
 
 #[cfg(test)]
@@ -429,8 +417,6 @@ mod tests {
             job_id: Some("workspace-1".to_string()),
             phase: phase.map(str::to_string),
             progress_percent,
-            diagnostic: None,
-            diagnostic_message: None,
             error: None,
         }
     }
@@ -454,10 +440,7 @@ mod tests {
         let error = status_from_response(response(Some("running"), None, Some(10)))
             .expect_err("running without phase should be invalid");
 
-        assert_eq!(
-            error,
-            ProvisionerWorkerError::InvalidPayload { diagnostic: None }
-        );
+        assert_eq!(error, ProvisionerWorkerError::InvalidPayload);
     }
 
     #[test]
@@ -469,29 +452,41 @@ mod tests {
         ))
         .expect_err("progress above 100 should be invalid");
 
-        assert_eq!(
-            error,
-            ProvisionerWorkerError::InvalidPayload { diagnostic: None }
-        );
+        assert_eq!(error, ProvisionerWorkerError::InvalidPayload);
     }
 
     #[test]
-    fn status_from_response_maps_failed_payload_to_terminal_failure_with_sanitized_diagnostic() {
+    fn status_from_response_maps_failed_payload_to_terminal_failure_code() {
         let mut payload = response(Some("failed"), Some("failed"), None);
-        payload.diagnostic =
-            Some("line1\u{0}\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9".to_string());
+        payload.error = Some(ProvisionerWorkerErrorResponse {
+            code: Some("dependency_install_failed".to_string()),
+            reason_code: Some("dependency_install_failed".to_string()),
+        });
 
         let error = status_from_response(payload)
             .expect_err("failed status should become terminal worker failure");
 
-        assert_eq!(
-            error,
-            ProvisionerWorkerError::TerminalFailure {
-                diagnostic: Some(
-                    "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8".to_string()
-                ),
-            }
-        );
+        assert_eq!(error, ProvisionerWorkerError::DependencyInstallFailed);
+    }
+
+    #[test]
+    fn worker_error_reason_code_maps_to_terminal_failure_code() {
+        let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
+            code: Some("dependency_install_failed".to_string()),
+            reason_code: Some("dependency_install_failed".to_string()),
+        });
+
+        assert_eq!(code, ProvisionerWorkerError::DependencyInstallFailed);
+    }
+
+    #[test]
+    fn worker_error_unknown_reason_code_falls_back_to_recognized_code() {
+        let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
+            code: Some("dependency_install_failed".to_string()),
+            reason_code: Some("future_worker_reason".to_string()),
+        });
+
+        assert_eq!(code, ProvisionerWorkerError::DependencyInstallFailed);
     }
 
     #[test]
@@ -527,7 +522,6 @@ mod tests {
             status: ProvisionerWorkerJobStatus::Running,
             phase: ProvisionerWorkerPhase::InstallingCustomNodes,
             progress_percent: Some(55),
-            diagnostic: None,
         });
         assert_eq!(running.status, WorkspaceProvisioningStatus::Running);
         assert_eq!(
@@ -541,7 +535,6 @@ mod tests {
             status: ProvisionerWorkerJobStatus::Cancelling,
             phase: ProvisionerWorkerPhase::Cancelled,
             progress_percent: None,
-            diagnostic: None,
         });
         assert_eq!(cancelling.status, WorkspaceProvisioningStatus::Cancelling);
         assert_eq!(cancelling.phase, WorkspaceProvisioningPhase::CleaningUp);
@@ -550,7 +543,6 @@ mod tests {
             status: ProvisionerWorkerJobStatus::Succeeded,
             phase: ProvisionerWorkerPhase::Completed,
             progress_percent: Some(100),
-            diagnostic: None,
         });
         assert_eq!(completed.status, WorkspaceProvisioningStatus::Running);
         assert_eq!(
@@ -562,29 +554,27 @@ mod tests {
     #[test]
     fn worker_error_from_status_classifies_http_failures() {
         assert_eq!(
-            worker_error_from_status(StatusCode::UNAUTHORIZED, None, true),
+            worker_error_from_status(StatusCode::UNAUTHORIZED, true),
             ProvisionerWorkerError::Unauthorized
         );
         assert_eq!(
-            worker_error_from_status(StatusCode::FORBIDDEN, None, true),
+            worker_error_from_status(StatusCode::FORBIDDEN, true),
             ProvisionerWorkerError::Unauthorized
         );
         assert_eq!(
-            worker_error_from_status(StatusCode::CONFLICT, None, true),
+            worker_error_from_status(StatusCode::CONFLICT, true),
             ProvisionerWorkerError::Conflict
         );
         assert_eq!(
-            worker_error_from_status(StatusCode::BAD_GATEWAY, None, true),
+            worker_error_from_status(StatusCode::BAD_GATEWAY, true),
             ProvisionerWorkerError::Unreachable
         );
         assert_eq!(
-            worker_error_from_status(StatusCode::BAD_REQUEST, Some("bad".to_string()), true),
-            ProvisionerWorkerError::InvalidPayload {
-                diagnostic: Some("bad".to_string())
-            }
+            worker_error_from_status(StatusCode::BAD_REQUEST, true),
+            ProvisionerWorkerError::InvalidPayload
         );
         assert_eq!(
-            worker_error_from_status(StatusCode::BAD_REQUEST, None, false),
+            worker_error_from_status(StatusCode::BAD_REQUEST, false),
             ProvisionerWorkerError::Unreachable
         );
     }

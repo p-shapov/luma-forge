@@ -201,6 +201,7 @@ mod tests {
         },
         secrets::SecretStoreError,
         workspace_resources::WorkspaceResourceError,
+        workspace_setup::error::WorkspaceSetupError,
     };
 
     use super::*;
@@ -467,6 +468,54 @@ mod tests {
                 .expect_err("catalog failure should fail"),
             WorkspaceProvisioningError::WorkspaceCatalogUnavailable
         );
+    }
+
+    #[tokio::test]
+    async fn initiate_preserves_catalog_failure_categories_without_mutation() {
+        for (setup_error, expected_error) in [
+            (
+                WorkspaceSetupError::WorkspaceCatalogStorageUnavailable,
+                WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogMigrationFailed,
+                WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogQueryFailed,
+                WorkspaceProvisioningError::WorkspaceCatalogQueryFailed,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogCorrupt,
+                WorkspaceProvisioningError::WorkspaceCatalogCorrupt,
+            ),
+            (
+                WorkspaceSetupError::WorkspaceCatalogSchemaMismatch,
+                WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch,
+            ),
+        ] {
+            let catalog = FakeWorkspaceCatalog::with_find_error(setup_error);
+            let resources = FakeWorkspaceResources::default();
+            let service = WorkspaceProvisioningService::new(
+                FakeSecretStore::with_api_key("provider-secret"),
+                resources.clone(),
+                catalog.clone(),
+                FakeProvisionerWorkerGateway::default(),
+                WorkspaceProvisioningCoordinator::default(),
+                WorkspaceProvisioningConfig {
+                    volume_mount_path: "/workspace".to_string(),
+                },
+            );
+
+            let error = service
+                .initiate("workspace-1")
+                .await
+                .expect_err("catalog failure should fail");
+
+            assert_eq!(error, expected_error);
+            assert!(catalog.updates().is_empty());
+            assert!(resources.calls().is_empty());
+        }
     }
 
     #[tokio::test]

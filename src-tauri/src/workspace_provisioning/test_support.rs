@@ -215,9 +215,12 @@ impl SecretStore for FakeSecretStore {
 #[derive(Debug, Clone)]
 pub(crate) struct FakeWorkspaceCatalog {
     workspace: Arc<Mutex<Option<Workspace>>>,
-    find_result: Arc<Mutex<Option<Result<Option<Workspace>, WorkspaceSetupError>>>>,
+    find_result: SharedFindWorkspaceResult,
     updates: Arc<Mutex<Vec<Workspace>>>,
 }
+
+type FindWorkspaceResult = Result<Option<Workspace>, WorkspaceSetupError>;
+type SharedFindWorkspaceResult = Arc<Mutex<Option<FindWorkspaceResult>>>;
 
 impl FakeWorkspaceCatalog {
     pub(crate) fn with_workspace(workspace: Workspace) -> Self {
@@ -229,11 +232,13 @@ impl FakeWorkspaceCatalog {
     }
 
     pub(crate) fn unavailable() -> Self {
+        Self::with_find_error(WorkspaceSetupError::WorkspaceCatalogUnavailable)
+    }
+
+    pub(crate) fn with_find_error(error: WorkspaceSetupError) -> Self {
         Self {
             workspace: Arc::new(Mutex::new(None)),
-            find_result: Arc::new(Mutex::new(Some(Err(
-                WorkspaceSetupError::WorkspaceCatalogUnavailable,
-            )))),
+            find_result: Arc::new(Mutex::new(Some(Err(error)))),
             updates: Arc::new(Mutex::new(Vec::new())),
         }
     }

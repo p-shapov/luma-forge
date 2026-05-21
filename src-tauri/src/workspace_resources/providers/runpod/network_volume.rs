@@ -43,10 +43,6 @@ where
                 context,
                 workspace,
                 WorkspaceProvisioningPhase::CreatingVolume,
-                discovered_volumes
-                    .into_iter()
-                    .map(|observation| observation.provider_resource_id)
-                    .collect(),
             )
             .await;
         }
@@ -72,10 +68,6 @@ where
                         context,
                         workspace,
                         WorkspaceProvisioningPhase::CreatingVolume,
-                        discovered_volumes
-                            .into_iter()
-                            .map(|observation| observation.provider_resource_id)
-                            .collect(),
                     )
                     .await;
                 }
@@ -158,14 +150,13 @@ async fn fail_for_orphaned_provider_resources<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
     phase: WorkspaceProvisioningPhase,
-    provider_resource_ids: Vec<String>,
 ) -> WorkspaceResourceSyncResult
 where
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
 {
     crate::domain::workspace::provisioning_state::fail_workspace(
         workspace,
-        failure::orphaned_provider_resources(phase, provider_resource_ids),
+        failure::orphaned_provider_resources(phase),
     );
     context.update_workspace(workspace).await.map(Some)
 }

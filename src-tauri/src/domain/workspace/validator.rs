@@ -302,7 +302,6 @@ mod tests {
             source: WorkspaceProvisioningFailureSource::Native,
             retryable: true,
             recovery_action: WorkspaceProvisioningRecoveryAction::Retry,
-            diagnostic: None,
         }
     }
 

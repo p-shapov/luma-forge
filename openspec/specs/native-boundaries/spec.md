@@ -28,7 +28,7 @@ The Native command boundary SHALL expose a UI-safe provider setup recovery-requi
 - **WHEN** Provider Setup reports that setup finalization failed after writing a Provider API Key and rollback deletion also failed
 - **THEN** the Tauri command handler SHALL map the failure to `provider_setup_recovery_required`
 - **AND** the generated command error SHALL include only a UI-safe code, UI-safe message, and retryability flag
-- **AND** the generated command error MUST NOT include the submitted Provider API Key, stored Provider API Key, provider transport details, or keyring diagnostics
+- **AND** the generated command error MUST NOT include the submitted Provider API Key, stored Provider API Key, provider transport details, or keyring details
 - **AND** the generated command error SHALL mark retrying the same setup command as not retryable
 
 ### Requirement: Provider clients are use-case independent
@@ -151,7 +151,7 @@ Secret storage abstractions SHALL return secret-storage-owned errors instead of 
 - **WHEN** the secure keyring contains a Provider API Key value that cannot be parsed as a valid Provider API Key
 - **THEN** the secret store SHALL report a secret-storage-owned invalid stored key failure
 - **AND** use-case mappings SHALL preserve the current UI-safe `invalid_provider_api_key` command behavior
-- **AND** no command response, error, log, or diagnostic may include the stored secret value
+- **AND** no command response, error, log, or metadata may include the stored secret value
 
 ### Requirement: Secret store supports per-workspace provisioning tokens
 
@@ -168,7 +168,7 @@ The secret store SHALL support per-workspace Provisioner Worker bearer tokens as
 
 - **WHEN** Workspace Provisioning reads a Provisioner Worker bearer token for a Workspace
 - **THEN** the secret store SHALL return the token only to native provisioning code
-- **AND** command DTOs, Workspace metadata, logs, and diagnostics MUST NOT include the token value
+- **AND** command DTOs, Workspace metadata, logs, and metadata MUST NOT include the token value
 
 #### Scenario: Provisioner token is deleted
 
@@ -228,7 +228,7 @@ Workspace Provisioning command request and response DTOs SHALL be owned by the c
 
 - **WHEN** Workspace Provisioning returns a use-case error
 - **THEN** the Tauri command handler SHALL map it into a UI-safe command error response
-- **AND** the generated command error MUST NOT include provider transport details, Provider API Keys, Provisioner Worker bearer tokens, raw worker diagnostics, or provider request bodies
+- **AND** the generated command error MUST NOT include provider transport details, Provider API Keys, Provisioner Worker bearer tokens, raw worker details, or provider request bodies
 
 ### Requirement: Shared provider command DTOs are not owned by Provider Setup
 
@@ -601,7 +601,7 @@ The Native command boundary SHALL expose RunPod endpoint template metadata to Re
 #### Scenario: Legacy Workspace metadata is mapped to a command response
 - **WHEN** the command boundary maps a Workspace loaded from legacy metadata that included RunPod template runtime environment values
 - **THEN** the command response SHALL omit those runtime environment values
-- **AND** no command response, command error, log, or diagnostic SHALL expose the legacy values
+- **AND** no command response, command error, log, or metadata SHALL expose the legacy values
 
 ### Requirement: Provider resource contracts are use-case independent
 
@@ -650,7 +650,7 @@ The Workspace Provisioning application service SHALL orchestrate the provisionin
 - **WHEN** Workspace Provisioning internals are reorganized
 - **THEN** the Tauri Workspace Provisioning commands SHALL keep their existing request and response payload shape
 - **AND** generated TypeScript binding compatibility SHALL be preserved unless a separate spec change explicitly changes the command contract
-- **AND** no Provider API Key, Provisioner Worker bearer token, raw provider payload, or provider transport detail may be added to command responses, Workspace metadata, logs, or diagnostics
+- **AND** no Provider API Key, Provisioner Worker bearer token, raw provider payload, or provider transport detail may be added to command responses, Workspace metadata, logs, or metadata
 
 ### Requirement: Consumer-owned provider adapters map provider errors to use-case errors
 
@@ -732,4 +732,32 @@ Workspace environment preparation orchestration SHALL live in a native workspace
 - **THEN** Workspace Provisioning SHALL remain responsible for loading authoritative Workspace metadata, enforcing per-workspace sync coordination, sequencing provider-resource steps, and returning command-safe results
 - **AND** it MAY delegate environment preparation to the workspace provisioner
 - **AND** the workspace provisioner MUST NOT own the full Draft-to-Ready Workspace lifecycle
+
+### Requirement: Command mapping preserves provisioning error semantics
+
+The Tauri command boundary SHALL map `WorkspaceProvisioningError` and related setup/resource categories into stable UI-safe `NativeCommandError` metadata without exposing low-level implementation details.
+
+#### Scenario: Immediate provisioning command error is mapped
+
+- **WHEN** Workspace Provisioning returns an immediate command failure for workspace identity, lifecycle state, catalog/persistence, secret/keyring, conflict, transient provider availability, transient worker availability, or escaped resource-operation failure
+- **THEN** the command boundary SHALL return a stable `NativeCommandErrorCode`, message, retryability flag, reason, and recovery action aligned with that category
+- **AND** the command error MUST NOT expose SQLite errors, migration SQL, raw filesystem details, reqwest details, keyring details, RunPod-specific errors, raw request bodies, raw response bodies, Provider API Keys, or Provisioner Worker bearer tokens
+
+#### Scenario: Persisted provisioning failure is returned through workspace payload
+
+- **WHEN** Workspace Provisioning persists a structured `WorkspaceProvisioningFailure`
+- **THEN** command responses SHALL expose that failure through generated binding-safe Workspace or progress payload fields
+- **AND** the command boundary MUST NOT replace the persisted recovery-required failure with a generic command error when the command can return the authoritative Workspace state
+
+#### Scenario: Catalog command mappings are granular
+
+- **WHEN** command mapping receives Workspace Catalog storage unavailable, migration failed, query failed, corrupt data, schema mismatch, or generic unavailable categories
+- **THEN** each category SHALL map to stable UI-safe command metadata
+- **AND** categories MUST NOT collapse into generic Workspace Catalog unavailable behavior when the specific category is known
+
+#### Scenario: Command mapping is regression tested
+
+- **WHEN** regression tests cover `WorkspaceProvisioningError -> NativeCommandError` mappings
+- **THEN** each tested category SHALL assert code, reason, retryability, and recovery action
+- **AND** tests SHALL assert that mapped command errors remain implementation-safe
 

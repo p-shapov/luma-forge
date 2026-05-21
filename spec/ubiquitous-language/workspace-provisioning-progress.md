@@ -19,7 +19,7 @@ Workspace Provisioning Progress includes:
 - Client (React) may use Workspace Provisioning Progress for rendering and for deciding whether to continue calling provisioning sync.
 - Client (React) must not use Workspace Provisioning Progress to decide the next provider mutation.
 - Client (React) must not parse free-form messages to classify provisioning failures.
-- Native Layer must not include Provider API Keys, worker tokens, raw provider responses, stack traces, command output, or other secrets in failure diagnostics.
+- Native Layer must not include Provider API Keys, worker tokens, raw provider responses, stack traces, command output, or other secrets in failure metadata.
 - Status `idle` means provisioning is not active for the Workspace.
 - Status `running` means Native Layer is performing or resuming provisioning work; phase should identify the concrete current step when known.
 - Status `cancelling` means Native Layer is cleaning up provider resources after user cancellation.

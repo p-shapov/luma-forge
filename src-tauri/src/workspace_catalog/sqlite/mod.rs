@@ -435,7 +435,6 @@ mod test_fixtures {
             source: WorkspaceProvisioningFailureSource::Native,
             retryable: true,
             recovery_action: WorkspaceProvisioningRecoveryAction::Retry,
-            diagnostic: Some("readiness check failed".to_string()),
         }
     }
 

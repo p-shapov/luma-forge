@@ -73,7 +73,7 @@ impl NativeAppState {
         let workspace_catalog = self
             .workspace_catalog()
             .await
-            .map_err(|_| WorkspaceProvisioningError::WorkspaceCatalogUnavailable)?;
+            .map_err(crate::workspace_provisioning::helpers::catalog_error)?;
         let resources =
             WorkspaceResourceService::new(self.secrets.clone(), workspace_catalog.clone());
         Ok(WorkspaceProvisioningService::new(

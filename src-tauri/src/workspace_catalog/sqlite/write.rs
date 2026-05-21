@@ -272,9 +272,8 @@ async fn persist_provisioning_failure(
             phase,
             source,
             retryable,
-            recovery_action,
-            diagnostic
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            recovery_action
+        ) VALUES (?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&workspace.id)
@@ -283,7 +282,6 @@ async fn persist_provisioning_failure(
     .bind(provisioning_failure_source_value(&failure.source))
     .bind(if failure.retryable { 1_i64 } else { 0_i64 })
     .bind(provisioning_recovery_action_value(&failure.recovery_action))
-    .bind(&failure.diagnostic)
     .execute(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
@@ -461,7 +459,7 @@ mod tests {
 
         let failure = sqlx::query(
             r#"
-            SELECT code, phase, source, retryable, recovery_action, diagnostic
+            SELECT code, phase, source, retryable, recovery_action
             FROM workspace_provisioning_failures
             WHERE workspace_id = ?
             "#,
@@ -497,12 +495,6 @@ mod tests {
                 .try_get::<String, _>("recovery_action")
                 .expect("recovery action"),
             "retry"
-        );
-        assert_eq!(
-            failure
-                .try_get::<Option<String>, _>("diagnostic")
-                .expect("failure diagnostic"),
-            Some("readiness check failed".to_string())
         );
     }
 
