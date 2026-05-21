@@ -18,14 +18,15 @@ The Native Layer SHALL classify provisioning and resource-operation failures as 
 
 - **WHEN** a provider mutation, observation, or cleanup leaves provider resource state unsafe, missing, orphaned, indeterminate, or requiring cleanup recovery
 - **THEN** the Native Layer SHALL persist a structured `WorkspaceProvisioningFailure` on the Workspace when catalog persistence is available
-- **AND** the persisted failure SHALL include stable UI-safe code, phase, source, retryability, and recovery action
+- **AND** the persisted failure SHALL include stable UI-safe code, phase, source, and recovery action
 - **AND** the Native Layer MUST NOT hide the recovery-required state behind a generic command error
 
-#### Scenario: Transient provider availability remains non-durable
+#### Scenario: Provider availability blocking provisioning is persisted
 
-- **WHEN** provider API unavailability or rate limiting occurs before a provider mutation creates unsafe recovery state
-- **THEN** the Native Layer SHALL return a retryable command error or continue reporting non-mutating running progress according to the current provisioning phase
-- **AND** the Native Layer MUST NOT persist a Workspace failure solely for the transient provider availability condition
+- **WHEN** provider API unavailability, rate limiting, operation conflict, or request rejection prevents an active provisioning sync from completing
+- **THEN** the Native Layer SHALL persist a structured `WorkspaceProvisioningFailure` on the Workspace when catalog persistence is available
+- **AND** the Native Layer SHALL transition the Workspace lifecycle state to `failed` when catalog persistence is available
+- **AND** when catalog persistence is available, the persisted failure recovery action SHALL be the durable UI recovery signal instead of a retryable flag
 
 #### Scenario: Worker readiness lag remains progress
 
@@ -60,7 +61,7 @@ Workspace Provisioning SHALL map `WorkspaceResourceError` into `WorkspaceProvisi
 
 #### Scenario: Resource error escapes as command error
 
-- **WHEN** a resource-operation failure is local, transient, or otherwise does not require durable Workspace recovery state
+- **WHEN** a resource-operation failure is local, pre-provisioning, or otherwise does not require durable Workspace recovery state
 - **THEN** Workspace Provisioning SHALL map it to a `WorkspaceProvisioningError` that the command boundary can return as a UI-safe command error
 - **AND** Workspace Provisioning MUST NOT persist a `WorkspaceProvisioningFailure` solely for that escaped command error
 
@@ -98,4 +99,3 @@ The Native Layer SHALL manage Provisioner Worker bearer token cleanup according 
 - **AND** the token is missing or invalid
 - **THEN** Workspace Provisioning SHALL persist a structured failure indicating native state inconsistency
 - **AND** the persisted failure and command responses MUST NOT expose the token value
-

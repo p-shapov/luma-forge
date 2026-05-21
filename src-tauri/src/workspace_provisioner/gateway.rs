@@ -16,18 +16,20 @@ pub struct ProvisionerWorkerHttpGateway {
     http: reqwest::Client,
 }
 
-impl Default for ProvisionerWorkerHttpGateway {
-    fn default() -> Self {
-        Self {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("Provisioner Worker HTTP gateway initialization failed")]
+pub struct ProvisionerWorkerHttpGatewayInitError;
+
+impl ProvisionerWorkerHttpGateway {
+    pub fn try_new() -> Result<Self, ProvisionerWorkerHttpGatewayInitError> {
+        Ok(Self {
             http: reqwest::Client::builder()
                 .timeout(PROVISIONER_WORKER_REQUEST_TIMEOUT)
                 .build()
-                .expect("Provisioner Worker HTTP client should build"),
-        }
+                .map_err(|_| ProvisionerWorkerHttpGatewayInitError)?,
+        })
     }
-}
 
-impl ProvisionerWorkerHttpGateway {
     pub async fn start(
         &self,
         provisioner_status_url: &str,

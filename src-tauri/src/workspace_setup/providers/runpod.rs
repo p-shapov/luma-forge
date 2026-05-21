@@ -5,7 +5,7 @@ use crate::{
         placement::ProviderPlacementCapabilities,
         provider_setup::{GpuCloudProviderId, ProviderApiKey},
     },
-    provider::runpod::RunPodClient,
+    provider::runpod::{RunPodClient, RunPodHttpClientInitError},
 };
 
 use super::{
@@ -13,9 +13,19 @@ use super::{
     WorkspaceSetupProviderCapability,
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub(super) struct RunPodWorkspaceSetupProvider {
     client: RunPodClient,
+}
+
+impl RunPodWorkspaceSetupProvider {
+    pub(super) fn new(client: RunPodClient) -> Self {
+        Self { client }
+    }
+
+    pub(super) fn try_new() -> Result<Self, RunPodHttpClientInitError> {
+        Ok(Self::new(RunPodClient::try_new_default()?))
+    }
 }
 
 impl WorkspaceSetupProviderCapability for RunPodWorkspaceSetupProvider {

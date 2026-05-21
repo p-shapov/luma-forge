@@ -2,7 +2,8 @@ mod gateway;
 
 pub(crate) use gateway::{
     ProvisionerWorkerError, ProvisionerWorkerGateway, ProvisionerWorkerHttpGateway,
-    ProvisionerWorkerJobStatus, ProvisionerWorkerPhase, ProvisionerWorkerStartRequest,
+    ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus, ProvisionerWorkerPhase,
+    ProvisionerWorkerStartRequest,
 };
 
 pub(crate) use gateway::ProvisionerWorkerStatus;

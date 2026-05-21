@@ -462,25 +462,25 @@ Workspace Provisioning SHALL keep Provider API Keys and Provisioner Worker beare
 
 ### Requirement: Workspace Provisioning surfaces provider rate limiting and request rejection distinctly
 
-Workspace Provisioning SHALL preserve distinct provider rate-limited and provider request-rejected failures when provider registry calls fail during provisioning, while separating failed sync attempts from durable Workspace failure state.
+Workspace Provisioning SHALL preserve distinct provider rate-limited and provider request-rejected failures when provider registry calls fail during provisioning, and SHALL record them as durable Workspace failure state when they block active provisioning progress.
 
 #### Scenario: Provider rate limiting blocks provisioning
 
 - **WHEN** a provisioning sync encounters provider rate limiting and Native has not learned new authoritative terminal Workspace state
-- **THEN** the Native Layer SHALL reject the sync with a retryable UI-safe `provider_rate_limited` command error
+- **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
+- **AND** the Native Layer SHALL persist structured provisioning failure detail with provider-rate-limited code, provider source, failed phase, and recovery action
 - **AND** the Native Layer MUST NOT clear existing Provider Resource snapshots
 - **AND** the Native Layer MUST NOT mark the Workspace `ready`
-- **AND** the Native Layer MUST NOT mark the Workspace `failed` solely because of provider rate limiting
-- **AND** the command error MUST NOT expose provider-specific error codes or raw provider response details
+- **AND** the failure detail MUST NOT expose provider-specific error codes or raw provider response details
 
 #### Scenario: Provider request rejection blocks provisioning
 
 - **WHEN** a provisioning sync encounters provider request rejection and Native can safely preserve current Workspace metadata for user correction or later retry
-- **THEN** the Native Layer SHALL reject the sync with a non-retryable UI-safe `provider_request_rejected` command error
+- **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
+- **AND** the Native Layer SHALL persist structured provisioning failure detail with provider-request-rejected code, provider source, failed phase, and recovery action
 - **AND** the recovery action SHALL guide the Client to reselect placement when applicable
 - **AND** the Native Layer MUST NOT clear existing Provider Resource snapshots
-- **AND** the Native Layer MUST NOT mark the Workspace `failed` solely because the provider rejected the request
-- **AND** the command error MUST NOT expose provider-specific error codes or raw provider response details
+- **AND** the failure detail MUST NOT expose provider-specific error codes or raw provider response details
 
 #### Scenario: Provider API failure reveals unsafe continuation
 
@@ -490,12 +490,11 @@ Workspace Provisioning SHALL preserve distinct provider rate-limited and provide
 - **AND** the Native Layer SHALL retain existing Provider Resource snapshots and any newly known cleanup metadata
 - **AND** the Native Layer MUST NOT create duplicate Provider Resources to recover from the failed sync
 
-#### Scenario: Existing provisioning metadata is preserved on provider command failure
+#### Scenario: Existing provider metadata is preserved on blocking provider failure
 
 - **WHEN** provider rate limiting or provider request rejection prevents a provisioning sync from completing without producing new authoritative local or provider observation
-- **THEN** the Native Layer SHALL preserve existing Workspace metadata
-- **AND** the Native Layer SHALL preserve existing Provider Resource snapshots
-- **AND** the Native Layer SHALL return a UI-safe command error instead of mutating the Workspace lifecycle state
+- **THEN** the Native Layer SHALL preserve existing Provider Resource snapshots and cleanup metadata
+- **AND** the Native Layer SHALL persist structured provisioning failure detail instead of returning a retryable sync command error
 
 ### Requirement: Record structured provisioning failure details
 
@@ -521,7 +520,7 @@ Workspace Provisioning SHALL persist a structured, UI-safe provisioning failure 
 
 - **WHEN** a provider mutation outcome, readiness validation result, local token inconsistency, discovered orphaned provider resource, or cleanup result leaves Native unable to safely continue provisioning without risking duplicate resources, leaked resources, or a false `ready` state
 - **THEN** the Native Layer SHALL persist the Workspace lifecycle state as `failed`
-- **AND** the Native Layer SHALL persist a structured provisioning failure detail describing the failed phase, failure source, retryability, and recovery action
+- **AND** the Native Layer SHALL persist a structured provisioning failure detail describing the failed phase, failure source, and recovery action
 - **AND** the Native Layer SHALL retain all known cleanup metadata
 
 #### Scenario: Failed progress includes failure detail
@@ -786,17 +785,18 @@ Workspace Provisioning SHALL persist `WorkspaceProvisioningFailure` records when
 
 Workspace Provisioning SHALL return command errors, non-mutating progress, or persisted failures for provider and worker failures according to phase-specific recovery semantics.
 
-#### Scenario: Provider API is unavailable or rate limited before unsafe mutation
+#### Scenario: Provider API is unavailable or rate limited during provisioning
 
-- **WHEN** provider API unavailability or rate limiting occurs before provider state becomes unsafe
-- **THEN** Workspace Provisioning SHALL return a retryable command error or non-mutating progress according to the current phase
-- **AND** Workspace Provisioning MUST NOT persist a failure solely for the transient provider condition
+- **WHEN** provider API unavailability or rate limiting prevents an active provisioning sync from completing
+- **THEN** Workspace Provisioning SHALL persist a structured provisioning failure with the appropriate provider availability or rate-limited code
+- **AND** Workspace Provisioning SHALL transition the Workspace lifecycle state to `failed`
+- **AND** the persisted failure recovery action SHALL be the durable recovery signal
 
 #### Scenario: Provider request is rejected or response is invalid
 
 - **WHEN** a provider request is rejected or a provider response is invalid
-- **THEN** Workspace Provisioning SHALL return a command error or persist a structured failure according to whether the current phase has created unsafe provider/resource state
-- **AND** the chosen behavior SHALL preserve stable UI-safe reason and recovery action metadata
+- **THEN** Workspace Provisioning SHALL persist a structured failure when the condition blocks active provisioning progress
+- **AND** the persisted failure SHALL preserve stable UI-safe reason and recovery action metadata
 
 #### Scenario: Worker readiness lag is non-terminal
 
@@ -904,4 +904,3 @@ Workspace Provisioning SHALL report `WorkspaceProvisioningProgress.percent` as t
 - **THEN** the progress status SHALL be `failed`
 - **AND** the progress phase SHALL be `failed`
 - **AND** the progress percent SHALL be absent
-

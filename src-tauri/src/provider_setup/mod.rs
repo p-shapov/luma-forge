@@ -22,12 +22,6 @@ pub struct ProviderSetupService<S, R = ProviderSetupProviderRegistry> {
     provider_registry: R,
 }
 
-impl<S> ProviderSetupService<S> {
-    pub fn new(secrets: S) -> Self {
-        Self::with_provider_registry(secrets, ProviderSetupProviderRegistry::default())
-    }
-}
-
 impl<S, R> ProviderSetupService<S, R> {
     pub fn with_provider_registry(secrets: S, provider_registry: R) -> Self {
         Self {

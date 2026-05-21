@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::provider_setup::{GpuCloudProviderId, ProviderApiKey, ProviderIdentity},
-    provider::ProviderClientError,
+    provider::{runpod::RunPodHttpClientInitError, ProviderClientError},
 };
 
 use super::ProviderSetupError;
@@ -20,9 +20,17 @@ pub trait ProviderSetupProviderResolver: Send + Sync {
     fn for_provider(&self, provider_id: &GpuCloudProviderId) -> &dyn ProviderSetupCapability;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub struct ProviderSetupProviderRegistry {
     runpod: runpod::RunPodProviderSetupService,
+}
+
+impl ProviderSetupProviderRegistry {
+    pub fn try_new() -> Result<Self, RunPodHttpClientInitError> {
+        Ok(Self {
+            runpod: runpod::RunPodProviderSetupService::try_new()?,
+        })
+    }
 }
 
 impl ProviderSetupProviderResolver for ProviderSetupProviderRegistry {
@@ -50,12 +58,19 @@ pub(in crate::provider_setup) fn provider_setup_error_from_client_error(
 }
 
 #[cfg(test)]
+fn provider_setup_error_from_runpod_init_error(
+    _error: RunPodHttpClientInitError,
+) -> ProviderSetupError {
+    ProviderSetupError::ProviderApiUnavailable
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn registry_selects_runpod_capability_for_runpod_provider() {
-        let registry = ProviderSetupProviderRegistry::default();
+        let registry = ProviderSetupProviderRegistry::try_new().expect("registry initializes");
 
         let capability = registry.for_provider(&GpuCloudProviderId::Runpod);
 
@@ -98,6 +113,16 @@ mod tests {
         assert_eq!(
             provider_setup_error_from_client_error(ProviderClientError::Indeterminate),
             ProviderSetupError::ProviderIdentityResponseInvalid
+        );
+    }
+
+    #[test]
+    fn maps_runpod_http_initialization_errors_to_provider_unavailable() {
+        assert_eq!(
+            provider_setup_error_from_runpod_init_error(
+                crate::provider::runpod::RunPodHttpClientInitError,
+            ),
+            ProviderSetupError::ProviderApiUnavailable
         );
     }
 }

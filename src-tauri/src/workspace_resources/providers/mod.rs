@@ -55,9 +55,17 @@ pub(crate) trait WorkspaceResourceProviderResolver<S, W>: Send + Sync {
     ) -> &dyn WorkspaceResourceProvider<S, W>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone)]
 pub(crate) struct WorkspaceResourceProviderRegistry {
     runpod: runpod::RunPodWorkspaceResourceProvider,
+}
+
+impl WorkspaceResourceProviderRegistry {
+    pub(crate) fn try_new() -> Result<Self, crate::provider::runpod::RunPodHttpClientInitError> {
+        Ok(Self {
+            runpod: runpod::RunPodWorkspaceResourceProvider::try_new()?,
+        })
+    }
 }
 
 impl<S, W> WorkspaceResourceProviderResolver<S, W> for WorkspaceResourceProviderRegistry
@@ -141,7 +149,7 @@ mod tests {
 
     #[test]
     fn registry_selects_runpod_capability_for_runpod_provider() {
-        let registry = WorkspaceResourceProviderRegistry::default();
+        let registry = WorkspaceResourceProviderRegistry::try_new().expect("registry initializes");
 
         let capability = <WorkspaceResourceProviderRegistry as WorkspaceResourceProviderResolver<
             TestSecretStore,

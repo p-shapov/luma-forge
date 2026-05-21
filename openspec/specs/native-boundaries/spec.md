@@ -846,3 +846,28 @@ Async native services and production secret-store adapters SHALL avoid holding b
 - **THEN** it SHALL complete synchronous lock-protected state access before returning from the operation
 - **AND** it MUST NOT hold a synchronous mutex guard across an `.await`
 
+### Requirement: Production HTTP client construction is fallible
+
+The Native Layer SHALL construct production HTTP clients through fallible initialization paths and SHALL convert construction failures into LumaForge-owned error categories before crossing provider, application service, or command boundaries.
+
+#### Scenario: RunPod HTTP client cannot be constructed
+
+- **WHEN** production RunPod provider communication is initialized and HTTP client construction fails
+- **THEN** the RunPod provider implementation SHALL return a provider-local initialization failure
+- **AND** provider setup, workspace setup, and workspace resource modules SHALL map the failure into their own app-owned error categories
+- **AND** the failure MUST NOT panic
+- **AND** command responses MUST NOT expose provider transport internals, request bodies, response bodies, Provider API Keys, or raw builder configuration
+
+#### Scenario: Provisioner Worker HTTP gateway cannot be constructed
+
+- **WHEN** production Workspace Provisioning initializes the Provisioner Worker HTTP gateway and HTTP client construction fails
+- **THEN** the Native Layer SHALL return a workspace provisioning or native initialization failure that can be mapped to a UI-safe command error
+- **AND** the failure MUST NOT panic
+- **AND** the failure MUST NOT create, delete, or modify provider resources
+- **AND** command responses MUST NOT expose worker bearer tokens, provider transport internals, or raw builder configuration
+
+#### Scenario: Initialized HTTP clients are reused by commands
+
+- **WHEN** Native commands need RunPod provider communication or Provisioner Worker communication after production initialization succeeds
+- **THEN** they SHALL use initialized client or gateway instances instead of constructing panic-capable HTTP clients inside command execution
+- **AND** any later network, authorization, rate-limit, response, or worker availability failures SHALL continue to use the existing operation-specific error mappings

@@ -202,6 +202,14 @@ impl From<ProvisionerWorkerError> for WorkspaceProvisioningError {
     }
 }
 
+impl From<crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError>
+    for WorkspaceProvisioningError
+{
+    fn from(_error: crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError) -> Self {
+        Self::ProvisionerWorkerUnavailable
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkspaceProvisioningResult {
     pub workspace: Workspace,
@@ -784,5 +792,15 @@ mod tests {
         ] {
             assert_eq!(WorkspaceProvisioningError::from(resource_error), expected);
         }
+    }
+
+    #[test]
+    fn provisioner_worker_gateway_initialization_error_maps_to_worker_unavailable() {
+        assert_eq!(
+            WorkspaceProvisioningError::from(
+                crate::workspace_provisioner::ProvisionerWorkerHttpGatewayInitError,
+            ),
+            WorkspaceProvisioningError::ProvisionerWorkerUnavailable
+        );
     }
 }

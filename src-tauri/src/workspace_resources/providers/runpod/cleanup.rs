@@ -1,6 +1,5 @@
 use crate::{
     domain::workspace::{ProviderProvisioningSnapshot, Workspace},
-    provider::runpod::RunPodClient,
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{WorkspaceResourceContext, WorkspaceResourceError},
@@ -8,19 +7,7 @@ use crate::{
 
 use super::{client::RunPodWorkspaceResourceClient, context::RunPodWorkspaceResourceContext};
 
-pub(super) async fn cleanup_known_resources<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
-    workspace: &Workspace,
-) -> Result<(), WorkspaceResourceError>
-where
-    S: AsyncSecretStore,
-    W: WorkspaceCatalogRepository,
-{
-    let client = RunPodClient::default();
-    cleanup_known_resources_with_client(&client, context, workspace).await
-}
-
-async fn cleanup_known_resources_with_client<S, W, C>(
+pub(super) async fn cleanup_known_resources_with_client<S, W, C>(
     client: &C,
     context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &Workspace,

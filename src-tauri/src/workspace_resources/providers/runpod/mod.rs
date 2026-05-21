@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::workspace::Workspace,
-    provider::runpod::RunPodClient,
+    provider::runpod::{RunPodClient, RunPodHttpClientInitError},
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
@@ -30,8 +30,20 @@ const RUNPOD_PROVISIONER_WORKER_HTTP_PORT: u16 = 8000;
 const RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT: u16 = 8188;
 const GIB_BYTES: u64 = 1024 * 1024 * 1024;
 
-#[derive(Debug, Clone, Default)]
-pub(super) struct RunPodWorkspaceResourceProvider;
+#[derive(Debug, Clone)]
+pub(super) struct RunPodWorkspaceResourceProvider {
+    client: RunPodClient,
+}
+
+impl RunPodWorkspaceResourceProvider {
+    pub(super) fn new(client: RunPodClient) -> Self {
+        Self { client }
+    }
+
+    pub(super) fn try_new() -> Result<Self, RunPodHttpClientInitError> {
+        Ok(Self::new(RunPodClient::try_new_default()?))
+    }
+}
 
 impl<S, W> WorkspaceResourceProvider<S, W> for RunPodWorkspaceResourceProvider
 where
@@ -45,10 +57,7 @@ where
         config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
-            crate::workspace_resources::providers::runpod::sync_network_volume(
-                context, workspace, config,
-            )
-            .await
+            sync_network_volume_with_client(&self.client, context, workspace, config).await
         })
     }
 
@@ -59,10 +68,7 @@ where
         config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
-            crate::workspace_resources::providers::runpod::sync_provisioning_pod(
-                context, workspace, config,
-            )
-            .await
+            sync_provisioning_pod_with_client(&self.client, context, workspace, config).await
         })
     }
 
@@ -72,10 +78,7 @@ where
         workspace: &'a mut Workspace,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
-            crate::workspace_resources::providers::runpod::finish_provisioning_pod(
-                context, workspace,
-            )
-            .await
+            finish_provisioning_pod_with_client(&self.client, context, workspace).await
         })
     }
 
@@ -86,10 +89,7 @@ where
         config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
-            crate::workspace_resources::providers::runpod::sync_serverless_endpoint(
-                context, workspace, config,
-            )
-            .await
+            sync_serverless_endpoint_with_client(&self.client, context, workspace, config).await
         })
     }
 
@@ -99,74 +99,9 @@ where
         workspace: &'a Workspace,
     ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceResourceError>> + Send + 'a>> {
         Box::pin(async move {
-            crate::workspace_resources::providers::runpod::cleanup_known_resources(
-                context, workspace,
-            )
-            .await
+            cleanup::cleanup_known_resources_with_client(&self.client, context, workspace).await
         })
     }
-}
-
-pub(crate) async fn sync_network_volume<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
-    workspace: &mut Workspace,
-    config: &WorkspaceResourceConfig,
-) -> WorkspaceResourceSyncResult
-where
-    S: AsyncSecretStore,
-    W: WorkspaceCatalogRepository,
-{
-    let client = RunPodClient::default();
-    sync_network_volume_with_client(&client, context, workspace, config).await
-}
-
-pub(crate) async fn sync_provisioning_pod<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
-    workspace: &mut Workspace,
-    config: &WorkspaceResourceConfig,
-) -> WorkspaceResourceSyncResult
-where
-    S: AsyncSecretStore,
-    W: WorkspaceCatalogRepository,
-{
-    let client = RunPodClient::default();
-    sync_provisioning_pod_with_client(&client, context, workspace, config).await
-}
-
-pub(crate) async fn finish_provisioning_pod<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
-    workspace: &mut Workspace,
-) -> WorkspaceResourceSyncResult
-where
-    S: AsyncSecretStore,
-    W: WorkspaceCatalogRepository,
-{
-    let client = RunPodClient::default();
-    finish_provisioning_pod_with_client(&client, context, workspace).await
-}
-
-pub(crate) async fn sync_serverless_endpoint<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
-    workspace: &mut Workspace,
-    config: &WorkspaceResourceConfig,
-) -> WorkspaceResourceSyncResult
-where
-    S: AsyncSecretStore,
-    W: WorkspaceCatalogRepository,
-{
-    let client = RunPodClient::default();
-    sync_serverless_endpoint_with_client(&client, context, workspace, config).await
-}
-
-pub(crate) async fn cleanup_known_resources<S, W>(
-    context: &WorkspaceResourceContext<'_, S, W>,
-    workspace: &Workspace,
-) -> Result<(), WorkspaceResourceError>
-where
-    S: AsyncSecretStore,
-    W: WorkspaceCatalogRepository,
-{
-    cleanup::cleanup_known_resources(context, workspace).await
 }
 
 async fn sync_network_volume_with_client<S, W, C>(
