@@ -3,7 +3,7 @@ use std::{future::Future, pin::Pin};
 use crate::{
     domain::workspace::Workspace,
     provider::runpod::RunPodClient,
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
         WorkspaceResourceConfig, WorkspaceResourceContext, WorkspaceResourceError,
@@ -35,7 +35,7 @@ pub(super) struct RunPodWorkspaceResourceProvider;
 
 impl<S, W> WorkspaceResourceProvider<S, W> for RunPodWorkspaceResourceProvider
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     fn sync_network_volume<'a>(
@@ -113,7 +113,7 @@ pub(crate) async fn sync_network_volume<S, W>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     let client = RunPodClient::default();
@@ -126,7 +126,7 @@ pub(crate) async fn sync_provisioning_pod<S, W>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     let client = RunPodClient::default();
@@ -138,7 +138,7 @@ pub(crate) async fn finish_provisioning_pod<S, W>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     let client = RunPodClient::default();
@@ -151,7 +151,7 @@ pub(crate) async fn sync_serverless_endpoint<S, W>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     let client = RunPodClient::default();
@@ -163,7 +163,7 @@ pub(crate) async fn cleanup_known_resources<S, W>(
     workspace: &Workspace,
 ) -> Result<(), WorkspaceResourceError>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     cleanup::cleanup_known_resources(context, workspace).await
@@ -176,7 +176,7 @@ async fn sync_network_volume_with_client<S, W, C>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -191,7 +191,7 @@ async fn sync_provisioning_pod_with_client<S, W, C>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -205,7 +205,7 @@ async fn finish_provisioning_pod_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -220,7 +220,7 @@ async fn sync_serverless_endpoint_with_client<S, W, C>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

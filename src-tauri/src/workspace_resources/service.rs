@@ -1,5 +1,5 @@
 use crate::{
-    domain::workspace::Workspace, secrets::SecretStore,
+    domain::workspace::Workspace, secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::state::reset_after_resource_cleanup,
 };
@@ -53,7 +53,7 @@ impl<S, W, R> WorkspaceResourceService<S, W, R> {
 
 impl<S, W, R> WorkspaceResourceService<S, W, R>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     R: WorkspaceResourceProviderResolver<S, W>,
 {
@@ -132,7 +132,7 @@ mod tests {
                 WorkspaceLifecycleState,
             },
         },
-        secrets::{ProvisionerWorkerBearerToken, SecretStoreError},
+        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
         workspace_catalog::repository::WorkspaceCatalogRepository,
         workspace_resources::providers::{
             WorkspaceResourceProvider, WorkspaceResourceProviderResolver,

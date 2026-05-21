@@ -9,7 +9,7 @@ pub(crate) use gateway::ProvisionerWorkerStatus;
 
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
-    secrets::{SecretStore, SecretStoreError},
+    secrets::{AsyncSecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioning::{
         failure::{self, fail_workspace},
@@ -47,7 +47,7 @@ impl WorkspaceProvisionerService {
         workspace: &mut Workspace,
     ) -> WorkspaceProvisionerSyncResult
     where
-        S: SecretStore,
+        S: AsyncSecretStore,
         W: WorkspaceCatalogRepository,
         R: ProvisionerWorkerGateway,
     {
@@ -63,7 +63,11 @@ impl WorkspaceProvisionerService {
             return Ok(None);
         }
 
-        let token = match context.secrets.read_provisioner_worker_token(&workspace.id) {
+        let token = match context
+            .secrets
+            .read_provisioner_worker_token(&workspace.id)
+            .await
+        {
             Ok(Some(token)) => token,
             Ok(None) => {
                 fail_workspace(
@@ -214,7 +218,7 @@ mod tests {
                 WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
             },
         },
-        secrets::ProvisionerWorkerBearerToken,
+        secrets::{ProvisionerWorkerBearerToken, SecretStore},
         workspace_setup::error::WorkspaceSetupError,
     };
     use gateway::{ProvisionerWorkerPhase, ProvisionerWorkerStatus};

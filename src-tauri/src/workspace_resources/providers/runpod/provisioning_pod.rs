@@ -5,7 +5,7 @@ use crate::{
             ProviderResourceStatus, ProvisioningPodSnapshot, Workspace, WorkspaceProvisioningPhase,
         },
     },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore},
+    secrets::{AsyncSecretStore, ProvisionerWorkerBearerToken},
     workspace_provisioning::{
         failure, failure::fail_workspace, helpers::observed_provisioning_pod_snapshot,
     },
@@ -25,7 +25,7 @@ pub(crate) async fn sync<S, W, C>(
     config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -71,6 +71,7 @@ where
         context
             .secrets
             .write_provisioner_worker_token(&workspace.id, &token)
+            .await
             .map_err(WorkspaceResourceError::from)?;
         let observation = match context
             .create_provisioning_pod(CreateProvisioningPodInput {
@@ -175,7 +176,7 @@ pub(crate) async fn finish<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -204,6 +205,7 @@ where
     context
         .secrets
         .delete_provisioner_worker_token(&workspace.id)
+        .await
         .map_err(WorkspaceResourceError::from)?;
     context.update_workspace(workspace).await.map(Some)
 }
@@ -214,7 +216,7 @@ async fn handle_pod_create_error_after_token_write<S, W, C>(
     error: WorkspaceResourceError,
 ) -> WorkspaceResourceSyncResult
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -238,19 +240,20 @@ where
         .await;
     }
 
-    cleanup_worker_token_after_determinate_create_failure(context, workspace);
+    cleanup_worker_token_after_determinate_create_failure(context, workspace).await;
     Err(error)
 }
 
-fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
+async fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &Workspace,
 ) where
-    S: SecretStore,
+    S: AsyncSecretStore,
 {
     let _ = context
         .secrets
-        .delete_provisioner_worker_token(&workspace.id);
+        .delete_provisioner_worker_token(&workspace.id)
+        .await;
 }
 
 async fn fail_for_indeterminate_provider_operation<S, W, C>(

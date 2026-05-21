@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::{provider_setup::GpuCloudProviderId, workspace::Workspace},
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
 };
@@ -43,7 +43,7 @@ pub(crate) struct WorkspaceProvisioningProviderRegistry {
 impl<S, W, R, Q> WorkspaceProvisioningProviderResolver<S, W, R, Q>
     for WorkspaceProvisioningProviderRegistry
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,

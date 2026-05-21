@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::workspace::Workspace,
-    secrets::SecretStore,
+    secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioner::ProvisionerWorkerGateway,
     workspace_provisioner::{WorkspaceProvisionerContext, WorkspaceProvisionerService},
@@ -52,7 +52,7 @@ pub(crate) trait WorkspaceProvisioningResources: Send + Sync {
 
 impl<S, W> WorkspaceProvisioningResources for WorkspaceResourceService<S, W>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
     fn sync_network_volume<'a>(
@@ -145,7 +145,7 @@ impl<'a, S, W, R, Q> WorkspaceProvisioningContext<'a, S, W, R, Q> {
 
 impl<S, W, R, Q> WorkspaceProvisioningContext<'_, S, W, R, Q>
 where
-    S: SecretStore,
+    S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
 {
