@@ -4,7 +4,6 @@ from pathlib import Path
 
 from app.errors import ValidationError
 from auxiliary.paths import safe_child_path, safe_relative_path
-from runtime.manifest import runtime_paths
 
 
 class PathSafetyTests(unittest.TestCase):
@@ -42,17 +41,6 @@ class PathSafetyTests(unittest.TestCase):
 
             with self.assertRaises(ValidationError):
                 safe_child_path(workspace, "models/checkpoints/model.safetensors", field_name="model_path")
-
-    def test_rejects_runtime_metadata_symlink_escape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory) / "workspace"
-            outside = Path(directory) / "outside-metadata"
-            workspace.mkdir()
-            outside.mkdir()
-            _symlink_or_skip(self, outside, workspace / ".luma-forge")
-
-            with self.assertRaises(ValidationError):
-                runtime_paths(workspace)
 
     def test_rejects_model_asset_symlink_escape(self):
         with tempfile.TemporaryDirectory() as directory:

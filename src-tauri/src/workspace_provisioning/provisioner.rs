@@ -687,7 +687,7 @@ mod tests {
             )),
             Ok(worker_status(
                 ProvisionerWorkerJobStatus::Running,
-                ProvisionerWorkerPhase::ValidatingRuntime,
+                ProvisionerWorkerPhase::PreparingWorkspace,
                 Some(37),
             )),
         );
@@ -715,7 +715,7 @@ mod tests {
                 workspace: workspace.clone(),
                 status: worker_status(
                     ProvisionerWorkerJobStatus::Running,
-                    ProvisionerWorkerPhase::ValidatingRuntime,
+                    ProvisionerWorkerPhase::PreparingWorkspace,
                     Some(37),
                 ),
             }
@@ -736,7 +736,7 @@ mod tests {
         let catalog = FakeWorkspaceCatalog::default();
         let workers = FakeProvisionerWorkerGateway::with_status_result(Ok(worker_status(
             ProvisionerWorkerJobStatus::Running,
-            ProvisionerWorkerPhase::InstallingModels,
+            ProvisionerWorkerPhase::DownloadingAssets,
             Some(42),
         )));
         let mut workspace = running_workspace();
@@ -762,7 +762,7 @@ mod tests {
                 workspace,
                 status: worker_status(
                     ProvisionerWorkerJobStatus::Running,
-                    ProvisionerWorkerPhase::InstallingModels,
+                    ProvisionerWorkerPhase::DownloadingAssets,
                     Some(42),
                 ),
             }

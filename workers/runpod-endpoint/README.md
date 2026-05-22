@@ -1,6 +1,6 @@
 # RunPod Endpoint Worker
 
-The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. It supports the temporary minimal `t2i` generation contract:
+The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. In this change it preserves the RunPod handler boundary with a temporary minimal `t2i` stub contract:
 
 ```json
 {
@@ -9,32 +9,22 @@ The RunPod Endpoint Worker is the runtime container used behind RunPod Serverles
 }
 ```
 
-Successful responses return exactly one image as MIME type plus base64 data:
+Successful responses are deterministic and UI-safe, and explicitly report that generation is not implemented:
 
 ```json
 {
   "status": "succeeded",
-  "image": {
-    "mime_type": "image/png",
-    "data": "..."
+  "generation": {
+    "implemented": false,
+    "execution_type": "t2i",
+    "message": "Endpoint generation is not implemented in this runtime contract."
   }
 }
 ```
 
-This worker assumes the workspace volume was already prepared by the Provisioner Worker. It does not clone ComfyUI, download models, install dependencies, create virtual environments, run pip, extract archives, or create provider resources. It starts the image-baked ComfyUI process lazily before the first valid generation request, waits for `/system_stats`, and reuses the process for later jobs in the same warm worker.
+This worker does not require a prepared runtime manifest and does not validate workflow paths, model paths, output directories, image-local ComfyUI paths, or workspace metadata. It does not start ComfyUI, submit workflows, poll execution status, collect outputs, clone repositories, download models, install dependencies, create virtual environments, run pip, mutate image-baked runtime state, or create provider resources at startup or request time.
 
-The endpoint image must include the base runtime under `/opt/luma-forge/runtime`. The prepared workspace must include only workspace-specific state:
-
-```text
-/workspace/
-  models/
-  output/
-  workflows/
-  .luma-forge/
-    runtime-manifest.json
-```
-
-The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` for the prepared workspace paths needed during generation. It starts ComfyUI through the fixed image interpreter at `/opt/luma-forge/runtime/.venv/bin/python`, with workspace model, workflow, and output paths configured for the process.
+The endpoint image build may still install runtime contract dependencies under `/opt/luma-forge/runtime` so dependency drift remains visible, but the request handler is currently stubbed and does not execute that runtime.
 
 ## Configuration
 
@@ -42,15 +32,8 @@ The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` for the pr
 | --- | --- | --- |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Shared prepared workspace volume mount path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH` | unset | Endpoint-specific workspace mount path override. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | ComfyUI host inside the endpoint container. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | ComfyUI HTTP port inside the endpoint container. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `120` | Maximum wait for the local ComfyUI process to become HTTP-ready. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS` | `4000` | Maximum accepted prompt length. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_GENERATION_TIMEOUT_SECONDS` | `300` | Maximum ComfyUI generation wait time. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_RELATIVE_PATH` | `workflows/t2i.json` | Workflow JSON path relative to the prepared workspace root. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_MODEL_PATHS` | `models/checkpoints/sd_xl_base_1.0.safetensors` | Comma-separated prepared-workspace-relative model paths required before generation. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_NODE_ID` | empty | Optional ComfyUI node id to receive the prompt. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_INPUT_KEY` | `text` | Input key used when prompt node id is configured. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_SUPPORTED_EXECUTION_TYPES` | `t2i` | Comma-separated execution types accepted by the stub boundary. |
 
 ## Development
 
@@ -61,5 +44,5 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 ## Container
 
 ```bash
-docker build -t luma-forge-runpod-endpoint-worker -f ../Dockerfile --target runpod-endpoint ../..
+docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile ../..
 ```

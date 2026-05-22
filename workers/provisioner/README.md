@@ -19,11 +19,9 @@ During preparation, the Provisioner Worker prepares only workspace-specific data
   models/
   output/
   workflows/
-  .luma-forge/
-    runtime-manifest.json
 ```
 
-The worker must not contain or validate the endpoint ComfyUI runtime, create the base virtual environment, clone ComfyUI, run `comfy install`, install ComfyUI base requirements, clone runtime extensions, or run `pip` during provisioning. The endpoint worker later starts ComfyUI through its own image-baked Python interpreter and uses workspace model, workflow, output, and metadata paths.
+The worker validates only workspace path safety and declared model asset files. It does not write `.luma-forge/runtime-manifest.json`, validate workflow or output paths, validate endpoint runtime paths, contain or validate the endpoint ComfyUI runtime, create the base virtual environment, clone ComfyUI, run `comfy install`, install ComfyUI base requirements, clone runtime extensions, or run `pip` during provisioning.
 
 ## Test
 
@@ -43,7 +41,7 @@ PYTHONPATH=src python -m compileall src tests
 
 ```bash
 cd workers/provisioner
-docker build -t luma-forge-provisioner:local -f ../Dockerfile --target provisioner ../..
+docker build -t luma-forge-provisioner:local -f Dockerfile ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
   -p 8000:8000 \
@@ -58,7 +56,7 @@ cd workers/provisioner
 LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python -m unittest tests.test_container_smoke
 ```
 
-Provisioner and endpoint images are built from the shared provider-neutral Dockerfile at `workers/Dockerfile`.
+Provisioner and endpoint images use separate Dockerfiles. The provisioner Dockerfile does not contain endpoint runtime stages or runtime contract build arguments.
 
 ## Deployment
 

@@ -76,7 +76,7 @@ class BlockingProvisioner:
 
     def prepare(self, request, progress, cancel_event):
         self.started.set()
-        progress("materializing_runtime", 10, "blocked")
+        progress("preparing_workspace", 10, "blocked")
         while not self.release.is_set() and not cancel_event.is_set():
             self.release.wait(0.01)
 

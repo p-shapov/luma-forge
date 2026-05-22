@@ -3,12 +3,11 @@ from pathlib import Path
 from threading import Event
 
 from app.config import WorkerConfig
+from app.errors import PreparationError
 from app.schemas import ModelAsset, StartRequest
 from auxiliary.cancellation import Cancelled
 from auxiliary.huggingface import PublicFileDownloader
 from auxiliary.paths import safe_child_path
-from runtime.manifest import RuntimePaths, build_manifest, runtime_paths, write_manifest
-from runtime.validation import validate_prepared_environment
 
 ProgressCallback = Callable[[str, int | None, str | None], None]
 
@@ -34,31 +33,17 @@ class Provisioner:
     def prepare(self, request: StartRequest, progress: ProgressCallback, cancel_event: Event) -> None:
         workspace_root = self.config.workspace_mount_path.resolve(strict=False)
         workspace_root.mkdir(parents=True, exist_ok=True)
-        paths = runtime_paths(
-            workspace_root,
-        )
 
         self._check_cancelled(cancel_event)
         progress("preparing_workspace", 15, "Preparing workspace directories")
-        self._prepare_workspace_paths(paths, cancel_event)
+        self._prepare_workspace_paths(workspace_root, cancel_event)
         progress("preparing_workspace", 25, "Workspace directories prepared")
 
-        self._download_assets(request.workflow_preset.required_model_assets, paths.workspace_root, progress, cancel_event)
+        self._download_assets(request.workflow_preset.required_model_assets, workspace_root, progress, cancel_event)
 
         self._check_cancelled(cancel_event)
-        progress("validating_environment", 90, "Recording prepared runtime environment")
-        validate_prepared_environment(request, paths, include_manifest=False)
-        write_manifest(
-            build_manifest(
-                request=request,
-                paths=paths,
-            ),
-            paths.runtime_manifest_path,
-        )
-
-        self._check_cancelled(cancel_event)
-        progress("validating_environment", 95, "Validating prepared environment")
-        validate_prepared_environment(request, paths, include_manifest=True)
+        progress("validating_environment", 95, "Validating prepared model assets")
+        self._validate_model_assets(request, workspace_root)
         progress("validating_environment", 100, "Environment prepared")
 
     def _download_assets(
@@ -92,12 +77,21 @@ class Provisioner:
         if cancel_event.is_set():
             raise Cancelled()
 
-    def _prepare_workspace_paths(self, paths: RuntimePaths, cancel_event: Event) -> None:
+    def _prepare_workspace_paths(self, workspace_root: Path, cancel_event: Event) -> None:
         for directory in [
-            paths.workspace_root / "models",
-            paths.workspace_root / "workflows",
-            paths.workspace_root / "output",
-            paths.metadata_dir,
+            workspace_root / "models",
+            workspace_root / "workflows",
+            workspace_root / "output",
         ]:
             self._check_cancelled(cancel_event)
             directory.mkdir(parents=True, exist_ok=True)
+
+    def _validate_model_assets(self, request: StartRequest, workspace_root: Path) -> None:
+        for asset in request.workflow_preset.required_model_assets:
+            target = safe_child_path(
+                workspace_root,
+                asset.install.comfyui_relative_path.as_posix(),
+                field_name=f"model_asset[{asset.id}].install.comfyui_relative_path",
+            )
+            if not target.exists() or not target.is_file():
+                raise PreparationError(f"Model asset is missing: {asset.id}")

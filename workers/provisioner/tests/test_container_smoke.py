@@ -3,6 +3,11 @@ import subprocess
 import time
 import unittest
 from http.client import HTTPConnection
+from pathlib import Path
+
+
+WORKERS_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = WORKERS_DIR.parent
 
 
 @unittest.skipUnless(os.environ.get("LUMA_FORGE_RUN_CONTAINER_SMOKE") == "1", "container smoke test is opt-in")
@@ -18,10 +23,8 @@ class ContainerSmokeTests(unittest.TestCase):
                     "-t",
                     image,
                     "-f",
-                    "../Dockerfile",
-                    "--target",
-                    "provisioner",
-                    "../..",
+                    str(WORKERS_DIR / "provisioner/Dockerfile"),
+                    str(REPO_ROOT),
                 ],
                 check=True,
             )

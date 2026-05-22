@@ -7,26 +7,28 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TOOL_PATH = ROOT / "workers/runtime-recipes/release_tool.py"
-RECIPE_PATH = ROOT / "workers/runtime-recipes/comfyui-python312-cu121.yaml"
-SCHEMA_PATH = ROOT / "workers/runtime-recipes/schema.json"
-DOCKERFILE_PATH = ROOT / "workers/Dockerfile"
+TOOL_PATH = ROOT / "workers/runtime-contracts/release_tool.py"
+CONTRACT_PATH = ROOT / "workers/runtime-contracts/comfyui-python312-cu121.yaml"
+SCHEMA_PATH = ROOT / "workers/runtime-contracts/schema.json"
+PROVISIONER_DOCKERFILE_PATH = ROOT / "workers/provisioner/Dockerfile"
+ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 CATALOG_PATH = ROOT / "bundled/runtime-catalog.json"
-WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runtime-recipe.yml"
+WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runtime-contract.yml"
+PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner-worker.yml"
 
-spec = importlib.util.spec_from_file_location("runtime_recipe_release_tool", TOOL_PATH)
+spec = importlib.util.spec_from_file_location("runtime_contract_release_tool", TOOL_PATH)
 release_tool = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(release_tool)
 
 
 class ReleaseToolTests(unittest.TestCase):
-    def test_recipe_outputs_include_worker_build_arguments(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
+    def test_contract_outputs_include_worker_build_arguments(self):
+        contract = release_tool.load_contract(CONTRACT_PATH)
 
-        outputs = release_tool.recipe_outputs(recipe, RECIPE_PATH)
+        outputs = release_tool.contract_outputs(contract, CONTRACT_PATH)
 
-        self.assertEqual(str(RECIPE_PATH), outputs["recipe"])
+        self.assertEqual(str(CONTRACT_PATH), outputs["contract"])
         self.assertEqual("comfyui-python312-cu121", outputs["contract_id"])
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
@@ -36,69 +38,24 @@ class ReleaseToolTests(unittest.TestCase):
             json.loads(outputs["pytorch_packages_json"]),
         )
         self.assertEqual("aa9d2fc713664e9ffe37763f4c9240c0c3eda667", outputs["comfyui_revision"])
-        self.assertNotIn("runtime_platform", outputs)
-        self.assertNotIn("comfyui_repository", outputs)
-        self.assertNotIn("base_requirements_json", outputs)
 
-    def test_rejects_recipe_fields_not_allowed_by_schema(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recipe_path = Path(directory) / "recipe.yaml"
-            shutil.copyfile(SCHEMA_PATH, Path(directory) / "schema.json")
-            recipe_path.write_text(
-                RECIPE_PATH.read_text(encoding="utf-8") + "\nmetadata:\n  default_implementation_revision: old\n",
-                encoding="utf-8",
-            )
+    def test_endpoint_dockerfile_keeps_contract_build_inputs_without_runtime_identity_metadata(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "metadata"):
-                release_tool.load_recipe(recipe_path)
-
-    def test_rejects_legacy_runtime_recipe_fields(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recipe_path = Path(directory) / "recipe.yaml"
-            shutil.copyfile(SCHEMA_PATH, Path(directory) / "schema.json")
-            recipe_path.write_text(
-                RECIPE_PATH.read_text(encoding="utf-8")
-                + "\nruntime:\n  platform: linux-x86_64-cuda\n",
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "runtime"):
-                release_tool.load_recipe(recipe_path)
-
-    def test_recipe_schema_rejects_removed_runtime_fields(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recipe_path = Path(directory) / "recipe.yaml"
-            shutil.copyfile(SCHEMA_PATH, Path(directory) / "schema.json")
-            recipe_path.write_text(
-                RECIPE_PATH.read_text(encoding="utf-8")
-                + "\nlegacy_runtime:\n  base_requirements:\n    - requirements.txt\n",
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "legacy_runtime"):
-                release_tool.load_recipe(recipe_path)
-
-    def test_dockerfile_keeps_recipe_build_inputs_without_runtime_identity_metadata(self):
-        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
-
-        self.assertNotIn("LUMA_FORGE_RUNTIME_PLATFORM", dockerfile)
-        self.assertNotIn("LUMA_FORGE_BASE_REQUIREMENTS_JSON", dockerfile)
-        self.assertNotIn("LUMA_FORGE_COMFYUI_REPOSITORY", dockerfile)
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
-        self.assertNotIn("LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION", dockerfile)
         self.assertNotIn("LUMA_FORGE_PROVISIONER_IMAGE_REF", dockerfile)
         self.assertNotIn("runtime-contract.json", dockerfile)
 
-    def test_dockerfile_installs_pinned_comfy_cli_for_runtime_builder(self):
-        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+    def test_endpoint_dockerfile_installs_pinned_comfy_cli_for_runtime_builder(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("comfy-cli==1.7.3", dockerfile)
         self.assertNotIn("pip install --no-cache-dir comfy-cli\n", dockerfile)
         self.assertNotIn("pip install --no-cache-dir comfy-cli ", dockerfile)
         self.assertNotIn("pip install --no-cache-dir --upgrade comfy-cli", dockerfile)
 
-    def test_dockerfile_uses_comfy_cli_for_comfyui_runtime_install(self):
-        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+    def test_endpoint_dockerfile_uses_comfy_cli_for_comfyui_runtime_install(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv", dockerfile)
         self.assertIn("export PATH=\"${VIRTUAL_ENV}/bin:${PATH}\"", dockerfile)
@@ -114,15 +71,8 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertNotIn("git clone", dockerfile)
         self.assertNotIn("git checkout \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
 
-    def test_dockerfile_does_not_install_recipe_owned_base_requirements(self):
-        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
-
-        self.assertNotIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
-        self.assertNotIn("unsafe base requirement path", dockerfile)
-        self.assertNotIn("base requirement", dockerfile.lower())
-
-    def test_dockerfile_keeps_runtime_layout_validation_checks(self):
-        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+    def test_endpoint_dockerfile_keeps_runtime_layout_validation_checks(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("test -f /opt/luma-forge/runtime/ComfyUI/main.py", dockerfile)
         self.assertIn("test -x /opt/luma-forge/runtime/.venv/bin/python", dockerfile)
@@ -130,14 +80,32 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("/opt/luma-forge/runtime/base-runtime/pip-freeze.txt", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/base-runtime/install-report.json", dockerfile)
 
-    def test_workflow_has_no_manual_implementation_revision_input(self):
+    def test_provisioner_workflow_is_separate_from_runtime_contract_release(self):
+        workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("--file workers/provisioner/Dockerfile", workflow)
+        self.assertIn("provisioner-worker", workflow)
+        self.assertNotIn("runtime-contracts", workflow)
+        self.assertNotIn("LUMA_FORGE_RUNTIME_PYTHON_VERSION", workflow)
+        self.assertNotIn("bundled/runtime-catalog.json", workflow)
+
+    def test_provisioner_dockerfile_has_no_endpoint_runtime_contract_inputs(self):
+        dockerfile = PROVISIONER_DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("COPY workers/provisioner/pyproject.toml", dockerfile)
+        self.assertNotIn("runtime-builder", dockerfile)
+        self.assertNotIn("runpod-endpoint", dockerfile)
+        self.assertNotIn("LUMA_FORGE_RUNTIME_PYTHON_VERSION", dockerfile)
+        self.assertNotIn("LUMA_FORGE_COMFYUI_REVISION", dockerfile)
+        self.assertNotIn("/opt/luma-forge/runtime", dockerfile)
+
+    def test_runtime_contract_workflow_only_publishes_endpoint_image(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
-        self.assertNotIn("implementation_revision:", workflow)
-        self.assertNotIn("--implementation-revision", workflow)
-        self.assertIn("--catalog bundled/runtime-catalog.json", workflow)
-        self.assertIn("--workflow-catalog bundled/workflow-catalog.json", workflow)
-        self.assertIn("suffix=\"${CONTRACT_ID}-${CONTRACT_VERSION}\"", workflow)
+        self.assertIn("--file workers/runpod-endpoint/Dockerfile", workflow)
+        self.assertIn("runpod-endpoint-worker", workflow)
+        self.assertNotIn("--file workers/provisioner/Dockerfile", workflow)
+        self.assertNotIn("provisioner-worker", workflow)
 
     def test_catalog_validation_runs_before_build_or_publish(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -174,8 +142,8 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("exit 1", verify_section)
 
     def test_find_contract_matches_contract_id(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
-        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
+        contract = release_tool.load_contract(CONTRACT_PATH)
+        catalog = _catalog_with_contract(contract, endpoint_ref=_image_ref("2"))
 
         contract = release_tool.find_contract(catalog, "comfyui-python312-cu121")
 
@@ -187,11 +155,11 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(_image_ref("2"), revision["endpoint_image_ref"])
 
     def test_update_catalog_creates_new_contract_from_endpoint_image_ref(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
+        contract = release_tool.load_contract(CONTRACT_PATH)
         catalog = {"contracts": []}
 
         updated = release_tool.update_catalog(
-            recipe=recipe,
+            contract=contract,
             catalog=catalog,
             endpoint_ref=_image_ref("2"),
         )
@@ -212,11 +180,11 @@ class ReleaseToolTests(unittest.TestCase):
         )
 
     def test_update_catalog_appends_bumped_revision_for_existing_contract(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
-        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
+        contract = release_tool.load_contract(CONTRACT_PATH)
+        catalog = _catalog_with_contract(contract, endpoint_ref=_image_ref("2"))
 
         updated = release_tool.update_catalog(
-            recipe=recipe,
+            contract=contract,
             catalog=catalog,
             endpoint_ref=_image_ref("4"),
         )
@@ -228,24 +196,24 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(_image_ref("4"), updated["contracts"][0]["revisions"][1]["endpoint_image_ref"])
 
     def test_update_catalog_rejects_duplicate_explicit_revision(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
-        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
+        contract = release_tool.load_contract(CONTRACT_PATH)
+        catalog = _catalog_with_contract(contract, endpoint_ref=_image_ref("2"))
 
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "already exists"):
             release_tool.update_catalog(
-                recipe=recipe,
+                contract=contract,
                 catalog=catalog,
                 endpoint_ref=_image_ref("4"),
                 contract_version="1.0.0",
             )
 
-    def test_next_contract_version_uses_recipe_major_bump(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
-        recipe["contract"]["version"] = "2.0.0"
-        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
+    def test_next_contract_version_uses_contract_major_bump(self):
+        contract = release_tool.load_contract(CONTRACT_PATH)
+        contract["contract"]["version"] = "2.0.0"
+        catalog = _catalog_with_contract(contract, endpoint_ref=_image_ref("2"))
         catalog["contracts"][0]["revisions"][0]["version"] = "1.0.0"
 
-        self.assertEqual("2.0.0", release_tool.next_contract_version(recipe=recipe, catalog=catalog))
+        self.assertEqual("2.0.0", release_tool.next_contract_version(contract=contract, catalog=catalog))
 
     def test_update_workflow_catalog_points_presets_at_bumped_revision(self):
         workflow_catalog = {
@@ -269,12 +237,12 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual("1.0.1", updated["workflow_presets"][0]["runtime_contract"]["version"])
 
     def test_update_catalog_rejects_mutable_endpoint_image_refs(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
+        contract = release_tool.load_contract(CONTRACT_PATH)
         catalog = {"contracts": []}
 
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "digest-pinned"):
             release_tool.update_catalog(
-                recipe=recipe,
+                contract=contract,
                 catalog=catalog,
                 endpoint_ref="ghcr.io/luma-forge/test:latest",
             )
@@ -290,7 +258,7 @@ class ReleaseToolTests(unittest.TestCase):
             set(catalog["contracts"][0]["revisions"][0]),
         )
         release_tool.validate_catalog_compatibility(
-            recipe=release_tool.load_recipe(RECIPE_PATH),
+            contract=release_tool.load_contract(CONTRACT_PATH),
             catalog=catalog,
         )
 
@@ -308,8 +276,8 @@ class ReleaseToolTests(unittest.TestCase):
             exit_code = release_tool.main(
                 [
                     "resolve",
-                    "--recipe",
-                    str(RECIPE_PATH),
+                    "--contract",
+                    str(CONTRACT_PATH),
                     "--github-output",
                     str(output_path),
                 ]
@@ -319,26 +287,22 @@ class ReleaseToolTests(unittest.TestCase):
             output = output_path.read_text(encoding="utf-8")
             self.assertIn("pytorch_packages_json=", output)
             self.assertIn("contract_version=1.0.0", output)
-            self.assertNotIn("implementation_revision=", output)
-            self.assertNotIn("runtime_platform=", output)
-            self.assertNotIn("comfyui_repository=", output)
-            self.assertNotIn("base_requirements_json=", output)
 
     def test_cli_resolve_uses_next_catalog_revision_when_catalog_is_provided(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
+        contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "runtime-catalog.json"
             output_path = Path(directory) / "github-output"
             catalog_path.write_text(
-                json.dumps(_catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))),
+                json.dumps(_catalog_with_contract(contract, endpoint_ref=_image_ref("2"))),
                 encoding="utf-8",
             )
 
             exit_code = release_tool.main(
                 [
                     "resolve",
-                    "--recipe",
-                    str(RECIPE_PATH),
+                    "--contract",
+                    str(CONTRACT_PATH),
                     "--catalog",
                     str(catalog_path),
                     "--github-output",
@@ -350,7 +314,7 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertIn("contract_version=1.0.1", output_path.read_text(encoding="utf-8"))
 
     def test_cli_update_catalog_writes_endpoint_image_ref(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
+        contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "runtime-catalog.json"
             catalog_path.write_text(
@@ -361,8 +325,8 @@ class ReleaseToolTests(unittest.TestCase):
             exit_code = release_tool.main(
                 [
                     "update-catalog",
-                    "--recipe",
-                    str(RECIPE_PATH),
+                    "--contract",
+                    str(CONTRACT_PATH),
                     "--catalog",
                     str(catalog_path),
                     "--endpoint-ref",
@@ -377,12 +341,12 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual(_image_ref("2"), updated["contracts"][0]["revisions"][0]["endpoint_image_ref"])
 
     def test_cli_update_catalog_appends_revision_and_updates_workflow_catalog(self):
-        recipe = release_tool.load_recipe(RECIPE_PATH)
+        contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "runtime-catalog.json"
             workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(
-                json.dumps(_catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))),
+                json.dumps(_catalog_with_contract(contract, endpoint_ref=_image_ref("2"))),
                 encoding="utf-8",
             )
             workflow_path.write_text(
@@ -405,8 +369,8 @@ class ReleaseToolTests(unittest.TestCase):
             exit_code = release_tool.main(
                 [
                     "update-catalog",
-                    "--recipe",
-                    str(RECIPE_PATH),
+                    "--contract",
+                    str(CONTRACT_PATH),
                     "--catalog",
                     str(catalog_path),
                     "--workflow-catalog",
@@ -425,14 +389,14 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["runtime_contract"]["version"])
 
 
-def _catalog_with_contract(recipe, *, endpoint_ref):
+def _catalog_with_contract(contract, *, endpoint_ref):
     return {
         "contracts": [
             {
-                "id": recipe["contract"]["id"],
+                "id": contract["contract"]["id"],
                 "revisions": [
                     {
-                        "version": recipe["contract"]["version"],
+                        "version": contract["contract"]["version"],
                         "endpoint_image_ref": endpoint_ref,
                     }
                 ],

@@ -10,7 +10,7 @@ REPO_ROOT = WORKERS_DIR.parent
 
 @unittest.skipUnless(os.environ.get("LUMA_FORGE_RUN_CONTAINER_SMOKE") == "1", "container smoke test is opt-in")
 class ContainerSmokeTests(unittest.TestCase):
-    def test_container_imports_handler_and_contains_runtime_layout(self):
+    def test_container_imports_stub_handler_and_contains_runtime_dependencies(self):
         image = os.environ.get("LUMA_FORGE_RUNPOD_ENDPOINT_SMOKE_IMAGE", "luma-forge-runpod-endpoint:smoke")
         if "LUMA_FORGE_RUNPOD_ENDPOINT_SMOKE_IMAGE" not in os.environ:
             subprocess.run(
@@ -20,9 +20,7 @@ class ContainerSmokeTests(unittest.TestCase):
                     "-t",
                     image,
                     "-f",
-                    str(WORKERS_DIR / "Dockerfile"),
-                    "--target",
-                    "runpod-endpoint",
+                    str(WORKERS_DIR / "runpod-endpoint/Dockerfile"),
                     str(REPO_ROOT),
                 ],
                 check=True,
@@ -42,7 +40,7 @@ class ContainerSmokeTests(unittest.TestCase):
                     " && test -f /opt/luma-forge/runtime/base-runtime/pip-freeze.txt"
                     " && test -f /opt/luma-forge/runtime/base-runtime/install-report.json"
                     " && test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager"
-                    " && python -c 'import runpod_endpoint_worker.handler as handler; assert hasattr(handler, \"create_handler\")'"
+                    " && python -c 'from runpod_endpoint_worker.handler import create_handler; from runpod_endpoint_worker.service import GenerationService; from runpod_endpoint_worker.config import EndpointConfig; payload = create_handler(GenerationService.from_config(EndpointConfig()))({\"input\":{\"execution_type\":\"t2i\",\"prompt\":\"x\"}}); assert payload[\"generation\"][\"implemented\"] is False'"
                 ),
             ],
             check=True,

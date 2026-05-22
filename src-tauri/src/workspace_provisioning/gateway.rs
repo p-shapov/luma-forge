@@ -150,9 +150,9 @@ pub enum ProvisionerWorkerPhase {
     Idle,
     Starting,
     ResolvingWorkflow,
-    ValidatingRuntime,
-    InstallingModels,
-    WritingManifest,
+    PreparingWorkspace,
+    DownloadingAssets,
+    ValidatingAssets,
     Completed,
     Cancelled,
     Failed,
@@ -297,14 +297,12 @@ fn phase_from_response(
         Some("idle") => Ok(ProvisionerWorkerPhase::Idle),
         Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
         Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
-        Some("materializing_runtime" | "installing_runtime") => {
-            Ok(ProvisionerWorkerPhase::ValidatingRuntime)
-        }
+        Some("preparing_workspace") => Ok(ProvisionerWorkerPhase::PreparingWorkspace),
         Some("installing_models" | "downloading_assets") => {
-            Ok(ProvisionerWorkerPhase::InstallingModels)
+            Ok(ProvisionerWorkerPhase::DownloadingAssets)
         }
-        Some("writing_manifest" | "validating_environment" | "verifying_assets") => {
-            Ok(ProvisionerWorkerPhase::WritingManifest)
+        Some("validating_environment" | "verifying_assets") => {
+            Ok(ProvisionerWorkerPhase::ValidatingAssets)
         }
         Some("completed") => Ok(ProvisionerWorkerPhase::Completed),
         Some("cancelled") => Ok(ProvisionerWorkerPhase::Cancelled),
@@ -438,29 +436,29 @@ mod tests {
 
     #[test]
     fn status_from_response_normalizes_worker_phase_aliases() {
-        let runtime = status_from_response(response(
+        let workspace = status_from_response(response(
             Some("running"),
-            Some("installing_runtime"),
+            Some("preparing_workspace"),
             Some(20),
         ))
-        .expect("runtime phase alias should be valid");
-        assert_eq!(runtime.phase, ProvisionerWorkerPhase::ValidatingRuntime);
+        .expect("workspace phase should be valid");
+        assert_eq!(workspace.phase, ProvisionerWorkerPhase::PreparingWorkspace);
 
         let assets = status_from_response(response(
             Some("running"),
             Some("downloading_assets"),
             Some(60),
         ))
-        .expect("asset phase alias should be valid");
-        assert_eq!(assets.phase, ProvisionerWorkerPhase::InstallingModels);
+        .expect("asset phase should be valid");
+        assert_eq!(assets.phase, ProvisionerWorkerPhase::DownloadingAssets);
 
-        let manifest = status_from_response(response(
+        let validation = status_from_response(response(
             Some("running"),
             Some("verifying_assets"),
             Some(90),
         ))
-        .expect("manifest phase alias should be valid");
-        assert_eq!(manifest.phase, ProvisionerWorkerPhase::WritingManifest);
+        .expect("validation phase should be valid");
+        assert_eq!(validation.phase, ProvisionerWorkerPhase::ValidatingAssets);
     }
 
     #[test]

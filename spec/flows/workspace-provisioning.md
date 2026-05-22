@@ -124,7 +124,7 @@ Sync loop ends when status is `completed`, `failed`, `cancelled`, or `idle`.
 
 - Workspace lifecycle is `Ready`.
 - Required Provider Resources exist and their Workspace snapshots are ready.
-- The prepared runtime volume includes a validated volume-local Python environment and runtime manifest.
+- The prepared workspace volume contains the required model asset files and workspace directories needed for provisioning.
 - No active Provisioning Pod remains; retained Provisioning Pod metadata is terminal.
 - Workspace Provisioning Progress has status `completed` and no active phase.
 

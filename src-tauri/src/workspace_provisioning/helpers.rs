@@ -340,9 +340,9 @@ fn workspace_phase_from_worker_status(
         | ProvisionerWorkerPhase::ResolvingWorkflow => {
             WorkspaceProvisioningPhase::StartingProvisioningPod
         }
-        ProvisionerWorkerPhase::ValidatingRuntime
-        | ProvisionerWorkerPhase::InstallingModels
-        | ProvisionerWorkerPhase::WritingManifest => {
+        ProvisionerWorkerPhase::PreparingWorkspace
+        | ProvisionerWorkerPhase::DownloadingAssets
+        | ProvisionerWorkerPhase::ValidatingAssets => {
             WorkspaceProvisioningPhase::PreparingEnvironment
         }
         ProvisionerWorkerPhase::Completed => WorkspaceProvisioningPhase::CreatingEndpoint,
@@ -602,7 +602,7 @@ mod tests {
     fn progress_from_worker_status_maps_worker_facts_to_workspace_progress() {
         let running = progress_from_worker_status(&worker_status(
             ProvisionerWorkerJobStatus::Running,
-            ProvisionerWorkerPhase::InstallingModels,
+            ProvisionerWorkerPhase::DownloadingAssets,
             Some(55),
         ));
         assert_eq!(running.status, WorkspaceProvisioningStatus::Running);
@@ -627,7 +627,7 @@ mod tests {
 
         let missing_preparation_percent = progress_from_worker_status(&worker_status(
             ProvisionerWorkerJobStatus::Running,
-            ProvisionerWorkerPhase::InstallingModels,
+            ProvisionerWorkerPhase::DownloadingAssets,
             None,
         ));
         assert_eq!(
@@ -639,7 +639,7 @@ mod tests {
         for (worker_percent, expected_percent) in [(0, 40), (50, 65), (100, 90)] {
             let progress = progress_from_worker_status(&worker_status(
                 ProvisionerWorkerJobStatus::Running,
-                ProvisionerWorkerPhase::InstallingModels,
+                ProvisionerWorkerPhase::DownloadingAssets,
                 Some(worker_percent),
             ));
             assert_eq!(progress.percent, Some(expected_percent));

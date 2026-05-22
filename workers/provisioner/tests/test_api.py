@@ -171,7 +171,7 @@ class ApiTests(unittest.TestCase):
         self.assertIn(raw_output, stdout.getvalue())
         self.assertIn(raw_output, stderr.getvalue())
         self.assertEqual(payload["status"], "running")
-        self.assertEqual(payload["phase"], "materializing_runtime")
+        self.assertEqual(payload["phase"], "preparing_workspace")
         self.assertEqual(payload["progress_percent"], 25)
         self.assertNotIn(raw_output, str(payload))
 
@@ -411,9 +411,9 @@ class ConsoleOutputProvisioner:
 
     def prepare(self, request, progress, cancel_event):
         progress(
-            "materializing_runtime",
+            "preparing_workspace",
             25,
-            "Validating image-baked ComfyUI runtime",
+            "Preparing workspace directories",
         )
         print(self.raw_output, flush=True)
         print(self.raw_output, file=sys.stderr, flush=True)

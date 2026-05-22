@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,8 +49,6 @@ class PreparerTests(unittest.TestCase):
             )
 
             workspace = Path(directory)
-            manifest_path = workspace / ".luma-forge/runtime-manifest.json"
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
             self.assertIn("preparing_workspace", phases)
             self.assertIn("downloading_assets", phases)
@@ -59,22 +56,11 @@ class PreparerTests(unittest.TestCase):
             self.assertTrue((workspace / "models/checkpoints/model.safetensors").is_file())
             self.assertTrue((workspace / "output").is_dir())
             self.assertTrue((workspace / "workflows").is_dir())
-            self.assertTrue(manifest_path.is_file())
-            self.assertEqual(manifest["manifest_kind"], "luma_forge_prepared_workspace")
-            self.assertIn(
-                str((workspace / "models/checkpoints/model.safetensors").resolve(strict=False)),
-                manifest["model_asset_paths"],
-            )
-            self.assertNotIn("python_overlay_path", manifest)
-            self.assertNotIn("custom_node_revisions", manifest)
-            self.assertNotIn("overlay_dependency_record_paths", manifest)
-            self.assertNotIn("python_path", manifest)
-            self.assertNotIn("comfyui_root", manifest)
-            self.assertNotIn("image_runtime_root", manifest)
+            self.assertFalse((workspace / ".luma-forge").exists())
+            self.assertFalse((workspace / ".luma-forge/runtime-manifest.json").exists())
             self.assertFalse((workspace / ".venv/bin/python").exists())
             self.assertFalse((workspace / "ComfyUI").exists())
             self.assertFalse((workspace / "custom_nodes").exists())
-            self.assertFalse((workspace / ".luma-forge/python-overlay").exists())
 
     def test_rejects_unsafe_preset_identifiers_without_echoing_values(self):
         unsafe_values = [
@@ -139,7 +125,7 @@ class PreparerTests(unittest.TestCase):
 
             self.assertEqual(list(Path(directory).iterdir()), [])
 
-    def test_cancel_during_download_stops_before_manifest(self):
+    def test_cancel_during_download_stops_before_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())
             cancel = Event()

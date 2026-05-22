@@ -46,24 +46,7 @@ RUN mkdir -p /opt/luma-forge/runtime/base-runtime \
     && /opt/luma-forge/runtime/.venv/bin/python -m pip freeze > /opt/luma-forge/runtime/base-runtime/pip-freeze.txt \
     && printf '{"reports":[]}\n' > /opt/luma-forge/runtime/base-runtime/install-report.json
 
-FROM worker-base AS provisioner
-
-ENV LUMA_FORGE_PROVISIONER_HOST=0.0.0.0 \
-    LUMA_FORGE_PROVISIONER_PORT=8000
-
-WORKDIR /app
-COPY workers/provisioner/pyproject.toml ./
-COPY workers/provisioner/src ./src
-
-RUN python -m pip install --no-cache-dir .
-
-EXPOSE 8000
-CMD ["python", "-m", "app"]
-
-FROM worker-base AS runpod-endpoint
-
-ENV LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST=127.0.0.1 \
-    LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT=8188
+FROM worker-base
 
 WORKDIR /app
 COPY --from=runtime-builder /opt/luma-forge/runtime /opt/luma-forge/runtime

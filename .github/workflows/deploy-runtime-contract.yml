@@ -1,18 +1,18 @@
-name: Deploy Runtime Recipe
+name: Deploy Runtime Contract
 
 on:
   push:
     tags:
-      - "runtime-recipe-v*"
+      - "runtime-contract-v*"
   workflow_dispatch:
     inputs:
-      recipe:
-        description: Runtime recipe
+      contract:
+        description: Runtime contract
         required: true
         type: choice
         options:
-          - workers/runtime-recipes/comfyui-python312-cu121.yaml
-        default: workers/runtime-recipes/comfyui-python312-cu121.yaml
+          - workers/runtime-contracts/comfyui-python312-cu121.yaml
+        default: workers/runtime-contracts/comfyui-python312-cu121.yaml
 
 permissions:
   contents: write
@@ -20,7 +20,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: deploy-runtime-recipe-${{ github.ref }}-${{ inputs.recipe || 'tag' }}
+  group: deploy-runtime-contract-${{ github.ref }}-${{ inputs.contract || 'tag' }}
   cancel-in-progress: false
 
 jobs:
@@ -40,21 +40,20 @@ jobs:
       - name: Install release tooling
         run: python -m pip install --upgrade pip pyyaml jsonschema
 
-      - name: Resolve recipe metadata
-        id: recipe
+      - name: Resolve contract metadata
+        id: contract
         env:
-          RECIPE: ${{ inputs.recipe || 'workers/runtime-recipes/comfyui-python312-cu121.yaml' }}
+          CONTRACT: ${{ inputs.contract || 'workers/runtime-contracts/comfyui-python312-cu121.yaml' }}
         run: |
-          python workers/runtime-recipes/release_tool.py resolve \
-            --recipe "$RECIPE" \
+          python workers/runtime-contracts/release_tool.py resolve \
+            --contract "$CONTRACT" \
             --catalog bundled/runtime-catalog.json \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate workers
         run: |
           python -m pip install workers/provisioner workers/runpod-endpoint pyyaml
-          python -m unittest discover -s workers/runtime-recipes/tests
-          PYTHONPATH=workers/provisioner/src python -m unittest discover -s workers/provisioner/tests
+          python -m unittest discover -s workers/runtime-contracts/tests
           PYTHONPATH=workers/runpod-endpoint/src python -m unittest discover -s workers/runpod-endpoint/tests
 
       - name: Resolve image tags
@@ -62,8 +61,8 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
-          CONTRACT_ID: ${{ steps.recipe.outputs.contract_id }}
-          CONTRACT_VERSION: ${{ steps.recipe.outputs.contract_version }}
+          CONTRACT_ID: ${{ steps.contract.outputs.contract_id }}
+          CONTRACT_VERSION: ${{ steps.contract.outputs.contract_version }}
         run: |
           base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           suffix="${CONTRACT_ID}-${CONTRACT_VERSION}"
@@ -71,11 +70,11 @@ jobs:
 
       - name: Build endpoint image
         run: |
-          docker build --file workers/Dockerfile --platform linux/amd64 --target runpod-endpoint \
-            --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
-            --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.recipe.outputs.comfyui_revision }}" \
-            --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.recipe.outputs.pytorch_index_url }}" \
-            --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.recipe.outputs.pytorch_packages_json }}' \
+          docker build --file workers/runpod-endpoint/Dockerfile --platform linux/amd64 \
+            --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.contract.outputs.runtime_python_version }}" \
+            --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.contract.outputs.comfyui_revision }}" \
+            --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.contract.outputs.pytorch_index_url }}" \
+            --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.contract.outputs.pytorch_packages_json }}' \
             --tag "${{ steps.image.outputs.endpoint_tag }}" .
 
       - name: Log in to GHCR
@@ -97,11 +96,11 @@ jobs:
 
       - name: Generate Catalog updates
         run: |
-          python workers/runtime-recipes/release_tool.py update-catalog \
-            --recipe "${{ steps.recipe.outputs.recipe }}" \
+          python workers/runtime-contracts/release_tool.py update-catalog \
+            --contract "${{ steps.contract.outputs.contract }}" \
             --catalog bundled/runtime-catalog.json \
             --workflow-catalog bundled/workflow-catalog.json \
-            --contract-version "${{ steps.recipe.outputs.contract_version }}" \
+            --contract-version "${{ steps.contract.outputs.contract_version }}" \
             --endpoint-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
       - name: Verify Catalog PR scope
@@ -130,8 +129,8 @@ jobs:
           add-paths: |
             bundled/runtime-catalog.json
             bundled/workflow-catalog.json
-          branch: runtime-catalog/${{ steps.recipe.outputs.contract_id }}-${{ steps.recipe.outputs.contract_version }}
-          title: "chore(workers): catalog runtime ${{ steps.recipe.outputs.contract_id }} ${{ steps.recipe.outputs.contract_version }}"
+          branch: runtime-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          title: "chore(workers): catalog runtime ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           commit-message: "chore(workers): catalog runtime images"
           body: |
             Adds a Runtime Catalog revision for the validated endpoint runtime image and points Workflow Presets at it.
