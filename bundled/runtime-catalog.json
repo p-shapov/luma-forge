@@ -7,6 +7,11 @@
           "version": "1.0.0",
           "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:1c954a52b11fe9947a9820dfaa33873e0bef5f23a7e5ffaadedbb3f42637d61e"
+        },
+        {
+          "version": "1.0.1",
+          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:3a860007da6705e1d2a4d36d082ba82afb97eb8804f69a3e14a0723fb5151943",
+          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c2eb38fa827857f60231babe4123a75df489c43c493408763a93c4266eddf8b6"
         }
       ]
     }
