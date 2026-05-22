@@ -5,18 +5,18 @@ LumaForge worker images are released through separate GitHub Actions workflows:
 - Provisioner Worker releases publish the generic workspace-preparation image.
 - Runtime contract releases publish RunPod Endpoint Worker images for a selected endpoint runtime contract.
 
-RunPod Endpoint Worker deployment is driven by runtime contracts under [`runtime-contracts/`](./runtime-contracts/).
+RunPod Endpoint Worker deployment is driven by [`promote-runtime-contract/`](./promote-runtime-contract/). That module owns runtime contract YAML, schema validation, endpoint image build metadata resolution, and Runtime Catalog promotion. [`promote-provisioner-contract/`](./promote-provisioner-contract/) owns Provisioner Catalog promotion.
 
 ## Release Triggers
 
 - Push a provisioner release tag matching `provisioner-worker-v*`, or run `Deploy Provisioner Worker` manually, to publish the generic provisioner image.
-- Push a runtime contract release tag matching `runtime-contract-v*`, or run `Deploy Runtime Contract` manually and select one contract, for example `workers/runtime-contracts/comfyui-python312-cu121.yaml`.
+- Push a runtime contract release tag matching `runtime-contract-v*`, or run `Deploy Runtime Contract` manually and select one contract, for example `workers/promote-runtime-contract/comfyui-python312-cu121.yaml`.
 
-Manual runtime contract releases append a new Runtime Catalog revision under the selected runtime contract id. The workflow resolves the next patch version from `bundled/runtime-catalog.json`, for example `1.0.0` to `1.0.1`, before endpoint worker validation, image builds, or publication. If the contract declares a higher SemVer version than the next patch, the workflow uses the contract version instead.
+Manual runtime contract releases publish an endpoint image, then automatically propose Runtime Catalog promotion under the selected runtime contract id. The workflow resolves the next Runtime Catalog patch version from `bundled/runtime-catalog.json`, for example `1.0.0` to `1.0.1`, before endpoint worker validation, image builds, or publication. If the contract declares a higher SemVer version than the next patch, the workflow uses the contract version instead.
 
-Manual provisioner releases append a new Provisioner Catalog revision under `luma-forge-provisioner`. The workflow resolves the next patch version from `bundled/provisioner-catalog.json`, for example `1.0.0` to `1.0.1`, before provisioner validation, image build, or publication.
+Manual provisioner releases publish a provisioner image, then automatically propose Provisioner Catalog promotion under `luma-forge-provisioner`. The workflow resolves the next Provisioner Catalog patch version from `bundled/provisioner-catalog.json`, for example `1.0.0` to `1.0.1`, before provisioner validation, image build, or publication.
 
-Do not publish another worker image for the same catalog contract while a catalog bump PR for that contract remains open. Runtime and provisioner releases choose the next patch version from the current bundled catalog, so concurrent releases for the same contract can compute the same next version.
+Do not publish another worker image for the same catalog contract while a catalog promotion PR for that contract remains open. Runtime and provisioner releases choose the next patch version from the current bundled catalog, so concurrent releases for the same contract can compute the same next version.
 
 ## Registry
 
@@ -35,13 +35,15 @@ The provisioner workflow validates only the provisioner package and builds the g
 
 The runtime contract workflow validates runtime contract tooling and the endpoint package, then builds the endpoint image with the selected contract dependencies. It does not require live ComfyUI execution.
 
-## Catalog Updates
+## Catalog Promotion
 
-After publishing a validated provisioner image, the workflow opens a reviewed PR that appends the selected provisioner contract id/version revision in `bundled/provisioner-catalog.json` with a digest-pinned provisioner image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that provisioner contract id point at the new revision. The Provisioner Catalog bump preserves required revision metadata such as `volume_mount_path`.
+Publishing an image does not make new Workspaces select it. Selection changes only after the corresponding catalog promotion PR is reviewed, merged, and bundled into the app.
 
-After publishing a validated endpoint image, the workflow opens a reviewed PR that appends the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with a digest-pinned endpoint image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that runtime contract id point at the new revision.
+After publishing a validated provisioner image, the workflow opens a reviewed Provisioner Catalog promotion PR that appends the selected provisioner contract id/version revision in `bundled/provisioner-catalog.json` with a digest-pinned provisioner image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that provisioner contract id point at the new revision. Provisioner Catalog promotion preserves required revision metadata such as `volume_mount_path`.
 
-Catalog update PRs are path-guarded. Provisioner PRs may change only `bundled/provisioner-catalog.json` and `bundled/workflow-catalog.json`; runtime PRs may change only `bundled/runtime-catalog.json` and `bundled/workflow-catalog.json`.
+After publishing a validated endpoint image, the workflow opens a reviewed Runtime Catalog promotion PR that appends the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with a digest-pinned endpoint image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that runtime contract id point at the new revision.
+
+Catalog promotion PRs are path-guarded. Provisioner PRs may change only `bundled/provisioner-catalog.json` and `bundled/workflow-catalog.json`; runtime PRs may change only `bundled/runtime-catalog.json` and `bundled/workflow-catalog.json`.
 
 ## Rollback
 

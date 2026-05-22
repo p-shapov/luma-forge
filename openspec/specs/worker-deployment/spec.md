@@ -4,7 +4,7 @@
 Define separate worker image deployment paths for generic provisioner images and runtime contract endpoint images.
 ## Requirements
 ### Requirement: Deploy Worker Images from Git
-The repository SHALL provide separate worker image deployment workflows that deploy generic provisioner images and runtime-specific endpoint images from tracked Git source.
+The repository SHALL provide separate worker image deployment workflows that deploy generic provisioner images and runtime-specific endpoint images from tracked Git source, then automatically propose catalog promotion for successfully published digest-pinned worker images.
 
 #### Scenario: Provisioner release deploys generic image
 - **WHEN** a release tag or authorized workflow dispatch selects the Provisioner Worker release path
@@ -25,25 +25,25 @@ The repository SHALL provide separate worker image deployment workflows that dep
 #### Scenario: Manual dispatch deploys one runtime contract
 - **WHEN** an authorized operator starts the runtime deployment workflow manually
 - **THEN** that workflow SHALL require a runtime contract selection
-- **AND** that workflow SHALL build, validate, publish, and catalog only the selected runtime contract endpoint image
+- **AND** that workflow SHALL build, validate, publish, and promote only the selected runtime contract endpoint image
 - **AND** that workflow SHALL publish an immutable image ref for the endpoint image
 
 #### Scenario: Manual dispatch deploys provisioner contract
 - **WHEN** an authorized operator starts the provisioner deployment workflow manually
-- **THEN** that workflow SHALL build, validate, publish, and catalog the generic Provisioner Worker image for the bundled provisioner contract
+- **THEN** that workflow SHALL build, validate, publish, and promote the generic Provisioner Worker image for the bundled provisioner contract
 - **AND** that workflow SHALL publish an immutable image ref for the Provisioner Worker image
 
-#### Scenario: Runtime catalog update is proposed
+#### Scenario: Runtime image promotion is proposed
 - **WHEN** a runtime deployment workflow publishes a validated endpoint image for a runtime contract
-- **THEN** it SHALL append a new bundled Runtime Catalog revision for the selected contract id using the next patch version from the current Runtime Catalog, unless the selected runtime contract declares a higher SemVer version
+- **THEN** it SHALL promote the published image into the bundled Runtime Catalog by appending a new revision for the selected contract id using the next patch version from the current Runtime Catalog, unless the selected runtime contract declares a higher SemVer version
 - **AND** the new revision SHALL contain the published immutable Endpoint Worker image ref
 - **AND** it SHALL update Workflow Presets using that runtime contract id to reference the new revision version
 - **AND** it SHALL open a reviewed repository change for `bundled/runtime-catalog.json` and `bundled/workflow-catalog.json`
 - **AND** it MUST NOT silently push runtime catalog changes directly to the main branch
 
-#### Scenario: Provisioner catalog update is proposed
+#### Scenario: Provisioner image promotion is proposed
 - **WHEN** a provisioner deployment workflow publishes a validated Provisioner Worker image
-- **THEN** it SHALL append a new bundled Provisioner Catalog revision for the provisioner contract id using the next patch version from the current Provisioner Catalog
+- **THEN** it SHALL promote the published image into the bundled Provisioner Catalog by appending a new revision for the provisioner contract id using the next patch version from the current Provisioner Catalog
 - **AND** the new revision SHALL contain the published immutable Provisioner Worker image ref
 - **AND** the new revision SHALL preserve the provisioner revision metadata needed by Workspace Setup, including the workspace volume mount path
 - **AND** it SHALL update Workflow Presets using that provisioner contract id to reference the new revision version
@@ -71,8 +71,8 @@ Each worker deployment workflow SHALL complete package validation and Docker ima
 - **WHEN** any required worker validation or image build validation step fails
 - **THEN** the workflow SHALL fail the deployment
 - **AND** the workflow MUST NOT publish or update any worker image tag
-- **AND** endpoint runtime workflows MUST NOT propose a Runtime Catalog update for the failed endpoint image
-- **AND** provisioner workflows MUST NOT propose a Provisioner Catalog update for the failed provisioner image
+- **AND** endpoint runtime workflows MUST NOT propose Runtime Catalog promotion for the failed endpoint image
+- **AND** provisioner workflows MUST NOT propose Provisioner Catalog promotion for the failed provisioner image
 
 ### Requirement: Document worker deployment operation
 The repository SHALL document how to operate the provisioner image release workflow and the runtime contract endpoint image release workflow.
@@ -81,13 +81,13 @@ The repository SHALL document how to operate the provisioner image release workf
 - **WHEN** an operator needs to deploy worker images
 - **THEN** documentation SHALL describe the separate provisioner and endpoint runtime workflow triggers
 - **AND** documentation SHALL describe runtime contract selection for endpoint images
-- **AND** documentation SHALL describe automatic Runtime Catalog patch version selection for endpoint images
-- **AND** documentation SHALL describe automatic Provisioner Catalog patch version selection for provisioner images
+- **AND** documentation SHALL describe automatic Runtime Catalog patch version selection for endpoint image promotion
+- **AND** documentation SHALL describe automatic Provisioner Catalog patch version selection for provisioner image promotion
 - **AND** documentation SHALL describe the GitHub Container Registry image paths for the provisioner and endpoint images
 - **AND** documentation SHALL describe produced immutable image tags and digest-pinned refs
-- **AND** documentation SHALL describe reviewed Runtime Catalog update PRs for endpoint runtime releases
-- **AND** documentation SHALL describe reviewed Provisioner Catalog update PRs for provisioner releases
-- **AND** documentation SHALL describe that operators must not publish another worker image for the same catalog contract while a catalog bump PR for that contract remains open
+- **AND** documentation SHALL describe reviewed Runtime Catalog promotion PRs for endpoint runtime releases
+- **AND** documentation SHALL describe reviewed Provisioner Catalog promotion PRs for provisioner releases
+- **AND** documentation SHALL describe that operators must not publish another worker image for the same catalog contract while a catalog promotion PR for that contract remains open
 
 ### Requirement: Build generic Provisioner Worker image
 The worker Docker build SHALL construct a generic Provisioner Worker image that contains only the worker application runtime, worker Python dependencies, and Hugging Face download tooling needed to prepare a mounted workspace.

@@ -23,7 +23,7 @@ Published provisioner contract id/version pairs SHALL retain stable meaning for 
 
 #### Scenario: Provisioner image is published
 - **WHEN** a new Provisioner Worker image is published for the provisioner contract
-- **THEN** the Provisioner Catalog SHALL use a new provisioner contract version under the relevant contract id for future Workspaces
+- **THEN** the release tooling SHALL promote the published image by proposing a new Provisioner Catalog revision under the relevant contract id for future Workspaces
 - **AND** the new revision SHALL point at the published immutable Provisioner Worker image ref
 - **AND** the new revision SHALL retain the provisioner metadata needed to resolve Workspaces, including the workspace volume mount path
 - **AND** it MUST NOT mutate any existing provisioner contract id/version pair in a way that changes the meaning of persisted Workspace snapshots

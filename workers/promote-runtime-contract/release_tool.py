@@ -10,9 +10,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-DEFAULT_PROVISIONER_CONTRACT_ID = "luma-forge-provisioner"
-
-
 class ReleaseToolError(Exception):
     pass
 
@@ -43,15 +40,6 @@ def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, 
     return None
 
 
-def find_provisioner_revision(contract: dict[str, Any], contract_version: str) -> dict[str, Any] | None:
-    for revision in _list_value(contract, "revisions"):
-        if not isinstance(revision, dict):
-            raise ReleaseToolError("provisioner catalog contains a malformed revision entry")
-        if revision.get("version") == contract_version:
-            return revision
-    return None
-
-
 def next_contract_version(*, contract: dict[str, Any], catalog: dict[str, Any]) -> str:
     declared_version = _parse_semver(contract["contract"]["version"])
     catalog_contract = find_contract(catalog, contract["contract"]["id"])
@@ -65,19 +53,6 @@ def next_contract_version(*, contract: dict[str, Any], catalog: dict[str, Any]) 
     latest = max(_parse_semver(_string_value(revision, "version")) for revision in revisions)
     next_patch = (latest[0], latest[1], latest[2] + 1)
     return _format_semver(max(declared_version, next_patch))
-
-
-def next_provisioner_contract_version(*, catalog: dict[str, Any], contract_id: str) -> str:
-    catalog_contract = find_contract(catalog, contract_id)
-    if catalog_contract is None:
-        raise ReleaseToolError(f"provisioner catalog does not contain contract: {contract_id}")
-
-    revisions = _list_value(catalog_contract, "revisions")
-    if not revisions:
-        raise ReleaseToolError(f"provisioner catalog contract has no revisions: {contract_id}")
-
-    latest = max(_parse_semver(_provisioner_revision_version(revision)) for revision in revisions)
-    return _format_semver((latest[0], latest[1], latest[2] + 1))
 
 
 def validate_catalog_compatibility(*, contract: dict[str, Any], catalog: dict[str, Any]) -> None:
@@ -94,15 +69,15 @@ def validate_catalog_compatibility(*, contract: dict[str, Any], catalog: dict[st
     _validate_image_ref(_string_value(revision, "endpoint_image_ref"))
 
 
-def update_catalog(
+def promote_runtime_image(
     *,
     contract: dict[str, Any],
     catalog: dict[str, Any],
-    endpoint_ref: str,
+    image_ref: str,
     contract_version: str | None = None,
 ) -> dict[str, Any]:
     validate_catalog_compatibility(contract=contract, catalog=catalog)
-    _validate_image_ref(endpoint_ref)
+    _validate_image_ref(image_ref)
     contracts = _list_value(catalog, "contracts")
     contract_id = contract["contract"]["id"]
     resolved_contract_version = contract_version or next_contract_version(contract=contract, catalog=catalog)
@@ -115,7 +90,7 @@ def update_catalog(
                 "revisions": [
                     {
                         "version": resolved_contract_version,
-                        "endpoint_image_ref": endpoint_ref,
+                        "endpoint_image_ref": image_ref,
                     }
                 ],
             }
@@ -128,45 +103,9 @@ def update_catalog(
         revisions.append(
             {
                 "version": resolved_contract_version,
-                "endpoint_image_ref": endpoint_ref,
+                "endpoint_image_ref": image_ref,
             }
         )
-    return catalog
-
-
-def update_provisioner_catalog(
-    *,
-    catalog: dict[str, Any],
-    contract_id: str,
-    provisioner_ref: str,
-    contract_version: str | None = None,
-) -> dict[str, Any]:
-    _validate_image_ref(provisioner_ref)
-    catalog_contract = find_contract(catalog, contract_id)
-    if catalog_contract is None:
-        raise ReleaseToolError(f"provisioner catalog does not contain contract: {contract_id}")
-
-    revisions = _list_value(catalog_contract, "revisions")
-    if not revisions:
-        raise ReleaseToolError(f"provisioner catalog contract has no revisions: {contract_id}")
-
-    resolved_contract_version = contract_version or next_provisioner_contract_version(
-        catalog=catalog,
-        contract_id=contract_id,
-    )
-    _parse_semver(resolved_contract_version)
-    if find_provisioner_revision(catalog_contract, resolved_contract_version) is not None:
-        raise ReleaseToolError(
-            f"provisioner catalog revision already exists: {contract_id} {resolved_contract_version}"
-        )
-
-    latest_revision = max(revisions, key=lambda revision: _parse_semver(_provisioner_revision_version(revision)))
-    _string_value(latest_revision, "provisioner_worker_image_ref")
-    _string_value(latest_revision, "volume_mount_path")
-    new_revision = dict(latest_revision)
-    new_revision["version"] = resolved_contract_version
-    new_revision["provisioner_worker_image_ref"] = provisioner_ref
-    revisions.append(new_revision)
     return catalog
 
 
@@ -190,26 +129,6 @@ def update_workflow_catalog(
     return catalog
 
 
-def update_provisioner_workflow_catalog(
-    *,
-    catalog: dict[str, Any],
-    contract_id: str,
-    contract_version: str,
-) -> dict[str, Any]:
-    workflow_presets = _list_value(catalog, "workflow_presets")
-    updated = False
-    for preset in workflow_presets:
-        if not isinstance(preset, dict):
-            raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        provisioner_contract = _dict_value(preset, "provisioner_contract")
-        if provisioner_contract.get("id") == contract_id:
-            provisioner_contract["version"] = contract_version
-            updated = True
-    if not updated:
-        raise ReleaseToolError(f"workflow catalog does not reference provisioner contract: {contract_id}")
-    return catalog
-
-
 def contract_outputs(
     contract: dict[str, Any],
     contract_path: Path,
@@ -230,13 +149,6 @@ def contract_outputs(
         "comfyui_revision": runtime["comfyui_revision"],
         "pytorch_index_url": runtime["pytorch"]["index_url"],
         "pytorch_packages_json": packages_json,
-    }
-
-
-def provisioner_outputs(*, catalog: dict[str, Any], contract_id: str) -> dict[str, str]:
-    return {
-        "contract_id": contract_id,
-        "contract_version": next_provisioner_contract_version(catalog=catalog, contract_id=contract_id),
     }
 
 
@@ -446,12 +358,6 @@ def _string_list_value(value: dict[str, Any], key: str) -> list[str]:
     return item
 
 
-def _provisioner_revision_version(revision: Any) -> str:
-    if not isinstance(revision, dict):
-        raise ReleaseToolError("provisioner catalog contains a malformed revision entry")
-    return _string_value(revision, "version")
-
-
 def _validate_image_ref(value: str) -> None:
     if re.fullmatch(r"[^:@\s]+(?:/[^:@\s]+)*@sha256:[0-9a-f]{64}", value) is None:
         raise ReleaseToolError(f"worker image ref must be digest-pinned: {value}")
@@ -491,15 +397,15 @@ def _cmd_validate_catalog(args: argparse.Namespace) -> None:
     validate_catalog_compatibility(contract=load_contract(Path(args.contract)), catalog=_load_json(Path(args.catalog)))
 
 
-def _cmd_update_catalog(args: argparse.Namespace) -> None:
+def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
     contract = load_contract(Path(args.contract))
     catalog_path = Path(args.catalog)
     runtime_catalog = _load_json(catalog_path)
     contract_version = args.contract_version or next_contract_version(contract=contract, catalog=runtime_catalog)
-    updated = update_catalog(
+    updated = promote_runtime_image(
         contract=contract,
         catalog=runtime_catalog,
-        endpoint_ref=args.endpoint_ref,
+        image_ref=args.image_ref,
         contract_version=contract_version,
     )
     updated_workflow_catalog = None
@@ -515,46 +421,8 @@ def _cmd_update_catalog(args: argparse.Namespace) -> None:
         _write_json(Path(args.workflow_catalog), updated_workflow_catalog)
 
 
-def _cmd_resolve_provisioner(args: argparse.Namespace) -> None:
-    outputs = provisioner_outputs(
-        catalog=_load_json(Path(args.catalog)),
-        contract_id=args.contract_id,
-    )
-    if args.github_output:
-        write_github_outputs(outputs, Path(args.github_output))
-    else:
-        for key, value in outputs.items():
-            print(f"{key}={value}")
-
-
-def _cmd_update_provisioner_catalog(args: argparse.Namespace) -> None:
-    catalog_path = Path(args.catalog)
-    provisioner_catalog = _load_json(catalog_path)
-    contract_version = args.contract_version or next_provisioner_contract_version(
-        catalog=provisioner_catalog,
-        contract_id=args.contract_id,
-    )
-    updated = update_provisioner_catalog(
-        catalog=provisioner_catalog,
-        contract_id=args.contract_id,
-        provisioner_ref=args.provisioner_ref,
-        contract_version=contract_version,
-    )
-    updated_workflow_catalog = None
-    if args.workflow_catalog:
-        workflow_catalog_path = Path(args.workflow_catalog)
-        updated_workflow_catalog = update_provisioner_workflow_catalog(
-            catalog=_load_json(workflow_catalog_path),
-            contract_id=args.contract_id,
-            contract_version=contract_version,
-        )
-    _write_json(catalog_path, updated)
-    if args.workflow_catalog and updated_workflow_catalog is not None:
-        _write_json(Path(args.workflow_catalog), updated_workflow_catalog)
-
-
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Runtime contract release helper")
+    parser = argparse.ArgumentParser(description="Runtime contract release and promotion helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     resolve = subparsers.add_parser("resolve", help="resolve contract outputs")
@@ -568,30 +436,16 @@ def build_parser() -> argparse.ArgumentParser:
     validate_catalog.add_argument("--catalog", required=True)
     validate_catalog.set_defaults(func=_cmd_validate_catalog)
 
-    update = subparsers.add_parser("update-catalog", help="upsert a runtime contract endpoint image")
-    update.add_argument("--contract", required=True)
-    update.add_argument("--catalog", required=True)
-    update.add_argument("--endpoint-ref", required=True)
-    update.add_argument("--contract-version")
-    update.add_argument("--workflow-catalog")
-    update.set_defaults(func=_cmd_update_catalog)
-
-    resolve_provisioner = subparsers.add_parser("resolve-provisioner", help="resolve provisioner catalog outputs")
-    resolve_provisioner.add_argument("--catalog", required=True)
-    resolve_provisioner.add_argument("--contract-id", default=DEFAULT_PROVISIONER_CONTRACT_ID)
-    resolve_provisioner.add_argument("--github-output")
-    resolve_provisioner.set_defaults(func=_cmd_resolve_provisioner)
-
-    update_provisioner = subparsers.add_parser(
-        "update-provisioner-catalog",
-        help="append a provisioner contract worker image",
+    promote_runtime = subparsers.add_parser(
+        "promote-runtime-image",
+        help="promote a digest-pinned endpoint image into the Runtime Catalog",
     )
-    update_provisioner.add_argument("--catalog", required=True)
-    update_provisioner.add_argument("--provisioner-ref", required=True)
-    update_provisioner.add_argument("--contract-id", default=DEFAULT_PROVISIONER_CONTRACT_ID)
-    update_provisioner.add_argument("--contract-version")
-    update_provisioner.add_argument("--workflow-catalog")
-    update_provisioner.set_defaults(func=_cmd_update_provisioner_catalog)
+    promote_runtime.add_argument("--contract", required=True)
+    promote_runtime.add_argument("--catalog", required=True)
+    promote_runtime.add_argument("--image-ref", required=True)
+    promote_runtime.add_argument("--contract-version")
+    promote_runtime.add_argument("--workflow-catalog")
+    promote_runtime.set_defaults(func=_cmd_promote_runtime_image)
 
     return parser
 

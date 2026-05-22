@@ -68,8 +68,11 @@ spec/
 
 workers/
   provisioner/           Container-side workspace preparation worker, Dockerfile, and tests
+  promote-provisioner-contract/
+                         Provisioner Catalog promotion tooling and tests
+  promote-runtime-contract/
+                         Runtime contract schema, metadata, and Runtime Catalog promotion
   runpod-endpoint/       RunPod endpoint runtime worker, Dockerfile, and tests
-  runtime-contracts/     Runtime contract schema, catalog inputs, and release tooling
 ```
 
 ## Key Flows

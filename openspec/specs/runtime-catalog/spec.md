@@ -34,7 +34,7 @@ Published runtime contract id/version pairs SHALL retain stable meaning for Work
 
 #### Scenario: Endpoint image is published
 - **WHEN** a new Endpoint Worker image is published for a runtime contract
-- **THEN** the Runtime Catalog SHALL use a new runtime contract version under the relevant contract id for future Workspaces
+- **THEN** the release tooling SHALL promote the published image by proposing a new Runtime Catalog revision under the relevant contract id for future Workspaces
 - **AND** the new revision SHALL point at the published immutable Endpoint Worker image ref
 - **AND** it MUST NOT mutate any existing runtime contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
 
