@@ -8,7 +8,7 @@
       "required_base_volume_size_bytes": 85899345920,
       "runtime_contract": {
         "id": "comfyui-python312-cu121",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "provisioner_contract": {
         "id": "luma-forge-provisioner",
