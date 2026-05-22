@@ -15,7 +15,7 @@ The repository SHALL provide a RunPod-specific Endpoint Worker package and conta
 
 #### Scenario: Endpoint worker does not provision environment
 - **WHEN** the RunPod Endpoint Worker handles startup or generation
-- **THEN** it MUST NOT clone ComfyUI repositories, download model assets, install dependencies, install Custom Nodes, create virtual environments, extract runtime archives, or run pip
+- **THEN** it MUST NOT clone ComfyUI repositories, download model assets, install dependencies, install Custom Nodes, create virtual environments, modify the image-baked runtime, or run pip
 - **AND** it SHALL rely on the image-baked base runtime plus the prepared workspace manifest, workspace Custom Nodes, workspace models, workspace output paths, and workspace Python overlay
 
 ### Requirement: Accept minimal execution-type generation input
@@ -69,7 +69,7 @@ The RunPod Endpoint Worker SHALL execute accepted generation requests by using t
 - **WHEN** a valid generation request is accepted
 - **AND** the prepared runtime manifest is missing, invalid, or does not declare required workspace-specific prepared paths
 - **THEN** the RunPod Endpoint Worker SHALL fail the request with a stable UI-safe prepared runtime error
-- **AND** it MUST NOT attempt to repair the prepared environment by creating a virtual environment, running pip, downloading assets, cloning repositories, or extracting runtime archives
+- **AND** it MUST NOT attempt to repair the prepared environment by creating a virtual environment, running pip, downloading assets, cloning repositories, or modifying the image-baked runtime
 
 #### Scenario: Prepared environment is missing
 - **WHEN** the fixed image-baked ComfyUI runtime, fixed image-baked Python interpreter, required workflow definition, required model file, required Custom Node file, or declared overlay path is missing from the runtime environment

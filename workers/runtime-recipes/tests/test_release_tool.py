@@ -30,13 +30,15 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual("comfyui-python312-cu121", outputs["contract_id"])
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
-        self.assertEqual("linux-x86_64-cuda", outputs["runtime_platform"])
         self.assertEqual("https://download.pytorch.org/whl/cu121", outputs["pytorch_index_url"])
         self.assertEqual(
             ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"],
             json.loads(outputs["pytorch_packages_json"]),
         )
-        self.assertEqual(["requirements.txt"], json.loads(outputs["base_requirements_json"]))
+        self.assertEqual("aa9d2fc713664e9ffe37763f4c9240c0c3eda667", outputs["comfyui_revision"])
+        self.assertNotIn("runtime_platform", outputs)
+        self.assertNotIn("comfyui_repository", outputs)
+        self.assertNotIn("base_requirements_json", outputs)
 
     def test_rejects_recipe_fields_not_allowed_by_schema(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -50,40 +52,38 @@ class ReleaseToolTests(unittest.TestCase):
             with self.assertRaisesRegex(release_tool.ReleaseToolError, "metadata"):
                 release_tool.load_recipe(recipe_path)
 
-    def test_rejects_unsafe_base_requirement_paths(self):
+    def test_rejects_legacy_runtime_recipe_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             recipe_path = Path(directory) / "recipe.yaml"
             shutil.copyfile(SCHEMA_PATH, Path(directory) / "schema.json")
             recipe_path.write_text(
-                RECIPE_PATH.read_text(encoding="utf-8").replace(
-                    "    - requirements.txt",
-                    "    - ../requirements.txt",
-                ),
+                RECIPE_PATH.read_text(encoding="utf-8")
+                + "\nruntime:\n  platform: linux-x86_64-cuda\n",
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "base requirement path is unsafe"):
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "runtime"):
                 release_tool.load_recipe(recipe_path)
 
-    def test_rejects_current_directory_base_requirement_path(self):
+    def test_recipe_schema_rejects_removed_runtime_fields(self):
         with tempfile.TemporaryDirectory() as directory:
             recipe_path = Path(directory) / "recipe.yaml"
             shutil.copyfile(SCHEMA_PATH, Path(directory) / "schema.json")
             recipe_path.write_text(
-                RECIPE_PATH.read_text(encoding="utf-8").replace(
-                    "    - requirements.txt",
-                    "    - .",
-                ),
+                RECIPE_PATH.read_text(encoding="utf-8")
+                + "\nlegacy_runtime:\n  base_requirements:\n    - requirements.txt\n",
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "base requirement path is unsafe"):
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "legacy_runtime"):
                 release_tool.load_recipe(recipe_path)
 
     def test_dockerfile_keeps_recipe_build_inputs_without_runtime_identity_metadata(self):
         dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("LUMA_FORGE_BASE_REQUIREMENTS_JSON", dockerfile)
+        self.assertNotIn("LUMA_FORGE_RUNTIME_PLATFORM", dockerfile)
+        self.assertNotIn("LUMA_FORGE_BASE_REQUIREMENTS_JSON", dockerfile)
+        self.assertNotIn("LUMA_FORGE_COMFYUI_REPOSITORY", dockerfile)
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
         self.assertNotIn("LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION", dockerfile)
         self.assertNotIn("LUMA_FORGE_PROVISIONER_IMAGE_REF", dockerfile)
@@ -104,16 +104,22 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertIn("export PATH=\"${VIRTUAL_ENV}/bin:${PATH}\"", dockerfile)
         self.assertIn("comfy --skip-prompt tracking disable", dockerfile)
         self.assertIn("comfy --skip-prompt --workspace /opt/luma-forge/runtime/ComfyUI install", dockerfile)
-        self.assertIn("--url \"$LUMA_FORGE_COMFYUI_REPOSITORY\"", dockerfile)
+        self.assertIn("--url https://github.com/comfyanonymous/ComfyUI.git", dockerfile)
         self.assertIn("--version nightly", dockerfile)
         self.assertIn("--commit \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
         self.assertIn("--nvidia", dockerfile)
         self.assertIn("--skip-manager", dockerfile)
         self.assertIn("--skip-torch-or-directml", dockerfile)
         self.assertNotIn("--skip-requirement", dockerfile)
-        self.assertNotIn("git clone \"$LUMA_FORGE_COMFYUI_REPOSITORY\"", dockerfile)
+        self.assertNotIn("git clone", dockerfile)
         self.assertNotIn("git checkout \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
-        self.assertNotIn("pip\", \"install\", \"--no-cache-dir\", \"-r\"", dockerfile)
+
+    def test_dockerfile_does_not_install_recipe_owned_base_requirements(self):
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
+        self.assertNotIn("unsafe base requirement path", dockerfile)
+        self.assertNotIn("base requirement", dockerfile.lower())
 
     def test_dockerfile_keeps_runtime_layout_validation_checks(self):
         dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
@@ -320,6 +326,9 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertIn("pytorch_packages_json=", output)
             self.assertIn("contract_version=1.0.0", output)
             self.assertNotIn("implementation_revision=", output)
+            self.assertNotIn("runtime_platform=", output)
+            self.assertNotIn("comfyui_repository=", output)
+            self.assertNotIn("base_requirements_json=", output)
 
     def test_cli_resolve_uses_next_catalog_revision_when_catalog_is_provided(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)

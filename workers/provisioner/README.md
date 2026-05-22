@@ -24,7 +24,7 @@ During preparation, the Provisioner Worker validates the image-baked ComfyUI bas
     python-overlay/
 ```
 
-The worker must not create the base virtual environment, clone ComfyUI, extract a base runtime archive, or install ComfyUI base requirements during provisioning. The endpoint worker later starts ComfyUI through the image-baked Python interpreter and adds workspace Custom Node, model, output, and overlay paths.
+The worker must not create the base virtual environment, clone ComfyUI, run `comfy install`, or install ComfyUI base requirements during provisioning. The endpoint worker later starts ComfyUI through the image-baked Python interpreter and adds workspace Custom Node, model, output, and overlay paths.
 
 ## Test
 

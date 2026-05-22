@@ -47,7 +47,7 @@ Workspace Setup SHALL persist the resolved runtime image snapshot selected for a
 Published runtime contract id/version pairs SHALL retain stable meaning for Workflow Presets and persisted Workspace snapshots.
 
 #### Scenario: Runtime compatibility changes
-- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, base runtime requirement set, workspace overlay behavior, runtime manifest shape, or image runtime layout changes the base runtime compatibility surface
+- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, workspace overlay behavior, runtime manifest shape, or image runtime layout changes the base runtime compatibility surface
 - **THEN** the Runtime Catalog SHALL use a new runtime contract version under the relevant contract id for future Workspaces
 - **AND** it MUST NOT mutate an existing runtime contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
 
@@ -93,7 +93,7 @@ Runtime recipe image builds SHALL use `comfy-cli` to install the image-baked Com
 #### Scenario: Runtime image installs pinned ComfyUI through comfy-cli
 
 - **WHEN** the runtime recipe image build installs ComfyUI for a runtime contract revision
-- **THEN** the build SHALL invoke `comfy-cli` with the recipe ComfyUI repository and immutable 40-character ComfyUI commit
+- **THEN** the build SHALL invoke `comfy-cli` with the canonical upstream ComfyUI repository and an immutable 40-character ComfyUI commit
 - **AND** the resulting image SHALL contain ComfyUI at the fixed image runtime path expected by the Provisioner Worker and Endpoint Worker
 - **AND** the resulting image SHALL keep the existing fixed image Python interpreter path expected by the workers
 
@@ -115,6 +115,9 @@ Runtime recipe image builds SHALL use `comfy-cli` to install the image-baked Com
 - **WHEN** the runtime recipe image build installs ComfyUI through `comfy-cli`
 - **THEN** the build SHALL allow `comfy-cli` to install ComfyUI base requirements from the pinned ComfyUI checkout
 - **AND** the build MUST NOT pass an option that skips ComfyUI base requirements installation
+- **AND** the runtime recipe MUST NOT declare or forward a separate list of ComfyUI base requirement files
+- **AND** the runtime recipe MUST NOT declare or forward a ComfyUI repository URL
+- **AND** the runtime recipe SHALL declare the immutable ComfyUI commit as a flat `comfyui_revision` field
 - **AND** this requirements installation MUST NOT replace LumaForge-owned PyTorch/CUDA package installation
 
 #### Scenario: Workspace provisioning does not install ComfyUI

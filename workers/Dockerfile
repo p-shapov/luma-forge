@@ -10,12 +10,9 @@ RUN apt-get update \
 FROM worker-base AS runtime-builder
 
 ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12
-ARG LUMA_FORGE_RUNTIME_PLATFORM=linux-x86_64-cuda
-ARG LUMA_FORGE_COMFYUI_REPOSITORY=https://github.com/comfyanonymous/ComfyUI.git
 ARG LUMA_FORGE_COMFYUI_REVISION=aa9d2fc713664e9ffe37763f4c9240c0c3eda667
 ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.5.1","torchvision==0.20.1","torchaudio==2.5.1"]
-ARG LUMA_FORGE_BASE_REQUIREMENTS_JSON=["requirements.txt"]
 
 WORKDIR /runtime-build
 
@@ -31,7 +28,7 @@ RUN export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv \
     && export PATH="${VIRTUAL_ENV}/bin:${PATH}" \
     && comfy --skip-prompt tracking disable \
     && comfy --skip-prompt --workspace /opt/luma-forge/runtime/ComfyUI install \
-        --url "$LUMA_FORGE_COMFYUI_REPOSITORY" \
+        --url https://github.com/comfyanonymous/ComfyUI.git \
         --version nightly \
         --commit "$LUMA_FORGE_COMFYUI_REVISION" \
         --nvidia \

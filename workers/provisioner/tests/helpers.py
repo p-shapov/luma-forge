@@ -94,7 +94,7 @@ class BlockingProvisioner:
 
     def prepare(self, request, progress, cancel_event):
         self.started.set()
-        progress("installing_comfyui", 10, "blocked")
+        progress("materializing_runtime", 10, "blocked")
         while not self.release.is_set() and not cancel_event.is_set():
             self.release.wait(0.01)
 
