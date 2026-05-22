@@ -84,11 +84,45 @@ class ReleaseToolTests(unittest.TestCase):
         dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("LUMA_FORGE_BASE_REQUIREMENTS_JSON", dockerfile)
-        self.assertIn("json.loads(os.environ[\"LUMA_FORGE_BASE_REQUIREMENTS_JSON\"])", dockerfile)
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
         self.assertNotIn("LUMA_FORGE_RUNTIME_IMPLEMENTATION_REVISION", dockerfile)
         self.assertNotIn("LUMA_FORGE_PROVISIONER_IMAGE_REF", dockerfile)
         self.assertNotIn("runtime-contract.json", dockerfile)
+
+    def test_dockerfile_installs_pinned_comfy_cli_for_runtime_builder(self):
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("comfy-cli==1.7.3", dockerfile)
+        self.assertNotIn("pip install --no-cache-dir comfy-cli\n", dockerfile)
+        self.assertNotIn("pip install --no-cache-dir comfy-cli ", dockerfile)
+        self.assertNotIn("pip install --no-cache-dir --upgrade comfy-cli", dockerfile)
+
+    def test_dockerfile_uses_comfy_cli_for_comfyui_runtime_install(self):
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv", dockerfile)
+        self.assertIn("export PATH=\"${VIRTUAL_ENV}/bin:${PATH}\"", dockerfile)
+        self.assertIn("comfy --skip-prompt tracking disable", dockerfile)
+        self.assertIn("comfy --skip-prompt --workspace /opt/luma-forge/runtime/ComfyUI install", dockerfile)
+        self.assertIn("--url \"$LUMA_FORGE_COMFYUI_REPOSITORY\"", dockerfile)
+        self.assertIn("--version nightly", dockerfile)
+        self.assertIn("--commit \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
+        self.assertIn("--nvidia", dockerfile)
+        self.assertIn("--skip-manager", dockerfile)
+        self.assertIn("--skip-torch-or-directml", dockerfile)
+        self.assertNotIn("--skip-requirement", dockerfile)
+        self.assertNotIn("git clone \"$LUMA_FORGE_COMFYUI_REPOSITORY\"", dockerfile)
+        self.assertNotIn("git checkout \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
+        self.assertNotIn("pip\", \"install\", \"--no-cache-dir\", \"-r\"", dockerfile)
+
+    def test_dockerfile_keeps_runtime_layout_validation_checks(self):
+        dockerfile = DOCKERFILE_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("test -f /opt/luma-forge/runtime/ComfyUI/main.py", dockerfile)
+        self.assertIn("test -x /opt/luma-forge/runtime/.venv/bin/python", dockerfile)
+        self.assertIn("test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager", dockerfile)
+        self.assertIn("/opt/luma-forge/runtime/base-runtime/pip-freeze.txt", dockerfile)
+        self.assertIn("/opt/luma-forge/runtime/base-runtime/install-report.json", dockerfile)
 
     def test_workflow_has_no_manual_implementation_revision_input(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

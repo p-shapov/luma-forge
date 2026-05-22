@@ -78,3 +78,54 @@ The runtime recipe release workflow SHALL ensure automated Runtime Catalog updat
 - **AND** the repository has changed tracked or untracked paths other than `bundled/runtime-catalog.json`
 - **THEN** the workflow SHALL fail before creating or updating the PR
 - **AND** the workflow SHALL report the unexpected changed paths for diagnosis
+
+### Requirement: Install image-baked ComfyUI with comfy-cli
+
+Runtime recipe image builds SHALL use `comfy-cli` to install the image-baked ComfyUI runtime while preserving runtime contract immutability and LumaForge-owned dependency boundaries.
+
+#### Scenario: Runtime image pins comfy-cli package version
+
+- **WHEN** the runtime recipe image build installs `comfy-cli`
+- **THEN** the build SHALL install a specific reviewed `comfy-cli` package version from the Dockerfile
+- **AND** the build MUST NOT depend on an unpinned latest `comfy-cli` release
+- **AND** the runtime recipe schema MUST NOT be extended solely to expose the `comfy-cli` package version
+
+#### Scenario: Runtime image installs pinned ComfyUI through comfy-cli
+
+- **WHEN** the runtime recipe image build installs ComfyUI for a runtime contract revision
+- **THEN** the build SHALL invoke `comfy-cli` with the recipe ComfyUI repository and immutable 40-character ComfyUI commit
+- **AND** the resulting image SHALL contain ComfyUI at the fixed image runtime path expected by the Provisioner Worker and Endpoint Worker
+- **AND** the resulting image SHALL keep the existing fixed image Python interpreter path expected by the workers
+
+#### Scenario: Runtime image skips ComfyUI-Manager
+
+- **WHEN** the runtime recipe image build installs ComfyUI through `comfy-cli`
+- **THEN** the build SHALL disable ComfyUI-Manager installation
+- **AND** the built worker images MUST NOT require ComfyUI-Manager to launch or validate the image-baked ComfyUI runtime
+
+#### Scenario: Runtime image preserves LumaForge PyTorch ownership
+
+- **WHEN** the runtime recipe image build installs ComfyUI through `comfy-cli`
+- **THEN** the build SHALL prevent `comfy-cli` from installing PyTorch, torchvision, torchaudio, DirectML, CUDA, or ROCm packages
+- **AND** CUDA runtime image builds MAY pass the `comfy-cli` NVIDIA selector only to satisfy installer device selection
+- **AND** the runtime recipe SHALL remain the source of truth for the image-baked PyTorch/CUDA package set
+
+#### Scenario: Runtime image lets comfy-cli install ComfyUI requirements
+
+- **WHEN** the runtime recipe image build installs ComfyUI through `comfy-cli`
+- **THEN** the build SHALL allow `comfy-cli` to install ComfyUI base requirements from the pinned ComfyUI checkout
+- **AND** the build MUST NOT pass an option that skips ComfyUI base requirements installation
+- **AND** this requirements installation MUST NOT replace LumaForge-owned PyTorch/CUDA package installation
+
+#### Scenario: Workspace provisioning does not install ComfyUI
+
+- **WHEN** the Provisioner Worker prepares a mounted workspace volume from a selected Workflow Preset
+- **THEN** it SHALL continue to use the fixed image-baked ComfyUI runtime produced by the runtime image build
+- **AND** it MUST NOT run `comfy install`, clone ComfyUI, create the base runtime virtual environment, or install ComfyUI base requirements during workspace provisioning
+
+#### Scenario: Model assets remain workspace-owned
+
+- **WHEN** a selected Workflow Preset declares required model assets
+- **THEN** model asset files SHALL continue to be installed under the mounted workspace volume
+- **AND** the runtime image build MUST NOT bake preset model assets into the image-baked ComfyUI runtime as part of the `comfy-cli` installation
+
