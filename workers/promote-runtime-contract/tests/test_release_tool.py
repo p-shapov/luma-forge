@@ -94,7 +94,10 @@ runtime:
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
-        self.assertIn("ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH", dockerfile)
+        self.assertIn(
+            "ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json",
+            dockerfile,
+        )
         self.assertNotIn("LUMA_FORGE_PROVISIONER_IMAGE_REF", dockerfile)
         self.assertNotIn("runtime-contract.json", dockerfile)
 
