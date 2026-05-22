@@ -7,6 +7,11 @@
           "version": "1.0.0",
           "provisioner_worker_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55",
           "volume_mount_path": "/workspace"
+        },
+        {
+          "version": "1.0.1",
+          "provisioner_worker_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:02f02c2ed8fc975814713c237b1db841883d158422996436c0e09ceb187e21b3",
+          "volume_mount_path": "/workspace"
         }
       ]
     }
