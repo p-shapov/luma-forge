@@ -105,7 +105,6 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
             workspace_id TEXT PRIMARY KEY NOT NULL,
             contract_id TEXT NOT NULL,
             contract_version TEXT NOT NULL,
-            provisioner_image_ref TEXT NOT NULL,
             endpoint_image_ref TEXT NOT NULL,
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
         )

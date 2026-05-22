@@ -43,10 +43,7 @@ where
             .as_ref()
             .expect("volume checked above");
         let network_volume_id = volume.provider_resource_id.clone();
-        let provisioner_worker_image_ref = workspace
-            .resolved_runtime_image
-            .provisioner_image_ref
-            .clone();
+        let provisioner_worker_image_ref = config.provisioner_worker_image_ref.clone();
         let PlacementPlan::Runpod {
             selected_datacenter_id,
             selected_gpu_id,

@@ -6,7 +6,7 @@ from threading import Event
 from unittest.mock import patch
 
 from helpers import start_payload
-from auxiliary.command_runner import Cancelled
+from auxiliary.cancellation import Cancelled
 from auxiliary.huggingface import PublicFileDownloader
 from app.errors import AssetAuthRequiredError, AssetDownloadError, StepTimeoutError
 from app.schemas import parse_start_request

@@ -18,6 +18,7 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceProvisioningConfig {
     pub volume_mount_path: String,
+    pub provisioner_worker_image_ref: String,
 }
 
 pub struct WorkspaceProvisioningService<
@@ -360,6 +361,7 @@ mod tests {
             WorkspaceProvisioningCoordinator::default(),
             WorkspaceProvisioningConfig {
                 volume_mount_path: "/workspace".to_string(),
+                provisioner_worker_image_ref: "provisioner:latest".to_string(),
             },
             FakeProvisioningProviderResolver { provider },
         );
@@ -437,6 +439,7 @@ mod tests {
                 WorkspaceProvisioningCoordinator::default(),
                 WorkspaceProvisioningConfig {
                     volume_mount_path: "/workspace".to_string(),
+                    provisioner_worker_image_ref: "provisioner:latest".to_string(),
                 },
             );
 
@@ -468,6 +471,7 @@ mod tests {
             WorkspaceProvisioningCoordinator::default(),
             WorkspaceProvisioningConfig {
                 volume_mount_path: "/workspace".to_string(),
+                provisioner_worker_image_ref: "provisioner:latest".to_string(),
             },
         );
         assert_eq!(
@@ -486,6 +490,7 @@ mod tests {
             WorkspaceProvisioningCoordinator::default(),
             WorkspaceProvisioningConfig {
                 volume_mount_path: "/workspace".to_string(),
+                provisioner_worker_image_ref: "provisioner:latest".to_string(),
             },
         );
         assert_eq!(
@@ -531,6 +536,7 @@ mod tests {
                 WorkspaceProvisioningCoordinator::default(),
                 WorkspaceProvisioningConfig {
                     volume_mount_path: "/workspace".to_string(),
+                    provisioner_worker_image_ref: "provisioner:latest".to_string(),
                 },
             );
 
@@ -691,14 +697,6 @@ mod tests {
     async fn sync_worker_terminal_subtypes_persist_granular_failures() {
         for (worker_error, expected_code) in [
             (
-                ProvisionerWorkerError::GitCheckoutFailed,
-                WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed,
-            ),
-            (
-                ProvisionerWorkerError::DependencyInstallFailed,
-                WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed,
-            ),
-            (
                 ProvisionerWorkerError::AssetDownloadFailed,
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed,
             ),
@@ -773,7 +771,7 @@ mod tests {
         workspace.active_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Running));
         let (service, _, catalog, _, workers, _) = service_parts(workspace);
         catalog.push_update_error(WorkspaceSetupError::WorkspaceCatalogQueryFailed);
-        workers.push_status_result(Err(ProvisionerWorkerError::DependencyInstallFailed));
+        workers.push_status_result(Err(ProvisionerWorkerError::AssetDownloadFailed));
 
         let error = service
             .sync("workspace-1")

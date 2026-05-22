@@ -12,7 +12,7 @@ The Provisioner Worker SHALL expose an HTTP API with `POST /start` and `GET /sta
 - **WHEN** the provisioner container starts
 - **THEN** the Provisioner Worker SHALL start an HTTP server
 - **AND** the Provisioner Worker SHALL report `idle` status before any `/start` request is accepted
-- **AND** the Provisioner Worker MUST NOT prepare the ComfyUI environment before `/start`
+- **AND** the Provisioner Worker MUST NOT validate or touch the image-baked runtime or workspace before `/start`
 
 #### Scenario: Worker API includes required endpoints
 
@@ -48,42 +48,32 @@ The Provisioner Worker SHALL start one provisioning job only after `POST /start`
 - **AND** the Provisioner Worker MUST NOT start, queue, or replace a second job
 - **AND** the active job SHALL continue
 
-### Requirement: Prepare ComfyUI environment
-The Provisioner Worker SHALL use the fixed image-baked ComfyUI runtime and SHALL prepare workspace-specific runtime directories without creating a base runtime copy on the mounted volume.
+### Requirement: Prepare workspace paths without endpoint runtime
+The Provisioner Worker SHALL prepare workspace-specific directories without requiring, validating, or starting a ComfyUI runtime and without creating a base runtime copy on the mounted volume.
 
-#### Scenario: ComfyUI runtime is prepared
+#### Scenario: Runtime paths are validated and prepared
 
-- **WHEN** an active job contains a Workflow Preset and resolved runtime image snapshot accepted by the Native Layer
-- **THEN** the Provisioner Worker SHALL use the fixed image-baked Python interpreter and fixed image-baked ComfyUI root
-- **AND** the Provisioner Worker SHALL create or reuse workspace-specific directories for models, Custom Nodes, output, and `.luma-forge` metadata
-- **AND** the Provisioner Worker SHALL reset and recreate `.luma-forge/python-overlay` plus stale Custom Node overlay install reports before installing Custom Node dependencies
-- **AND** the Provisioner Worker MUST NOT clone ComfyUI, create a base virtual environment, extract a base runtime archive, run `comfy install`, or install ComfyUI base requirements during workspace provisioning
+- **WHEN** an active job contains a Workflow Preset accepted by the Native Layer
+- **THEN** the Provisioner Worker SHALL create or reuse workspace-specific directories for models, workflows, output, and `.luma-forge` metadata
+- **AND** the Provisioner Worker MUST NOT require endpoint image fields in the start request
+- **AND** the Provisioner Worker MUST NOT start ComfyUI, clone ComfyUI, create a base virtual environment, extract a base runtime archive, run `comfy install`, run pip, clone runtime extensions, install runtime extension dependencies, or install ComfyUI base requirements during workspace provisioning
 - **AND** `GET /status` SHALL report a preparation phase while this work is active
 - **AND** current worker status payloads MUST NOT emit obsolete ComfyUI installation phase names such as `installing_comfyui`
 
-#### Scenario: ComfyUI preparation fails
+#### Scenario: Workspace path preparation fails
 
-- **WHEN** fixed image runtime access or workspace directory creation fails
+- **WHEN** workspace directory creation fails
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include status, phase, progress percentage, and structured error metadata when available
 - **AND** the status payload MUST NOT include secrets
 
-### Requirement: Prepare Custom Nodes
-The Provisioner Worker SHALL install required Custom Nodes declared by the selected Workflow Preset and SHALL install their allowed Python dependencies into the workspace overlay.
+### Requirement: Exclude runtime-provisioned runtime extensions
+The Provisioner Worker SHALL NOT treat runtime-provisioned ComfyUI runtime extensions as part of the v1 provisioning contract.
 
-#### Scenario: Preset declares Custom Nodes
+#### Scenario: Preset contains no runtime-provisioned runtime extensions
 
-- **WHEN** the selected Workflow Preset includes required Custom Nodes
-- **THEN** the Provisioner Worker SHALL clone each Custom Node from its declared Git source into its declared safe checkout path under the workspace Custom Nodes directory
-- **AND** the Provisioner Worker SHALL install allowed Custom Node dependencies from each declared requirements path into the workspace overlay when present
-- **AND** each requirements path SHALL be resolved relative to its Custom Node checkout root
-- **AND** the Provisioner Worker MUST NOT install Custom Node dependencies into the ephemeral provisioner container Python environment or the image-baked base virtual environment
-- **AND** `GET /status` SHALL report an installing Custom Nodes phase while this work is active
-
-#### Scenario: Preset declares no Custom Nodes
-
-- **WHEN** the selected Workflow Preset has an empty required Custom Nodes list
-- **THEN** the Provisioner Worker SHALL skip Custom Node installation
+- **WHEN** the selected Workflow Preset contains model assets and runtime contract metadata
+- **THEN** the Provisioner Worker SHALL skip runtime extension installation
 - **AND** the provisioning job SHALL continue to the next required preparation step
 
 ### Requirement: Download public Hugging Face model assets
@@ -92,7 +82,7 @@ The Provisioner Worker SHALL download required model assets from public Hugging 
 #### Scenario: Public Hugging Face asset is downloaded
 - **WHEN** the selected Workflow Preset declares a Hugging Face model asset with repository id, file path, revision, and explicit install path
 - **THEN** the Provisioner Worker SHALL download the public file from Hugging Face using the declared repository id, file path, and revision
-- **AND** the Provisioner Worker SHALL write it to the declared ComfyUI-relative install path under the prepared ComfyUI root
+- **AND** the Provisioner Worker SHALL write it to the declared ComfyUI-relative install path under the prepared workspace root
 - **AND** the Provisioner Worker SHALL rely on Hugging Face Hub cache semantics for download reuse
 - **AND** the Provisioner Worker MUST NOT require or validate an app-owned digest for the asset
 - **AND** `GET /status` SHALL report a downloading assets phase while asset downloads are active
@@ -111,7 +101,7 @@ The Provisioner Worker SHALL download required model assets from public Hugging 
 #### Scenario: Asset install path is unsafe
 - **WHEN** a model asset install path is absolute, blank, contains parent traversal, or resolves outside the prepared ComfyUI root
 - **THEN** the Provisioner Worker SHALL reject the start request or fail the active job before writing that asset
-- **AND** the Provisioner Worker MUST NOT write outside the prepared ComfyUI root
+- **AND** the Provisioner Worker MUST NOT write outside the prepared workspace root
 
 ### Requirement: Report provisioning status
 
@@ -134,7 +124,7 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 
 #### Scenario: Job succeeds
 
-- **WHEN** ComfyUI, Custom Nodes, model assets, and final validation complete successfully
+- **WHEN** model assets, runtime metadata, and final validation complete successfully
 - **THEN** the Provisioner Worker SHALL mark the job `succeeded`
 - **AND** `GET /status` SHALL report terminal success
 - **AND** the terminal success response MAY report no active phase
@@ -149,51 +139,19 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
 ### Requirement: Validate prepared environment
-The Provisioner Worker SHALL validate workspace-specific files, overlay metadata, and the runtime manifest before reporting terminal success.
+The Provisioner Worker SHALL validate workspace-specific model files, output paths, workflow paths, and the runtime manifest before reporting terminal success.
 
 #### Scenario: Prepared environment is valid
 
-- **WHEN** required Custom Node directories, overlay dependency records, runtime manifest fields, model asset files, and workspace output paths are present after preparation
+- **WHEN** runtime manifest fields, model asset files, workflow paths, and workspace output paths are present after preparation
 - **THEN** the Provisioner Worker SHALL report the job as `succeeded`
 - **AND** the prepared workspace SHALL be usable by the Endpoint Worker with the fixed image-baked runtime environment
 
 #### Scenario: Prepared environment is incomplete
 
-- **WHEN** final validation finds a missing Custom Node, missing model asset, missing overlay record, missing runtime manifest data, missing workspace output path, or unsafe filesystem state
+- **WHEN** final validation finds a missing model asset, missing runtime manifest data, missing workflow path, missing workspace output path, or unsafe filesystem state
 - **THEN** the Provisioner Worker SHALL report the job as `failed`
 - **AND** the Provisioner Worker MUST NOT report terminal success
-
-### Requirement: Validate Custom Node paths before filesystem writes
-
-The Provisioner Worker SHALL validate Custom Node checkout and requirements paths from the selected Workflow Preset before performing related remote filesystem writes or dependency installation.
-
-#### Scenario: Custom Node checkout path is safe
-
-- **WHEN** a selected Workflow Preset declares a Custom Node checkout path that is relative, normalized, free of current-directory, empty, absolute, and parent-traversal segments, and resolves under the prepared ComfyUI `custom_nodes` directory
-- **THEN** the Provisioner Worker MAY clone that Custom Node into the resolved checkout path
-
-#### Scenario: Custom Node checkout path is unsafe
-
-- **WHEN** a selected Workflow Preset declares a Custom Node checkout path that is blank, absolute, contains current-directory, empty, or parent-traversal segments, resolves outside the prepared ComfyUI root, or does not resolve under the prepared ComfyUI `custom_nodes` directory
-- **THEN** the Provisioner Worker SHALL reject the start request or fail the active job before cloning the Custom Node
-- **AND** the Provisioner Worker MUST NOT write outside the prepared ComfyUI `custom_nodes` directory for that Custom Node
-
-#### Scenario: Custom Node requirements path is absent
-
-- **WHEN** a selected Workflow Preset declares no requirements path for a Custom Node
-- **THEN** the Provisioner Worker SHALL skip requirements installation for that Custom Node
-- **AND** the Provisioner Worker SHALL continue provisioning when all other Custom Node data is valid
-
-#### Scenario: Custom Node requirements path is safe
-
-- **WHEN** a selected Workflow Preset declares a Custom Node requirements path that is relative, normalized, free of current-directory, empty, absolute, and parent-traversal segments, and resolves under that Custom Node checkout root
-- **THEN** the Provisioner Worker MAY install dependencies from that requirements path
-
-#### Scenario: Custom Node requirements path is unsafe
-
-- **WHEN** a selected Workflow Preset declares a Custom Node requirements path that is blank, absolute, contains current-directory, empty, or parent-traversal segments, or resolves outside that Custom Node checkout root
-- **THEN** the Provisioner Worker SHALL reject the start request or fail the active job before installing dependencies from that path
-- **AND** the Provisioner Worker MUST NOT read requirements files outside the Custom Node checkout root
 
 ### Requirement: Authorize worker API requests
 The Provisioner Worker SHALL require bearer-token authorization for every HTTP endpoint.
@@ -229,27 +187,6 @@ The Provisioner Worker SHALL enforce a configured maximum request body size befo
 ### Requirement: Report structured worker error codes
 The Provisioner Worker SHALL map expected failure classes to stable UI-safe error codes, reason codes, and messages.
 
-#### Scenario: Git checkout fails
-- **WHEN** a Custom Node Git clone, fetch, or checkout operation fails
-- **THEN** the Provisioner Worker SHALL mark the active job `failed`
-- **AND** `GET /status` SHALL include error code `git_checkout_failed`
-- **AND** `GET /status` SHALL include a stable `reason_code` for the Git checkout failure
-- **AND** the error metadata MUST NOT include secrets or raw credential-bearing command output
-
-#### Scenario: Dependency installation fails
-- **WHEN** Custom Node dependency installation into the workspace overlay fails
-- **THEN** the Provisioner Worker SHALL mark the active job `failed`
-- **AND** `GET /status` SHALL include error code `dependency_install_failed`
-- **AND** `GET /status` SHALL include a stable `reason_code` for the dependency installation failure
-- **AND** the error metadata MUST NOT include secrets or raw credential-bearing command output
-
-#### Scenario: Workspace overlay creation fails
-- **WHEN** the Provisioner Worker cannot create or validate the workspace overlay directory
-- **THEN** the Provisioner Worker SHALL mark the active job `failed`
-- **AND** `GET /status` SHALL include error code `dependency_install_failed`
-- **AND** `GET /status` SHALL include a stable `reason_code` for the workspace overlay failure
-- **AND** the error metadata MUST NOT include secrets or raw credential-bearing command output
-
 #### Scenario: Model download fails
 - **WHEN** a public Hugging Face model asset cannot be downloaded because of transport, missing file, or unavailable service failure
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
@@ -264,14 +201,14 @@ The Provisioner Worker SHALL map expected failure classes to stable UI-safe erro
 - **AND** the Provisioner Worker MUST NOT request, read, persist, or log a Hugging Face API key
 
 #### Scenario: Path validation fails
-- **WHEN** a request contains an unsafe workspace, Custom Node, requirements, virtual environment, runtime metadata, or model asset install path
+- **WHEN** a request contains an unsafe workspace, runtime metadata, workflow, or model asset install path
 - **THEN** the Provisioner Worker SHALL reject the start request or mark the active job `failed` before the unsafe write or read
 - **AND** the API response or job status SHALL include error code `path_validation_failed`
 - **AND** the API response or job status SHALL include a stable `reason_code` for the path validation failure
 - **AND** any exposed context MUST include only safe field or path-role identifiers, not the raw unsafe path value
 
 #### Scenario: Provisioning step times out
-- **WHEN** a Git, virtual environment creation, dependency installation, or model download step exceeds its configured timeout
+- **WHEN** workspace preparation, runtime verification, or model download exceeds its configured timeout
 - **THEN** the Provisioner Worker SHALL stop the active operation where possible
 - **AND** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `step_timeout`
@@ -294,27 +231,15 @@ The Provisioner Worker SHALL map expected failure classes to stable UI-safe erro
 - **AND** the worker API response SHALL include a stable `reason_code` for the active job conflict
 - **AND** the active job identifier MAY be included only as UI-safe structured context
 
-### Requirement: Require immutable Git revisions for worker-prepared sources
-The Provisioner Worker SHALL reject worker-prepared Git sources that do not specify immutable commit revisions.
-
-#### Scenario: Git source revision is immutable
-- **WHEN** a selected Workflow Preset declares Custom Node Git sources with full 40-character lowercase hexadecimal commit revisions
-- **THEN** the Provisioner Worker MAY use those revisions for checkout
-
-#### Scenario: Git source revision is mutable
-- **WHEN** a selected Workflow Preset declares a Custom Node Git source revision as a branch name, tag name, blank value, or non-commit value
-- **THEN** the Provisioner Worker SHALL reject the start request with `invalid_request`
-- **AND** the Provisioner Worker MUST NOT clone, fetch, checkout, or install dependencies for that request
-
 ### Requirement: Bound external provisioning steps
-The Provisioner Worker SHALL apply configured timeouts to image runtime validation, Custom Node preparation, overlay dependency installation, runtime verification, and model download work.
+The Provisioner Worker SHALL apply configured timeouts to image runtime validation, runtime verification, and model download work.
 
 #### Scenario: External step completes before timeout
-- **WHEN** image runtime validation, Custom Node preparation, overlay dependency installation, runtime verification, or model download completes before its configured timeout
+- **WHEN** image runtime validation, runtime verification, or model download completes before its configured timeout
 - **THEN** the Provisioner Worker SHALL continue provisioning normally
 
 #### Scenario: External step exceeds timeout
-- **WHEN** image runtime validation, Custom Node preparation, overlay dependency installation, runtime verification, or model download exceeds its configured timeout
+- **WHEN** image runtime validation, runtime verification, or model download exceeds its configured timeout
 - **THEN** the Provisioner Worker SHALL stop the operation where possible
 - **AND** the Provisioner Worker SHALL fail the active job with `step_timeout`
 
@@ -388,19 +313,19 @@ The Provisioner Worker SHALL preserve existing preparation behavior when the int
 #### Scenario: Preparation sequence remains equivalent
 
 - **WHEN** a valid start request is accepted and preparation succeeds
-- **THEN** the Provisioner Worker SHALL use the fixed image-baked runtime paths, create workspace-specific runtime directories, install declared Custom Nodes and allowed overlay dependencies, download declared model assets, write dependency and overlay records, write the prepared runtime manifest, validate the prepared environment, and report terminal success according to the existing preparation contract
+- **THEN** the Provisioner Worker SHALL use the fixed image-baked runtime paths, create workspace-specific runtime directories, download declared model assets, write the prepared runtime manifest, validate the prepared environment, and report terminal success according to the existing preparation contract
 - **AND** the Provisioner Worker SHALL preserve the existing progress phases and terminal job status behavior
 
 #### Scenario: Preparation failure mapping remains equivalent
 
-- **WHEN** a Git checkout, overlay dependency installation, public Hugging Face asset download, fixed image runtime access, timeout, or final validation failure occurs during preparation
+- **WHEN** a public Hugging Face asset download, fixed image runtime access, timeout, or final validation failure occurs during preparation
 - **THEN** the Provisioner Worker SHALL map the failure to the same UI-safe worker error class, job status, and structured error contract used before the internal refactor
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
 #### Scenario: Prepared filesystem outputs remain equivalent
 
 - **WHEN** preparation completes successfully after the internal preparation implementation is refactored
-- **THEN** the mounted workspace volume SHALL contain the same required Custom Node directories, model asset files, overlay dependency records, install records, output directories, and runtime manifest shape required by the prepared environment validation contract
+- **THEN** the mounted workspace volume SHALL contain the same required model asset files, workflow directories, output directories, metadata directories, and runtime manifest shape required by the prepared environment validation contract
 - **AND** the Provisioner Worker MUST NOT write outside the validated mounted workspace paths
 
 ### Requirement: Preserve worker behavior during internal package reorganization
@@ -416,7 +341,7 @@ The Provisioner Worker SHALL preserve existing runtime behavior when its interna
 #### Scenario: Preparation behavior remains unchanged
 
 - **WHEN** the internal provisioner worker source layout is reorganized
-- **THEN** successful provisioning SHALL still prepare ComfyUI, Custom Nodes, model assets, dependency records, and runtime manifest outputs according to the existing preparation contract
+- **THEN** successful provisioning SHALL still validate image-baked ComfyUI, download model assets, and write runtime manifest outputs according to the existing preparation contract
 - **AND** failure and timeout cases SHALL map to the same worker job status and UI-safe error classifications as before the reorganization
 
 #### Scenario: Module ownership is visible from package paths
@@ -485,14 +410,7 @@ The Provisioner Worker SHALL handle unexpected preparation exceptions by recordi
 
 ### Requirement: Keep worker status metadata safe for user-defined presets
 
-The Provisioner Worker SHALL treat Workflow Preset names, Custom Node names, and unsafe preset-provided identifiers as untrusted input when producing status or error metadata. Model asset display names MAY be included during model asset download progress after display-name validation.
-
-#### Scenario: Progress is reported for preset-declared Custom Node
-
-- **WHEN** preparation reports progress while installing a preset-declared Custom Node
-- **THEN** `GET /status` SHALL report the appropriate phase
-- **AND** error metadata MAY include the Custom Node identifier only after the identifier has passed worker schema validation
-- **AND** error metadata MUST NOT include the Custom Node display name or any unsafe identifier from the request payload
+The Provisioner Worker SHALL treat Workflow Preset names and unsafe preset-provided identifiers as untrusted input when producing status or error metadata. Model asset display names MAY be included during model asset download progress after display-name validation.
 
 #### Scenario: Progress is reported for preset-declared model asset
 
@@ -504,7 +422,7 @@ The Provisioner Worker SHALL treat Workflow Preset names, Custom Node names, and
 
 #### Scenario: Validation fails for missing preset-declared item
 
-- **WHEN** final validation finds a missing preset-declared Custom Node or model asset
+- **WHEN** final validation finds a missing preset-declared model asset
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** the terminal error payload message MAY include the missing item's identifier only after the identifier has passed worker schema validation
 - **AND** the terminal error payload message MUST NOT include the item's display name or any unsafe identifier from the request payload
@@ -575,7 +493,7 @@ The Provisioner Worker test suite SHALL verify that invalid `POST /start` reques
 
 #### Scenario: Invalid start rejects unsafe preset data before writes
 - **WHEN** a `POST /start` request contains unsafe preset paths or identifiers
-- **THEN** tests SHALL verify the request is rejected before ComfyUI checkout, Custom Node checkout, dependency installation, model download, metadata writing, or runtime manifest writing can occur
+- **THEN** tests SHALL verify the request is rejected before model download, metadata writing, or runtime manifest writing can occur
 
 ### Requirement: Cover terminal worker error mapping
 The Provisioner Worker test suite SHALL verify that expected preparation failure classes map to stable UI-safe terminal job status payloads.
@@ -598,23 +516,19 @@ The Provisioner Worker test suite SHALL verify that path-safety checks reject pa
 - **WHEN** a workspace child path traverses an existing symlink that points outside the workspace root
 - **THEN** tests SHALL verify the path helper rejects the resolved path before a caller can write through it
 
-#### Scenario: Custom Node path resolves through external symlink
-- **WHEN** a Custom Node checkout or requirements path resolves through an existing symlink outside the prepared ComfyUI `custom_nodes` root
-- **THEN** tests SHALL verify the path helper or prepared environment validation rejects the path before checkout or dependency installation
-
 #### Scenario: Prepared runtime paths cannot escape through symlinks
-- **WHEN** runtime metadata, virtual environment, model asset, or manifest paths would resolve outside the configured workspace through a symlink
+- **WHEN** runtime metadata, model asset, output, workflow, or manifest paths would resolve outside the configured workspace through a symlink
 - **THEN** tests SHALL verify preparation or validation fails before reporting terminal success
 
 ### Requirement: Emit subprocess output to provider-visible logs
 
 The Provisioner Worker SHALL emit output from long-running provisioning subprocesses to the worker process console so the provider's container log system can show active command progress.
 
-#### Scenario: Dependency installation writes provider-visible logs
+#### Scenario: Subprocess output writes provider-visible logs
 
-- **WHEN** an active provisioning job installs ComfyUI or Custom Node dependencies through a subprocess
+- **WHEN** a provisioning subprocess is used by a future preparation step
 - **THEN** the Provisioner Worker SHALL allow stdout and stderr from that subprocess to reach the worker process console
-- **AND** provider pod logs SHALL be able to show dependency tool output such as package collection, download, retry, build, and error messages
+- **AND** provider pod logs SHALL be able to show subprocess progress and error messages
 - **AND** the Provisioner Worker SHALL continue enforcing cancellation and timeout behavior for that subprocess
 
 #### Scenario: Status response remains sanitized
@@ -630,25 +544,3 @@ The Provisioner Worker SHALL emit output from long-running provisioning subproce
 - **AND** `GET /status` SHALL include UI-safe structured error metadata
 - **AND** the worker console logs MAY include the subprocess output that explains the command failure
 - **AND** the status payload MUST NOT copy raw subprocess output into UI-safe metadata
-
-### Requirement: Install Custom Node dependencies into workspace overlay
-The Provisioner Worker SHALL install Custom Node Python dependency deltas into the workspace overlay and SHALL preserve the image-baked base virtual environment unchanged.
-
-#### Scenario: Custom Node dependencies install into overlay
-- **WHEN** a selected Workflow Preset declares a Custom Node requirements file
-- **THEN** the Provisioner Worker SHALL install allowed dependencies into `/workspace/.luma-forge/python-overlay`
-- **AND** the Provisioner Worker SHALL write UI-safe overlay install metadata for the runtime manifest
-- **AND** it MUST NOT install those dependencies into the image-baked base virtual environment
-
-#### Scenario: Protected dependency override is rejected
-- **WHEN** a Custom Node requirements file declares a protected base runtime package such as `torch`, `torchvision`, `torchaudio`, an NVIDIA CUDA runtime package family, or another dependency protected by the runtime contract overlay policy
-- **THEN** the Provisioner Worker SHALL fail the active job with a stable UI-safe dependency conflict error
-- **AND** it MUST NOT run pip for that requirements file
-- **AND** it MUST NOT mutate the image-baked base virtual environment
-
-#### Scenario: Overlay install fails
-- **WHEN** allowed Custom Node dependency installation into the workspace overlay fails
-- **THEN** the Provisioner Worker SHALL mark the active job `failed`
-- **AND** `GET /status` SHALL include error code `dependency_install_failed`
-- **AND** `GET /status` SHALL include a stable `reason_code` for the overlay installation failure
-

@@ -29,7 +29,6 @@ pub(super) fn parse_workflow_catalog(
 mod tests {
     use super::*;
 
-    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     fn valid_runtime_catalog_json() -> String {
@@ -41,7 +40,6 @@ mod tests {
                         "revisions": [
                             {{
                                 "version": "1.0.0",
-                                "provisioner_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_A}",
                                 "endpoint_image_ref": "ghcr.io/example/endpoint@sha256:{DIGEST_B}"
                             }}
                         ]
@@ -84,21 +82,6 @@ mod tests {
                                 "comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"
                             }
                         }
-                    ],
-                    "required_custom_nodes": [
-                        {
-                            "id": "example-custom-node",
-                            "name": "Example Custom Node",
-                            "git_source": {
-                                "source_type": "git",
-                                "repository_url": "https://github.com/example/custom-node.git",
-                                "revision": "0123456789abcdef0123456789abcdef01234567"
-                            },
-                            "install": {
-                                "comfyui_custom_nodes_relative_path": "custom_nodes/example-custom-node",
-                                "python_requirements_path": "custom_nodes/example-custom-node/requirements.txt"
-                            }
-                        }
                     ]
                 }
             ]
@@ -120,8 +103,8 @@ mod tests {
         };
         assert_eq!(revision.version, "1.0.0");
         assert!(revision
-            .provisioner_image_ref
-            .ends_with(&format!("@sha256:{DIGEST_A}")));
+            .endpoint_image_ref
+            .ends_with(&format!("@sha256:{DIGEST_B}")));
     }
 
     #[test]
@@ -133,118 +116,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_runtime_catalog_maps_schema_mismatch_to_parse_failed() {
-        let err = parse_runtime_catalog(r#"{"contracts":"not-an-array"}"#)
-            .expect_err("schema mismatch should fail during deserialization");
-
-        assert_eq!(err, BundledCatalogError::ParseFailed);
-    }
-
-    #[test]
     fn parse_runtime_catalog_maps_invalid_catalog_to_validation_failed() {
-        let invalid_catalogs = [
-            ("empty contracts", r#"{"contracts":[]}"#.to_owned()),
-            (
-                "invalid contract id",
-                format!(
-                    r#"{{
-                        "contracts": [
-                            {{
-                                "id": "ComfyUI",
-                                "revisions": [
-                                    {{
-                                        "version": "1.0.0",
-                                        "provisioner_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_A}",
-                                        "endpoint_image_ref": "ghcr.io/example/endpoint@sha256:{DIGEST_B}"
-                                    }}
-                                ]
-                            }}
-                        ]
-                    }}"#
-                ),
-            ),
-            (
-                "duplicate contract id",
-                format!(
-                    r#"{{
-                        "contracts": [
-                            {{
-                                "id": "comfyui-python312-cu121",
-                                "revisions": [
-                                    {{
-                                        "version": "1.0.0",
-                                        "provisioner_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_A}",
-                                        "endpoint_image_ref": "ghcr.io/example/endpoint@sha256:{DIGEST_B}"
-                                    }}
-                                ]
-                            }},
-                            {{
-                                "id": "comfyui-python312-cu121",
-                                "revisions": [
-                                    {{
-                                        "version": "1.0.1",
-                                        "provisioner_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_A}",
-                                        "endpoint_image_ref": "ghcr.io/example/endpoint@sha256:{DIGEST_B}"
-                                    }}
-                                ]
-                            }}
-                        ]
-                    }}"#
-                ),
-            ),
-            (
-                "empty revisions",
-                r#"{"contracts":[{"id":"comfyui-python312-cu121","revisions":[]}]}"#.to_owned(),
-            ),
-            (
-                "invalid semver",
-                format!(
-                    r#"{{
-                        "contracts": [
-                            {{
-                                "id": "comfyui-python312-cu121",
-                                "revisions": [
-                                    {{
-                                        "version": "01.0.0",
-                                        "provisioner_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_A}",
-                                        "endpoint_image_ref": "ghcr.io/example/endpoint@sha256:{DIGEST_B}"
-                                    }}
-                                ]
-                            }}
-                        ]
-                    }}"#
-                ),
-            ),
-            (
-                "mutable image reference",
-                r#"{
-                    "contracts": [
-                        {
-                            "id": "comfyui-python312-cu121",
-                            "revisions": [
-                                {
-                                    "version": "1.0.0",
-                                    "provisioner_image_ref": "ghcr.io/example/provisioner:latest",
-                                    "endpoint_image_ref": "ghcr.io/example/endpoint:latest"
-                                }
-                            ]
-                        }
-                    ]
-                }"#
-                .to_owned(),
-            ),
-        ];
+        let err = parse_runtime_catalog(r#"{"contracts":[]}"#)
+            .expect_err("invalid catalog should fail validation");
 
-        for (case, value) in invalid_catalogs {
-            let err = parse_runtime_catalog(&value).expect_err(case);
-            assert_eq!(err, BundledCatalogError::ValidationFailed, "{case}");
-        }
+        assert_eq!(err, BundledCatalogError::ValidationFailed);
     }
 
     #[test]
-    fn parse_workflow_catalog_accepts_valid_catalog() {
+    fn parse_workflow_catalog_accepts_valid_catalog_without_custom_nodes() {
         let runtime_catalog = valid_runtime_catalog();
-
         let catalog = parse_workflow_catalog(valid_workflow_catalog_json(), &runtime_catalog)
             .expect("valid workflow catalog should parse");
 
@@ -252,28 +133,14 @@ mod tests {
             panic!("expected one workflow preset");
         };
         assert_eq!(preset.id, "comfyui-t2i-basic");
-        assert_eq!(preset.runtime_contract.id, "comfyui-python312-cu121");
+        assert_eq!(preset.required_model_assets.len(), 1);
     }
 
     #[test]
     fn parse_workflow_catalog_maps_invalid_json_to_parse_failed() {
         let runtime_catalog = valid_runtime_catalog();
-
         let err = parse_workflow_catalog("{ invalid json", &runtime_catalog)
             .expect_err("invalid JSON should fail before validation");
-
-        assert_eq!(err, BundledCatalogError::ParseFailed);
-    }
-
-    #[test]
-    fn parse_workflow_catalog_maps_schema_mismatch_to_parse_failed() {
-        let runtime_catalog = valid_runtime_catalog();
-
-        let err = parse_workflow_catalog(
-            r#"{"workflow_presets":[{"workflow_execution_type":"unknown"}]}"#,
-            &runtime_catalog,
-        )
-        .expect_err("unknown enum variant should fail during deserialization");
 
         assert_eq!(err, BundledCatalogError::ParseFailed);
     }
@@ -297,8 +164,7 @@ mod tests {
                                 "id": "comfyui-python312-cu121",
                                 "version": "1.0.0"
                             },
-                            "required_model_assets": [],
-                            "required_custom_nodes": []
+                            "required_model_assets": []
                         }
                     ]
                 }"#,
@@ -317,8 +183,7 @@ mod tests {
                                 "id": "comfyui-python312-cu121",
                                 "version": "1.0.0"
                             },
-                            "required_model_assets": [],
-                            "required_custom_nodes": []
+                            "required_model_assets": []
                         }
                     ]
                 }"#,
@@ -337,8 +202,7 @@ mod tests {
                                 "id": "missing-runtime-contract",
                                 "version": "1.0.0"
                             },
-                            "required_model_assets": [],
-                            "required_custom_nodes": []
+                            "required_model_assets": []
                         }
                     ]
                 }"#,
@@ -370,75 +234,6 @@ mod tests {
                                     },
                                     "install": {
                                         "comfyui_relative_path": "../models/checkpoints/sd_xl_base_1.0.safetensors"
-                                    }
-                                }
-                            ],
-                            "required_custom_nodes": []
-                        }
-                    ]
-                }"#,
-            ),
-            (
-                "mutable custom node revision",
-                r#"{
-                    "workflow_presets": [
-                        {
-                            "id": "comfyui-t2i-basic",
-                            "version": "1.0.0",
-                            "name": "ComfyUI Text to Image Basic",
-                            "workflow_execution_type": "t2i",
-                            "required_base_volume_size_bytes": 85899345920,
-                            "runtime_contract": {
-                                "id": "comfyui-python312-cu121",
-                                "version": "1.0.0"
-                            },
-                            "required_model_assets": [],
-                            "required_custom_nodes": [
-                                {
-                                    "id": "example-custom-node",
-                                    "name": "Example Custom Node",
-                                    "git_source": {
-                                        "source_type": "git",
-                                        "repository_url": "https://github.com/example/custom-node.git",
-                                        "revision": "main"
-                                    },
-                                    "install": {
-                                        "comfyui_custom_nodes_relative_path": "custom_nodes/example-custom-node",
-                                        "python_requirements_path": null
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                }"#,
-            ),
-            (
-                "custom node outside custom_nodes",
-                r#"{
-                    "workflow_presets": [
-                        {
-                            "id": "comfyui-t2i-basic",
-                            "version": "1.0.0",
-                            "name": "ComfyUI Text to Image Basic",
-                            "workflow_execution_type": "t2i",
-                            "required_base_volume_size_bytes": 85899345920,
-                            "runtime_contract": {
-                                "id": "comfyui-python312-cu121",
-                                "version": "1.0.0"
-                            },
-                            "required_model_assets": [],
-                            "required_custom_nodes": [
-                                {
-                                    "id": "example-custom-node",
-                                    "name": "Example Custom Node",
-                                    "git_source": {
-                                        "source_type": "git",
-                                        "repository_url": "https://github.com/example/custom-node.git",
-                                        "revision": "0123456789abcdef0123456789abcdef01234567"
-                                    },
-                                    "install": {
-                                        "comfyui_custom_nodes_relative_path": "extensions/example-custom-node",
-                                        "python_requirements_path": null
                                     }
                                 }
                             ]

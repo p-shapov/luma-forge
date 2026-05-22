@@ -10,8 +10,6 @@ import re
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024
-DEFAULT_GIT_TIMEOUT_SECONDS = 1800.0
-DEFAULT_DEPENDENCY_TIMEOUT_SECONDS = 1800.0
 DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 3600.0
 DEFAULT_WORKSPACE_MOUNT_PATH = "/workspace"
 
@@ -23,12 +21,8 @@ BEARER_TOKEN_ENV = "LUMA_FORGE_PROVISIONER_BEARER_TOKEN"
 HOST_ENV = "LUMA_FORGE_PROVISIONER_HOST"
 PORT_ENV = "LUMA_FORGE_PROVISIONER_PORT"
 MAX_REQUEST_BYTES_ENV = "LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES"
-GIT_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS"
-DEPENDENCY_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS"
 DOWNLOAD_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS"
 WORKSPACE_MOUNT_PATH_ENV = "LUMA_FORGE_WORKSPACE_MOUNT_PATH"
-
-DEFAULT_IMAGE_RUNTIME_ROOT = "/opt/luma-forge/runtime"
 
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -57,11 +51,8 @@ class WorkerConfig:
     port: int
     bearer_token: str
     max_request_bytes: int
-    git_timeout_seconds: float
-    dependency_timeout_seconds: float
     download_timeout_seconds: float
     workspace_mount_path: Path
-    image_runtime_root_path: Path
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -83,20 +74,6 @@ class WorkerConfig:
                 minimum=1,
                 maximum=MAX_REQUEST_BYTES_LIMIT,
             ),
-            git_timeout_seconds=_parse_float(
-                source,
-                GIT_TIMEOUT_ENV,
-                DEFAULT_GIT_TIMEOUT_SECONDS,
-                minimum=0.0,
-                maximum=MAX_TIMEOUT_SECONDS,
-            ),
-            dependency_timeout_seconds=_parse_float(
-                source,
-                DEPENDENCY_TIMEOUT_ENV,
-                DEFAULT_DEPENDENCY_TIMEOUT_SECONDS,
-                minimum=0.0,
-                maximum=MAX_TIMEOUT_SECONDS,
-            ),
             download_timeout_seconds=_parse_float(
                 source,
                 DOWNLOAD_TIMEOUT_ENV,
@@ -105,7 +82,6 @@ class WorkerConfig:
                 maximum=MAX_TIMEOUT_SECONDS,
             ),
             workspace_mount_path=_parse_workspace_mount_path(source),
-            image_runtime_root_path=Path(DEFAULT_IMAGE_RUNTIME_ROOT),
         )
 
 

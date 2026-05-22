@@ -61,32 +61,6 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workflow::CustomNodeGitSource)]
-    #[serde(tag = "source_type", rename_all = "snake_case")]
-    pub(super) enum CustomNodeGitSource {
-        Git {
-            repository_url: String,
-            revision: String,
-        },
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workflow::CustomNodeInstall)]
-    pub(super) struct CustomNodeInstall {
-        pub comfyui_custom_nodes_relative_path: String,
-        pub python_requirements_path: Option<String>,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workflow::CustomNode)]
-    pub(super) struct CustomNode {
-        pub id: String,
-        pub name: String,
-        pub git_source: domain_workflow::CustomNodeGitSource,
-        pub install: domain_workflow::CustomNodeInstall,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_workflow::WorkflowExecutionType)]
     #[serde(rename_all = "snake_case")]
     pub(super) enum WorkflowExecutionType {
@@ -98,7 +72,6 @@ mod remote_types {
     pub(super) struct ResolvedRuntimeImageSnapshot {
         pub contract_id: String,
         pub contract_version: String,
-        pub provisioner_image_ref: String,
         pub endpoint_image_ref: String,
     }
 
@@ -119,7 +92,6 @@ mod remote_types {
         pub required_base_volume_size_bytes: u64,
         pub runtime_contract: domain_workflow::RuntimeContractReference,
         pub required_model_assets: Vec<domain_workflow::ModelAsset>,
-        pub required_custom_nodes: Vec<domain_workflow::CustomNode>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

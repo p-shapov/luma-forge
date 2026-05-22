@@ -5,7 +5,6 @@
       "revisions": [
         {
           "version": "1.0.0",
-          "provisioner_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:1c954a52b11fe9947a9820dfaa33873e0bef5f23a7e5ffaadedbb3f42637d61e"
         }
       ]

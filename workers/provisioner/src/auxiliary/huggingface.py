@@ -6,7 +6,7 @@ from queue import Empty
 from threading import Event
 from time import monotonic
 
-from auxiliary.command_runner import Cancelled
+from auxiliary.cancellation import Cancelled
 from app.errors import (
     AssetAuthRequiredError,
     AssetDownloadError,

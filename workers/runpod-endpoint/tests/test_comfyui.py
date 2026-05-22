@@ -147,8 +147,8 @@ class ComfyUiTests(unittest.TestCase):
             str(fixture.config.comfyui_port),
         ])
         self.assertEqual(processes[0].cwd, fixture.comfyui_root)
-        self.assertIn(str(fixture.overlay_path), processes[0].env["PYTHONPATH"])
-        self.assertEqual(processes[0].env["LUMA_FORGE_CUSTOM_NODES_ROOT"], str(fixture.workspace / "custom_nodes"))
+        self.assertNotIn("PYTHONPATH", processes[0].env)
+        self.assertNotIn("LUMA_FORGE_CUSTOM_NODES_ROOT", processes[0].env)
         self.assertTrue(processes[0].terminated)
 
     def test_process_manager_launches_main_py_without_manager_or_comfy_cli(self):
@@ -223,7 +223,7 @@ class ComfyUiTests(unittest.TestCase):
 
         self.assertEqual(response.image.mime_type, "image/png")
         self.assertEqual(manager.ensure_running_calls, 1)
-        self.assertEqual(manager.runtime.python_path, fixture.venv_python)
+        self.assertEqual(manager.runtime.workspace_root, fixture.workspace)
         self.assertEqual(len(fixture.comfyui.queued_workflows), 1)
 
 

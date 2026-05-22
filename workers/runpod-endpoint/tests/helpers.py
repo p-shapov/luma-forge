@@ -49,16 +49,12 @@ class WorkerFixture:
         self.venv_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
         self.metadata_dir = self.workspace / ".luma-forge"
         self.metadata_dir.mkdir()
-        self.overlay_path = self.metadata_dir / "python-overlay"
-        self.overlay_path.mkdir()
         self.base_runtime_dir = self.image_runtime_root / "base-runtime"
         self.base_runtime_dir.mkdir()
         self.pip_freeze_path = self.base_runtime_dir / "pip-freeze.txt"
         self.install_report_path = self.base_runtime_dir / "install-report.json"
         self.pip_freeze_path.write_text("", encoding="utf-8")
         self.install_report_path.write_text('{"reports":[]}\n', encoding="utf-8")
-        self.overlay_report_path = self.metadata_dir / "custom-node-test-install-report.json"
-        self.overlay_report_path.write_text('{"install":[]}\n', encoding="utf-8")
         (self.workspace / "models/checkpoints").mkdir(parents=True)
         (self.workspace / "models/checkpoints/sd_xl_base_1.0.safetensors").write_bytes(b"model")
         (self.workspace / "workflows").mkdir()
@@ -79,14 +75,8 @@ class WorkerFixture:
         (self.metadata_dir / "runtime-manifest.json").write_text(
             json.dumps(
                 {
-                    "environment_kind": "image_baked_comfyui_runtime",
-                    "python_path": str(self.venv_python),
-                    "comfyui_root": str(self.comfyui_root),
-                    "image_runtime_root": str(self.image_runtime_root),
+                    "manifest_kind": "luma_forge_prepared_workspace",
                     "workspace_root": str(self.workspace),
-                    "python_overlay_path": str(self.overlay_path),
-                    "custom_node_revisions": [],
-                    "overlay_dependency_record_paths": [str(self.overlay_report_path)],
                     "model_asset_paths": [str(self.workspace / "models/checkpoints/sd_xl_base_1.0.safetensors")],
                     "prepared_at": "2026-05-15T00:00:00+00:00",
                 }

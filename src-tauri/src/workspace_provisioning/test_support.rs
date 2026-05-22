@@ -65,6 +65,7 @@ impl TestHarness {
             workspace_provisioner: WorkspaceProvisionerService::new(),
             config: WorkspaceProvisioningConfig {
                 volume_mount_path: "/workspace".to_string(),
+                provisioner_worker_image_ref: "provisioner:latest".to_string(),
             },
         }
     }
@@ -567,6 +568,7 @@ pub(crate) fn service_parts(
         coordinator.clone(),
         WorkspaceProvisioningConfig {
             volume_mount_path: "/workspace".to_string(),
+            provisioner_worker_image_ref: "provisioner:latest".to_string(),
         },
     );
 
@@ -585,7 +587,6 @@ pub(crate) fn workspace() -> Workspace {
             version: "1.0.0".to_string(),
         },
         required_model_assets: Vec::new(),
-        required_custom_nodes: Vec::new(),
     };
     let placement_plan = PlacementPlan::Runpod {
         selected_datacenter_id: "dc-1".to_string(),
@@ -597,7 +598,6 @@ pub(crate) fn workspace() -> Workspace {
     let runtime = ResolvedRuntimeImageSnapshot {
         contract_id: "runtime".to_string(),
         contract_version: "1.0.0".to_string(),
-        provisioner_image_ref: "provisioner:latest".to_string(),
         endpoint_image_ref: "endpoint:latest".to_string(),
     };
     Workspace::new_draft(

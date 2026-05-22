@@ -115,8 +115,6 @@ pub enum WorkspaceProvisioningFailureCode {
     ProvisionerWorkerConflict,
     ProvisionerWorkerResponseInvalid,
     ProvisionerWorkerFailed,
-    ProvisionerWorkerGitCheckoutFailed,
-    ProvisionerWorkerDependencyInstallFailed,
     ProvisionerWorkerAssetDownloadFailed,
     ProvisionerWorkerAssetAuthRequired,
     ProvisionerWorkerPathValidationFailed,

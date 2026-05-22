@@ -142,7 +142,7 @@ async fn read_runtime_image(
 ) -> Result<ResolvedRuntimeImageSnapshot, WorkspaceSetupError> {
     let row = sqlx::query(
         r#"
-        SELECT contract_id, contract_version, provisioner_image_ref, endpoint_image_ref
+        SELECT contract_id, contract_version, endpoint_image_ref
         FROM workspace_runtime_images
         WHERE workspace_id = ?
         "#,
@@ -158,9 +158,6 @@ async fn read_runtime_image(
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
         contract_version: row
             .try_get("contract_version")
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
-        provisioner_image_ref: row
-            .try_get("provisioner_image_ref")
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
         endpoint_image_ref: row
             .try_get("endpoint_image_ref")

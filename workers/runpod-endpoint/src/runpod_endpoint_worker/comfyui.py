@@ -128,8 +128,8 @@ class ComfyUiProcessManager:
             if self._process is None or self._process.poll() is not None:
                 self._process = self.process_factory(
                     [
-                        str(runtime.python_path),
-                        str(runtime.comfyui_root / "main.py"),
+                        str(self.config.image_python_path),
+                        str(self.config.comfyui_root / "main.py"),
                         "--base-directory",
                         str(runtime.workspace_root),
                         "--output-directory",
@@ -139,7 +139,7 @@ class ComfyUiProcessManager:
                         "--port",
                         str(self.config.comfyui_port),
                     ],
-                    runtime.comfyui_root,
+                    self.config.comfyui_root,
                     _runtime_env(runtime),
                 )
                 self._register_shutdown()
@@ -214,15 +214,9 @@ def validate_runtime_for_workflow(config: EndpointConfig) -> PreparedRuntimeMani
 
 
 def _runtime_env(runtime: PreparedRuntimeManifest) -> dict[str, str]:
-    python_paths = [str(runtime.python_overlay_path), str(runtime.workspace_root / "custom_nodes")]
-    existing = os.environ.get("PYTHONPATH")
-    if existing:
-        python_paths.append(existing)
+    _ = runtime
     return {
-        "PYTHONPATH": os.pathsep.join(python_paths),
         "LUMA_FORGE_WORKSPACE_ROOT": str(runtime.workspace_root),
-        "LUMA_FORGE_PYTHON_OVERLAY": str(runtime.python_overlay_path),
-        "LUMA_FORGE_CUSTOM_NODES_ROOT": str(runtime.workspace_root / "custom_nodes"),
         "LUMA_FORGE_MODELS_ROOT": str(runtime.workspace_root / "models"),
         "LUMA_FORGE_OUTPUT_ROOT": str(runtime.workspace_root / "output"),
     }

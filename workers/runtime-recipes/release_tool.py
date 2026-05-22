@@ -66,7 +66,6 @@ def validate_catalog_compatibility(*, recipe: dict[str, Any], catalog: dict[str,
     if revision is None:
         return
     _string_value(revision, "version")
-    _validate_image_ref(_string_value(revision, "provisioner_image_ref"))
     _validate_image_ref(_string_value(revision, "endpoint_image_ref"))
 
 
@@ -74,12 +73,10 @@ def update_catalog(
     *,
     recipe: dict[str, Any],
     catalog: dict[str, Any],
-    provisioner_ref: str,
     endpoint_ref: str,
     contract_version: str | None = None,
 ) -> dict[str, Any]:
     validate_catalog_compatibility(recipe=recipe, catalog=catalog)
-    _validate_image_ref(provisioner_ref)
     _validate_image_ref(endpoint_ref)
     contracts = _list_value(catalog, "contracts")
     contract_id = recipe["contract"]["id"]
@@ -93,7 +90,6 @@ def update_catalog(
                 "revisions": [
                     {
                         "version": resolved_contract_version,
-                        "provisioner_image_ref": provisioner_ref,
                         "endpoint_image_ref": endpoint_ref,
                     }
                 ],
@@ -107,7 +103,6 @@ def update_catalog(
         revisions.append(
             {
                 "version": resolved_contract_version,
-                "provisioner_image_ref": provisioner_ref,
                 "endpoint_image_ref": endpoint_ref,
             }
         )
@@ -410,7 +405,6 @@ def _cmd_update_catalog(args: argparse.Namespace) -> None:
     updated = update_catalog(
         recipe=recipe,
         catalog=runtime_catalog,
-        provisioner_ref=args.provisioner_ref,
         endpoint_ref=args.endpoint_ref,
         contract_version=contract_version,
     )
@@ -442,10 +436,9 @@ def build_parser() -> argparse.ArgumentParser:
     validate_catalog.add_argument("--catalog", required=True)
     validate_catalog.set_defaults(func=_cmd_validate_catalog)
 
-    update = subparsers.add_parser("update-catalog", help="upsert a runtime contract image pair")
+    update = subparsers.add_parser("update-catalog", help="upsert a runtime contract endpoint image")
     update.add_argument("--recipe", required=True)
     update.add_argument("--catalog", required=True)
-    update.add_argument("--provisioner-ref", required=True)
     update.add_argument("--endpoint-ref", required=True)
     update.add_argument("--contract-version")
     update.add_argument("--workflow-catalog")

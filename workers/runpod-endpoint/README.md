@@ -27,17 +27,14 @@ The endpoint image must include the base runtime under `/opt/luma-forge/runtime`
 
 ```text
 /workspace/
-  custom_nodes/
   models/
   output/
   workflows/
   .luma-forge/
     runtime-manifest.json
-    python-overlay/
-    custom-node-*-install-report.json
 ```
 
-The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` for the prepared workspace paths needed during generation. It starts ComfyUI through the fixed image interpreter at `/opt/luma-forge/runtime/.venv/bin/python`, with workspace model, Custom Node, output, and overlay dependency paths configured for the process.
+The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` for the prepared workspace paths needed during generation. It starts ComfyUI through the fixed image interpreter at `/opt/luma-forge/runtime/.venv/bin/python`, with workspace model, workflow, and output paths configured for the process.
 
 ## Configuration
 
@@ -52,7 +49,6 @@ The endpoint validates `/workspace/.luma-forge/runtime-manifest.json` for the pr
 | `LUMA_FORGE_RUNPOD_ENDPOINT_GENERATION_TIMEOUT_SECONDS` | `300` | Maximum ComfyUI generation wait time. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_RELATIVE_PATH` | `workflows/t2i.json` | Workflow JSON path relative to the prepared workspace root. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_MODEL_PATHS` | `models/checkpoints/sd_xl_base_1.0.safetensors` | Comma-separated prepared-workspace-relative model paths required before generation. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_CUSTOM_NODE_PATHS` | empty | Comma-separated prepared-workspace-relative Custom Node paths required before generation. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_NODE_ID` | empty | Optional ComfyUI node id to receive the prompt. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_INPUT_KEY` | `text` | Input key used when prompt node id is configured. |
 

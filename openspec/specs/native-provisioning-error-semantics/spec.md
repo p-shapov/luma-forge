@@ -82,7 +82,7 @@ Workspace Provisioning SHALL map `WorkspaceResourceError` into `WorkspaceProvisi
 
 #### Scenario: Terminal worker subtype becomes persisted failure
 
-- **WHEN** Workspace Provisioning receives terminal worker preparation subtype `ProvisionerWorkerGitCheckoutFailed`, `ProvisionerWorkerDependencyInstallFailed`, `ProvisionerWorkerAssetDownloadFailed`, `ProvisionerWorkerAssetAuthRequired`, `ProvisionerWorkerPathValidationFailed`, `ProvisionerWorkerStepTimeout`, or `ProvisionerWorkerUnexpectedError` during active provisioning sync
+- **WHEN** Workspace Provisioning receives terminal worker preparation subtype `ProvisionerWorkerAssetDownloadFailed`, `ProvisionerWorkerAssetAuthRequired`, `ProvisionerWorkerPathValidationFailed`, `ProvisionerWorkerStepTimeout`, or `ProvisionerWorkerUnexpectedError` during active provisioning sync
 - **THEN** Workspace Provisioning SHALL persist the corresponding granular `WorkspaceProvisioningFailureCode` when catalog persistence is available
 - **AND** Workspace Provisioning SHALL return authoritative failed Workspace state and failed progress after persistence succeeds
 - **AND** Workspace Provisioning MUST NOT rely on the command boundary's generic `provisioner_worker_failed` fallback for normal sync handling

@@ -15,8 +15,9 @@ The repository SHALL provide a RunPod-specific Endpoint Worker package and conta
 
 #### Scenario: Endpoint worker does not provision environment
 - **WHEN** the RunPod Endpoint Worker handles startup or generation
-- **THEN** it MUST NOT clone ComfyUI repositories, download model assets, install dependencies, install Custom Nodes, create virtual environments, modify the image-baked runtime, or run pip
-- **AND** it SHALL rely on the image-baked base runtime plus the prepared workspace manifest, workspace Custom Nodes, workspace models, workspace output paths, and workspace Python overlay
+- **THEN** it MUST NOT clone ComfyUI repositories, download model assets, install dependencies, install runtime extensions, create virtual environments, modify the image-baked runtime, or run pip
+- **AND** it SHALL rely on the image-baked base runtime plus the prepared workspace manifest, workspace models, workflows, and output paths
+- **AND** it MUST NOT rely on provisioner-written Python path, ComfyUI root, or image runtime root fields
 
 ### Requirement: Accept minimal execution-type generation input
 
@@ -47,8 +48,9 @@ The RunPod Endpoint Worker SHALL execute accepted generation requests by using t
 - **WHEN** a valid generation request is accepted
 - **AND** the configured ComfyUI HTTP endpoint is not already ready
 - **THEN** the RunPod Endpoint Worker SHALL validate the prepared runtime manifest before starting ComfyUI
+- **AND** it SHALL validate its image-local fixed Python interpreter and fixed image-baked ComfyUI root
 - **AND** it SHALL start the ComfyUI process from the fixed image-baked ComfyUI root using the fixed image-baked Python interpreter
-- **AND** it SHALL configure workspace model paths, Custom Node paths, output paths, and Python overlay paths from the runtime manifest
+- **AND** it SHALL configure workspace model, workflow, and output paths from the runtime manifest and endpoint config
 - **AND** it SHALL wait for `/system_stats` before submitting the workflow
 - **AND** it MUST NOT start a separate ComfyUI process per request
 
@@ -72,7 +74,7 @@ The RunPod Endpoint Worker SHALL execute accepted generation requests by using t
 - **AND** it MUST NOT attempt to repair the prepared environment by creating a virtual environment, running pip, downloading assets, cloning repositories, or modifying the image-baked runtime
 
 #### Scenario: Prepared environment is missing
-- **WHEN** the fixed image-baked ComfyUI runtime, fixed image-baked Python interpreter, required workflow definition, required model file, required Custom Node file, or declared overlay path is missing from the runtime environment
+- **WHEN** the fixed image-baked ComfyUI runtime, fixed image-baked Python interpreter, required workflow definition, or required model file is missing from the runtime environment
 - **THEN** the RunPod Endpoint Worker SHALL fail the request with a stable UI-safe error code
 - **AND** it MUST NOT attempt to repair the environment by downloading or installing missing assets
 

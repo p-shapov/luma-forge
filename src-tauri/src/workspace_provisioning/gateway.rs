@@ -4,10 +4,7 @@ use reqwest::{header::HeaderMap, header::CONTENT_TYPE, StatusCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{
-    domain::{runtime::ResolvedRuntimeImageSnapshot, workflow::WorkflowPreset},
-    secrets::ProvisionerWorkerBearerToken,
-};
+use crate::{domain::workflow::WorkflowPreset, secrets::ProvisionerWorkerBearerToken};
 
 const PROVISIONER_WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -129,7 +126,6 @@ impl ProvisionerWorkerGateway for ProvisionerWorkerHttpGateway {
 pub struct ProvisionerWorkerStartRequest {
     pub job_id: String,
     pub workflow_preset: WorkflowPreset,
-    pub resolved_runtime_image: ResolvedRuntimeImageSnapshot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,7 +152,6 @@ pub enum ProvisionerWorkerPhase {
     ResolvingWorkflow,
     ValidatingRuntime,
     InstallingModels,
-    InstallingCustomNodes,
     WritingManifest,
     Completed,
     Cancelled,
@@ -175,10 +170,6 @@ pub enum ProvisionerWorkerError {
     InvalidPayload,
     #[error("provisioner worker failed")]
     Failed,
-    #[error("provisioner worker git checkout failed")]
-    GitCheckoutFailed,
-    #[error("provisioner worker dependency install failed")]
-    DependencyInstallFailed,
     #[error("provisioner worker asset download failed")]
     AssetDownloadFailed,
     #[error("provisioner worker asset auth required")]
@@ -312,9 +303,6 @@ fn phase_from_response(
         Some("installing_models" | "downloading_assets") => {
             Ok(ProvisionerWorkerPhase::InstallingModels)
         }
-        Some("preparing_custom_nodes" | "installing_custom_nodes") => {
-            Ok(ProvisionerWorkerPhase::InstallingCustomNodes)
-        }
         Some("writing_manifest" | "validating_environment" | "verifying_assets") => {
             Ok(ProvisionerWorkerPhase::WritingManifest)
         }
@@ -352,8 +340,6 @@ fn provisioner_worker_failure_code(
 
 fn known_provisioner_worker_failure_code(value: &str) -> Option<ProvisionerWorkerError> {
     match value {
-        "git_checkout_failed" => ProvisionerWorkerError::GitCheckoutFailed,
-        "dependency_install_failed" => ProvisionerWorkerError::DependencyInstallFailed,
         "asset_download_failed" => ProvisionerWorkerError::AssetDownloadFailed,
         "asset_auth_required" => ProvisionerWorkerError::AssetAuthRequired,
         "path_validation_failed" => ProvisionerWorkerError::PathValidationFailed,
@@ -420,34 +406,34 @@ mod tests {
     fn status_from_response_maps_failed_payload_to_terminal_failure_code() {
         let mut payload = response(Some("failed"), Some("failed"), None);
         payload.error = Some(ProvisionerWorkerErrorResponse {
-            code: Some("dependency_install_failed".to_string()),
-            reason_code: Some("dependency_install_failed".to_string()),
+            code: Some("asset_download_failed".to_string()),
+            reason_code: Some("asset_download_failed".to_string()),
         });
 
         let error = status_from_response(payload)
             .expect_err("failed status should become terminal worker failure");
 
-        assert_eq!(error, ProvisionerWorkerError::DependencyInstallFailed);
+        assert_eq!(error, ProvisionerWorkerError::AssetDownloadFailed);
     }
 
     #[test]
     fn worker_error_reason_code_maps_to_terminal_failure_code() {
         let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
-            code: Some("dependency_install_failed".to_string()),
-            reason_code: Some("dependency_install_failed".to_string()),
+            code: Some("asset_download_failed".to_string()),
+            reason_code: Some("asset_download_failed".to_string()),
         });
 
-        assert_eq!(code, ProvisionerWorkerError::DependencyInstallFailed);
+        assert_eq!(code, ProvisionerWorkerError::AssetDownloadFailed);
     }
 
     #[test]
     fn worker_error_unknown_reason_code_falls_back_to_recognized_code() {
         let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
-            code: Some("dependency_install_failed".to_string()),
+            code: Some("asset_download_failed".to_string()),
             reason_code: Some("future_worker_reason".to_string()),
         });
 
-        assert_eq!(code, ProvisionerWorkerError::DependencyInstallFailed);
+        assert_eq!(code, ProvisionerWorkerError::AssetDownloadFailed);
     }
 
     #[test]

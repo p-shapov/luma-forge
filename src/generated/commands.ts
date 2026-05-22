@@ -28,20 +28,6 @@ export type CreateWorkspaceResponse = {
 	workspace: Workspace,
 };
 
-export type CustomNode = {
-	id: string,
-	name: string,
-	git_source: CustomNodeGitSource,
-	install: CustomNodeInstall,
-};
-
-export type CustomNodeGitSource = { source_type: "git"; repository_url: string; revision: string };
-
-export type CustomNodeInstall = {
-	comfyui_custom_nodes_relative_path: string,
-	python_requirements_path: string | null,
-};
-
 export type Datacenter = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	id: string,
@@ -161,7 +147,6 @@ export type ProvisioningPodSnapshot = {
 export type ResolvedRuntimeImageSnapshot = {
 	contract_id: string,
 	contract_version: string,
-	provisioner_image_ref: string,
 	endpoint_image_ref: string,
 };
 
@@ -207,7 +192,6 @@ export type WorkflowPreset = {
 	required_base_volume_size_bytes: number,
 	runtime_contract: RuntimeContractReference,
 	required_model_assets: ModelAsset[],
-	required_custom_nodes: CustomNode[],
 };
 
 export type Workspace = {
@@ -239,7 +223,7 @@ export type WorkspaceProvisioningFailure = {
 	recovery_action: WorkspaceProvisioningRecoveryAction,
 };
 
-export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_setup_incomplete" | "provider_api_key_unauthorized" | "provider_api_unavailable" | "provider_rate_limited" | "provider_request_rejected" | "provider_response_invalid" | "provider_operation_conflict" | "provider_operation_indeterminate" | "secure_keyring_unavailable" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_git_checkout_failed" | "provisioner_worker_dependency_install_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
+export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_setup_incomplete" | "provider_api_key_unauthorized" | "provider_api_unavailable" | "provider_rate_limited" | "provider_request_rejected" | "provider_response_invalid" | "provider_operation_conflict" | "provider_operation_indeterminate" | "secure_keyring_unavailable" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
 
 export type WorkspaceProvisioningFailureSource = "native" | "provider" | "provider_resource" | "provisioner_worker";
 
@@ -274,4 +258,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-

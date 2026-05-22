@@ -14,6 +14,7 @@ pub(crate) type WorkspaceResourceSyncResult = Result<Option<Workspace>, Workspac
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkspaceResourceConfig {
     pub(crate) volume_mount_path: String,
+    pub(crate) provisioner_worker_image_ref: String,
 }
 
 #[derive(Debug, Clone)]
@@ -339,6 +340,7 @@ mod tests {
         let mut workspace = workspace();
         let config = WorkspaceResourceConfig {
             volume_mount_path: "/workspace".to_string(),
+            provisioner_worker_image_ref: "provisioner:latest".to_string(),
         };
 
         service
@@ -422,7 +424,6 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             required_model_assets: Vec::new(),
-            required_custom_nodes: Vec::new(),
         };
         let placement_plan = PlacementPlan::Runpod {
             selected_datacenter_id: "dc-1".to_string(),
@@ -434,7 +435,6 @@ mod tests {
         let runtime = ResolvedRuntimeImageSnapshot {
             contract_id: "runtime".to_string(),
             contract_version: "1.0.0".to_string(),
-            provisioner_image_ref: "provisioner:latest".to_string(),
             endpoint_image_ref: "endpoint:latest".to_string(),
         };
         Workspace::new_draft(

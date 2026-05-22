@@ -6,7 +6,7 @@ use crate::domain::{
     validation::{is_blank, is_safe_relative_path},
 };
 
-use super::{CustomNodeGitSource, ModelAssetSource, WorkflowCatalog};
+use super::{ModelAssetSource, WorkflowCatalog};
 
 pub fn validate_workflow_catalog(
     catalog: &WorkflowCatalog,
@@ -46,29 +46,9 @@ pub fn validate_workflow_catalog(
         {
             return Err(DomainValidationError);
         }
-
-        for node in &preset.required_custom_nodes {
-            if is_blank(&node.id)
-                || is_blank(&node.name)
-                || !is_valid_custom_node_source(&node.git_source)
-                || !is_safe_custom_node_path(&node.install.comfyui_custom_nodes_relative_path)
-                || !is_optional_safe_relative_path(&node.install.python_requirements_path)
-            {
-                return Err(DomainValidationError);
-            }
-        }
     }
 
     Ok(())
-}
-
-fn is_valid_custom_node_source(source: &CustomNodeGitSource) -> bool {
-    match source {
-        CustomNodeGitSource::Git {
-            repository_url,
-            revision,
-        } => is_url_shaped(repository_url) && is_immutable_git_revision(revision),
-    }
 }
 
 fn is_valid_model_asset_source(source: &ModelAssetSource) -> bool {
@@ -83,41 +63,6 @@ fn is_valid_model_asset_source(source: &ModelAssetSource) -> bool {
                 && !is_blank(revision)
         }
     }
-}
-
-fn is_safe_custom_node_path(value: &str) -> bool {
-    if !is_safe_relative_path(value) {
-        return false;
-    }
-
-    let mut segments = value.trim().split(['/', '\\']);
-    matches!(segments.next(), Some("custom_nodes")) && segments.next().is_some()
-}
-
-fn is_optional_safe_relative_path(value: &Option<String>) -> bool {
-    value.as_deref().map(is_safe_relative_path).unwrap_or(true)
-}
-
-fn is_url_shaped(value: &str) -> bool {
-    let value = value.trim();
-    let Some((scheme, rest)) = value.split_once("://") else {
-        return false;
-    };
-
-    !scheme.is_empty()
-        && scheme.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
-        })
-        && !rest.is_empty()
-        && !rest.chars().any(char::is_whitespace)
-        && !rest.starts_with('/')
-}
-
-fn is_immutable_git_revision(value: &str) -> bool {
-    value.len() == 40
-        && value
-            .chars()
-            .all(|character| character.is_ascii_hexdigit() && !character.is_ascii_uppercase())
 }
 
 fn is_huggingface_repository_id(value: &str) -> bool {
@@ -140,12 +85,11 @@ mod tests {
     use crate::domain::{
         runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
         workflow::{
-            CustomNode, CustomNodeInstall, ModelAsset, ModelAssetInstall, ModelAssetKind,
-            RuntimeContractReference, WorkflowExecutionType, WorkflowPreset,
+            ModelAsset, ModelAssetInstall, ModelAssetKind, RuntimeContractReference,
+            WorkflowExecutionType, WorkflowPreset,
         },
     };
 
-    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     fn runtime_catalog() -> RuntimeCatalog {
@@ -154,9 +98,6 @@ mod tests {
                 id: "comfyui-python312-cu121".to_string(),
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
-                    provisioner_image_ref: format!(
-                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"
-                    ),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
                 }],
             }],
@@ -179,23 +120,6 @@ mod tests {
         }
     }
 
-    fn valid_custom_node() -> CustomNode {
-        CustomNode {
-            id: "example-node".to_string(),
-            name: "Example Node".to_string(),
-            git_source: CustomNodeGitSource::Git {
-                repository_url: "https://github.com/example/node.git".to_string(),
-                revision: "0123456789abcdef0123456789abcdef01234567".to_string(),
-            },
-            install: CustomNodeInstall {
-                comfyui_custom_nodes_relative_path: "custom_nodes/example-node".to_string(),
-                python_requirements_path: Some(
-                    "custom_nodes/example-node/requirements.txt".to_string(),
-                ),
-            },
-        }
-    }
-
     fn valid_preset(id: &str) -> WorkflowPreset {
         WorkflowPreset {
             id: id.to_string(),
@@ -208,7 +132,6 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             required_model_assets: vec![valid_model_asset()],
-            required_custom_nodes: vec![valid_custom_node()],
         }
     }
 
@@ -312,58 +235,6 @@ mod tests {
             let catalog = WorkflowCatalog {
                 workflow_presets: vec![WorkflowPreset {
                     required_model_assets: vec![asset],
-                    ..valid_preset("comfyui-t2i-basic")
-                }],
-            };
-
-            assert_eq!(
-                validate_workflow_catalog(&catalog, &runtime_catalog()),
-                Err(DomainValidationError)
-            );
-        }
-    }
-
-    #[test]
-    fn validate_workflow_catalog_rejects_mutable_or_unsafe_custom_nodes() {
-        let invalid_nodes = [
-            CustomNode {
-                id: " ".to_string(),
-                ..valid_custom_node()
-            },
-            CustomNode {
-                git_source: CustomNodeGitSource::Git {
-                    repository_url: "github.com/example/node.git".to_string(),
-                    revision: "0123456789abcdef0123456789abcdef01234567".to_string(),
-                },
-                ..valid_custom_node()
-            },
-            CustomNode {
-                git_source: CustomNodeGitSource::Git {
-                    repository_url: "https://github.com/example/node.git".to_string(),
-                    revision: "main".to_string(),
-                },
-                ..valid_custom_node()
-            },
-            CustomNode {
-                install: CustomNodeInstall {
-                    comfyui_custom_nodes_relative_path: "nodes/example".to_string(),
-                    python_requirements_path: None,
-                },
-                ..valid_custom_node()
-            },
-            CustomNode {
-                install: CustomNodeInstall {
-                    comfyui_custom_nodes_relative_path: "custom_nodes/example".to_string(),
-                    python_requirements_path: Some("../requirements.txt".to_string()),
-                },
-                ..valid_custom_node()
-            },
-        ];
-
-        for node in invalid_nodes {
-            let catalog = WorkflowCatalog {
-                workflow_presets: vec![WorkflowPreset {
-                    required_custom_nodes: vec![node],
                     ..valid_preset("comfyui-t2i-basic")
                 }],
             };

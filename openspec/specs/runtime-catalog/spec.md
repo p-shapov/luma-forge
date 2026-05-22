@@ -4,13 +4,13 @@
 TBD - created by archiving change bake-comfyui-runtime-into-provisioner-image. Update Purpose after archive.
 ## Requirements
 ### Requirement: Provide bundled Runtime Catalog
-The Native Layer SHALL read a bundled Runtime Catalog that maps runtime contract ids and versions to the immutable worker image refs used by new Workspaces.
+The Native Layer SHALL read a bundled Runtime Catalog that maps runtime contract ids and versions to the immutable Endpoint Worker image refs used by new Workspaces.
 
 #### Scenario: Runtime Catalog is available
 - **WHEN** Workspace Setup needs runtime contract data
 - **THEN** the Native Layer SHALL read the bundled Runtime Catalog from the current application build
 - **AND** each runtime contract entry SHALL include a stable runtime contract id and one or more revision entries
-- **AND** each revision entry SHALL include a contract version, immutable Provisioner Worker image ref, and immutable Endpoint Worker image ref
+- **AND** each revision entry SHALL include a contract version and immutable Endpoint Worker image ref
 - **AND** each runtime contract entry MUST NOT include display name, implementation revision, default implementation revision, runtime metadata, image metadata, runtime manifest compatibility metadata, workspace overlay policy metadata, release compatibility metadata, provider secrets, registry credentials, or worker bearer tokens
 
 #### Scenario: Runtime Catalog is unavailable
@@ -36,7 +36,7 @@ Workspace Setup SHALL persist the resolved runtime image snapshot selected for a
 - **WHEN** Workspace Setup creates a Draft Workspace from a Workflow Preset with a resolvable runtime contract id/version pair
 - **THEN** it SHALL resolve that id/version pair through the bundled Runtime Catalog
 - **AND** it SHALL persist the resolved runtime snapshot with the Workspace
-- **AND** the snapshot SHALL include only the runtime contract id, runtime contract version, immutable Provisioner Worker image ref, and immutable Endpoint Worker image ref
+- **AND** the snapshot SHALL include only the runtime contract id, runtime contract version, and immutable Endpoint Worker image ref
 
 #### Scenario: Runtime Catalog changes later
 - **WHEN** a later application build changes image refs for a runtime contract id/version pair or adds newer runtime contract versions
@@ -51,14 +51,14 @@ Published runtime contract id/version pairs SHALL retain stable meaning for Work
 - **THEN** the Runtime Catalog SHALL use a new runtime contract version under the relevant contract id for future Workspaces
 - **AND** it MUST NOT mutate an existing runtime contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
 
-#### Scenario: Worker image pair changes during development
-- **WHEN** a new Provisioner Worker or Endpoint Worker image pair is published for the current runtime compatibility surface
-- **THEN** the Runtime Catalog SHALL point the relevant runtime contract id/version pair at the new immutable image refs for future Workspaces
+#### Scenario: Endpoint image changes during development
+- **WHEN** a new Endpoint Worker image is published for the current runtime compatibility surface
+- **THEN** the Runtime Catalog SHALL point the relevant runtime contract id/version pair at the new immutable endpoint image ref for future Workspaces
 - **AND** existing Workspace records MUST remain pinned to their persisted image refs
 
 #### Scenario: Runtime implementation is rolled back
-- **WHEN** developers need to roll back a runtime image pair during development
-- **THEN** they SHALL update the Runtime Catalog contract id/version entry to point future Workspaces at the selected immutable image refs
+- **WHEN** developers need to roll back a runtime endpoint image during development
+- **THEN** they SHALL update the Runtime Catalog contract id/version entry to point future Workspaces at the selected immutable endpoint image ref
 - **AND** they MUST NOT repoint existing persisted Workspace runtime snapshots
 
 ### Requirement: Runtime Catalog update PRs contain only catalog changes
@@ -94,14 +94,14 @@ Runtime recipe image builds SHALL use `comfy-cli` to install the image-baked Com
 
 - **WHEN** the runtime recipe image build installs ComfyUI for a runtime contract revision
 - **THEN** the build SHALL invoke `comfy-cli` with the canonical upstream ComfyUI repository and an immutable 40-character ComfyUI commit
-- **AND** the resulting image SHALL contain ComfyUI at the fixed image runtime path expected by the Provisioner Worker and Endpoint Worker
-- **AND** the resulting image SHALL keep the existing fixed image Python interpreter path expected by the workers
+- **AND** the resulting image SHALL contain ComfyUI at the fixed image runtime path expected by the Endpoint Worker
+- **AND** the resulting image SHALL keep the existing fixed image Python interpreter path expected by the Endpoint Worker
 
 #### Scenario: Runtime image skips ComfyUI-Manager
 
 - **WHEN** the runtime recipe image build installs ComfyUI through `comfy-cli`
 - **THEN** the build SHALL disable ComfyUI-Manager installation
-- **AND** the built worker images MUST NOT require ComfyUI-Manager to launch or validate the image-baked ComfyUI runtime
+- **AND** the built Endpoint Worker images MUST NOT require ComfyUI-Manager to launch or validate the image-baked ComfyUI runtime
 
 #### Scenario: Runtime image preserves LumaForge PyTorch ownership
 
@@ -123,12 +123,11 @@ Runtime recipe image builds SHALL use `comfy-cli` to install the image-baked Com
 #### Scenario: Workspace provisioning does not install ComfyUI
 
 - **WHEN** the Provisioner Worker prepares a mounted workspace volume from a selected Workflow Preset
-- **THEN** it SHALL continue to use the fixed image-baked ComfyUI runtime produced by the runtime image build
-- **AND** it MUST NOT run `comfy install`, clone ComfyUI, create the base runtime virtual environment, or install ComfyUI base requirements during workspace provisioning
+- **THEN** it SHALL prepare workspace directories, model assets, and workspace metadata without using the fixed endpoint image-baked ComfyUI runtime
+- **AND** it MUST NOT validate endpoint Python, validate endpoint ComfyUI root, run `comfy install`, clone ComfyUI, create the base runtime virtual environment, or install ComfyUI base requirements during workspace provisioning
 
 #### Scenario: Model assets remain workspace-owned
 
 - **WHEN** a selected Workflow Preset declares required model assets
 - **THEN** model asset files SHALL continue to be installed under the mounted workspace volume
 - **AND** the runtime image build MUST NOT bake preset model assets into the image-baked ComfyUI runtime as part of the `comfy-cli` installation
-

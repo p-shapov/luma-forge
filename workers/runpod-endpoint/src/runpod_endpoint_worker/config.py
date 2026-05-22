@@ -15,7 +15,6 @@ class EndpointConfig:
     supported_execution_types: tuple[str, ...] = ("t2i",)
     workflow_relative_path: Path = Path("workflows/t2i.json")
     required_model_paths: tuple[Path, ...] = (Path("models/checkpoints/sd_xl_base_1.0.safetensors"),)
-    required_custom_node_paths: tuple[Path, ...] = ()
     t2i_prompt_node_id: str | None = None
     t2i_prompt_input_key: str = "text"
 
@@ -44,9 +43,6 @@ class EndpointConfig:
                 "LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_MODEL_PATHS",
                 ("models/checkpoints/sd_xl_base_1.0.safetensors",),
             )),
-            required_custom_node_paths=tuple(
-                Path(value) for value in _csv("LUMA_FORGE_RUNPOD_ENDPOINT_REQUIRED_CUSTOM_NODE_PATHS", ())
-            ),
             t2i_prompt_node_id=_optional_string("LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_NODE_ID"),
             t2i_prompt_input_key=_string("LUMA_FORGE_RUNPOD_ENDPOINT_T2I_PROMPT_INPUT_KEY", "text"),
         )

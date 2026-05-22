@@ -25,6 +25,9 @@ use crate::{
 
 type ProductionSecretStore = BlockingSecretStore<KeyringSecretStore>;
 
+const PROVISIONER_WORKER_IMAGE_REF: &str =
+    "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55";
+
 pub(crate) type ProductionProviderSetupService = ProviderSetupService<ProductionSecretStore>;
 pub(crate) type WorkspaceSetupReadService =
     WorkspaceSetupService<BundledCatalogReader, ProductionSecretStore, UnavailableWorkspaceCatalog>;
@@ -117,6 +120,7 @@ impl NativeAppState {
             self.workspace_provisioning_coordinator.clone(),
             WorkspaceProvisioningConfig {
                 volume_mount_path: "/workspace".to_string(),
+                provisioner_worker_image_ref: PROVISIONER_WORKER_IMAGE_REF.to_string(),
             },
         ))
     }

@@ -53,7 +53,14 @@ class ContainerSmokeTests(unittest.TestCase):
                     connection.close()
                     if response.status == 200 and '"status": "idle"' in payload:
                         subprocess.run(
-                            ["docker", "exec", container, "python", "-c", "import huggingface_hub"],
+                            [
+                                "docker",
+                                "exec",
+                                container,
+                                "sh",
+                                "-c",
+                                "python -c 'import huggingface_hub' && test ! -e /opt/luma-forge/runtime/ComfyUI/main.py",
+                            ],
                             check=True,
                         )
                         return

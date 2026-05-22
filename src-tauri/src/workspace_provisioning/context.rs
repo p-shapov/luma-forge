@@ -135,6 +135,7 @@ impl<'a, S, W, R, Q> WorkspaceProvisioningContext<'a, S, W, R, Q> {
     pub(crate) fn resource_config(&self) -> WorkspaceResourceConfig {
         WorkspaceResourceConfig {
             volume_mount_path: self.config.volume_mount_path.clone(),
+            provisioner_worker_image_ref: self.config.provisioner_worker_image_ref.clone(),
         }
     }
 

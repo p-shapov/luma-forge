@@ -99,7 +99,7 @@ Workspace Provisioning SHALL create, detect orphaned owned resources for, or obs
 
 ### Requirement: Provision Temporary RunPod Provisioning Pod
 
-Workspace Provisioning SHALL create, detect orphaned owned resources for, observe, and terminate a temporary RunPod provisioning pod that mounts the Workspace network volume at `/workspace` and runs the Provisioner Worker image from the Workspace's resolved runtime image snapshot, without adopting pre-existing provider pods when local Workspace metadata has no matching snapshot.
+Workspace Provisioning SHALL create, detect orphaned owned resources for, observe, and terminate a temporary RunPod provisioning pod that mounts the Workspace network volume at `/workspace` and runs the Provisioner Worker image from app or provider deployment configuration, without adopting pre-existing provider pods when local Workspace metadata has no matching snapshot.
 
 #### Scenario: Same-name provisioning pod is orphaned before create
 
@@ -115,12 +115,13 @@ Workspace Provisioning SHALL create, detect orphaned owned resources for, observ
 
 - **WHEN** a provisioning Workspace has a ready Persistent Storage Volume snapshot, no active Provisioning Pod snapshot, and no live RunPod pod with the stable Workspace-derived pod name
 - **THEN** the Native Layer SHALL generate and store a per-workspace Provisioner Worker bearer token in secure storage
-- **AND** the Native Layer SHALL create a RunPod pod using the immutable Provisioner Worker image ref from the Workspace's resolved runtime image snapshot, selected GPU, selected data center, network volume id, and mount path `/workspace`
+- **AND** the Native Layer SHALL create a RunPod pod using the immutable Provisioner Worker image ref from app or provider deployment configuration, selected GPU, selected data center, network volume id, and mount path `/workspace`
 - **AND** the Native Layer SHALL inject the bearer token into the pod environment only for the Provisioner Worker runtime
 - **AND** the Native Layer SHALL persist the active Provisioning Pod snapshot after the provider resource id is known
 - **AND** the Native Layer SHALL use request-derived selected data center and selected GPU values when RunPod does not echo those fields in the pod response
 - **AND** the Native Layer SHALL derive the Provisioner Worker status URL from the RunPod HTTP proxy URL when the pod exposes an HTTP port
 - **AND** the Native Layer MUST NOT require RunPod direct TCP `publicIp` or `portMappings` metadata for HTTP-exposed provisioning pods
+- **AND** Workspace Provisioning MUST NOT require the provisioner image to match the selected endpoint runtime image
 
 #### Scenario: Provisioning pod create result is indeterminate
 
@@ -179,8 +180,9 @@ Workspace Provisioning SHALL use fixed provider/worker implementation values for
 
 #### Scenario: Worker image refs are selected
 - **WHEN** Workspace Provisioning creates a provisioning pod or endpoint template
-- **THEN** worker image refs SHALL still come from the Workspace's resolved runtime image snapshot
-- **AND** fixed provider/worker port values MUST NOT replace or weaken Runtime Catalog ownership of worker image identity
+- **THEN** the provisioning pod image ref SHALL come from app or provider deployment configuration
+- **AND** the endpoint template image ref SHALL come from the Workspace's resolved runtime image snapshot
+- **AND** fixed provider/worker port values MUST NOT replace or weaken endpoint Runtime Catalog ownership
 
 ### Requirement: Drive Provisioner Worker Preparation
 Workspace Provisioning SHALL start and observe the Provisioner Worker job using the selected Workflow Preset and a per-workspace bearer token, while treating worker startup lag behind a running Provisioning Pod as non-terminal `starting_provisioning_pod` progress.
@@ -200,7 +202,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **THEN** the Native Layer SHALL call `POST /start` with the active Workspace identifier as the worker job correlation identifier and the selected Workflow Preset
 - **AND** the request SHALL include `Authorization: Bearer <stored-token>`
 - **AND** the Native Layer MUST NOT include Provider API Keys in the worker request
-- **AND** the Native Layer SHALL include the Workspace's resolved runtime image snapshot in the worker start request
+- **AND** the Native Layer MUST NOT include the Workspace's resolved runtime image snapshot or endpoint image fields in the worker start request
 - **AND** the Native Layer SHALL treat a worker start response that has not yet reported active preparation work as `starting_provisioning_pod` progress
 - **AND** the progress percent SHALL be `10`
 
@@ -233,7 +235,7 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 - **AND** the Native Layer SHALL return authoritative Workspace metadata and Workspace Provisioning Progress instead of returning `Err(NativeCommandError)` when the failure has been persisted
 
 #### Scenario: Granular Provisioner Worker preparation failure is persisted
-- **WHEN** a provisioning sync observes terminal worker preparation failure cause `git_checkout_failed`, `dependency_install_failed`, `asset_download_failed`, `asset_auth_required`, `path_validation_failed`, `step_timeout`, or `unexpected_error`
+- **WHEN** a provisioning sync observes terminal worker preparation failure cause `asset_download_failed`, `asset_auth_required`, `path_validation_failed`, `step_timeout`, or `unexpected_error`
 - **THEN** the Native Layer SHALL persist the matching `WorkspaceProvisioningFailureCode`
 - **AND** the persisted failure source SHALL be `provisioner_worker`
 - **AND** the persisted failure phase SHALL be `preparing_environment`
@@ -621,42 +623,43 @@ Workspace Provisioning SHALL keep provider-specific provisioning sequence decisi
 - **AND** persisted Workspace Catalog metadata MUST remain readable without a migration for this change
 
 ### Requirement: Keep base runtime dependency installation out of Workspace Provisioning
-Workspace Provisioning SHALL treat base Python/PyTorch/ComfyUI runtime dependency installation as a Docker image build concern, not a provisioning concern.
+Workspace Provisioning SHALL treat endpoint Python, PyTorch, ComfyUI, runtime extensions, and runtime extension Python dependencies as Endpoint Worker image build concerns or future runtime-image concerns, not provisioning concerns.
 
 #### Scenario: Provisioning prepares environment
 - **WHEN** Workspace Provisioning drives the Provisioner Worker for a Workspace
-- **THEN** the resulting environment preparation SHALL consist of using the fixed image-baked runtime, installing or verifying Workflow Preset Custom Nodes, validating the prepared environment, and downloading or verifying workspace assets
-- **AND** Workspace Provisioning MUST NOT request or depend on provisioning-time base runtime dependency installation
+- **THEN** the resulting environment preparation SHALL consist of preparing workspace directories, downloading or verifying workspace model assets, writing prepared workspace metadata, and validating the prepared workspace
+- **AND** Workspace Provisioning MUST NOT request or depend on provisioning-time endpoint runtime validation, ComfyUI dependency installation, runtime extension checkout, runtime extension dependency installation, Python overlay creation, or pip execution
+- **AND** Workspace Provisioning MUST NOT require the provisioner image to match the selected endpoint runtime image
 
 #### Scenario: Selected GPU is used for provider resources
 - **WHEN** Workspace Provisioning creates or observes RunPod compute resources for a selected GPU
 - **THEN** the selected GPU SHALL determine provider resource placement
-- **AND** the selected GPU MUST NOT determine which base runtime or Custom Node Python dependencies are installed
+- **AND** the selected GPU MUST NOT determine which base runtime dependencies are installed
 
-### Requirement: Resolve worker images from Workspace runtime implementation
-Workspace Provisioning SHALL use the Workspace's persisted resolved runtime image snapshot as the source of worker image refs.
+### Requirement: Resolve worker images from separate deployment contracts
+Workspace Provisioning SHALL use a generic Provisioner Worker image for workspace preparation and a workflow/runtime-specific Endpoint Worker image for generation.
 
 #### Scenario: Provisioning creates worker resources
 - **WHEN** Workspace Provisioning creates a provisioning pod or endpoint template
-- **THEN** it SHALL use the immutable provisioner and endpoint image refs from the Workspace's resolved runtime image snapshot
-- **AND** it MUST NOT use global build-time worker image refs when a resolved runtime image snapshot is present
+- **THEN** it SHALL use the immutable provisioner image ref from app or provider deployment configuration for the provisioning pod
+- **AND** it SHALL use the immutable endpoint image ref from the Workspace's resolved runtime image snapshot for the endpoint template
 
 #### Scenario: Workspace runtime snapshot is missing
 - **WHEN** Workspace Provisioning starts for a Workspace whose selected Workflow Preset requires a runtime contract id/version pair but whose resolved runtime image snapshot is missing
-- **THEN** the Native Layer SHALL reject or fail provisioning with a UI-safe readiness or metadata error
-- **AND** it MUST NOT create provider resources with guessed worker image refs
+- **THEN** the Native Layer SHALL reject or fail endpoint-template provisioning with a UI-safe readiness or metadata error
+- **AND** it MUST NOT create endpoint provider resources with guessed endpoint image refs
 
-### Requirement: Provisioning pod receives selected runtime image identity
-Workspace Provisioning SHALL configure each temporary provisioning pod with the selected Provisioner Worker image ref and only operational environment values required by the Provisioner Worker.
+### Requirement: Provisioning pod receives generic provisioner image identity
+Workspace Provisioning SHALL configure each temporary provisioning pod with the configured Provisioner Worker image ref and only operational environment values required by the Provisioner Worker.
 
-#### Scenario: Provisioning pod is created with selected image
-- **WHEN** the Native Layer creates a RunPod provisioning pod for a Workspace with a resolved runtime image snapshot
-- **THEN** the pod image SHALL be the snapshot's provisioner image ref
+#### Scenario: Provisioning pod is created with configured image
+- **WHEN** the Native Layer creates a RunPod provisioning pod for a Workspace
+- **THEN** the pod image SHALL be the configured provisioner image ref
 - **AND** the pod environment SHALL include the unique `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`
 - **AND** the pod environment MUST NOT include `LUMA_FORGE_PROVISIONER_IMAGE_REF`, runtime contract id, runtime contract version, implementation revision, runtime metadata, image metadata, registry credentials, provider API keys, or endpoint image identity
 
-#### Scenario: Provisioner image ref is not available
-- **WHEN** a Workspace lacks a resolved runtime image snapshot with a provisioner image ref
+#### Scenario: Provisioner image ref is not configured
+- **WHEN** app or provider deployment configuration lacks a provisioner image ref
 - **THEN** Workspace Provisioning SHALL fail before creating a RunPod provisioning pod
 - **AND** it MUST NOT fall back to a build-time placeholder image ref
 

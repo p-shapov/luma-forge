@@ -81,7 +81,6 @@ mod tests {
         workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
     };
 
-    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const REQUIRED_VOLUME_SIZE: u64 = 80 * 1024 * 1024 * 1024;
 
@@ -91,9 +90,6 @@ mod tests {
                 id: "comfyui-python312-cu121".to_string(),
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
-                    provisioner_image_ref: format!(
-                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"
-                    ),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
                 }],
             }],
@@ -112,7 +108,6 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             required_model_assets: vec![],
-            required_custom_nodes: vec![],
         }
     }
 

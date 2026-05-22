@@ -105,7 +105,6 @@ impl WorkspaceProvisionerService {
                                 .placement_plan
                                 .selected_workflow_preset()
                                 .clone(),
-                            resolved_runtime_image: workspace.resolved_runtime_image.clone(),
                         },
                     )
                     .await
@@ -496,7 +495,6 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             required_model_assets: Vec::new(),
-            required_custom_nodes: Vec::new(),
         };
         let placement_plan = PlacementPlan::Runpod {
             selected_datacenter_id: "dc-1".to_string(),
@@ -508,7 +506,6 @@ mod tests {
         let runtime = ResolvedRuntimeImageSnapshot {
             contract_id: "runtime".to_string(),
             contract_version: "1.0.0".to_string(),
-            provisioner_image_ref: "provisioner:latest".to_string(),
             endpoint_image_ref: "endpoint:latest".to_string(),
         };
         let mut workspace = Workspace::new_draft(
@@ -730,14 +727,6 @@ mod tests {
             .expect("start request should be captured");
         assert_eq!(request.job_id, "workspace-1");
         assert_eq!(request.workflow_preset.id, "preset-1");
-        assert_eq!(
-            request.resolved_runtime_image.provisioner_image_ref,
-            "provisioner:latest"
-        );
-        assert_eq!(
-            request.resolved_runtime_image.endpoint_image_ref,
-            "endpoint:latest"
-        );
     }
 
     #[tokio::test]
@@ -858,7 +847,7 @@ mod tests {
     #[tokio::test]
     async fn sync_environment_fails_workspace_for_worker_terminal_failure() {
         let (result, _, catalog, _) =
-            sync_with_worker_error(ProvisionerWorkerError::DependencyInstallFailed).await;
+            sync_with_worker_error(ProvisionerWorkerError::AssetDownloadFailed).await;
 
         assert_eq!(catalog.updates().len(), 1);
         let failure = outcome_workspace(&result)
@@ -867,7 +856,7 @@ mod tests {
             .expect("failure should be present");
         assert_eq!(
             failure.code,
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
+            WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed
         );
     }
 

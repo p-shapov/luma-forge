@@ -25,8 +25,7 @@
             "comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"
           }
         }
-      ],
-      "required_custom_nodes": []
+      ]
     }
   ]
 }

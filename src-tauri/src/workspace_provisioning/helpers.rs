@@ -166,9 +166,7 @@ impl From<ProvisionerWorkerError> for WorkspaceProvisioningError {
             ProvisionerWorkerError::Unreachable => Self::ProvisionerWorkerUnavailable,
             ProvisionerWorkerError::InvalidPayload => Self::ProvisionerWorkerResponseInvalid,
             ProvisionerWorkerError::Failed => Self::ProvisionerWorkerFailed,
-            ProvisionerWorkerError::GitCheckoutFailed
-            | ProvisionerWorkerError::DependencyInstallFailed
-            | ProvisionerWorkerError::AssetDownloadFailed
+            ProvisionerWorkerError::AssetDownloadFailed
             | ProvisionerWorkerError::AssetAuthRequired
             | ProvisionerWorkerError::PathValidationFailed
             | ProvisionerWorkerError::StepTimeout
@@ -344,7 +342,6 @@ fn workspace_phase_from_worker_status(
         }
         ProvisionerWorkerPhase::ValidatingRuntime
         | ProvisionerWorkerPhase::InstallingModels
-        | ProvisionerWorkerPhase::InstallingCustomNodes
         | ProvisionerWorkerPhase::WritingManifest => {
             WorkspaceProvisioningPhase::PreparingEnvironment
         }
@@ -605,7 +602,7 @@ mod tests {
     fn progress_from_worker_status_maps_worker_facts_to_workspace_progress() {
         let running = progress_from_worker_status(&worker_status(
             ProvisionerWorkerJobStatus::Running,
-            ProvisionerWorkerPhase::InstallingCustomNodes,
+            ProvisionerWorkerPhase::InstallingModels,
             Some(55),
         ));
         assert_eq!(running.status, WorkspaceProvisioningStatus::Running);

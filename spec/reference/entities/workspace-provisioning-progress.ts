@@ -26,8 +26,6 @@ export type WorkspaceProvisioningFailureCode =
   | "provisioner_worker_conflict"
   | "provisioner_worker_response_invalid"
   | "provisioner_worker_failed"
-  | "provisioner_worker_git_checkout_failed"
-  | "provisioner_worker_dependency_install_failed"
   | "provisioner_worker_asset_download_failed"
   | "provisioner_worker_asset_auth_required"
   | "provisioner_worker_path_validation_failed"

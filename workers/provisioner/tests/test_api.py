@@ -1,5 +1,4 @@
 from contextlib import redirect_stderr, redirect_stdout
-from copy import deepcopy
 from io import StringIO
 import sys
 import tempfile
@@ -12,8 +11,6 @@ from helpers import BlockingProvisioner, ImmediateProvisioner, RecordingProvisio
 from app.errors import (
     AssetAuthRequiredError,
     AssetDownloadError,
-    DependencyInstallError,
-    GitCheckoutError,
     PathValidationError,
     StepTimeoutError,
 )
@@ -64,22 +61,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(workspace_entries, [])
 
     def test_unsafe_start_payloads_have_no_side_effects(self):
-        def set_custom_node_path(payload, value):
-            payload["workflow_preset"]["required_custom_nodes"] = [_custom_node(value)]
-
         def set_model_path(payload, value):
             payload["workflow_preset"]["required_model_assets"][0]["install"]["comfyui_relative_path"] = value
 
         cases = [
             ("unsafe workflow id", lambda payload: payload["workflow_preset"].update({"id": "../unsafe"})),
-            ("unsafe custom node path", lambda payload: set_custom_node_path(payload, "models/node")),
             ("unsafe model path", lambda payload: set_model_path(payload, "../model.safetensors")),
-            (
-                "mutable runtime image",
-                lambda payload: payload["resolved_runtime_image"].update(
-                    {"provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker:latest"}
-                ),
-            ),
         ]
 
         for name, mutate in cases:
@@ -143,12 +130,6 @@ class ApiTests(unittest.TestCase):
 
     def test_failed_job_reports_expected_error_codes(self):
         cases = [
-            (GitCheckoutError("Git checkout failed."), "git_checkout_failed", "git_checkout_failed"),
-            (
-                DependencyInstallError("Dependency installation failed."),
-                "dependency_install_failed",
-                "dependency_install_failed",
-            ),
             (AssetDownloadError("Asset download failed."), "asset_download_failed", "asset_download_failed"),
             (AssetAuthRequiredError("Asset auth required."), "asset_auth_required", "asset_auth_required"),
             (PathValidationError("path must be safe"), "path_validation_failed", "path_validation_failed"),
@@ -198,7 +179,7 @@ class ApiTests(unittest.TestCase):
         raw_output = "raw-pip-failure-output-with-credential-url"
         provisioner = ConsoleOutputProvisioner(
             raw_output,
-            error=DependencyInstallError("Command failed: python -m"),
+            error=AssetDownloadError("Command failed: model download"),
         )
         stdout = StringIO()
         stderr = StringIO()
@@ -214,8 +195,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn(raw_output, stdout.getvalue())
         self.assertIn(raw_output, stderr.getvalue())
         self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["error"]["code"], "dependency_install_failed")
-        self.assertEqual(payload["error"]["reason_code"], "dependency_install_failed")
+        self.assertEqual(payload["error"]["code"], "asset_download_failed")
+        self.assertEqual(payload["error"]["reason_code"], "asset_download_failed")
         self.assertNotIn(raw_output, str(payload))
 
     def test_unexpected_job_error_is_sanitized(self):
@@ -441,23 +422,6 @@ class ConsoleOutputProvisioner:
             raise self.error
         while not self.release.is_set() and not cancel_event.is_set():
             self.release.wait(0.01)
-
-
-def _custom_node(comfyui_custom_nodes_relative_path: str) -> dict:
-    payload = deepcopy(start_payload()["workflow_preset"])
-    node = {
-        "id": "example-node",
-        "name": "Example Node",
-        "git_source": {
-            "source_type": "git",
-            "repository_url": "https://example.test/node.git",
-            "revision": "0123456789abcdef0123456789abcdef01234567",
-        },
-        "install": {
-            "comfyui_custom_nodes_relative_path": comfyui_custom_nodes_relative_path,
-        },
-    }
-    return node
 
 
 if __name__ == "__main__":

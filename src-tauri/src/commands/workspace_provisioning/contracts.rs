@@ -60,8 +60,6 @@ mod remote_types {
         ProvisionerWorkerConflict,
         ProvisionerWorkerResponseInvalid,
         ProvisionerWorkerFailed,
-        ProvisionerWorkerGitCheckoutFailed,
-        ProvisionerWorkerDependencyInstallFailed,
         ProvisionerWorkerAssetDownloadFailed,
         ProvisionerWorkerAssetAuthRequired,
         ProvisionerWorkerPathValidationFailed,

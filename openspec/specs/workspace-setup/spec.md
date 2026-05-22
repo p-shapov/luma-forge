@@ -12,9 +12,7 @@ The Native Layer SHALL expose a command that returns the bundled Workflow Catalo
 - **AND** every returned Workflow Preset SHALL include a required runtime contract reference instead of ComfyUI Git source fields
 - **AND** every returned model asset SHALL include public Hugging Face download metadata with repository id, file path, revision, and explicit ComfyUI-relative install path
 - **AND** every returned model asset MUST NOT include extra app-owned asset metadata
-- **AND** every returned Custom Node Git source SHALL include an immutable commit revision for worker-prepared checkout
-- **AND** every returned Custom Node SHALL include a safe ComfyUI-relative checkout path under `custom_nodes/...`
-- **AND** every returned Custom Node SHALL represent requirements installation as an optional checkout-root-relative path
+- **AND** the Workflow Catalog MUST NOT expose runtime-provisioned runtime extension declarations
 - **AND** the response MUST NOT read or mutate the Workspace Catalog
 
 #### Scenario: Workflow Catalog is unavailable or invalid
@@ -371,7 +369,7 @@ The Native Layer SHALL treat the bundled Workflow Catalog as authoritative when 
 #### Scenario: Placement validation does not select runtime dependencies
 - **WHEN** the Client submits any RunPod Placement Plan with a selected GPU
 - **THEN** the Native Layer SHALL validate placement structure, catalog compatibility, storage size, and endpoint keep-alive range
-- **AND** the selected GPU MUST NOT change the worker image refs resolved from the selected Workflow Preset's runtime contract id/version pair or the Custom Node dependency set declared by the selected Workflow Preset
+- **AND** the selected GPU MUST NOT change the worker image refs resolved from the selected Workflow Preset's runtime contract id/version pair
 
 ### Requirement: Do not validate live availability during Workspace creation
 
@@ -428,28 +426,6 @@ The Native Layer SHALL validate bundled Workflow Preset source fields using offl
 - **THEN** the Native Layer SHALL treat the bundled Workflow Catalog as invalid
 - **AND** the Native Layer SHALL reject Workflow Catalog reads and Workspace creation with `workflow_catalog_unavailable`
 
-### Requirement: Validate Custom Node catalog entries
-
-The Native Layer SHALL validate every bundled Custom Node entry before exposing or accepting the Workflow Preset that contains it.
-
-#### Scenario: Custom Node catalog entry is valid
-
-- **WHEN** a bundled Custom Node declares non-empty id and name values, a URL-shaped Git repository URL, a non-empty revision, a safe checkout path under `custom_nodes/...`, and no requirements path
-- **THEN** the Native Layer SHALL treat the Custom Node as valid catalog data
-- **AND** the absence of a requirements path SHALL mean dependency installation is skipped for that Custom Node
-
-#### Scenario: Custom Node requirements path is valid
-
-- **WHEN** a bundled Custom Node declares a requirements path
-- **THEN** the Native Layer SHALL require that path to be non-empty, relative, normalized, and free of current-directory, empty, absolute, and parent-traversal segments
-- **AND** the Native Layer SHALL treat the path as relative to the Custom Node checkout root
-
-#### Scenario: Custom Node catalog entry is invalid
-
-- **WHEN** a bundled Custom Node declares a blank id, blank name, blank or non-URL-shaped Git repository URL, blank revision, unsafe checkout path, checkout path outside `custom_nodes/...`, or unsafe requirements path
-- **THEN** the Native Layer SHALL treat the bundled Workflow Catalog as invalid
-- **AND** the Native Layer SHALL reject Workflow Catalog reads and Workspace creation with `workflow_catalog_unavailable`
-
 ### Requirement: Keep bundled catalog validation offline
 
 Bundled catalog validation SHALL validate local contract shape and safety constraints only.
@@ -459,19 +435,6 @@ Bundled catalog validation SHALL validate local contract shape and safety constr
 - **WHEN** the Native Layer validates the bundled Workflow Catalog
 - **THEN** the Native Layer MUST NOT call Docker registries, Git repositories, Hugging Face, RunPod, worker HTTP endpoints, or any external service to validate reachability, existence, authenticity, or current availability
 - **AND** external availability failures SHALL remain the responsibility of later provisioning or provider operations
-
-### Requirement: Validate worker-prepared Git source revisions
-The Native Layer SHALL validate bundled Workflow Preset Git revisions only for Custom Node sources that the Provisioner Worker prepares remotely.
-
-#### Scenario: Worker-prepared Git revisions are immutable
-- **WHEN** a bundled Workflow Preset declares Custom Node Git sources with full 40-character lowercase hexadecimal commit revisions
-- **THEN** the Native Layer SHALL treat those revisions as valid catalog data
-- **AND** Workspace Setup validation MAY accept the Workflow Preset when all other catalog rules pass
-
-#### Scenario: Worker-prepared Git revision is mutable
-- **WHEN** a bundled Workflow Preset declares a Custom Node Git source revision as a branch name, tag name, blank value, or non-commit value
-- **THEN** the Native Layer SHALL treat the bundled Workflow Catalog as invalid
-- **AND** the Native Layer SHALL reject Workflow Catalog reads and Workspace creation with `workflow_catalog_unavailable`
 
 ### Requirement: Validate Hugging Face model download metadata
 The Native Layer SHALL validate bundled Workflow Preset Hugging Face model asset metadata required for public model downloads.
@@ -610,18 +573,18 @@ Workspace Setup command errors SHALL give React enough UI-safe information to pr
 - **THEN** React SHALL be able to distinguish whether the user should retry, refresh provider setup, reload catalogs, refresh Workspace Catalog, reselect placement data, change a request field, or recover local storage
 - **AND** React MUST NOT infer recovery behavior by parsing command error messages
 
-### Requirement: Keep GPU placement separate from dependency selection
-Selected GPU validation SHALL remain provider placement validation and MUST NOT select base runtime or Custom Node Python dependencies.
+### Requirement: Keep GPU placement separate from runtime selection
+Selected GPU validation SHALL remain provider placement validation and MUST NOT select base runtime dependencies.
 
 #### Scenario: Selected GPU is accepted for placement
 - **WHEN** the selected GPU satisfies provider placement validation for the RunPod Placement Plan
 - **THEN** the Native Layer SHALL treat the selected GPU as valid placement input
-- **AND** it MUST NOT install a different base runtime or Custom Node Python dependency set for that GPU
+- **AND** it MUST NOT select or install a different base runtime for that GPU
 
 #### Scenario: Selected GPU is rejected for placement
 - **WHEN** the selected GPU is unavailable, malformed, stale, or invalid for the provider placement request
 - **THEN** the Native Layer SHALL reject new placement or provisioning with a UI-safe placement error
-- **AND** it MUST NOT attempt to repair compatibility by changing base runtime or Custom Node Python dependencies
+- **AND** it MUST NOT attempt to repair compatibility by changing base runtime dependencies
 
 ### Requirement: Workspace Catalog failures remain categorized
 
@@ -662,4 +625,3 @@ Workspace Setup SHALL classify Workspace Catalog failures into stable app-owned 
 - **WHEN** Workspace Setup cannot classify a Workspace Catalog access failure into a more specific app-owned category
 - **THEN** Workspace Setup MAY return the generic Workspace Catalog unavailable category
 - **AND** the command boundary SHALL still map it to UI-safe recovery metadata
-

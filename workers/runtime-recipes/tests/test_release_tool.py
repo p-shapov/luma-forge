@@ -143,12 +143,12 @@ class ReleaseToolTests(unittest.TestCase):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
 
         validate_workers_index = workflow.index("Validate workers")
-        build_provisioner_index = workflow.index("Build provisioner image")
-        publish_index = workflow.index("Publish image pair")
+        build_endpoint_index = workflow.index("Build endpoint image")
+        publish_index = workflow.index("Publish endpoint image")
         verify_catalog_pr_scope_index = workflow.index("Verify Catalog PR scope")
         catalog_pr_index = workflow.index("Open Catalog update PR")
 
-        self.assertLess(validate_workers_index, build_provisioner_index)
+        self.assertLess(validate_workers_index, build_endpoint_index)
         self.assertLess(validate_workers_index, publish_index)
         self.assertLess(verify_catalog_pr_scope_index, catalog_pr_index)
 
@@ -175,7 +175,7 @@ class ReleaseToolTests(unittest.TestCase):
 
     def test_find_contract_matches_contract_id(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
-        catalog = _catalog_with_contract(recipe, provisioner_ref=_image_ref("1"), endpoint_ref=_image_ref("2"))
+        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
 
         contract = release_tool.find_contract(catalog, "comfyui-python312-cu121")
 
@@ -184,16 +184,15 @@ class ReleaseToolTests(unittest.TestCase):
         revision = release_tool.find_revision(contract, "1.0.0")
         self.assertIsNotNone(revision)
         assert revision is not None
-        self.assertEqual(_image_ref("1"), revision["provisioner_image_ref"])
+        self.assertEqual(_image_ref("2"), revision["endpoint_image_ref"])
 
-    def test_update_catalog_creates_new_contract_from_image_refs(self):
+    def test_update_catalog_creates_new_contract_from_endpoint_image_ref(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
         catalog = {"contracts": []}
 
         updated = release_tool.update_catalog(
             recipe=recipe,
             catalog=catalog,
-            provisioner_ref=_image_ref("1"),
             endpoint_ref=_image_ref("2"),
         )
 
@@ -204,7 +203,6 @@ class ReleaseToolTests(unittest.TestCase):
                     "revisions": [
                         {
                             "version": "1.0.0",
-                            "provisioner_image_ref": _image_ref("1"),
                             "endpoint_image_ref": _image_ref("2"),
                         }
                     ],
@@ -215,12 +213,11 @@ class ReleaseToolTests(unittest.TestCase):
 
     def test_update_catalog_appends_bumped_revision_for_existing_contract(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
-        catalog = _catalog_with_contract(recipe, provisioner_ref=_image_ref("1"), endpoint_ref=_image_ref("2"))
+        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
 
         updated = release_tool.update_catalog(
             recipe=recipe,
             catalog=catalog,
-            provisioner_ref=_image_ref("3"),
             endpoint_ref=_image_ref("4"),
         )
 
@@ -228,18 +225,16 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertEqual(2, len(updated["contracts"][0]["revisions"]))
         self.assertEqual("1.0.0", updated["contracts"][0]["revisions"][0]["version"])
         self.assertEqual("1.0.1", updated["contracts"][0]["revisions"][1]["version"])
-        self.assertEqual(_image_ref("3"), updated["contracts"][0]["revisions"][1]["provisioner_image_ref"])
         self.assertEqual(_image_ref("4"), updated["contracts"][0]["revisions"][1]["endpoint_image_ref"])
 
     def test_update_catalog_rejects_duplicate_explicit_revision(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
-        catalog = _catalog_with_contract(recipe, provisioner_ref=_image_ref("1"), endpoint_ref=_image_ref("2"))
+        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
 
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "already exists"):
             release_tool.update_catalog(
                 recipe=recipe,
                 catalog=catalog,
-                provisioner_ref=_image_ref("3"),
                 endpoint_ref=_image_ref("4"),
                 contract_version="1.0.0",
             )
@@ -247,7 +242,7 @@ class ReleaseToolTests(unittest.TestCase):
     def test_next_contract_version_uses_recipe_major_bump(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
         recipe["contract"]["version"] = "2.0.0"
-        catalog = _catalog_with_contract(recipe, provisioner_ref=_image_ref("1"), endpoint_ref=_image_ref("2"))
+        catalog = _catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))
         catalog["contracts"][0]["revisions"][0]["version"] = "1.0.0"
 
         self.assertEqual("2.0.0", release_tool.next_contract_version(recipe=recipe, catalog=catalog))
@@ -273,7 +268,7 @@ class ReleaseToolTests(unittest.TestCase):
 
         self.assertEqual("1.0.1", updated["workflow_presets"][0]["runtime_contract"]["version"])
 
-    def test_update_catalog_rejects_mutable_image_refs(self):
+    def test_update_catalog_rejects_mutable_endpoint_image_refs(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
         catalog = {"contracts": []}
 
@@ -281,8 +276,7 @@ class ReleaseToolTests(unittest.TestCase):
             release_tool.update_catalog(
                 recipe=recipe,
                 catalog=catalog,
-                provisioner_ref="ghcr.io/luma-forge/test:latest",
-                endpoint_ref=_image_ref("2"),
+                endpoint_ref="ghcr.io/luma-forge/test:latest",
             )
 
     def test_bundled_catalog_uses_simplified_contract_entries(self):
@@ -292,7 +286,7 @@ class ReleaseToolTests(unittest.TestCase):
         self.assertNotIn("runtime_contracts", catalog)
         self.assertEqual({"id", "revisions"}, set(catalog["contracts"][0]))
         self.assertEqual(
-            {"version", "provisioner_image_ref", "endpoint_image_ref"},
+            {"version", "endpoint_image_ref"},
             set(catalog["contracts"][0]["revisions"][0]),
         )
         release_tool.validate_catalog_compatibility(
@@ -336,7 +330,7 @@ class ReleaseToolTests(unittest.TestCase):
             catalog_path = Path(directory) / "runtime-catalog.json"
             output_path = Path(directory) / "github-output"
             catalog_path.write_text(
-                json.dumps(_catalog_with_contract(recipe, provisioner_ref=_image_ref("1"), endpoint_ref=_image_ref("2"))),
+                json.dumps(_catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))),
                 encoding="utf-8",
             )
 
@@ -355,7 +349,7 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             self.assertIn("contract_version=1.0.1", output_path.read_text(encoding="utf-8"))
 
-    def test_cli_update_catalog_writes_contract_image_refs(self):
+    def test_cli_update_catalog_writes_endpoint_image_ref(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "runtime-catalog.json"
@@ -371,8 +365,6 @@ class ReleaseToolTests(unittest.TestCase):
                     str(RECIPE_PATH),
                     "--catalog",
                     str(catalog_path),
-                    "--provisioner-ref",
-                    _image_ref("1"),
                     "--endpoint-ref",
                     _image_ref("2"),
                 ]
@@ -382,7 +374,7 @@ class ReleaseToolTests(unittest.TestCase):
             updated = json.loads(catalog_path.read_text(encoding="utf-8"))
             self.assertEqual("comfyui-python312-cu121", updated["contracts"][0]["id"])
             self.assertEqual("1.0.0", updated["contracts"][0]["revisions"][0]["version"])
-            self.assertEqual(_image_ref("1"), updated["contracts"][0]["revisions"][0]["provisioner_image_ref"])
+            self.assertEqual(_image_ref("2"), updated["contracts"][0]["revisions"][0]["endpoint_image_ref"])
 
     def test_cli_update_catalog_appends_revision_and_updates_workflow_catalog(self):
         recipe = release_tool.load_recipe(RECIPE_PATH)
@@ -390,7 +382,7 @@ class ReleaseToolTests(unittest.TestCase):
             catalog_path = Path(directory) / "runtime-catalog.json"
             workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(
-                json.dumps(_catalog_with_contract(recipe, provisioner_ref=_image_ref("1"), endpoint_ref=_image_ref("2"))),
+                json.dumps(_catalog_with_contract(recipe, endpoint_ref=_image_ref("2"))),
                 encoding="utf-8",
             )
             workflow_path.write_text(
@@ -421,8 +413,6 @@ class ReleaseToolTests(unittest.TestCase):
                     str(workflow_path),
                     "--contract-version",
                     "1.0.1",
-                    "--provisioner-ref",
-                    _image_ref("3"),
                     "--endpoint-ref",
                     _image_ref("4"),
                 ]
@@ -435,7 +425,7 @@ class ReleaseToolTests(unittest.TestCase):
             self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["runtime_contract"]["version"])
 
 
-def _catalog_with_contract(recipe, *, provisioner_ref, endpoint_ref):
+def _catalog_with_contract(recipe, *, endpoint_ref):
     return {
         "contracts": [
             {
@@ -443,7 +433,6 @@ def _catalog_with_contract(recipe, *, provisioner_ref, endpoint_ref):
                 "revisions": [
                     {
                         "version": recipe["contract"]["version"],
-                        "provisioner_image_ref": provisioner_ref,
                         "endpoint_image_ref": endpoint_ref,
                     }
                 ],

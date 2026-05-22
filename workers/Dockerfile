@@ -4,7 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 FROM worker-base AS runtime-builder
@@ -15,6 +15,10 @@ ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.5.1","torchvision==0.20.1","torchaudio==2.5.1"]
 
 WORKDIR /runtime-build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/luma-forge/runtime \
     && python -m venv --copies /opt/luma-forge/runtime/.venv \
@@ -47,12 +51,7 @@ FROM worker-base AS provisioner
 ENV LUMA_FORGE_PROVISIONER_HOST=0.0.0.0 \
     LUMA_FORGE_PROVISIONER_PORT=8000
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
-COPY --from=runtime-builder /opt/luma-forge/runtime /opt/luma-forge/runtime
 COPY workers/provisioner/pyproject.toml ./
 COPY workers/provisioner/src ./src
 

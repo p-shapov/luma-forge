@@ -102,15 +102,13 @@ async fn persist_runtime_image(
             workspace_id,
             contract_id,
             contract_version,
-            provisioner_image_ref,
             endpoint_image_ref
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?)
         "#,
     )
     .bind(&workspace.id)
     .bind(&workspace.resolved_runtime_image.contract_id)
     .bind(&workspace.resolved_runtime_image.contract_version)
-    .bind(&workspace.resolved_runtime_image.provisioner_image_ref)
     .bind(&workspace.resolved_runtime_image.endpoint_image_ref)
     .execute(&mut **transaction)
     .await

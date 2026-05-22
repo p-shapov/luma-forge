@@ -42,29 +42,6 @@ pub struct ModelAssetInstall {
     pub comfyui_relative_path: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "source_type", rename_all = "snake_case")]
-pub enum CustomNodeGitSource {
-    Git {
-        repository_url: String,
-        revision: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CustomNodeInstall {
-    pub comfyui_custom_nodes_relative_path: String,
-    pub python_requirements_path: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CustomNode {
-    pub id: String,
-    pub name: String,
-    pub git_source: CustomNodeGitSource,
-    pub install: CustomNodeInstall,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowExecutionType {
@@ -86,7 +63,6 @@ pub struct WorkflowPreset {
     pub required_base_volume_size_bytes: u64,
     pub runtime_contract: RuntimeContractReference,
     pub required_model_assets: Vec<ModelAsset>,
-    pub required_custom_nodes: Vec<CustomNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -73,16 +73,6 @@ class PreparationError(WorkerError):
     status = 500
 
 
-class GitCheckoutError(PreparationError):
-    code = "git_checkout_failed"
-    reason_code = "git_checkout_failed"
-
-
-class DependencyInstallError(PreparationError):
-    code = "dependency_install_failed"
-    reason_code = "dependency_install_failed"
-
-
 class AssetDownloadError(PreparationError):
     code = "asset_download_failed"
     reason_code = "asset_download_failed"

@@ -12,19 +12,18 @@ LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
 
 The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
 
-During preparation, the Provisioner Worker validates the image-baked ComfyUI base runtime under `/opt/luma-forge/runtime` and prepares only workspace-specific data on the mounted volume. Workflow Preset Custom Nodes, model assets, runtime metadata, and Custom Node dependency overlays live on `/workspace`:
+During preparation, the Provisioner Worker prepares only workspace-specific data on the mounted volume:
 
 ```text
 /workspace/
-  custom_nodes/
   models/
   output/
+  workflows/
   .luma-forge/
     runtime-manifest.json
-    python-overlay/
 ```
 
-The worker must not create the base virtual environment, clone ComfyUI, run `comfy install`, or install ComfyUI base requirements during provisioning. The endpoint worker later starts ComfyUI through the image-baked Python interpreter and adds workspace Custom Node, model, output, and overlay paths.
+The worker must not contain or validate the endpoint ComfyUI runtime, create the base virtual environment, clone ComfyUI, run `comfy install`, install ComfyUI base requirements, clone runtime extensions, or run `pip` during provisioning. The endpoint worker later starts ComfyUI through its own image-baked Python interpreter and uses workspace model, workflow, output, and metadata paths.
 
 ## Test
 
@@ -88,8 +87,6 @@ The error record never includes configured environment values or secrets.
 | `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
 | `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
 | `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` | `1048576` | Positive integer up to `104857600`. |
-| `LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
-| `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
 
@@ -119,14 +116,7 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
       "id": "comfyui-python312-cu121",
       "version": "1.0.0"
     },
-    "required_model_assets": [],
-    "required_custom_nodes": []
-  },
-  "resolved_runtime_image": {
-    "contract_id": "comfyui-python312-cu121",
-    "contract_version": "1.0.0",
-    "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:...",
-    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:..."
+    "required_model_assets": []
   }
 }
 ```
