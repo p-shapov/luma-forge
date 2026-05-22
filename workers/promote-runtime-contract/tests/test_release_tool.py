@@ -58,7 +58,7 @@ runtime:
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "invalid contract id|pattern mismatch"):
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "invalid contract id|pattern mismatch|does not match"):
                 release_tool.load_contract(contract_path)
 
     def test_endpoint_dockerfile_keeps_contract_build_inputs_without_runtime_identity_metadata(self):
