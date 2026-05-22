@@ -614,6 +614,42 @@ class PreparerTests(unittest.TestCase):
                 [call[0] for call in runner.calls],
             )
 
+    def test_preparation_keeps_mutable_runtime_files_under_workspace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = start_payload()
+            payload["workflow_preset"]["required_custom_nodes"] = [
+                custom_node(python_requirements_path="requirements.txt"),
+            ]
+            request = parse_start_request(payload)
+            runner = FakeCommandRunner()
+            workspace = Path(directory).resolve(strict=False)
+
+            Provisioner(
+                command_runner=runner,
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=workspace),
+            ).prepare(
+                request,
+                lambda phase, progress, message: None,
+                Event(),
+            )
+
+            expected_workspace_paths = [
+                workspace / "models/checkpoints/model.safetensors",
+                workspace / "custom_nodes/example-node",
+                workspace / "output",
+                workspace / ".luma-forge/runtime-manifest.json",
+                workspace / ".luma-forge/python-overlay",
+                workspace / ".luma-forge/custom-node-example-node-install-report.json",
+            ]
+            for path in expected_workspace_paths:
+                with self.subTest(path=path):
+                    self.assertTrue(path.exists())
+                    self.assertTrue(path.resolve(strict=False).is_relative_to(workspace))
+            self.assertFalse((workspace / "ComfyUI").exists())
+            self.assertFalse((workspace / ".venv").exists())
+            self.assertFalse(any(args[:2] == ["comfy", "install"] for args, *_ in runner.calls))
+
     def test_fails_when_image_python_is_missing_during_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())

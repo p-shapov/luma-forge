@@ -57,8 +57,9 @@ The Provisioner Worker SHALL use the fixed image-baked ComfyUI runtime and SHALL
 - **THEN** the Provisioner Worker SHALL use the fixed image-baked Python interpreter and fixed image-baked ComfyUI root
 - **AND** the Provisioner Worker SHALL create or reuse workspace-specific directories for models, Custom Nodes, output, and `.luma-forge` metadata
 - **AND** the Provisioner Worker SHALL reset and recreate `.luma-forge/python-overlay` plus stale Custom Node overlay install reports before installing Custom Node dependencies
-- **AND** the Provisioner Worker MUST NOT clone ComfyUI, create a base virtual environment, extract a base runtime archive, or install ComfyUI base requirements during workspace provisioning
+- **AND** the Provisioner Worker MUST NOT clone ComfyUI, create a base virtual environment, extract a base runtime archive, run `comfy install`, or install ComfyUI base requirements during workspace provisioning
 - **AND** `GET /status` SHALL report a preparation phase while this work is active
+- **AND** current worker status payloads MUST NOT emit obsolete ComfyUI installation phase names such as `installing_comfyui`
 
 #### Scenario: ComfyUI preparation fails
 
@@ -650,3 +651,4 @@ The Provisioner Worker SHALL install Custom Node Python dependency deltas into t
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL include error code `dependency_install_failed`
 - **AND** `GET /status` SHALL include a stable `reason_code` for the overlay installation failure
+

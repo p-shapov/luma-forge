@@ -74,24 +74,18 @@ jobs:
         run: |
           docker build --file workers/Dockerfile --platform linux/amd64 --target provisioner \
             --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
-            --build-arg LUMA_FORGE_RUNTIME_PLATFORM="${{ steps.recipe.outputs.runtime_platform }}" \
-            --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
             --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.recipe.outputs.comfyui_revision }}" \
             --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.recipe.outputs.pytorch_index_url }}" \
             --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.recipe.outputs.pytorch_packages_json }}' \
-            --build-arg LUMA_FORGE_BASE_REQUIREMENTS_JSON='${{ steps.recipe.outputs.base_requirements_json }}' \
             --tag "${{ steps.image.outputs.provisioner_tag }}" .
 
       - name: Build endpoint image
         run: |
           docker build --file workers/Dockerfile --platform linux/amd64 --target runpod-endpoint \
             --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.recipe.outputs.runtime_python_version }}" \
-            --build-arg LUMA_FORGE_RUNTIME_PLATFORM="${{ steps.recipe.outputs.runtime_platform }}" \
-            --build-arg LUMA_FORGE_COMFYUI_REPOSITORY="${{ steps.recipe.outputs.comfyui_repository }}" \
             --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.recipe.outputs.comfyui_revision }}" \
             --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.recipe.outputs.pytorch_index_url }}" \
             --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.recipe.outputs.pytorch_packages_json }}' \
-            --build-arg LUMA_FORGE_BASE_REQUIREMENTS_JSON='${{ steps.recipe.outputs.base_requirements_json }}' \
             --tag "${{ steps.image.outputs.endpoint_tag }}" .
 
       - name: Log in to GHCR

@@ -10,27 +10,33 @@ RUN apt-get update \
 FROM worker-base AS runtime-builder
 
 ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12
-ARG LUMA_FORGE_RUNTIME_PLATFORM=linux-x86_64-cuda
-ARG LUMA_FORGE_COMFYUI_REPOSITORY=https://github.com/comfyanonymous/ComfyUI.git
 ARG LUMA_FORGE_COMFYUI_REVISION=aa9d2fc713664e9ffe37763f4c9240c0c3eda667
 ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.5.1","torchvision==0.20.1","torchaudio==2.5.1"]
-ARG LUMA_FORGE_BASE_REQUIREMENTS_JSON=["requirements.txt"]
 
 WORKDIR /runtime-build
 
 RUN mkdir -p /opt/luma-forge/runtime \
     && python -m venv --copies /opt/luma-forge/runtime/.venv \
-    && /opt/luma-forge/runtime/.venv/bin/python -m pip install --no-cache-dir --upgrade pip
+    && /opt/luma-forge/runtime/.venv/bin/python -m pip install --no-cache-dir --upgrade pip \
+    && /opt/luma-forge/runtime/.venv/bin/python -m pip install --no-cache-dir comfy-cli==1.7.3
 
 RUN test "$LUMA_FORGE_RUNTIME_PYTHON_VERSION" = "3.12" \
     && /opt/luma-forge/runtime/.venv/bin/python -c 'import json, os, subprocess; packages = json.loads(os.environ["LUMA_FORGE_PYTORCH_PACKAGES_JSON"]); subprocess.check_call(["/opt/luma-forge/runtime/.venv/bin/python", "-m", "pip", "install", "--no-cache-dir", "--index-url", os.environ["LUMA_FORGE_PYTORCH_INDEX_URL"], *packages])'
 
-RUN git clone "$LUMA_FORGE_COMFYUI_REPOSITORY" /opt/luma-forge/runtime/ComfyUI \
-    && cd /opt/luma-forge/runtime/ComfyUI \
-    && git checkout "$LUMA_FORGE_COMFYUI_REVISION"
-
-RUN /opt/luma-forge/runtime/.venv/bin/python -c 'import json, os, pathlib, subprocess; comfyui = pathlib.Path("/opt/luma-forge/runtime/ComfyUI").resolve(); requirements = json.loads(os.environ["LUMA_FORGE_BASE_REQUIREMENTS_JSON"]); [(target.is_relative_to(comfyui) or (_ for _ in ()).throw(SystemExit(f"unsafe base requirement path: {requirement}"))) and subprocess.check_call(["/opt/luma-forge/runtime/.venv/bin/python", "-m", "pip", "install", "--no-cache-dir", "-r", str(target)]) for requirement in requirements for target in [(comfyui / requirement).resolve()]]'
+RUN export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv \
+    && export PATH="${VIRTUAL_ENV}/bin:${PATH}" \
+    && comfy --skip-prompt tracking disable \
+    && comfy --skip-prompt --workspace /opt/luma-forge/runtime/ComfyUI install \
+        --url https://github.com/comfyanonymous/ComfyUI.git \
+        --version nightly \
+        --commit "$LUMA_FORGE_COMFYUI_REVISION" \
+        --nvidia \
+        --skip-manager \
+        --skip-torch-or-directml \
+    && test -f /opt/luma-forge/runtime/ComfyUI/main.py \
+    && test -x /opt/luma-forge/runtime/.venv/bin/python \
+    && test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager
 
 RUN mkdir -p /opt/luma-forge/runtime/base-runtime \
     && /opt/luma-forge/runtime/.venv/bin/python -m pip freeze > /opt/luma-forge/runtime/base-runtime/pip-freeze.txt \

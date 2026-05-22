@@ -141,7 +141,6 @@ def recipe_outputs(
 ) -> dict[str, str]:
     runtime = recipe["runtime"]
     packages_json = json.dumps(runtime["pytorch"]["packages"], separators=(",", ":"))
-    requirements_json = json.dumps(runtime["base_requirements"], separators=(",", ":"))
     contract_version = (
         next_contract_version(recipe=recipe, catalog=catalog)
         if catalog is not None
@@ -152,12 +151,9 @@ def recipe_outputs(
         "contract_id": recipe["contract"]["id"],
         "contract_version": contract_version,
         "runtime_python_version": runtime["python_version"],
-        "runtime_platform": runtime["platform"],
-        "comfyui_repository": runtime["comfyui"]["repository_url"],
-        "comfyui_revision": runtime["comfyui"]["revision"],
+        "comfyui_revision": runtime["comfyui_revision"],
         "pytorch_index_url": runtime["pytorch"]["index_url"],
         "pytorch_packages_json": packages_json,
-        "base_requirements_json": requirements_json,
     }
 
 
@@ -329,18 +325,12 @@ def _validate_recipe(recipe: dict[str, Any]) -> None:
     _parse_semver(contract_version)
 
     _string_value(runtime, "python_version")
-    _string_value(runtime, "platform")
-    comfyui = _dict_value(runtime, "comfyui")
-    _string_value(comfyui, "repository_url")
-    comfyui_revision = _string_value(comfyui, "revision")
+    comfyui_revision = _string_value(runtime, "comfyui_revision")
     if not re.fullmatch(r"[0-9a-f]{40}", comfyui_revision):
         raise ReleaseToolError("invalid ComfyUI revision")
     pytorch = _dict_value(runtime, "pytorch")
     _string_value(pytorch, "index_url")
     _string_list_value(pytorch, "packages")
-    for requirement_path in _string_list_value(runtime, "base_requirements"):
-        if not _is_safe_relative_path(requirement_path):
-            raise ReleaseToolError(f"base requirement path is unsafe: {requirement_path}")
 
 
 def _dict_value(value: dict[str, Any], key: str) -> dict[str, Any]:
@@ -371,11 +361,6 @@ def _string_list_value(value: dict[str, Any], key: str) -> list[str]:
     if not item:
         raise ReleaseToolError(f"{key} must not be empty")
     return item
-
-
-def _is_safe_relative_path(value: str) -> bool:
-    path = Path(value)
-    return bool(path.parts) and not path.is_absolute() and all(part not in ("", ".", "..") for part in path.parts)
 
 
 def _validate_image_ref(value: str) -> None:

@@ -20,7 +20,7 @@ Do not store registry credentials, provider API keys, or worker bearer tokens in
 
 ## Validation
 
-The release workflow validates both worker packages, builds the provisioner image with the selected runtime recipe, builds the compatible endpoint image, and checks that both images declare matching runtime contract metadata. The deterministic ComfyUI/PyTorch base runtime is baked into both images under `/opt/luma-forge/runtime`; no base runtime archive is copied to or extracted from the RunPod network volume during provisioning.
+The release workflow validates both worker packages, builds the provisioner image with the selected runtime recipe, builds the compatible endpoint image, and checks that both images declare matching runtime contract metadata. The deterministic ComfyUI/PyTorch runtime is baked into both images under `/opt/luma-forge/runtime`; provisioning validates that image-baked runtime and prepares only workspace-specific directories on the RunPod network volume.
 
 ## Runtime Catalog Update
 

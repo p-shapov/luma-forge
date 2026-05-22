@@ -12,7 +12,8 @@ The repository SHALL provide a runtime recipe release workflow that deploys comp
 - **THEN** the runtime deployment workflow SHALL validate the Provisioner Worker and RunPod Endpoint Worker
 - **AND** the runtime deployment workflow SHALL build the provisioner image for the recipe-declared runtime contract id/version pair from the shared worker Dockerfile
 - **AND** the runtime deployment workflow SHALL build the endpoint image compatible with the recipe-declared runtime contract id/version pair from the shared worker Dockerfile
-- **AND** both image builds SHALL install the selected recipe's image-baked base runtime, including ComfyUI repository, ComfyUI revision, PyTorch index URL, PyTorch package list, and base requirements
+- **AND** both image builds SHALL install the selected recipe's image-baked base runtime, including ComfyUI revision, PyTorch index URL, and PyTorch package list
+- **AND** the runtime deployment workflow MUST NOT forward recipe-owned base requirement files, runtime platform metadata, or ComfyUI repository URLs as Docker build inputs
 - **AND** the runtime deployment workflow SHALL publish both images to GitHub Container Registry only after worker validation and image build validation succeed
 
 #### Scenario: Manual dispatch deploys one runtime recipe
@@ -87,13 +88,15 @@ The repository SHALL document how to operate the runtime recipe release workflow
 ### Requirement: Build deterministic ComfyUI runtime in provisioner image
 The worker Docker build SHALL construct the deterministic ComfyUI base runtime for the selected runtime recipe inside both provisioner and endpoint images before either image can be published.
 
-#### Scenario: Runtime archive is built
+#### Scenario: Image-baked runtime is built
 - **WHEN** the provisioner and endpoint worker images are built for a runtime recipe
 - **THEN** the Docker build SHALL install the fixed Python runtime, recipe-declared PyTorch/CUDA-compatible dependencies, ComfyUI, ComfyUI frontend/docs/templates, and ComfyUI base requirements into the image runtime root
+- **AND** ComfyUI base requirements SHALL be installed through the pinned `comfy-cli` ComfyUI installation path rather than through recipe-owned requirement file lists
 - **AND** the Docker build MUST NOT install Workflow Preset Custom Nodes or their Python dependencies into the image-baked base runtime
 - **AND** base runtime dependency installation MUST happen during Docker build rather than container startup or workspace provisioning
 
-#### Scenario: Runtime archive build fails
+#### Scenario: Image-baked runtime build fails
 - **WHEN** the Docker build cannot install or verify any deterministic ComfyUI runtime dependency
 - **THEN** the Docker build SHALL fail
 - **AND** no runtime recipe release workflow SHALL publish that image pair
+

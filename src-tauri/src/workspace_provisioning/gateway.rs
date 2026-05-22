@@ -306,7 +306,7 @@ fn phase_from_response(
         Some("idle") => Ok(ProvisionerWorkerPhase::Idle),
         Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
         Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
-        Some("materializing_runtime" | "installing_runtime" | "installing_comfyui") => {
+        Some("materializing_runtime" | "installing_runtime") => {
             Ok(ProvisionerWorkerPhase::ValidatingRuntime)
         }
         Some("installing_models" | "downloading_assets") => {
@@ -454,7 +454,7 @@ mod tests {
     fn status_from_response_normalizes_worker_phase_aliases() {
         let runtime = status_from_response(response(
             Some("running"),
-            Some("installing_comfyui"),
+            Some("installing_runtime"),
             Some(20),
         ))
         .expect("runtime phase alias should be valid");

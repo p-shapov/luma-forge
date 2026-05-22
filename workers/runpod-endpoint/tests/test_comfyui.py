@@ -151,6 +151,34 @@ class ComfyUiTests(unittest.TestCase):
         self.assertEqual(processes[0].env["LUMA_FORGE_CUSTOM_NODES_ROOT"], str(fixture.workspace / "custom_nodes"))
         self.assertTrue(processes[0].terminated)
 
+    def test_process_manager_launches_main_py_without_manager_or_comfy_cli(self):
+        with WorkerFixture() as fixture:
+            client = FakeComfyUiClient(available=False)
+            processes = []
+
+            def process_factory(command, cwd, env):
+                process = FakeProcess(command, cwd, env)
+                processes.append(process)
+                client.available = True
+                return process
+
+            manager = ComfyUiProcessManager(
+                config=fixture.config,
+                client=client,
+                process_factory=process_factory,
+                sleeper=lambda seconds: None,
+            )
+
+            runtime = validate_prepared_environment(fixture.config)
+            manager.ensure_running(runtime)
+            manager.shutdown()
+
+        command = processes[0].command
+        self.assertEqual(command[0], str(fixture.venv_python))
+        self.assertEqual(command[1], str(fixture.comfyui_root / "main.py"))
+        self.assertNotIn("comfy", command)
+        self.assertNotIn("ComfyUI-Manager", " ".join(command))
+
     def test_process_manager_reuses_already_ready_comfyui(self):
         with WorkerFixture() as fixture:
             client = FakeComfyUiClient(available=True)
