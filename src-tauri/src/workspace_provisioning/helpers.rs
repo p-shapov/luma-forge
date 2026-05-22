@@ -371,7 +371,10 @@ pub(crate) fn persistent_storage_volume_snapshot(
         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
         provider_resource_id: observation.provider_resource_id,
         provider_resource_status: observation.provider_resource_status,
-        mount_path: observation.mount_path,
+        mount_path: workspace
+            .resolved_provisioner_image
+            .volume_mount_path
+            .clone(),
     }
 }
 

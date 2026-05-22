@@ -26,7 +26,7 @@ use crate::{
 
 use super::{
     client::RunPodWorkspaceResourceClient, GIB_BYTES, RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT,
-    RUNPOD_PROVISIONER_WORKER_HTTP_PORT, RUNPOD_VOLUME_MOUNT_PATH,
+    RUNPOD_PROVISIONER_WORKER_HTTP_PORT,
 };
 
 pub(super) struct RunPodWorkspaceResourceContext<'a, S, W, C> {
@@ -383,7 +383,6 @@ fn runpod_network_volume_observation(
     NetworkVolumeObservation {
         provider_resource_id: observation.id,
         provider_resource_status: observation.status,
-        mount_path: RUNPOD_VOLUME_MOUNT_PATH.to_string(),
     }
 }
 

@@ -221,6 +221,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn created_volume_snapshot_uses_resolved_provisioner_mount_path() {
+        let client = FakeRunPodClient::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.resolved_provisioner_image.volume_mount_path = "/workspace-custom".to_string();
+        client.push_discover_network_volumes(Ok(Vec::new()));
+        client.push_create_network_volume(Ok(runpod_volume(
+            "volume-1",
+            ProviderResourceStatus::Ready,
+        )));
+
+        let updated = sync(&client, &mut workspace, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("workspace should be persisted");
+
+        let volume = updated
+            .persistent_storage_volume_snapshot
+            .expect("volume snapshot should be recorded");
+        assert_eq!(volume.mount_path, "/workspace-custom");
+    }
+
+    #[tokio::test]
     async fn ready_volume_is_noop() {
         let client = FakeRunPodClient::default();
         let catalog = FakeWorkspaceCatalog::default();

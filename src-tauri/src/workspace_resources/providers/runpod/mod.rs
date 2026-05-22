@@ -24,7 +24,6 @@ mod test_support;
 use client::RunPodWorkspaceResourceClient;
 use context::RunPodWorkspaceResourceContext;
 
-const RUNPOD_VOLUME_MOUNT_PATH: &str = "/workspace";
 const RUNPOD_PROVISIONER_WORKER_HTTP_PORT: u16 = 8000;
 const RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT: u16 = 8188;
 const GIB_BYTES: u64 = 1024 * 1024 * 1024;
