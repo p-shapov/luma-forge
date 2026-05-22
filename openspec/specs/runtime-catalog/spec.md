@@ -44,3 +44,25 @@ Published runtime contract id/version pairs SHALL retain stable meaning for Work
 - **AND** they MUST NOT mutate existing Runtime Catalog revisions
 - **AND** they MUST NOT repoint existing persisted Workspace runtime snapshots
 
+### Requirement: Support workflow-specific runtime contracts
+Runtime contract ids MAY identify endpoint images that are built for one bundled Workflow Preset, and Workflow Presets SHALL continue to reference exact runtime contract id/version pairs.
+
+#### Scenario: Workflow-specific runtime contract resolves
+- **WHEN** a Workflow Preset references runtime contract id `comfyui-hidream-o1-dev-python312-cu121` and an exact version
+- **THEN** the Native Layer SHALL resolve that id/version pair through the bundled Runtime Catalog
+- **AND** the resolved revision SHALL provide the immutable Endpoint Worker image ref for the workflow-specific endpoint image
+- **AND** the Native Layer SHALL persist the resolved runtime image snapshot when creating a Workspace
+
+#### Scenario: Workflow-specific runtime contract is unavailable
+- **WHEN** a Workflow Preset references a workflow-specific runtime contract id/version pair that is missing from the bundled Runtime Catalog
+- **THEN** the Native Layer SHALL reject Workflow Catalog reads and Workspace creation before persisting a Workspace
+
+### Requirement: Keep Workflow Presets exact-pinned during runtime promotion
+Runtime Catalog promotion SHALL make new runtime image revisions available without changing which exact runtime revision a Workflow Preset selects.
+
+#### Scenario: Runtime Catalog has newer revision than Workflow Preset
+- **WHEN** the bundled Runtime Catalog contains a newer revision for `comfyui-hidream-o1-dev-python312-cu121`
+- **AND** the bundled Workflow Preset still references an older exact version
+- **THEN** Workspace Setup SHALL resolve the exact version referenced by the Workflow Preset
+- **AND** it MUST NOT automatically select the newest Runtime Catalog revision
+

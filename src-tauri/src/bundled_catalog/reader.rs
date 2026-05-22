@@ -107,17 +107,17 @@ mod tests {
     }
 
     #[test]
-    fn bundled_workflow_catalog_contains_initial_basic_t2i_preset() {
+    fn bundled_workflow_catalog_presets_include_model_assets() {
         let catalog = BundledCatalogReader
             .workflow_catalog()
             .expect("bundled workflow catalog should be valid");
 
-        assert!(
-            catalog
-                .workflow_presets
-                .iter()
-                .any(|preset| preset.id == "comfyui-t2i-basic"),
-            "initial bundled catalog should contain the basic text-to-image preset"
-        );
+        for preset in &catalog.workflow_presets {
+            assert!(
+                !preset.required_model_assets.is_empty(),
+                "preset {} should declare at least one required model asset",
+                preset.id
+            );
+        }
     }
 }

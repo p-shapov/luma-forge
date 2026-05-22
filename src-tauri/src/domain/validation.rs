@@ -13,6 +13,18 @@ pub(crate) fn is_safe_relative_path(value: &str) -> bool {
         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+pub(crate) fn is_safe_slug(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_lowercase())
+        && value.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
+}
+
 pub(crate) fn is_safe_absolute_posix_path(value: &str) -> bool {
     let value = value.trim();
     if value == "/" || !value.starts_with('/') || value.contains('\\') {
@@ -51,6 +63,24 @@ mod tests {
             ".",
         ] {
             assert!(!is_safe_relative_path(path), "{path} should be rejected");
+        }
+    }
+
+    #[test]
+    fn safe_slugs_are_lowercase_identifiers() {
+        for value in ["comfyui-hidream-o1-dev", "preset1"] {
+            assert!(is_safe_slug(value), "{value} should be accepted");
+        }
+
+        for value in [
+            "",
+            "ComfyUI",
+            "1preset",
+            "preset_name",
+            "preset/name",
+            "preset.1",
+        ] {
+            assert!(!is_safe_slug(value), "{value} should be rejected");
         }
     }
 

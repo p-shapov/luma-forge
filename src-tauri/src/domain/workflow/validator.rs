@@ -4,7 +4,7 @@ use crate::domain::{
     error::{DomainValidationError, DomainValidationResult},
     provisioner::{validator as provisioner_validator, ProvisionerCatalog},
     runtime::{validator as runtime_validator, RuntimeCatalog},
-    validation::{is_blank, is_safe_relative_path},
+    validation::{is_blank, is_safe_relative_path, is_safe_slug},
 };
 
 use super::{ModelAssetSource, WorkflowCatalog};
@@ -21,6 +21,7 @@ pub fn validate_workflow_catalog(
     let mut ids = HashSet::new();
     for preset in &catalog.workflow_presets {
         if is_blank(&preset.id)
+            || !is_safe_slug(&preset.id)
             || is_blank(&preset.version)
             || is_blank(&preset.name)
             || preset.required_base_volume_size_bytes == 0

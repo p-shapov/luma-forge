@@ -10,11 +10,13 @@ RUN apt-get update \
 FROM worker-base AS runtime-builder
 
 ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12
-ARG LUMA_FORGE_COMFYUI_REVISION=aa9d2fc713664e9ffe37763f4c9240c0c3eda667
+ARG LUMA_FORGE_COMFYUI_REVISION=8e53f001a492cc818768a308362adbd3d75a1c43
 ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
 ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.5.1","torchvision==0.20.1","torchaudio==2.5.1"]
+ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH
 
 WORKDIR /runtime-build
+COPY ${LUMA_FORGE_BUNDLED_WORKFLOW_PATH} ./workflow.json
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
@@ -44,7 +46,10 @@ RUN export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv \
 
 RUN mkdir -p /opt/luma-forge/runtime/base-runtime \
     && /opt/luma-forge/runtime/.venv/bin/python -m pip freeze > /opt/luma-forge/runtime/base-runtime/pip-freeze.txt \
-    && printf '{"reports":[]}\n' > /opt/luma-forge/runtime/base-runtime/install-report.json
+    && printf '{"reports":[]}\n' > /opt/luma-forge/runtime/base-runtime/install-report.json \
+    && mkdir -p /opt/luma-forge/runtime/workflows \
+    && cp /runtime-build/workflow.json /opt/luma-forge/runtime/workflows/workflow.json \
+    && test -s /opt/luma-forge/runtime/workflows/workflow.json
 
 FROM worker-base
 

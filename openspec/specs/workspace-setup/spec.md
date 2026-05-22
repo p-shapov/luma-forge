@@ -2,7 +2,6 @@
 
 ## Purpose
 Define Native-owned Workspace Setup from bundled workflow and runtime catalog data.
-
 ## Requirements
 ### Requirement: Read bundled Workflow Catalog
 The Native Layer SHALL expose a command that returns the bundled Workflow Catalog available in the current application build. Every Workflow Preset declared by the bundled Workflow Catalog SHALL satisfy the Native Layer's offline surface validation before any catalog data is exposed or accepted.
@@ -36,3 +35,23 @@ Workspace Setup SHALL resolve and snapshot the selected Workflow Preset's provis
 - **WHEN** the Client creates a Workspace and the selected Workflow Preset's provisioner contract cannot be resolved
 - **THEN** the Native Layer SHALL reject Workspace creation with a UI-safe catalog error before persisting the Workspace
 - **AND** the Native Layer MUST NOT create a Workspace using a hard-coded Provisioner Worker image ref or hard-coded volume mount path
+
+### Requirement: Provide bundled HiDream O1 Dev Workflow Preset
+The bundled Workflow Catalog SHALL expose `comfyui-hidream-o1-dev` as the supported text-to-image Workflow Preset instead of the prior SDXL preset.
+
+#### Scenario: HiDream O1 Dev preset is available
+- **WHEN** the Client requests the Workflow Catalog
+- **THEN** the Native Layer SHALL return a Workflow Preset with id `comfyui-hidream-o1-dev`
+- **AND** the preset SHALL have workflow execution type `t2i`
+- **AND** the preset SHALL reference runtime contract id `comfyui-hidream-o1-dev-python312-cu121`
+- **AND** the preset SHALL reference an exact runtime contract version that exists in the bundled Runtime Catalog
+- **AND** the preset SHALL reference an exact provisioner contract version that exists in the bundled Provisioner Catalog
+
+#### Scenario: HiDream O1 Dev model assets are declared
+- **WHEN** the Native Layer validates the bundled Workflow Catalog
+- **THEN** the `comfyui-hidream-o1-dev` Workflow Preset SHALL declare the HiDream O1 Dev checkpoint asset from `Comfy-Org/HiDream-O1-Image`
+- **AND** it SHALL install that checkpoint under `models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors`
+- **AND** it SHALL declare the Gemma text encoder asset from `Comfy-Org/gemma-4`
+- **AND** it SHALL install that text encoder under `models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors`
+- **AND** every declared asset SHALL include a non-empty immutable Hugging Face revision
+

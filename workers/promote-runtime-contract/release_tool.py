@@ -18,7 +18,7 @@ def load_contract(path: Path) -> dict[str, Any]:
     contract = _load_yaml(path)
     schema = _load_json(path.parent / "schema.json")
     _validate_with_schema(contract, schema)
-    _validate_contract(contract)
+    _validate_contract(contract, path)
     return contract
 
 
@@ -109,26 +109,6 @@ def promote_runtime_image(
     return catalog
 
 
-def update_workflow_catalog(
-    *,
-    catalog: dict[str, Any],
-    contract_id: str,
-    contract_version: str,
-) -> dict[str, Any]:
-    workflow_presets = _list_value(catalog, "workflow_presets")
-    updated = False
-    for preset in workflow_presets:
-        if not isinstance(preset, dict):
-            raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        runtime_contract = _dict_value(preset, "runtime_contract")
-        if runtime_contract.get("id") == contract_id:
-            runtime_contract["version"] = contract_version
-            updated = True
-    if not updated:
-        raise ReleaseToolError(f"workflow catalog does not reference runtime contract: {contract_id}")
-    return catalog
-
-
 def contract_outputs(
     contract: dict[str, Any],
     contract_path: Path,
@@ -149,7 +129,19 @@ def contract_outputs(
         "comfyui_revision": runtime["comfyui_revision"],
         "pytorch_index_url": runtime["pytorch"]["index_url"],
         "pytorch_packages_json": packages_json,
+        "bundled_workflow_path": str(resolve_bundled_workflow_path(contract, contract_path)),
     }
+
+
+def resolve_bundled_workflow_path(contract: dict[str, Any], contract_path: Path) -> Path:
+    workflow_preset_id = _string_value(contract["runtime"], "workflow_preset_id")
+    if not _is_safe_identifier(workflow_preset_id):
+        raise ReleaseToolError("invalid workflow preset id")
+    repository_root = contract_path.resolve().parents[2]
+    workflow_path = repository_root / "bundled" / "workflows" / f"{workflow_preset_id}.json"
+    if not workflow_path.is_file():
+        raise ReleaseToolError(f"bundled workflow file does not exist: {workflow_path}")
+    return workflow_path.relative_to(repository_root)
 
 
 def write_github_outputs(outputs: dict[str, str], path: Path) -> None:
@@ -309,15 +301,20 @@ def _parse_scalar(value: str) -> str:
     return value
 
 
-def _validate_contract(value: dict[str, Any]) -> None:
+def _validate_contract(value: dict[str, Any], contract_path: Path) -> None:
     contract = _dict_value(value, "contract")
     runtime = _dict_value(value, "runtime")
 
     contract_id = _string_value(contract, "id")
     contract_version = _string_value(contract, "version")
-    if not re.fullmatch(r"[a-z][a-z0-9-]*", contract_id):
+    if not _is_safe_identifier(contract_id):
         raise ReleaseToolError("invalid contract id")
     _parse_semver(contract_version)
+
+    workflow_preset_id = _string_value(runtime, "workflow_preset_id")
+    if not _is_safe_identifier(workflow_preset_id):
+        raise ReleaseToolError("invalid workflow preset id")
+    resolve_bundled_workflow_path(value, contract_path)
 
     _string_value(runtime, "python_version")
     comfyui_revision = _string_value(runtime, "comfyui_revision")
@@ -361,6 +358,10 @@ def _string_list_value(value: dict[str, Any], key: str) -> list[str]:
 def _validate_image_ref(value: str) -> None:
     if re.fullmatch(r"[^:@\s]+(?:/[^:@\s]+)*@sha256:[0-9a-f]{64}", value) is None:
         raise ReleaseToolError(f"worker image ref must be digest-pinned: {value}")
+
+
+def _is_safe_identifier(value: str) -> bool:
+    return re.fullmatch(r"[a-z][a-z0-9-]*", value) is not None
 
 
 def _parse_semver(value: str) -> tuple[int, int, int]:
@@ -408,17 +409,7 @@ def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
         image_ref=args.image_ref,
         contract_version=contract_version,
     )
-    updated_workflow_catalog = None
-    if args.workflow_catalog:
-        workflow_catalog_path = Path(args.workflow_catalog)
-        updated_workflow_catalog = update_workflow_catalog(
-            catalog=_load_json(workflow_catalog_path),
-            contract_id=contract["contract"]["id"],
-            contract_version=contract_version,
-        )
     _write_json(catalog_path, updated)
-    if args.workflow_catalog and updated_workflow_catalog is not None:
-        _write_json(Path(args.workflow_catalog), updated_workflow_catalog)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -444,7 +435,6 @@ def build_parser() -> argparse.ArgumentParser:
     promote_runtime.add_argument("--catalog", required=True)
     promote_runtime.add_argument("--image-ref", required=True)
     promote_runtime.add_argument("--contract-version")
-    promote_runtime.add_argument("--workflow-catalog")
     promote_runtime.set_defaults(func=_cmd_promote_runtime_image)
 
     return parser
