@@ -7,8 +7,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
+  pull-requests: write
 
 concurrency:
   group: deploy-provisioner-worker-${{ github.ref }}
@@ -28,6 +29,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve provisioner catalog metadata
+        id: contract
+        run: |
+          python workers/runtime-contracts/release_tool.py resolve-provisioner \
+            --catalog bundled/provisioner-catalog.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Validate provisioner worker
         run: |
           python -m pip install workers/provisioner
@@ -38,9 +46,12 @@ jobs:
         env:
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
+          CONTRACT_ID: ${{ steps.contract.outputs.contract_id }}
+          CONTRACT_VERSION: ${{ steps.contract.outputs.contract_version }}
         run: |
           base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          printf 'provisioner_tag=%s\n' "${base}/provisioner-worker:sha-${SHA}" >> "$GITHUB_OUTPUT"
+          suffix="${CONTRACT_ID}-${CONTRACT_VERSION}"
+          printf 'provisioner_tag=%s\n' "${base}/provisioner-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build provisioner image
         run: |
@@ -62,3 +73,53 @@ jobs:
       - name: Publish provisioner image
         run: |
           docker push "${{ steps.image.outputs.provisioner_tag }}"
+
+      - name: Resolve pushed image digest
+        id: digest
+        run: |
+          provisioner_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.image.outputs.provisioner_tag }}")"
+          printf 'provisioner_ref=%s\n' "$provisioner_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Provisioner Catalog updates
+        run: |
+          python workers/runtime-contracts/release_tool.py update-provisioner-catalog \
+            --catalog bundled/provisioner-catalog.json \
+            --workflow-catalog bundled/workflow-catalog.json \
+            --contract-version "${{ steps.contract.outputs.contract_version }}" \
+            --provisioner-ref "${{ steps.digest.outputs.provisioner_ref }}"
+
+      - name: Verify Provisioner Catalog PR scope
+        run: |
+          changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/provisioner-catalog.json'; then
+            echo "::error::Catalog update did not modify bundled/provisioner-catalog.json"
+            exit 1
+          fi
+
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/workflow-catalog.json'; then
+            echo "::error::Catalog update did not modify bundled/workflow-catalog.json"
+            exit 1
+          fi
+
+          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(provisioner|workflow)-catalog\.json' || true)"
+          if [ -n "$unexpected_paths" ]; then
+            echo "::error::Catalog update produced unexpected changed paths:"
+            printf '%s\n' "$unexpected_paths"
+            exit 1
+          fi
+
+      - name: Open Provisioner Catalog update PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          add-paths: |
+            bundled/provisioner-catalog.json
+            bundled/workflow-catalog.json
+          branch: provisioner-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          title: "chore(workers): catalog provisioner ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
+          commit-message: "chore(workers): catalog provisioner image"
+          body: |
+            Adds a Provisioner Catalog revision for the validated provisioner image and points Workflow Presets at it.
+
+            Published image: `${{ steps.digest.outputs.provisioner_ref }}`
+            Catalog version: `${{ steps.contract.outputs.contract_version }}`
+          labels: provisioner-catalog

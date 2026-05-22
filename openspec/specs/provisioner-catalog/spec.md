@@ -2,7 +2,6 @@
 
 ## Purpose
 Define bundled provisioner contract metadata, immutable Provisioner Worker image selection, and resolved provisioner snapshots.
-
 ## Requirements
 ### Requirement: Provide bundled Provisioner Catalog
 The Native Layer SHALL read a bundled Provisioner Catalog that maps provisioner contract ids and versions to immutable Provisioner Worker image refs and workspace volume mount paths used by new Workspaces.
@@ -22,15 +21,12 @@ The Native Layer SHALL read a bundled Provisioner Catalog that maps provisioner 
 ### Requirement: Provisioner contract versions are immutable
 Published provisioner contract id/version pairs SHALL retain stable meaning for Workflow Presets and persisted Workspace snapshots.
 
-#### Scenario: Provisioning compatibility changes
-- **WHEN** a Provisioner Worker protocol, required environment variable contract, workspace volume layout, provider mount expectation, or workspace preparation behavior changes compatibility
+#### Scenario: Provisioner image is published
+- **WHEN** a new Provisioner Worker image is published for the provisioner contract
 - **THEN** the Provisioner Catalog SHALL use a new provisioner contract version under the relevant contract id for future Workspaces
-- **AND** it MUST NOT mutate an existing provisioner contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
-
-#### Scenario: Provisioner image changes during development
-- **WHEN** a new Provisioner Worker image is published for the current provisioning compatibility surface
-- **THEN** the Provisioner Catalog SHALL point the relevant provisioner contract id/version pair at the new immutable Provisioner Worker image ref for future Workspaces
-- **AND** existing Workspace records MUST remain pinned to their persisted Provisioner Worker image refs
+- **AND** the new revision SHALL point at the published immutable Provisioner Worker image ref
+- **AND** the new revision SHALL retain the provisioner metadata needed to resolve Workspaces, including the workspace volume mount path
+- **AND** it MUST NOT mutate any existing provisioner contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
 
 ### Requirement: Resolved provisioner image snapshots are persisted
 Workspace records SHALL include a resolved provisioner image snapshot derived from the selected Workflow Preset's provisioner contract reference and the bundled Provisioner Catalog.
@@ -45,3 +41,4 @@ Workspace records SHALL include a resolved provisioner image snapshot derived fr
 - **WHEN** Workspace Setup creates a Workspace from a Workflow Preset whose provisioner contract reference cannot be resolved through the bundled Provisioner Catalog
 - **THEN** the Native Layer SHALL reject Workspace creation before persisting a Workspace
 - **AND** it MUST NOT fall back to app-state constants, environment variables, or unversioned default provisioner metadata
+

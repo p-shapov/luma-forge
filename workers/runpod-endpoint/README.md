@@ -46,3 +46,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 ```bash
 docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile ../..
 ```
+
+## Deployment
+
+RunPod Endpoint Worker images are released through runtime contract deployments. See [Worker Deployment](../DEPLOYMENT.md) for shared release policy, registry conventions, catalog PR ownership, and rollback.

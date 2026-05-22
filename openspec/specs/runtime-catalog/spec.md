@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the bundled Runtime Catalog as the runtime contract versioning and endpoint image selection source.
-
 ## Requirements
 ### Requirement: Provide bundled Runtime Catalog
 The Native Layer SHALL read a bundled Runtime Catalog that maps runtime contract ids and versions to the immutable Endpoint Worker image refs used by new Workspaces.
@@ -33,17 +32,15 @@ Workflow Presets SHALL require an exact runtime contract id and version from the
 ### Requirement: Runtime contract versions and implementations are immutable
 Published runtime contract id/version pairs SHALL retain stable meaning for Workflow Presets and persisted Workspace snapshots.
 
-#### Scenario: Runtime compatibility changes
-- **WHEN** a newer ComfyUI, Python, PyTorch/CUDA dependency set, workflow runtime implementation, endpoint image runtime layout, or endpoint workflow contract changes the base runtime compatibility surface
+#### Scenario: Endpoint image is published
+- **WHEN** a new Endpoint Worker image is published for a runtime contract
 - **THEN** the Runtime Catalog SHALL use a new runtime contract version under the relevant contract id for future Workspaces
-- **AND** it MUST NOT mutate an existing runtime contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
-
-#### Scenario: Endpoint image changes during development
-- **WHEN** a new Endpoint Worker image is published for the current runtime compatibility surface
-- **THEN** the Runtime Catalog SHALL point the relevant runtime contract id/version pair at the new immutable endpoint image ref for future Workspaces
-- **AND** existing Workspace records MUST remain pinned to their persisted image refs
+- **AND** the new revision SHALL point at the published immutable Endpoint Worker image ref
+- **AND** it MUST NOT mutate any existing runtime contract id/version pair in a way that changes the meaning of persisted Workspace snapshots
 
 #### Scenario: Runtime implementation is rolled back
-- **WHEN** developers need to roll back a runtime endpoint image during development
-- **THEN** they SHALL update the Runtime Catalog contract id/version entry to point future Workspaces at the selected immutable endpoint image ref
+- **WHEN** developers need to roll back a runtime endpoint image for future Workspaces
+- **THEN** they SHALL update Workflow Presets to reference a previously published Runtime Catalog revision or append a newer Runtime Catalog revision that points at the selected immutable Endpoint Worker image ref
+- **AND** they MUST NOT mutate existing Runtime Catalog revisions
 - **AND** they MUST NOT repoint existing persisted Workspace runtime snapshots
+

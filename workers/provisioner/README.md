@@ -60,7 +60,7 @@ Provisioner and endpoint images use separate Dockerfiles. The provisioner Docker
 
 ## Deployment
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub Actions worker image deployment workflow, required registry configuration, produced tags, and rollback process.
+See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
 
 Remote provisioning must inject a unique per-pod bearer token through `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`, then send `Authorization: Bearer <token>` on every worker API request. The token must not be logged, persisted in workspace metadata, or returned in worker responses.
 
