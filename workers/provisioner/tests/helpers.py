@@ -15,29 +15,17 @@ TEST_BEARER_TOKEN = "test-token-0123456789abcdef012345"
 
 def sample_preset() -> dict[str, Any]:
     return {
-        "id": "comfyui-t2i-basic",
-        "version": "1.0.0",
-        "name": "ComfyUI Text to Image Basic",
-        "workflow_execution_type": "t2i",
-        "required_base_volume_size_bytes": 1,
-        "runtime_contract": {
-            "id": "comfyui-python312-cu121",
-            "version": "1.0.0",
-        },
         "required_model_assets": [
             {
                 "id": "model",
                 "name": "Model",
-                "model_asset_kind": "checkpoint",
                 "download_source": {
                     "source_type": "huggingface",
                     "repository_id": "owner/model",
                     "file_path": "model.safetensors",
                     "revision": "main",
                 },
-                "install": {
-                    "comfyui_relative_path": "models/checkpoints/model.safetensors",
-                },
+                "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
             },
         ],
     }

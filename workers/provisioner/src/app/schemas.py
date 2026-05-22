@@ -19,30 +19,15 @@ class HuggingFaceSource:
 
 
 @dataclass(frozen=True)
-class ModelAssetInstall:
-    comfyui_relative_path: Path
-
-
-@dataclass(frozen=True)
 class ModelAsset:
     id: str
     name: str
     download_source: HuggingFaceSource
-    install: ModelAssetInstall
-
-
-@dataclass(frozen=True)
-class RuntimeContractReference:
-    id: str
-    version: str
+    install_comfyui_relative_path: Path
 
 
 @dataclass(frozen=True)
 class WorkflowPreset:
-    id: str
-    version: str
-    name: str
-    runtime_contract: RuntimeContractReference
     required_model_assets: list[ModelAsset]
 
 
@@ -65,29 +50,16 @@ def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
     data = _object(payload, "workflow_preset")
     _require_keys(
         data,
-        {"id", "version", "name", "workflow_execution_type", "required_base_volume_size_bytes", "runtime_contract", "required_model_assets"},
+        {"required_model_assets"},
         "workflow_preset",
     )
     return WorkflowPreset(
-        id=_safe_identifier(data.get("id"), "workflow_preset.id"),
-        version=_non_empty_string(data.get("version"), "workflow_preset.version"),
-        name=_display_name(data.get("name"), "workflow_preset.name"),
-        runtime_contract=_parse_runtime_contract_reference(data.get("runtime_contract")),
         required_model_assets=[
             _parse_model_asset(item, f"workflow_preset.required_model_assets[{index}]")
             for index, item in enumerate(
                 _list(data.get("required_model_assets"), "workflow_preset.required_model_assets")
             )
         ],
-    )
-
-
-def _parse_runtime_contract_reference(payload: Any) -> RuntimeContractReference:
-    data = _object(payload, "workflow_preset.runtime_contract")
-    _require_keys(data, {"id", "version"}, "workflow_preset.runtime_contract")
-    return RuntimeContractReference(
-        id=_safe_identifier(data.get("id"), "workflow_preset.runtime_contract.id"),
-        version=_non_empty_string(data.get("version"), "workflow_preset.runtime_contract.version"),
     )
 
 
@@ -106,18 +78,14 @@ def _parse_huggingface_source(payload: Any, field: str) -> HuggingFaceSource:
 
 def _parse_model_asset(payload: Any, field: str) -> ModelAsset:
     data = _object(payload, field)
-    _require_keys(data, {"id", "name", "model_asset_kind", "download_source", "install"}, field)
-    install = _object(data.get("install"), f"{field}.install")
-    _require_keys(install, {"comfyui_relative_path"}, f"{field}.install")
+    _require_keys(data, {"id", "name", "download_source", "install_comfyui_relative_path"}, field)
     return ModelAsset(
         id=_safe_identifier(data.get("id"), f"{field}.id"),
         name=_display_name(data.get("name"), f"{field}.name"),
         download_source=_parse_huggingface_source(data.get("download_source"), f"{field}.download_source"),
-        install=ModelAssetInstall(
-            comfyui_relative_path=safe_relative_path(
-                install.get("comfyui_relative_path"),
-                field_name=f"{field}.install.comfyui_relative_path",
-            ),
+        install_comfyui_relative_path=safe_relative_path(
+            data.get("install_comfyui_relative_path"),
+            field_name=f"{field}.install_comfyui_relative_path",
         ),
     )
 
@@ -160,4 +128,3 @@ def _display_name(value: Any, field: str) -> str:
     if len(name) > MAX_DISPLAY_NAME_LENGTH or any(ord(character) < 32 or ord(character) == 127 for character in name):
         raise ValidationError(f"{field} must be a safe display name")
     return name
-

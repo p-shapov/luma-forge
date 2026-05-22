@@ -5,22 +5,6 @@ pub use crate::domain::provisioner::ProvisionerContractReference;
 pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelAssetKind {
-    Checkpoint,
-    DiffusionModel,
-    Vae,
-    TextEncoder,
-    Clip,
-    ClipVision,
-    Lora,
-    Controlnet,
-    Upscaler,
-    Embedding,
-    Other,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]
 pub enum ModelAssetSource {
     Huggingface {
@@ -34,14 +18,8 @@ pub enum ModelAssetSource {
 pub struct ModelAsset {
     pub id: String,
     pub name: String,
-    pub model_asset_kind: ModelAssetKind,
     pub download_source: ModelAssetSource,
-    pub install: ModelAssetInstall,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelAssetInstall {
-    pub comfyui_relative_path: String,
+    pub install_comfyui_relative_path: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

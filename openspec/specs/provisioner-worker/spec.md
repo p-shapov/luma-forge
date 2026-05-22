@@ -8,9 +8,10 @@ Define the Provisioner Worker API and workspace preparation responsibilities.
 The Provisioner Worker SHALL prepare workspace-specific directories without requiring, validating, or starting a ComfyUI runtime and without writing endpoint runtime metadata on the mounted volume.
 
 #### Scenario: Runtime paths are validated and prepared
-- **WHEN** an active job contains a Workflow Preset accepted by the Native Layer
+- **WHEN** an active job contains a worker start request accepted by the Provisioner Worker
 - **THEN** the Provisioner Worker SHALL create or reuse workspace-specific directories required for model downloads and provisioning operation
 - **AND** the Provisioner Worker MUST NOT require endpoint image fields in the start request
+- **AND** the Provisioner Worker MUST NOT require Workflow Preset id, Workflow Preset version, workflow execution type, required base volume size, runtime contract reference, provisioner contract reference, resolved runtime image snapshot, resolved provisioner image snapshot, or model asset kind in the start request
 - **AND** the Provisioner Worker MUST NOT start ComfyUI, clone ComfyUI, create a base virtual environment, extract a base runtime archive, run `comfy install`, run pip, clone runtime extensions, install runtime extension dependencies, install ComfyUI base requirements, or write `.luma-forge/runtime-manifest.json` during workspace provisioning
 - **AND** `GET /status` SHALL report a preparation phase while this work is active
 - **AND** current worker status payloads MUST NOT emit obsolete ComfyUI installation phase names such as `installing_comfyui`

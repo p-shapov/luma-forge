@@ -60,12 +60,47 @@ class ApiTests(unittest.TestCase):
         self.assertFalse(provisioner.called)
         self.assertEqual(workspace_entries, [])
 
+    def test_native_only_start_fields_have_no_side_effects(self):
+        native_only_fields = {
+            "id": "comfyui-t2i-basic",
+            "version": "1.0.0",
+            "name": "ComfyUI Text to Image Basic",
+            "workflow_execution_type": "t2i",
+            "required_base_volume_size_bytes": 1,
+            "runtime_contract": {
+                "id": "comfyui-python312-cu121",
+                "version": "1.0.0",
+            },
+            "provisioner_contract": {
+                "id": "luma-forge-provisioner",
+                "version": "1.0.0",
+            },
+        }
+
+        for field, value in native_only_fields.items():
+            with self.subTest(field=field):
+                payload = start_payload()
+                payload["workflow_preset"][field] = value
+                provisioner = RecordingProvisioner()
+                with tempfile.TemporaryDirectory() as directory, ServerFixture(
+                    provisioner,
+                    workspace_mount_path=Path(directory),
+                ) as server:
+                    status, response = server.request("POST", "/start", payload)
+                    _, latest = server.request("GET", "/status")
+                    workspace_entries = list(Path(directory).iterdir())
+
+                self.assertEqual(status, 400)
+                self.assertEqual(response["code"], "invalid_request")
+                self.assertEqual(latest["status"], "idle")
+                self.assertFalse(provisioner.called)
+                self.assertEqual(workspace_entries, [])
+
     def test_unsafe_start_payloads_have_no_side_effects(self):
         def set_model_path(payload, value):
-            payload["workflow_preset"]["required_model_assets"][0]["install"]["comfyui_relative_path"] = value
+            payload["workflow_preset"]["required_model_assets"][0]["install_comfyui_relative_path"] = value
 
         cases = [
-            ("unsafe workflow id", lambda payload: payload["workflow_preset"].update({"id": "../unsafe"})),
             ("unsafe model path", lambda payload: set_model_path(payload, "../model.safetensors")),
         ]
 

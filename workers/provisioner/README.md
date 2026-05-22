@@ -105,16 +105,19 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
 {
   "job_id": "workspace-id",
   "workflow_preset": {
-    "id": "comfyui-t2i-basic",
-    "version": "1.0.0",
-    "name": "ComfyUI Text to Image Basic",
-    "workflow_execution_type": "t2i",
-    "required_base_volume_size_bytes": 85899345920,
-    "runtime_contract": {
-      "id": "comfyui-python312-cu121",
-      "version": "1.0.0"
-    },
-    "required_model_assets": []
+    "required_model_assets": [
+      {
+        "id": "model",
+        "name": "Model",
+        "download_source": {
+          "source_type": "huggingface",
+          "repository_id": "owner/model",
+          "file_path": "model.safetensors",
+          "revision": "main"
+        },
+        "install_comfyui_relative_path": "models/checkpoints/model.safetensors"
+      }
+    ]
   }
 }
 ```

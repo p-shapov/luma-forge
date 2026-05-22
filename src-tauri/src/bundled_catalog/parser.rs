@@ -111,16 +111,13 @@ mod tests {
                         {
                             "id": "sdxl-base-1-0",
                             "name": "SDXL Base 1.0",
-                            "model_asset_kind": "checkpoint",
                             "download_source": {
                                 "source_type": "huggingface",
                                 "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
                                 "file_path": "sd_xl_base_1.0.safetensors",
                                 "revision": "462165984030d82259a11f4367a4eed129e94a7b"
                             },
-                            "install": {
-                                "comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"
-                            }
+                            "install_comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"
                         }
                     ]
                 }
@@ -347,16 +344,13 @@ mod tests {
                                 {
                                     "id": "sdxl-base-1-0",
                                     "name": "SDXL Base 1.0",
-                                    "model_asset_kind": "checkpoint",
                                     "download_source": {
                                         "source_type": "huggingface",
                                         "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
                                         "file_path": "sd_xl_base_1.0.safetensors",
                                         "revision": "462165984030d82259a11f4367a4eed129e94a7b"
                                     },
-                                    "install": {
-                                        "comfyui_relative_path": "../models/checkpoints/sd_xl_base_1.0.safetensors"
-                                    }
+                                    "install_comfyui_relative_path": "../models/checkpoints/sd_xl_base_1.0.safetensors"
                                 }
                             ]
                         }

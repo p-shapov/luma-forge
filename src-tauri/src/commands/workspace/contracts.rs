@@ -17,23 +17,6 @@ mod remote_types {
     use super::*;
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workflow::ModelAssetKind)]
-    #[serde(rename_all = "snake_case")]
-    pub(super) enum ModelAssetKind {
-        Checkpoint,
-        DiffusionModel,
-        Vae,
-        TextEncoder,
-        Clip,
-        ClipVision,
-        Lora,
-        Controlnet,
-        Upscaler,
-        Embedding,
-        Other,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_workflow::ModelAssetSource)]
     #[serde(tag = "source_type", rename_all = "snake_case")]
     pub(super) enum ModelAssetSource {
@@ -49,15 +32,8 @@ mod remote_types {
     pub(super) struct ModelAsset {
         pub id: String,
         pub name: String,
-        pub model_asset_kind: domain_workflow::ModelAssetKind,
         pub download_source: domain_workflow::ModelAssetSource,
-        pub install: domain_workflow::ModelAssetInstall,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workflow::ModelAssetInstall)]
-    pub(super) struct ModelAssetInstall {
-        pub comfyui_relative_path: String,
+        pub install_comfyui_relative_path: String,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

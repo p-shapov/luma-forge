@@ -5,7 +5,7 @@ Define Native-owned Workspace Provisioning orchestration, progress, and worker i
 
 ## Requirements
 ### Requirement: Drive Provisioner Worker Preparation
-Workspace Provisioning SHALL start and observe the Provisioner Worker job using the selected Workflow Preset and a per-workspace bearer token, while treating worker startup lag behind a running Provisioning Pod as non-terminal `starting_provisioning_pod` progress.
+Workspace Provisioning SHALL start and observe the Provisioner Worker job using a worker-specific start request derived from the selected Workflow Preset's declared model assets and a per-workspace bearer token, while treating worker startup lag behind a running Provisioning Pod as non-terminal `starting_provisioning_pod` progress.
 
 #### Scenario: Provisioner Worker is not ready after pod starts
 - **WHEN** a provisioning Workspace has an active Provisioning Pod snapshot whose provider status is `running`
@@ -19,10 +19,10 @@ Workspace Provisioning SHALL start and observe the Provisioner Worker job using 
 
 #### Scenario: Provisioner Worker job starts
 - **WHEN** the active Provisioning Pod is running and the Provisioner Worker is reachable and idle
-- **THEN** the Native Layer SHALL call `POST /start` with the active Workspace identifier as the worker job correlation identifier and the selected Workflow Preset
+- **THEN** the Native Layer SHALL call `POST /start` with the active Workspace identifier as the worker job correlation identifier and a worker-specific model asset preparation payload derived from the selected Workflow Preset
 - **AND** the request SHALL include `Authorization: Bearer <stored-token>`
 - **AND** the Native Layer MUST NOT include Provider API Keys in the worker request
-- **AND** the Native Layer MUST NOT include the Workspace's resolved runtime image snapshot, endpoint image fields, runtime manifest paths, or endpoint runtime paths in the worker start request
+- **AND** the Native Layer MUST NOT include Workflow Preset id, Workflow Preset version, workflow execution type, required base volume size, runtime contract reference, provisioner contract reference, the Workspace's resolved runtime image snapshot, resolved provisioner image snapshot, endpoint image fields, runtime manifest paths, or endpoint runtime paths in the worker start request body
 - **AND** the Native Layer SHALL treat a worker start response that has not yet reported active preparation work as `starting_provisioning_pod` progress
 - **AND** the progress percent SHALL be `10`
 

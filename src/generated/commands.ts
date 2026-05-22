@@ -89,16 +89,9 @@ export type GpuOption = {
 export type ModelAsset = {
 	id: string,
 	name: string,
-	model_asset_kind: ModelAssetKind,
 	download_source: ModelAssetSource,
-	install: ModelAssetInstall,
+	install_comfyui_relative_path: string,
 };
-
-export type ModelAssetInstall = {
-	comfyui_relative_path: string,
-};
-
-export type ModelAssetKind = "checkpoint" | "diffusion_model" | "vae" | "text_encoder" | "clip" | "clip_vision" | "lora" | "controlnet" | "upscaler" | "embedding" | "other";
 
 export type ModelAssetSource = { source_type: "huggingface"; repository_id: string; file_path: string; revision: string };
 

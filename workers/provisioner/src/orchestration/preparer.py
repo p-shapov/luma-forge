@@ -63,8 +63,8 @@ class Provisioner:
             )
             target = safe_child_path(
                 workspace_root,
-                asset.install.comfyui_relative_path.as_posix(),
-                field_name=f"model_asset[{asset.id}].install.comfyui_relative_path",
+                asset.install_comfyui_relative_path.as_posix(),
+                field_name=f"model_asset[{asset.id}].install_comfyui_relative_path",
             )
             self.downloader.download(
                 asset,
@@ -90,8 +90,8 @@ class Provisioner:
         for asset in request.workflow_preset.required_model_assets:
             target = safe_child_path(
                 workspace_root,
-                asset.install.comfyui_relative_path.as_posix(),
-                field_name=f"model_asset[{asset.id}].install.comfyui_relative_path",
+                asset.install_comfyui_relative_path.as_posix(),
+                field_name=f"model_asset[{asset.id}].install_comfyui_relative_path",
             )
             if not target.exists() or not target.is_file():
                 raise PreparationError(f"Model asset is missing: {asset.id}")

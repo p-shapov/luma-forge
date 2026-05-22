@@ -62,7 +62,7 @@ class PreparerTests(unittest.TestCase):
             self.assertFalse((workspace / "ComfyUI").exists())
             self.assertFalse((workspace / "custom_nodes").exists())
 
-    def test_rejects_unsafe_preset_identifiers_without_echoing_values(self):
+    def test_rejects_unsafe_model_asset_identifiers_without_echoing_values(self):
         unsafe_values = [
             "../unsafe-token",
             " unsafe-token",
@@ -75,7 +75,6 @@ class PreparerTests(unittest.TestCase):
 
         for unsafe_value in unsafe_values:
             cases = [
-                ("workflow_preset.id", lambda payload: payload["workflow_preset"].update({"id": unsafe_value})),
                 (
                     "model_asset.id",
                     lambda payload: payload["workflow_preset"].update(

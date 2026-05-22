@@ -33,7 +33,7 @@ pub fn validate_workflow_catalog(
             if is_blank(&asset.id)
                 || is_blank(&asset.name)
                 || !is_valid_model_asset_source(&asset.download_source)
-                || !is_safe_relative_path(&asset.install.comfyui_relative_path)
+                || !is_safe_relative_path(&asset.install_comfyui_relative_path)
             {
                 return Err(DomainValidationError);
             }
@@ -98,8 +98,8 @@ mod tests {
         provisioner::{ProvisionerCatalog, ProvisionerContract, ProvisionerContractRevision},
         runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
         workflow::{
-            ModelAsset, ModelAssetInstall, ModelAssetKind, ProvisionerContractReference,
-            RuntimeContractReference, WorkflowExecutionType, WorkflowPreset,
+            ModelAsset, ProvisionerContractReference, RuntimeContractReference,
+            WorkflowExecutionType, WorkflowPreset,
         },
     };
 
@@ -137,15 +137,13 @@ mod tests {
         ModelAsset {
             id: "sdxl-base".to_string(),
             name: "SDXL Base".to_string(),
-            model_asset_kind: ModelAssetKind::Checkpoint,
             download_source: ModelAssetSource::Huggingface {
                 repository_id: "stabilityai/stable-diffusion-xl-base-1.0".to_string(),
                 file_path: "sd_xl_base_1.0.safetensors".to_string(),
                 revision: "462165984030d82259a11f4367a4eed129e94a7b".to_string(),
             },
-            install: ModelAssetInstall {
-                comfyui_relative_path: "models/checkpoints/sd_xl_base_1.0.safetensors".to_string(),
-            },
+            install_comfyui_relative_path: "models/checkpoints/sd_xl_base_1.0.safetensors"
+                .to_string(),
         }
     }
 
@@ -275,9 +273,7 @@ mod tests {
                 ..valid_model_asset()
             },
             ModelAsset {
-                install: ModelAssetInstall {
-                    comfyui_relative_path: "/models/checkpoints/model.safetensors".to_string(),
-                },
+                install_comfyui_relative_path: "/models/checkpoints/model.safetensors".to_string(),
                 ..valid_model_asset()
             },
         ];

@@ -4,7 +4,10 @@ use reqwest::{header::HeaderMap, header::CONTENT_TYPE, StatusCode};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{domain::workflow::WorkflowPreset, secrets::ProvisionerWorkerBearerToken};
+use crate::{
+    domain::workflow::{ModelAsset, ModelAssetSource},
+    secrets::ProvisionerWorkerBearerToken,
+};
 
 const PROVISIONER_WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -125,7 +128,45 @@ impl ProvisionerWorkerGateway for ProvisionerWorkerHttpGateway {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProvisionerWorkerStartRequest {
     pub job_id: String,
-    pub workflow_preset: WorkflowPreset,
+    pub workflow_preset: ProvisionerWorkerWorkflowPreset,
+}
+
+impl ProvisionerWorkerStartRequest {
+    pub fn from_model_assets(job_id: String, assets: &[ModelAsset]) -> Self {
+        Self {
+            job_id,
+            workflow_preset: ProvisionerWorkerWorkflowPreset {
+                required_model_assets: assets
+                    .iter()
+                    .map(ProvisionerWorkerModelAsset::from)
+                    .collect(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvisionerWorkerWorkflowPreset {
+    pub required_model_assets: Vec<ProvisionerWorkerModelAsset>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvisionerWorkerModelAsset {
+    pub id: String,
+    pub name: String,
+    pub download_source: ModelAssetSource,
+    pub install_comfyui_relative_path: String,
+}
+
+impl From<&ModelAsset> for ProvisionerWorkerModelAsset {
+    fn from(asset: &ModelAsset) -> Self {
+        Self {
+            id: asset.id.clone(),
+            name: asset.name.clone(),
+            download_source: asset.download_source.clone(),
+            install_comfyui_relative_path: asset.install_comfyui_relative_path.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

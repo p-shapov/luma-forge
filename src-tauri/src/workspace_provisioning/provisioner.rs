@@ -99,13 +99,13 @@ impl WorkspaceProvisionerService {
                     .start(
                         &active_pod.provisioner_status_url,
                         &token,
-                        &ProvisionerWorkerStartRequest {
-                            job_id: workspace.id.clone(),
-                            workflow_preset: workspace
+                        &ProvisionerWorkerStartRequest::from_model_assets(
+                            workspace.id.clone(),
+                            &workspace
                                 .placement_plan
                                 .selected_workflow_preset()
-                                .clone(),
-                        },
+                                .required_model_assets,
+                        ),
                     )
                     .await
                 {
@@ -209,8 +209,8 @@ mod tests {
             provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
             workflow::{
-                ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
-                WorkflowPreset,
+                ModelAsset, ModelAssetSource, ProvisionerContractReference,
+                RuntimeContractReference, WorkflowExecutionType, WorkflowPreset,
             },
             workspace::{
                 ProvisioningPodSnapshot, WorkspaceCatalog, WorkspaceLifecycleState,
@@ -502,7 +502,16 @@ mod tests {
                 id: "provisioner".to_string(),
                 version: "1.0.0".to_string(),
             },
-            required_model_assets: Vec::new(),
+            required_model_assets: vec![ModelAsset {
+                id: "model-1".to_string(),
+                name: "Model One".to_string(),
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "owner/model".to_string(),
+                    file_path: "model.safetensors".to_string(),
+                    revision: "main".to_string(),
+                },
+                install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
+            }],
         };
         let placement_plan = PlacementPlan::Runpod {
             selected_datacenter_id: "dc-1".to_string(),
@@ -741,7 +750,42 @@ mod tests {
             .pop()
             .expect("start request should be captured");
         assert_eq!(request.job_id, "workspace-1");
-        assert_eq!(request.workflow_preset.id, "preset-1");
+        let request_json = serde_json::to_value(&request).expect("start request should serialize");
+        assert_eq!(
+            request_json,
+            serde_json::json!({
+                "job_id": "workspace-1",
+                "workflow_preset": {
+                    "required_model_assets": [
+                        {
+                            "id": "model-1",
+                            "name": "Model One",
+                            "download_source": {
+                                "source_type": "huggingface",
+                                "repository_id": "owner/model",
+                                "file_path": "model.safetensors",
+                                "revision": "main",
+                            },
+                            "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
+                        },
+                    ],
+                },
+            })
+        );
+        let serialized = request_json.to_string();
+        for field in [
+            "workflow_execution_type",
+            "required_base_volume_size_bytes",
+            "runtime_contract",
+            "provisioner_contract",
+            "resolved_runtime_image",
+            "resolved_provisioner_image",
+        ] {
+            assert!(
+                !serialized.contains(field),
+                "start request should not include {field}"
+            );
+        }
     }
 
     #[tokio::test]
