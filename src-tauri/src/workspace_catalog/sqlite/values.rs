@@ -83,12 +83,6 @@ pub(super) fn provisioning_failure_code_value(
             "provisioner_worker_response_invalid"
         }
         WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed => "provisioner_worker_failed",
-        WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed => {
-            "provisioner_worker_git_checkout_failed"
-        }
-        WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed => {
-            "provisioner_worker_dependency_install_failed"
-        }
         WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed => {
             "provisioner_worker_asset_download_failed"
         }
@@ -250,12 +244,6 @@ pub(super) fn parse_provisioning_failure_code(
         }
         "provisioner_worker_failed" => {
             Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed)
-        }
-        "provisioner_worker_git_checkout_failed" => {
-            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed)
-        }
-        "provisioner_worker_dependency_install_failed" => {
-            Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed)
         }
         "provisioner_worker_asset_download_failed" => {
             Ok(WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed)
@@ -470,14 +458,6 @@ mod tests {
             (
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,
                 "provisioner_worker_failed",
-            ),
-            (
-                WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed,
-                "provisioner_worker_git_checkout_failed",
-            ),
-            (
-                WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed,
-                "provisioner_worker_dependency_install_failed",
             ),
             (
                 WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed,

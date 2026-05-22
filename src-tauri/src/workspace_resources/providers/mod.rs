@@ -8,24 +8,19 @@ use crate::{
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
-use super::{
-    WorkspaceResourceConfig, WorkspaceResourceContext, WorkspaceResourceError,
-    WorkspaceResourceSyncResult,
-};
+use super::{WorkspaceResourceContext, WorkspaceResourceError, WorkspaceResourceSyncResult};
 
 pub(crate) trait WorkspaceResourceProvider<S, W>: Send + Sync {
     fn sync_network_volume<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
 
     fn sync_provisioning_pod<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
 
     fn finish_provisioning_pod<'a>(
@@ -38,7 +33,6 @@ pub(crate) trait WorkspaceResourceProvider<S, W>: Send + Sync {
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
 
     fn cleanup_known_resources<'a>(

@@ -15,7 +15,6 @@ pub(crate) struct CreateNetworkVolumeInput {
 pub(crate) struct NetworkVolumeObservation {
     pub(crate) provider_resource_id: String,
     pub(crate) provider_resource_status: ProviderResourceStatus,
-    pub(crate) mount_path: String,
 }
 
 #[derive(Debug, Clone)]

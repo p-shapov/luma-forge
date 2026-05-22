@@ -1,16 +1,3 @@
-export type ModelAssetKind =
-  | "checkpoint"
-  | "diffusion_model"
-  | "vae"
-  | "text_encoder"
-  | "clip"
-  | "clip_vision"
-  | "lora"
-  | "controlnet"
-  | "upscaler"
-  | "embedding"
-  | "other";
-
 export type HuggingFaceModelAssetSource = {
   source_type: "huggingface";
   repository_id: string;
@@ -21,14 +8,9 @@ export type HuggingFaceModelAssetSource = {
 export type ModelAssetSource =
   | HuggingFaceModelAssetSource;
 
-export type ModelAssetInstall = {
-  comfyui_relative_path: string;
-}
-
 export type ModelAsset = {
   id: string;
   name: string;
-  model_asset_kind: ModelAssetKind;
   download_source: ModelAssetSource;
-  install: ModelAssetInstall;
+  install_comfyui_relative_path: string;
 }

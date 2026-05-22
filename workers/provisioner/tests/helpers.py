@@ -1,6 +1,4 @@
 import json
-import os
-import tempfile
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -12,51 +10,24 @@ from api.handler import ProvisionerRequestHandler
 from app.config import WorkerConfig
 from orchestration.preparation_job import JobManager
 
-COMMIT_REVISION = "0123456789abcdef0123456789abcdef01234567"
 TEST_BEARER_TOKEN = "test-token-0123456789abcdef012345"
-TEST_PROVISIONER_IMAGE_REF = (
-    "ghcr.io/luma-forge/provisioner-worker@sha256:"
-    "1111111111111111111111111111111111111111111111111111111111111111"
-)
 
 
 def sample_preset() -> dict[str, Any]:
     return {
-        "id": "comfyui-t2i-basic",
-        "version": "1.0.0",
-        "name": "ComfyUI Text to Image Basic",
-        "workflow_execution_type": "t2i",
-        "required_base_volume_size_bytes": 1,
-        "runtime_contract": {
-            "id": "comfyui-python312-cu121",
-            "version": "1.0.0",
-        },
         "required_model_assets": [
             {
                 "id": "model",
                 "name": "Model",
-                "model_asset_kind": "checkpoint",
                 "download_source": {
                     "source_type": "huggingface",
                     "repository_id": "owner/model",
                     "file_path": "model.safetensors",
                     "revision": "main",
                 },
-                "install": {
-                    "comfyui_relative_path": "models/checkpoints/model.safetensors",
-                },
+                "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
             },
         ],
-        "required_custom_nodes": [],
-    }
-
-
-def sample_runtime_image() -> dict[str, Any]:
-    return {
-        "contract_id": "comfyui-python312-cu121",
-        "contract_version": "1.0.0",
-        "provisioner_image_ref": TEST_PROVISIONER_IMAGE_REF,
-        "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222",
     }
 
 
@@ -64,7 +35,6 @@ def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None
     return {
         "job_id": job_id,
         "workflow_preset": preset or sample_preset(),
-        "resolved_runtime_image": sample_runtime_image(),
     }
 
 
@@ -94,13 +64,12 @@ class BlockingProvisioner:
 
     def prepare(self, request, progress, cancel_event):
         self.started.set()
-        progress("materializing_runtime", 10, "blocked")
+        progress("preparing_workspace", 10, "blocked")
         while not self.release.is_set() and not cancel_event.is_set():
             self.release.wait(0.01)
 
 
 def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str = TEST_BEARER_TOKEN, **overrides) -> WorkerConfig:
-    image_runtime_root_path = overrides.get("image_runtime_root_path", _image_runtime_fixture())
     config = WorkerConfig.from_env(
         {
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": bearer_token,
@@ -114,36 +83,9 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
         port=overrides.get("port", config.port),
         bearer_token=overrides.get("bearer_token", config.bearer_token),
         max_request_bytes=overrides.get("max_request_bytes", config.max_request_bytes),
-        git_timeout_seconds=overrides.get("git_timeout_seconds", config.git_timeout_seconds),
-        dependency_timeout_seconds=overrides.get(
-            "dependency_timeout_seconds",
-            config.dependency_timeout_seconds,
-        ),
         download_timeout_seconds=overrides.get("download_timeout_seconds", config.download_timeout_seconds),
         workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
-        image_runtime_root_path=image_runtime_root_path,
     )
-
-
-def _image_runtime_fixture() -> Path:
-    tempdir = tempfile.TemporaryDirectory()
-    root = Path(tempdir.name)
-    runtime_root = root / "runtime"
-    comfyui = runtime_root / "ComfyUI"
-    custom_nodes = comfyui / "custom_nodes"
-    venv_bin = runtime_root / ".venv" / "bin"
-    custom_nodes.mkdir(parents=True)
-    venv_bin.mkdir(parents=True)
-    (comfyui / "main.py").write_text("# ComfyUI\n", encoding="utf-8")
-    (custom_nodes / "websocket_image_save.py").write_text("# upstream ComfyUI node\n", encoding="utf-8")
-    (venv_bin / "python").write_text("#!/usr/bin/env python\n", encoding="utf-8")
-    os.chmod(venv_bin / "python", 0o755)
-    # Keep the temporary directory alive for the lifetime of the process.
-    _IMAGE_RUNTIME_TEMP_DIRS.append(tempdir)
-    return runtime_root
-
-
-_IMAGE_RUNTIME_TEMP_DIRS: list[tempfile.TemporaryDirectory] = []
 
 
 class ServerFixture:

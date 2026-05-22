@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    domain::{runtime::ResolvedRuntimeImageSnapshot, workflow::WorkflowPreset},
+    domain::workflow::{ModelAsset, ModelAssetSource},
     secrets::ProvisionerWorkerBearerToken,
 };
 
@@ -128,8 +128,45 @@ impl ProvisionerWorkerGateway for ProvisionerWorkerHttpGateway {
 #[derive(Debug, Clone, Serialize)]
 pub struct ProvisionerWorkerStartRequest {
     pub job_id: String,
-    pub workflow_preset: WorkflowPreset,
-    pub resolved_runtime_image: ResolvedRuntimeImageSnapshot,
+    pub workflow_preset: ProvisionerWorkerWorkflowPreset,
+}
+
+impl ProvisionerWorkerStartRequest {
+    pub fn from_model_assets(job_id: String, assets: &[ModelAsset]) -> Self {
+        Self {
+            job_id,
+            workflow_preset: ProvisionerWorkerWorkflowPreset {
+                required_model_assets: assets
+                    .iter()
+                    .map(ProvisionerWorkerModelAsset::from)
+                    .collect(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvisionerWorkerWorkflowPreset {
+    pub required_model_assets: Vec<ProvisionerWorkerModelAsset>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProvisionerWorkerModelAsset {
+    pub id: String,
+    pub name: String,
+    pub download_source: ModelAssetSource,
+    pub install_comfyui_relative_path: String,
+}
+
+impl From<&ModelAsset> for ProvisionerWorkerModelAsset {
+    fn from(asset: &ModelAsset) -> Self {
+        Self {
+            id: asset.id.clone(),
+            name: asset.name.clone(),
+            download_source: asset.download_source.clone(),
+            install_comfyui_relative_path: asset.install_comfyui_relative_path.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -154,10 +191,9 @@ pub enum ProvisionerWorkerPhase {
     Idle,
     Starting,
     ResolvingWorkflow,
-    ValidatingRuntime,
-    InstallingModels,
-    InstallingCustomNodes,
-    WritingManifest,
+    PreparingWorkspace,
+    DownloadingAssets,
+    ValidatingAssets,
     Completed,
     Cancelled,
     Failed,
@@ -175,10 +211,6 @@ pub enum ProvisionerWorkerError {
     InvalidPayload,
     #[error("provisioner worker failed")]
     Failed,
-    #[error("provisioner worker git checkout failed")]
-    GitCheckoutFailed,
-    #[error("provisioner worker dependency install failed")]
-    DependencyInstallFailed,
     #[error("provisioner worker asset download failed")]
     AssetDownloadFailed,
     #[error("provisioner worker asset auth required")]
@@ -306,17 +338,12 @@ fn phase_from_response(
         Some("idle") => Ok(ProvisionerWorkerPhase::Idle),
         Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
         Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
-        Some("materializing_runtime" | "installing_runtime") => {
-            Ok(ProvisionerWorkerPhase::ValidatingRuntime)
-        }
+        Some("preparing_workspace") => Ok(ProvisionerWorkerPhase::PreparingWorkspace),
         Some("installing_models" | "downloading_assets") => {
-            Ok(ProvisionerWorkerPhase::InstallingModels)
+            Ok(ProvisionerWorkerPhase::DownloadingAssets)
         }
-        Some("preparing_custom_nodes" | "installing_custom_nodes") => {
-            Ok(ProvisionerWorkerPhase::InstallingCustomNodes)
-        }
-        Some("writing_manifest" | "validating_environment" | "verifying_assets") => {
-            Ok(ProvisionerWorkerPhase::WritingManifest)
+        Some("validating_environment" | "verifying_assets") => {
+            Ok(ProvisionerWorkerPhase::ValidatingAssets)
         }
         Some("completed") => Ok(ProvisionerWorkerPhase::Completed),
         Some("cancelled") => Ok(ProvisionerWorkerPhase::Cancelled),
@@ -352,8 +379,6 @@ fn provisioner_worker_failure_code(
 
 fn known_provisioner_worker_failure_code(value: &str) -> Option<ProvisionerWorkerError> {
     match value {
-        "git_checkout_failed" => ProvisionerWorkerError::GitCheckoutFailed,
-        "dependency_install_failed" => ProvisionerWorkerError::DependencyInstallFailed,
         "asset_download_failed" => ProvisionerWorkerError::AssetDownloadFailed,
         "asset_auth_required" => ProvisionerWorkerError::AssetAuthRequired,
         "path_validation_failed" => ProvisionerWorkerError::PathValidationFailed,
@@ -420,61 +445,61 @@ mod tests {
     fn status_from_response_maps_failed_payload_to_terminal_failure_code() {
         let mut payload = response(Some("failed"), Some("failed"), None);
         payload.error = Some(ProvisionerWorkerErrorResponse {
-            code: Some("dependency_install_failed".to_string()),
-            reason_code: Some("dependency_install_failed".to_string()),
+            code: Some("asset_download_failed".to_string()),
+            reason_code: Some("asset_download_failed".to_string()),
         });
 
         let error = status_from_response(payload)
             .expect_err("failed status should become terminal worker failure");
 
-        assert_eq!(error, ProvisionerWorkerError::DependencyInstallFailed);
+        assert_eq!(error, ProvisionerWorkerError::AssetDownloadFailed);
     }
 
     #[test]
     fn worker_error_reason_code_maps_to_terminal_failure_code() {
         let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
-            code: Some("dependency_install_failed".to_string()),
-            reason_code: Some("dependency_install_failed".to_string()),
+            code: Some("asset_download_failed".to_string()),
+            reason_code: Some("asset_download_failed".to_string()),
         });
 
-        assert_eq!(code, ProvisionerWorkerError::DependencyInstallFailed);
+        assert_eq!(code, ProvisionerWorkerError::AssetDownloadFailed);
     }
 
     #[test]
     fn worker_error_unknown_reason_code_falls_back_to_recognized_code() {
         let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
-            code: Some("dependency_install_failed".to_string()),
+            code: Some("asset_download_failed".to_string()),
             reason_code: Some("future_worker_reason".to_string()),
         });
 
-        assert_eq!(code, ProvisionerWorkerError::DependencyInstallFailed);
+        assert_eq!(code, ProvisionerWorkerError::AssetDownloadFailed);
     }
 
     #[test]
     fn status_from_response_normalizes_worker_phase_aliases() {
-        let runtime = status_from_response(response(
+        let workspace = status_from_response(response(
             Some("running"),
-            Some("installing_runtime"),
+            Some("preparing_workspace"),
             Some(20),
         ))
-        .expect("runtime phase alias should be valid");
-        assert_eq!(runtime.phase, ProvisionerWorkerPhase::ValidatingRuntime);
+        .expect("workspace phase should be valid");
+        assert_eq!(workspace.phase, ProvisionerWorkerPhase::PreparingWorkspace);
 
         let assets = status_from_response(response(
             Some("running"),
             Some("downloading_assets"),
             Some(60),
         ))
-        .expect("asset phase alias should be valid");
-        assert_eq!(assets.phase, ProvisionerWorkerPhase::InstallingModels);
+        .expect("asset phase should be valid");
+        assert_eq!(assets.phase, ProvisionerWorkerPhase::DownloadingAssets);
 
-        let manifest = status_from_response(response(
+        let validation = status_from_response(response(
             Some("running"),
             Some("verifying_assets"),
             Some(90),
         ))
-        .expect("manifest phase alias should be valid");
-        assert_eq!(manifest.phase, ProvisionerWorkerPhase::WritingManifest);
+        .expect("validation phase should be valid");
+        assert_eq!(validation.phase, ProvisionerWorkerPhase::ValidatingAssets);
     }
 
     #[test]

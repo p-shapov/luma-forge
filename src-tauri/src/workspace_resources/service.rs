@@ -11,11 +11,6 @@ use super::{
 
 pub(crate) type WorkspaceResourceSyncResult = Result<Option<Workspace>, WorkspaceResourceError>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WorkspaceResourceConfig {
-    pub(crate) volume_mount_path: String,
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct WorkspaceResourceService<S, W, R = WorkspaceResourceProviderRegistry> {
     secrets: S,
@@ -50,24 +45,22 @@ where
     pub(crate) async fn sync_network_volume(
         &self,
         workspace: &mut Workspace,
-        config: &WorkspaceResourceConfig,
     ) -> WorkspaceResourceSyncResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .sync_network_volume(&context, workspace, config)
+            .sync_network_volume(&context, workspace)
             .await
     }
 
     pub(crate) async fn sync_provisioning_pod(
         &self,
         workspace: &mut Workspace,
-        config: &WorkspaceResourceConfig,
     ) -> WorkspaceResourceSyncResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .sync_provisioning_pod(&context, workspace, config)
+            .sync_provisioning_pod(&context, workspace)
             .await
     }
 
@@ -85,12 +78,11 @@ where
     pub(crate) async fn sync_serverless_endpoint(
         &self,
         workspace: &mut Workspace,
-        config: &WorkspaceResourceConfig,
     ) -> WorkspaceResourceSyncResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .sync_serverless_endpoint(&context, workspace, config)
+            .sync_serverless_endpoint(&context, workspace)
             .await
     }
 
@@ -115,8 +107,12 @@ mod tests {
         domain::{
             placement::PlacementPlan,
             provider_setup::{GpuCloudProviderId, ProviderApiKey},
+            provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
-            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workflow::{
+                ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+                WorkflowPreset,
+            },
             workspace::{
                 PersistentStorageVolumeSnapshot, ProviderResourceStatus, WorkspaceCatalog,
                 WorkspaceLifecycleState,
@@ -164,7 +160,6 @@ mod tests {
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-            _config: &'a WorkspaceResourceConfig,
         ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
             self.record(ResourceCall::SyncNetworkVolume);
             Box::pin(async { Ok(None) })
@@ -174,7 +169,6 @@ mod tests {
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-            _config: &'a WorkspaceResourceConfig,
         ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
             self.record(ResourceCall::SyncProvisioningPod);
             Box::pin(async { Ok(None) })
@@ -193,7 +187,6 @@ mod tests {
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-            _config: &'a WorkspaceResourceConfig,
         ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
             self.record(ResourceCall::SyncServerlessEndpoint);
             Box::pin(async { Ok(None) })
@@ -337,16 +330,13 @@ mod tests {
         let provider = FakeResourceProvider::default();
         let service = service(provider.clone());
         let mut workspace = workspace();
-        let config = WorkspaceResourceConfig {
-            volume_mount_path: "/workspace".to_string(),
-        };
 
         service
-            .sync_network_volume(&mut workspace, &config)
+            .sync_network_volume(&mut workspace)
             .await
             .expect("network volume sync should delegate");
         service
-            .sync_provisioning_pod(&mut workspace, &config)
+            .sync_provisioning_pod(&mut workspace)
             .await
             .expect("provisioning pod sync should delegate");
         service
@@ -354,7 +344,7 @@ mod tests {
             .await
             .expect("finish pod should delegate");
         service
-            .sync_serverless_endpoint(&mut workspace, &config)
+            .sync_serverless_endpoint(&mut workspace)
             .await
             .expect("endpoint sync should delegate");
 
@@ -421,8 +411,11 @@ mod tests {
                 id: "runtime".to_string(),
                 version: "1.0.0".to_string(),
             },
+            provisioner_contract: ProvisionerContractReference {
+                id: "provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            },
             required_model_assets: Vec::new(),
-            required_custom_nodes: Vec::new(),
         };
         let placement_plan = PlacementPlan::Runpod {
             selected_datacenter_id: "dc-1".to_string(),
@@ -434,8 +427,13 @@ mod tests {
         let runtime = ResolvedRuntimeImageSnapshot {
             contract_id: "runtime".to_string(),
             contract_version: "1.0.0".to_string(),
-            provisioner_image_ref: "provisioner:latest".to_string(),
             endpoint_image_ref: "endpoint:latest".to_string(),
+        };
+        let provisioner = ResolvedProvisionerImageSnapshot {
+            contract_id: "provisioner".to_string(),
+            contract_version: "1.0.0".to_string(),
+            provisioner_worker_image_ref: "provisioner:latest".to_string(),
+            volume_mount_path: "/workspace".to_string(),
         };
         Workspace::new_draft(
             GpuCloudProviderId::Runpod,
@@ -443,6 +441,7 @@ mod tests {
             "Workspace".to_string(),
             placement_plan,
             runtime,
+            provisioner,
         )
         .expect("test workspace should be valid")
     }

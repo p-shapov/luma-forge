@@ -16,6 +16,4 @@ pub(crate) use contracts::{
 pub(crate) use error::WorkspaceResourceError;
 pub(crate) use naming::provider_resource_name;
 pub(crate) use providers::{WorkspaceResourceProviderRegistry, WorkspaceResourceProviderResolver};
-pub(crate) use service::{
-    WorkspaceResourceConfig, WorkspaceResourceService, WorkspaceResourceSyncResult,
-};
+pub(crate) use service::{WorkspaceResourceService, WorkspaceResourceSyncResult};

@@ -7,20 +7,18 @@ use crate::{
     workspace_provisioning::{
         failure, failure::fail_workspace, helpers::persistent_storage_volume_snapshot,
     },
+    workspace_resources::WorkspaceResourceSyncResult,
     workspace_resources::{
         state::is_terminal_provider_resource_status, CreateNetworkVolumeInput,
         DiscoverNetworkVolumesInput, WorkspaceResourceError,
     },
 };
 
-use crate::workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceSyncResult};
-
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
 
 pub(crate) async fn sync<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
-    _config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: AsyncSecretStore,
@@ -184,7 +182,7 @@ mod tests {
     ) -> WorkspaceResourceSyncResult {
         let secrets = FakeSecretStore::default();
         let context = context(&secrets, catalog);
-        sync_network_volume_with_client(client, &context, workspace, &config()).await
+        sync_network_volume_with_client(client, &context, workspace).await
     }
 
     #[tokio::test]
@@ -220,6 +218,29 @@ mod tests {
             }
             call => panic!("unexpected call: {call:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn created_volume_snapshot_uses_resolved_provisioner_mount_path() {
+        let client = FakeRunPodClient::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let mut workspace = workspace();
+        workspace.resolved_provisioner_image.volume_mount_path = "/workspace-custom".to_string();
+        client.push_discover_network_volumes(Ok(Vec::new()));
+        client.push_create_network_volume(Ok(runpod_volume(
+            "volume-1",
+            ProviderResourceStatus::Ready,
+        )));
+
+        let updated = sync(&client, &mut workspace, &catalog)
+            .await
+            .expect("sync should succeed")
+            .expect("workspace should be persisted");
+
+        let volume = updated
+            .persistent_storage_volume_snapshot
+            .expect("volume snapshot should be recorded");
+        assert_eq!(volume.mount_path, "/workspace-custom");
     }
 
     #[tokio::test]

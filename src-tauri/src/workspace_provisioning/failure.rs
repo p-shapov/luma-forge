@@ -199,12 +199,6 @@ pub(crate) fn provisioner_worker_failure(
             WorkspaceProvisioningFailureCode::ProvisionerWorkerResponseInvalid
         }
         ProvisionerWorkerError::Failed => WorkspaceProvisioningFailureCode::ProvisionerWorkerFailed,
-        ProvisionerWorkerError::GitCheckoutFailed => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerGitCheckoutFailed
-        }
-        ProvisionerWorkerError::DependencyInstallFailed => {
-            WorkspaceProvisioningFailureCode::ProvisionerWorkerDependencyInstallFailed
-        }
         ProvisionerWorkerError::AssetDownloadFailed => {
             WorkspaceProvisioningFailureCode::ProvisionerWorkerAssetDownloadFailed
         }

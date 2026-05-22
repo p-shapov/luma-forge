@@ -1,4 +1,3 @@
-import type { CustomNode } from "./custom-node";
 import type { ModelAsset } from "./model-asset";
 
 type RuntimeContractReference = {
@@ -16,5 +15,4 @@ export type WorkflowPreset = {
   required_base_volume_size_bytes: number;
   required_runtime_contract: RuntimeContractReference;
   required_model_assets: ModelAsset[];
-  required_custom_nodes: CustomNode[];
 }

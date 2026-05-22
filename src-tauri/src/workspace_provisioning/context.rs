@@ -5,8 +5,7 @@ use crate::{
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
-        WorkspaceResourceConfig, WorkspaceResourceError, WorkspaceResourceService,
-        WorkspaceResourceSyncResult,
+        WorkspaceResourceError, WorkspaceResourceService, WorkspaceResourceSyncResult,
     },
 };
 
@@ -14,7 +13,7 @@ use super::{
     gateway::ProvisionerWorkerGateway,
     helpers::{catalog_error, WorkspaceProvisioningResult},
     provisioner::{WorkspaceProvisionerContext, WorkspaceProvisionerService},
-    WorkspaceProvisioningConfig, WorkspaceProvisioningError,
+    WorkspaceProvisioningError,
 };
 
 pub(crate) type SyncStepResult =
@@ -24,13 +23,11 @@ pub(crate) trait WorkspaceProvisioningResources: Send + Sync {
     fn sync_network_volume<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
 
     fn sync_provisioning_pod<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
 
     fn finish_provisioning_pod<'a>(
@@ -41,7 +38,6 @@ pub(crate) trait WorkspaceProvisioningResources: Send + Sync {
     fn sync_serverless_endpoint<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
 
     fn cleanup_known_resources<'a>(
@@ -58,21 +54,19 @@ where
     fn sync_network_volume<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-        Box::pin(async move {
-            WorkspaceResourceService::sync_network_volume(self, workspace, config).await
-        })
+        Box::pin(
+            async move { WorkspaceResourceService::sync_network_volume(self, workspace).await },
+        )
     }
 
     fn sync_provisioning_pod<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-        Box::pin(async move {
-            WorkspaceResourceService::sync_provisioning_pod(self, workspace, config).await
-        })
+        Box::pin(
+            async move { WorkspaceResourceService::sync_provisioning_pod(self, workspace).await },
+        )
     }
 
     fn finish_provisioning_pod<'a>(
@@ -87,10 +81,9 @@ where
     fn sync_serverless_endpoint<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-        config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
-            WorkspaceResourceService::sync_serverless_endpoint(self, workspace, config).await
+            WorkspaceResourceService::sync_serverless_endpoint(self, workspace).await
         })
     }
 
@@ -110,7 +103,6 @@ pub(crate) struct WorkspaceProvisioningContext<'a, S, W, R, Q = WorkspaceResourc
     pub(crate) workspace_catalog: &'a W,
     pub(crate) workers: &'a R,
     pub(crate) workspace_provisioner: &'a WorkspaceProvisionerService,
-    pub(crate) config: &'a WorkspaceProvisioningConfig,
 }
 
 impl<'a, S, W, R, Q> WorkspaceProvisioningContext<'a, S, W, R, Q> {
@@ -120,7 +112,6 @@ impl<'a, S, W, R, Q> WorkspaceProvisioningContext<'a, S, W, R, Q> {
         workspace_catalog: &'a W,
         workers: &'a R,
         workspace_provisioner: &'a WorkspaceProvisionerService,
-        config: &'a WorkspaceProvisioningConfig,
     ) -> Self {
         Self {
             secrets,
@@ -128,13 +119,6 @@ impl<'a, S, W, R, Q> WorkspaceProvisioningContext<'a, S, W, R, Q> {
             workspace_catalog,
             workers,
             workspace_provisioner,
-            config,
-        }
-    }
-
-    pub(crate) fn resource_config(&self) -> WorkspaceResourceConfig {
-        WorkspaceResourceConfig {
-            volume_mount_path: self.config.volume_mount_path.clone(),
         }
     }
 

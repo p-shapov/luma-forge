@@ -12,25 +12,18 @@ class GenerationRequest:
 
 
 @dataclass(frozen=True)
-class ImageOutput:
-    mime_type: str
-    data: str
-
-    def to_payload(self) -> dict[str, str]:
-        return {
-            "mime_type": self.mime_type,
-            "data": self.data,
-        }
-
-
-@dataclass(frozen=True)
 class GenerationResponse:
-    image: ImageOutput
+    execution_type: str
+    message: str = "Endpoint generation is not implemented in this runtime contract."
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "status": "succeeded",
-            "image": self.image.to_payload(),
+            "generation": {
+                "implemented": False,
+                "execution_type": self.execution_type,
+                "message": self.message,
+            },
         }
 
 

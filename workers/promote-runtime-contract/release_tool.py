@@ -14,12 +14,12 @@ class ReleaseToolError(Exception):
     pass
 
 
-def load_recipe(path: Path) -> dict[str, Any]:
-    recipe = _load_yaml(path)
+def load_contract(path: Path) -> dict[str, Any]:
+    contract = _load_yaml(path)
     schema = _load_json(path.parent / "schema.json")
-    _validate_with_schema(recipe, schema)
-    _validate_recipe(recipe)
-    return recipe
+    _validate_with_schema(contract, schema)
+    _validate_contract(contract)
+    return contract
 
 
 def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
@@ -40,75 +40,70 @@ def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, 
     return None
 
 
-def next_contract_version(*, recipe: dict[str, Any], catalog: dict[str, Any]) -> str:
-    recipe_version = _parse_semver(recipe["contract"]["version"])
-    contract = find_contract(catalog, recipe["contract"]["id"])
-    if contract is None:
-        return _format_semver(recipe_version)
+def next_contract_version(*, contract: dict[str, Any], catalog: dict[str, Any]) -> str:
+    declared_version = _parse_semver(contract["contract"]["version"])
+    catalog_contract = find_contract(catalog, contract["contract"]["id"])
+    if catalog_contract is None:
+        return _format_semver(declared_version)
 
-    revisions = _list_value(contract, "revisions")
+    revisions = _list_value(catalog_contract, "revisions")
     if not revisions:
-        return _format_semver(recipe_version)
+        return _format_semver(declared_version)
 
     latest = max(_parse_semver(_string_value(revision, "version")) for revision in revisions)
     next_patch = (latest[0], latest[1], latest[2] + 1)
-    return _format_semver(max(recipe_version, next_patch))
+    return _format_semver(max(declared_version, next_patch))
 
 
-def validate_catalog_compatibility(*, recipe: dict[str, Any], catalog: dict[str, Any]) -> None:
-    contract_id = recipe["contract"]["id"]
-    contract_version = recipe["contract"]["version"]
-    contract = find_contract(catalog, contract_id)
-    if contract is None:
+def validate_catalog_compatibility(*, contract: dict[str, Any], catalog: dict[str, Any]) -> None:
+    contract_id = contract["contract"]["id"]
+    contract_version = contract["contract"]["version"]
+    catalog_contract = find_contract(catalog, contract_id)
+    if catalog_contract is None:
         return
-    _string_value(contract, "id")
-    revision = find_revision(contract, contract_version)
+    _string_value(catalog_contract, "id")
+    revision = find_revision(catalog_contract, contract_version)
     if revision is None:
         return
     _string_value(revision, "version")
-    _validate_image_ref(_string_value(revision, "provisioner_image_ref"))
     _validate_image_ref(_string_value(revision, "endpoint_image_ref"))
 
 
-def update_catalog(
+def promote_runtime_image(
     *,
-    recipe: dict[str, Any],
+    contract: dict[str, Any],
     catalog: dict[str, Any],
-    provisioner_ref: str,
-    endpoint_ref: str,
+    image_ref: str,
     contract_version: str | None = None,
 ) -> dict[str, Any]:
-    validate_catalog_compatibility(recipe=recipe, catalog=catalog)
-    _validate_image_ref(provisioner_ref)
-    _validate_image_ref(endpoint_ref)
+    validate_catalog_compatibility(contract=contract, catalog=catalog)
+    _validate_image_ref(image_ref)
     contracts = _list_value(catalog, "contracts")
-    contract_id = recipe["contract"]["id"]
-    resolved_contract_version = contract_version or next_contract_version(recipe=recipe, catalog=catalog)
+    contract_id = contract["contract"]["id"]
+    resolved_contract_version = contract_version or next_contract_version(contract=contract, catalog=catalog)
     _parse_semver(resolved_contract_version)
-    contract = find_contract(catalog, contract_id)
-    if contract is None:
+    catalog_contract = find_contract(catalog, contract_id)
+    if catalog_contract is None:
         contracts.append(
             {
                 "id": contract_id,
                 "revisions": [
                     {
                         "version": resolved_contract_version,
-                        "provisioner_image_ref": provisioner_ref,
-                        "endpoint_image_ref": endpoint_ref,
+                        "endpoint_image_ref": image_ref,
                     }
                 ],
             }
         )
     else:
-        revisions = _list_value(contract, "revisions")
-        revision = find_revision(contract, resolved_contract_version)
+        revisions = _list_value(catalog_contract, "revisions")
+        revision = find_revision(catalog_contract, resolved_contract_version)
         if revision is not None:
             raise ReleaseToolError(f"runtime catalog revision already exists: {contract_id} {resolved_contract_version}")
         revisions.append(
             {
                 "version": resolved_contract_version,
-                "provisioner_image_ref": provisioner_ref,
-                "endpoint_image_ref": endpoint_ref,
+                "endpoint_image_ref": image_ref,
             }
         )
     return catalog
@@ -134,21 +129,21 @@ def update_workflow_catalog(
     return catalog
 
 
-def recipe_outputs(
-    recipe: dict[str, Any],
-    recipe_path: Path,
+def contract_outputs(
+    contract: dict[str, Any],
+    contract_path: Path,
     catalog: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    runtime = recipe["runtime"]
+    runtime = contract["runtime"]
     packages_json = json.dumps(runtime["pytorch"]["packages"], separators=(",", ":"))
     contract_version = (
-        next_contract_version(recipe=recipe, catalog=catalog)
+        next_contract_version(contract=contract, catalog=catalog)
         if catalog is not None
-        else recipe["contract"]["version"]
+        else contract["contract"]["version"]
     )
     return {
-        "recipe": str(recipe_path),
-        "contract_id": recipe["contract"]["id"],
+        "contract": str(contract_path),
+        "contract_id": contract["contract"]["id"],
         "contract_version": contract_version,
         "runtime_python_version": runtime["python_version"],
         "comfyui_revision": runtime["comfyui_revision"],
@@ -203,23 +198,23 @@ def _validate_with_schema(value: Any, schema: dict[str, Any]) -> None:
         if errors:
             error = errors[0]
             location = "$" + "".join(f".{part}" for part in error.path)
-            raise ReleaseToolError(f"recipe schema validation failed at {location}: {error.message}")
+            raise ReleaseToolError(f"contract schema validation failed at {location}: {error.message}")
 
 
 def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) -> None:
     expected_type = schema.get("type")
     if expected_type == "object":
         if not isinstance(value, dict):
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected object")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: expected object")
         required = schema.get("required", [])
         for key in required:
             if key not in value:
-                raise ReleaseToolError(f"recipe schema validation failed at {path}.{key}: missing required property")
+                raise ReleaseToolError(f"contract schema validation failed at {path}.{key}: missing required property")
         properties = schema.get("properties", {})
         if schema.get("additionalProperties") is False:
             extra = sorted(set(value) - set(properties))
             if extra:
-                raise ReleaseToolError(f"recipe schema validation failed at {path}.{extra[0]}: unsupported property")
+                raise ReleaseToolError(f"contract schema validation failed at {path}.{extra[0]}: unsupported property")
         for key, nested_schema in properties.items():
             if key in value:
                 _validate_schema_subset(value[key], nested_schema, path=f"{path}.{key}")
@@ -227,10 +222,10 @@ def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) ->
 
     if expected_type == "array":
         if not isinstance(value, list):
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected array")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: expected array")
         min_items = schema.get("minItems")
         if isinstance(min_items, int) and len(value) < min_items:
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected at least {min_items} items")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: expected at least {min_items} items")
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(value):
@@ -239,18 +234,18 @@ def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) ->
 
     if expected_type == "string":
         if not isinstance(value, str):
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected string")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: expected string")
         min_length = schema.get("minLength")
         if isinstance(min_length, int) and len(value) < min_length:
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected at least {min_length} characters")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: expected at least {min_length} characters")
         pattern = schema.get("pattern")
         if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: pattern mismatch")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: pattern mismatch")
         if schema.get("format") == "uri" and not _is_uri(value):
-            raise ReleaseToolError(f"recipe schema validation failed at {path}: expected uri")
+            raise ReleaseToolError(f"contract schema validation failed at {path}: expected uri")
         return
 
-    raise ReleaseToolError(f"recipe schema validation failed at {path}: unsupported schema")
+    raise ReleaseToolError(f"contract schema validation failed at {path}: unsupported schema")
 
 
 def _is_uri(value: str) -> bool:
@@ -314,9 +309,9 @@ def _parse_scalar(value: str) -> str:
     return value
 
 
-def _validate_recipe(recipe: dict[str, Any]) -> None:
-    contract = _dict_value(recipe, "contract")
-    runtime = _dict_value(recipe, "runtime")
+def _validate_contract(value: dict[str, Any]) -> None:
+    contract = _dict_value(value, "contract")
+    runtime = _dict_value(value, "runtime")
 
     contract_id = _string_value(contract, "id")
     contract_version = _string_value(contract, "version")
@@ -387,10 +382,10 @@ def _format_semver(value: tuple[int, int, int]) -> str:
 
 
 def _cmd_resolve(args: argparse.Namespace) -> None:
-    recipe_path = Path(args.recipe)
-    recipe = load_recipe(recipe_path)
+    contract_path = Path(args.contract)
+    contract = load_contract(contract_path)
     catalog = _load_json(Path(args.catalog)) if args.catalog else None
-    outputs = recipe_outputs(recipe, recipe_path, catalog)
+    outputs = contract_outputs(contract, contract_path, catalog)
     if args.github_output:
         write_github_outputs(outputs, Path(args.github_output))
     else:
@@ -399,19 +394,18 @@ def _cmd_resolve(args: argparse.Namespace) -> None:
 
 
 def _cmd_validate_catalog(args: argparse.Namespace) -> None:
-    validate_catalog_compatibility(recipe=load_recipe(Path(args.recipe)), catalog=_load_json(Path(args.catalog)))
+    validate_catalog_compatibility(contract=load_contract(Path(args.contract)), catalog=_load_json(Path(args.catalog)))
 
 
-def _cmd_update_catalog(args: argparse.Namespace) -> None:
-    recipe = load_recipe(Path(args.recipe))
+def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
+    contract = load_contract(Path(args.contract))
     catalog_path = Path(args.catalog)
     runtime_catalog = _load_json(catalog_path)
-    contract_version = args.contract_version or next_contract_version(recipe=recipe, catalog=runtime_catalog)
-    updated = update_catalog(
-        recipe=recipe,
+    contract_version = args.contract_version or next_contract_version(contract=contract, catalog=runtime_catalog)
+    updated = promote_runtime_image(
+        contract=contract,
         catalog=runtime_catalog,
-        provisioner_ref=args.provisioner_ref,
-        endpoint_ref=args.endpoint_ref,
+        image_ref=args.image_ref,
         contract_version=contract_version,
     )
     updated_workflow_catalog = None
@@ -419,7 +413,7 @@ def _cmd_update_catalog(args: argparse.Namespace) -> None:
         workflow_catalog_path = Path(args.workflow_catalog)
         updated_workflow_catalog = update_workflow_catalog(
             catalog=_load_json(workflow_catalog_path),
-            contract_id=recipe["contract"]["id"],
+            contract_id=contract["contract"]["id"],
             contract_version=contract_version,
         )
     _write_json(catalog_path, updated)
@@ -428,28 +422,30 @@ def _cmd_update_catalog(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Runtime recipe release helper")
+    parser = argparse.ArgumentParser(description="Runtime contract release and promotion helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    resolve = subparsers.add_parser("resolve", help="resolve recipe outputs")
-    resolve.add_argument("--recipe", required=True)
+    resolve = subparsers.add_parser("resolve", help="resolve contract outputs")
+    resolve.add_argument("--contract", required=True)
     resolve.add_argument("--catalog")
     resolve.add_argument("--github-output")
     resolve.set_defaults(func=_cmd_resolve)
 
     validate_catalog = subparsers.add_parser("validate-catalog", help="validate catalog shape")
-    validate_catalog.add_argument("--recipe", required=True)
+    validate_catalog.add_argument("--contract", required=True)
     validate_catalog.add_argument("--catalog", required=True)
     validate_catalog.set_defaults(func=_cmd_validate_catalog)
 
-    update = subparsers.add_parser("update-catalog", help="upsert a runtime contract image pair")
-    update.add_argument("--recipe", required=True)
-    update.add_argument("--catalog", required=True)
-    update.add_argument("--provisioner-ref", required=True)
-    update.add_argument("--endpoint-ref", required=True)
-    update.add_argument("--contract-version")
-    update.add_argument("--workflow-catalog")
-    update.set_defaults(func=_cmd_update_catalog)
+    promote_runtime = subparsers.add_parser(
+        "promote-runtime-image",
+        help="promote a digest-pinned endpoint image into the Runtime Catalog",
+    )
+    promote_runtime.add_argument("--contract", required=True)
+    promote_runtime.add_argument("--catalog", required=True)
+    promote_runtime.add_argument("--image-ref", required=True)
+    promote_runtime.add_argument("--contract-version")
+    promote_runtime.add_argument("--workflow-catalog")
+    promote_runtime.set_defaults(func=_cmd_promote_runtime_image)
 
     return parser
 

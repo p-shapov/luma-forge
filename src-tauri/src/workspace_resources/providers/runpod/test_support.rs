@@ -9,8 +9,12 @@ use crate::{
     domain::{
         placement::PlacementPlan,
         provider_setup::{GpuCloudProviderId, ProviderApiKey},
+        provisioner::ResolvedProvisionerImageSnapshot,
         runtime::ResolvedRuntimeImageSnapshot,
-        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+        workflow::{
+            ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+            WorkflowPreset,
+        },
         workspace::{
             PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
             ServerlessEndpointSnapshot, Workspace, WorkspaceCatalog, WorkspaceLifecycleState,
@@ -26,7 +30,7 @@ use crate::{
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceContext},
+    workspace_resources::WorkspaceResourceContext,
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -674,12 +678,6 @@ pub(super) fn context<'a>(
     WorkspaceResourceContext::new(secrets, catalog)
 }
 
-pub(super) fn config() -> WorkspaceResourceConfig {
-    WorkspaceResourceConfig {
-        volume_mount_path: "/workspace".to_string(),
-    }
-}
-
 pub(super) fn workspace() -> Workspace {
     let preset = WorkflowPreset {
         id: "preset-1".to_string(),
@@ -691,8 +689,11 @@ pub(super) fn workspace() -> Workspace {
             id: "runtime".to_string(),
             version: "1.0.0".to_string(),
         },
+        provisioner_contract: ProvisionerContractReference {
+            id: "provisioner".to_string(),
+            version: "1.0.0".to_string(),
+        },
         required_model_assets: Vec::new(),
-        required_custom_nodes: Vec::new(),
     };
     let placement_plan = PlacementPlan::Runpod {
         selected_datacenter_id: "dc-1".to_string(),
@@ -704,8 +705,13 @@ pub(super) fn workspace() -> Workspace {
     let runtime = ResolvedRuntimeImageSnapshot {
         contract_id: "runtime".to_string(),
         contract_version: "1.0.0".to_string(),
-        provisioner_image_ref: "provisioner:latest".to_string(),
         endpoint_image_ref: "endpoint:latest".to_string(),
+    };
+    let provisioner = ResolvedProvisionerImageSnapshot {
+        contract_id: "provisioner".to_string(),
+        contract_version: "1.0.0".to_string(),
+        provisioner_worker_image_ref: "provisioner:latest".to_string(),
+        volume_mount_path: "/workspace".to_string(),
     };
     let mut workspace = Workspace::new_draft(
         GpuCloudProviderId::Runpod,
@@ -713,6 +719,7 @@ pub(super) fn workspace() -> Workspace {
         "Workspace".to_string(),
         placement_plan,
         runtime,
+        provisioner,
     )
     .expect("test workspace should be valid");
     workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;

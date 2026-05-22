@@ -12,19 +12,16 @@ LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
 
 The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` before startup, listens on `127.0.0.1:8000` by default, and starts idle. It does not prepare the workspace until `/start` receives a selected Workflow Preset payload.
 
-During preparation, the Provisioner Worker validates the image-baked ComfyUI base runtime under `/opt/luma-forge/runtime` and prepares only workspace-specific data on the mounted volume. Workflow Preset Custom Nodes, model assets, runtime metadata, and Custom Node dependency overlays live on `/workspace`:
+During preparation, the Provisioner Worker prepares only workspace-specific data on the mounted volume:
 
 ```text
 /workspace/
-  custom_nodes/
   models/
   output/
-  .luma-forge/
-    runtime-manifest.json
-    python-overlay/
+  workflows/
 ```
 
-The worker must not create the base virtual environment, clone ComfyUI, run `comfy install`, or install ComfyUI base requirements during provisioning. The endpoint worker later starts ComfyUI through the image-baked Python interpreter and adds workspace Custom Node, model, output, and overlay paths.
+The worker validates only workspace path safety and declared model asset files. It does not write `.luma-forge/runtime-manifest.json`, validate workflow or output paths, validate endpoint runtime paths, contain or validate the endpoint ComfyUI runtime, create the base virtual environment, clone ComfyUI, run `comfy install`, install ComfyUI base requirements, clone runtime extensions, or run `pip` during provisioning.
 
 ## Test
 
@@ -44,7 +41,7 @@ PYTHONPATH=src python -m compileall src tests
 
 ```bash
 cd workers/provisioner
-docker build -t luma-forge-provisioner:local -f ../Dockerfile --target provisioner ../..
+docker build -t luma-forge-provisioner:local -f Dockerfile ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
   -p 8000:8000 \
@@ -59,11 +56,11 @@ cd workers/provisioner
 LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python -m unittest tests.test_container_smoke
 ```
 
-Provisioner and endpoint images are built from the shared provider-neutral Dockerfile at `workers/Dockerfile`.
+Provisioner and endpoint images use separate Dockerfiles. The provisioner Dockerfile does not contain endpoint runtime stages or runtime contract build arguments.
 
 ## Deployment
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub Actions worker image deployment workflow, required registry configuration, produced tags, and rollback process.
+See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
 
 Remote provisioning must inject a unique per-pod bearer token through `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`, then send `Authorization: Bearer <token>` on every worker API request. The token must not be logged, persisted in workspace metadata, or returned in worker responses.
 
@@ -88,8 +85,6 @@ The error record never includes configured environment values or secrets.
 | `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
 | `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
 | `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` | `1048576` | Positive integer up to `104857600`. |
-| `LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
-| `LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS` | `1800` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`. |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
 
@@ -110,23 +105,19 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
 {
   "job_id": "workspace-id",
   "workflow_preset": {
-    "id": "comfyui-t2i-basic",
-    "version": "1.0.0",
-    "name": "ComfyUI Text to Image Basic",
-    "workflow_execution_type": "t2i",
-    "required_base_volume_size_bytes": 85899345920,
-    "runtime_contract": {
-      "id": "comfyui-python312-cu121",
-      "version": "1.0.0"
-    },
-    "required_model_assets": [],
-    "required_custom_nodes": []
-  },
-  "resolved_runtime_image": {
-    "contract_id": "comfyui-python312-cu121",
-    "contract_version": "1.0.0",
-    "provisioner_image_ref": "ghcr.io/luma-forge/provisioner-worker@sha256:...",
-    "endpoint_image_ref": "ghcr.io/luma-forge/runpod-endpoint-worker@sha256:..."
+    "required_model_assets": [
+      {
+        "id": "model",
+        "name": "Model",
+        "download_source": {
+          "source_type": "huggingface",
+          "repository_id": "owner/model",
+          "file_path": "model.safetensors",
+          "revision": "main"
+        },
+        "install_comfyui_relative_path": "models/checkpoints/model.safetensors"
+      }
+    ]
   }
 }
 ```

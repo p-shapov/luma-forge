@@ -91,10 +91,9 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    let resource_config = context.resource_config();
     Ok(context
         .resources
-        .sync_network_volume(workspace, &resource_config)
+        .sync_network_volume(workspace)
         .await?
         .map(result))
 }
@@ -109,10 +108,9 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    let resource_config = context.resource_config();
     Ok(context
         .resources
-        .sync_provisioning_pod(workspace, &resource_config)
+        .sync_provisioning_pod(workspace)
         .await?
         .map(result))
 }
@@ -175,10 +173,9 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    let resource_config = context.resource_config();
     if let Some(workspace) = context
         .resources
-        .sync_serverless_endpoint(workspace, &resource_config)
+        .sync_serverless_endpoint(workspace)
         .await?
     {
         return Ok(Some(result(workspace)));

@@ -26,7 +26,7 @@ use crate::{
 
 use super::{
     client::RunPodWorkspaceResourceClient, GIB_BYTES, RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT,
-    RUNPOD_PROVISIONER_WORKER_HTTP_PORT, RUNPOD_VOLUME_MOUNT_PATH,
+    RUNPOD_PROVISIONER_WORKER_HTTP_PORT,
 };
 
 pub(super) struct RunPodWorkspaceResourceContext<'a, S, W, C> {
@@ -146,11 +146,17 @@ where
                     gpu_type_ids: vec![input.selected_gpu_id],
                     data_center_ids: vec![input.datacenter_id],
                     network_volume_id: input.network_volume_id,
-                    volume_mount_path: input.mount_path,
-                    env: HashMap::from([(
-                        "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-                        input.bearer_token.expose_secret().to_string(),
-                    )]),
+                    volume_mount_path: input.mount_path.clone(),
+                    env: HashMap::from([
+                        (
+                            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+                            input.bearer_token.expose_secret().to_string(),
+                        ),
+                        (
+                            "LUMA_FORGE_WORKSPACE_MOUNT_PATH".to_string(),
+                            input.mount_path,
+                        ),
+                    ]),
                     ports: vec![format!("{RUNPOD_PROVISIONER_WORKER_HTTP_PORT}/http")],
                 },
             )
@@ -221,7 +227,10 @@ where
                     name: provider_resource_name(&input.workspace_id, "endpoint-template"),
                     image_name: input.endpoint_worker_image_ref,
                     container_disk_in_gb: 10,
-                    env: HashMap::new(),
+                    env: HashMap::from([(
+                        "LUMA_FORGE_WORKSPACE_MOUNT_PATH".to_string(),
+                        input.mount_path.clone(),
+                    )]),
                     is_public: false,
                     is_serverless: true,
                     ports: vec![format!("{RUNPOD_ENDPOINT_COMFYUI_HTTP_PORT}/http")],
@@ -374,7 +383,6 @@ fn runpod_network_volume_observation(
     NetworkVolumeObservation {
         provider_resource_id: observation.id,
         provider_resource_status: observation.status,
-        mount_path: RUNPOD_VOLUME_MOUNT_PATH.to_string(),
     }
 }
 

@@ -1,0 +1,137 @@
+name: Deploy Runtime Contract
+
+on:
+  push:
+    tags:
+      - "runtime-contract-v*"
+  workflow_dispatch:
+    inputs:
+      contract:
+        description: Runtime contract
+        required: true
+        type: choice
+        options:
+          - workers/promote-runtime-contract/comfyui-python312-cu121.yaml
+        default: workers/promote-runtime-contract/comfyui-python312-cu121.yaml
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: deploy-runtime-contract-${{ github.ref }}-${{ inputs.contract || 'tag' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate, build, and publish endpoint runtime
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install release tooling
+        run: python -m pip install --upgrade pip pyyaml jsonschema
+
+      - name: Resolve contract metadata
+        id: contract
+        env:
+          CONTRACT: ${{ inputs.contract || 'workers/promote-runtime-contract/comfyui-python312-cu121.yaml' }}
+        run: |
+          python workers/promote-runtime-contract/release_tool.py resolve \
+            --contract "$CONTRACT" \
+            --catalog bundled/runtime-catalog.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate workers
+        run: |
+          python -m pip install workers/provisioner workers/runpod-endpoint pyyaml
+          python -m unittest discover -s workers/promote-runtime-contract/tests
+          PYTHONPATH=workers/runpod-endpoint/src python -m unittest discover -s workers/runpod-endpoint/tests
+
+      - name: Resolve image tags
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          CONTRACT_ID: ${{ steps.contract.outputs.contract_id }}
+          CONTRACT_VERSION: ${{ steps.contract.outputs.contract_version }}
+        run: |
+          base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          suffix="${CONTRACT_ID}-${CONTRACT_VERSION}"
+          printf 'endpoint_tag=%s\n' "${base}/runpod-endpoint-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build endpoint image
+        run: |
+          docker build --file workers/runpod-endpoint/Dockerfile --platform linux/amd64 \
+            --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION="${{ steps.contract.outputs.runtime_python_version }}" \
+            --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.contract.outputs.comfyui_revision }}" \
+            --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.contract.outputs.pytorch_index_url }}" \
+            --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.contract.outputs.pytorch_packages_json }}' \
+            --tag "${{ steps.image.outputs.endpoint_tag }}" .
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Publish endpoint image
+        run: |
+          docker push "${{ steps.image.outputs.endpoint_tag }}"
+
+      - name: Resolve pushed image digests
+        id: digest
+        run: |
+          endpoint_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.image.outputs.endpoint_tag }}")"
+          printf 'endpoint_ref=%s\n' "$endpoint_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Promote runtime image to catalog
+        run: |
+          python workers/promote-runtime-contract/release_tool.py promote-runtime-image \
+            --contract "${{ steps.contract.outputs.contract }}" \
+            --catalog bundled/runtime-catalog.json \
+            --workflow-catalog bundled/workflow-catalog.json \
+            --contract-version "${{ steps.contract.outputs.contract_version }}" \
+            --image-ref "${{ steps.digest.outputs.endpoint_ref }}"
+
+      - name: Verify Runtime Catalog promotion PR scope
+        run: |
+          changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/runtime-catalog.json'; then
+            echo "::error::Catalog promotion did not modify bundled/runtime-catalog.json"
+            exit 1
+          fi
+
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/workflow-catalog.json'; then
+            echo "::error::Catalog promotion did not modify bundled/workflow-catalog.json"
+            exit 1
+          fi
+
+          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(runtime|workflow)-catalog\.json' || true)"
+          if [ -n "$unexpected_paths" ]; then
+            echo "::error::Catalog promotion produced unexpected changed paths:"
+            printf '%s\n' "$unexpected_paths"
+            exit 1
+          fi
+
+      - name: Open Runtime Catalog promotion PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          add-paths: |
+            bundled/runtime-catalog.json
+            bundled/workflow-catalog.json
+          branch: runtime-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          title: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
+          commit-message: "chore(workers): promote runtime image"
+          body: |
+            Promotes the validated endpoint runtime image into the Runtime Catalog and points Workflow Presets at it.
+          labels: runtime-catalog

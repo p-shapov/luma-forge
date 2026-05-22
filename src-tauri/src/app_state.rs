@@ -115,9 +115,7 @@ impl NativeAppState {
             workspace_catalog,
             self.provisioner_workers.clone()?,
             self.workspace_provisioning_coordinator.clone(),
-            WorkspaceProvisioningConfig {
-                volume_mount_path: "/workspace".to_string(),
-            },
+            WorkspaceProvisioningConfig,
         ))
     }
 

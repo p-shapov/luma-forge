@@ -2,15 +2,17 @@ use std::collections::HashSet;
 
 use crate::domain::{
     error::{DomainValidationError, DomainValidationResult},
+    provisioner::{validator as provisioner_validator, ProvisionerCatalog},
     runtime::{validator as runtime_validator, RuntimeCatalog},
     validation::{is_blank, is_safe_relative_path},
 };
 
-use super::{CustomNodeGitSource, ModelAssetSource, WorkflowCatalog};
+use super::{ModelAssetSource, WorkflowCatalog};
 
 pub fn validate_workflow_catalog(
     catalog: &WorkflowCatalog,
     runtime_catalog: &RuntimeCatalog,
+    provisioner_catalog: &ProvisionerCatalog,
 ) -> DomainValidationResult {
     if catalog.workflow_presets.is_empty() {
         return Err(DomainValidationError);
@@ -31,7 +33,7 @@ pub fn validate_workflow_catalog(
             if is_blank(&asset.id)
                 || is_blank(&asset.name)
                 || !is_valid_model_asset_source(&asset.download_source)
-                || !is_safe_relative_path(&asset.install.comfyui_relative_path)
+                || !is_safe_relative_path(&asset.install_comfyui_relative_path)
             {
                 return Err(DomainValidationError);
             }
@@ -47,28 +49,18 @@ pub fn validate_workflow_catalog(
             return Err(DomainValidationError);
         }
 
-        for node in &preset.required_custom_nodes {
-            if is_blank(&node.id)
-                || is_blank(&node.name)
-                || !is_valid_custom_node_source(&node.git_source)
-                || !is_safe_custom_node_path(&node.install.comfyui_custom_nodes_relative_path)
-                || !is_optional_safe_relative_path(&node.install.python_requirements_path)
-            {
-                return Err(DomainValidationError);
-            }
+        if provisioner_validator::validate_provisioner_contract_reference(
+            &preset.provisioner_contract.id,
+            &preset.provisioner_contract.version,
+            provisioner_catalog,
+        )
+        .is_err()
+        {
+            return Err(DomainValidationError);
         }
     }
 
     Ok(())
-}
-
-fn is_valid_custom_node_source(source: &CustomNodeGitSource) -> bool {
-    match source {
-        CustomNodeGitSource::Git {
-            repository_url,
-            revision,
-        } => is_url_shaped(repository_url) && is_immutable_git_revision(revision),
-    }
 }
 
 fn is_valid_model_asset_source(source: &ModelAssetSource) -> bool {
@@ -83,41 +75,6 @@ fn is_valid_model_asset_source(source: &ModelAssetSource) -> bool {
                 && !is_blank(revision)
         }
     }
-}
-
-fn is_safe_custom_node_path(value: &str) -> bool {
-    if !is_safe_relative_path(value) {
-        return false;
-    }
-
-    let mut segments = value.trim().split(['/', '\\']);
-    matches!(segments.next(), Some("custom_nodes")) && segments.next().is_some()
-}
-
-fn is_optional_safe_relative_path(value: &Option<String>) -> bool {
-    value.as_deref().map(is_safe_relative_path).unwrap_or(true)
-}
-
-fn is_url_shaped(value: &str) -> bool {
-    let value = value.trim();
-    let Some((scheme, rest)) = value.split_once("://") else {
-        return false;
-    };
-
-    !scheme.is_empty()
-        && scheme.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
-        })
-        && !rest.is_empty()
-        && !rest.chars().any(char::is_whitespace)
-        && !rest.starts_with('/')
-}
-
-fn is_immutable_git_revision(value: &str) -> bool {
-    value.len() == 40
-        && value
-            .chars()
-            .all(|character| character.is_ascii_hexdigit() && !character.is_ascii_uppercase())
 }
 
 fn is_huggingface_repository_id(value: &str) -> bool {
@@ -138,15 +95,16 @@ fn is_huggingface_repository_id(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::domain::{
+        provisioner::{ProvisionerCatalog, ProvisionerContract, ProvisionerContractRevision},
         runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
         workflow::{
-            CustomNode, CustomNodeInstall, ModelAsset, ModelAssetInstall, ModelAssetKind,
-            RuntimeContractReference, WorkflowExecutionType, WorkflowPreset,
+            ModelAsset, ProvisionerContractReference, RuntimeContractReference,
+            WorkflowExecutionType, WorkflowPreset,
         },
     };
 
-    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const DIGEST_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     fn runtime_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
@@ -154,10 +112,22 @@ mod tests {
                 id: "comfyui-python312-cu121".to_string(),
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
-                    provisioner_image_ref: format!(
-                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"
-                    ),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
+                }],
+            }],
+        }
+    }
+
+    fn provisioner_catalog() -> ProvisionerCatalog {
+        ProvisionerCatalog {
+            contracts: vec![ProvisionerContract {
+                id: "luma-forge-provisioner".to_string(),
+                revisions: vec![ProvisionerContractRevision {
+                    version: "1.0.0".to_string(),
+                    provisioner_worker_image_ref: format!(
+                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
+                    ),
+                    volume_mount_path: "/workspace".to_string(),
                 }],
             }],
         }
@@ -167,32 +137,13 @@ mod tests {
         ModelAsset {
             id: "sdxl-base".to_string(),
             name: "SDXL Base".to_string(),
-            model_asset_kind: ModelAssetKind::Checkpoint,
             download_source: ModelAssetSource::Huggingface {
                 repository_id: "stabilityai/stable-diffusion-xl-base-1.0".to_string(),
                 file_path: "sd_xl_base_1.0.safetensors".to_string(),
                 revision: "462165984030d82259a11f4367a4eed129e94a7b".to_string(),
             },
-            install: ModelAssetInstall {
-                comfyui_relative_path: "models/checkpoints/sd_xl_base_1.0.safetensors".to_string(),
-            },
-        }
-    }
-
-    fn valid_custom_node() -> CustomNode {
-        CustomNode {
-            id: "example-node".to_string(),
-            name: "Example Node".to_string(),
-            git_source: CustomNodeGitSource::Git {
-                repository_url: "https://github.com/example/node.git".to_string(),
-                revision: "0123456789abcdef0123456789abcdef01234567".to_string(),
-            },
-            install: CustomNodeInstall {
-                comfyui_custom_nodes_relative_path: "custom_nodes/example-node".to_string(),
-                python_requirements_path: Some(
-                    "custom_nodes/example-node/requirements.txt".to_string(),
-                ),
-            },
+            install_comfyui_relative_path: "models/checkpoints/sd_xl_base_1.0.safetensors"
+                .to_string(),
         }
     }
 
@@ -207,8 +158,11 @@ mod tests {
                 id: "comfyui-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            },
             required_model_assets: vec![valid_model_asset()],
-            required_custom_nodes: vec![valid_custom_node()],
         }
     }
 
@@ -221,7 +175,7 @@ mod tests {
     #[test]
     fn validate_workflow_catalog_accepts_valid_catalog() {
         assert_eq!(
-            validate_workflow_catalog(&valid_catalog(), &runtime_catalog()),
+            validate_workflow_catalog(&valid_catalog(), &runtime_catalog(), &provisioner_catalog()),
             Ok(())
         );
     }
@@ -263,10 +217,28 @@ mod tests {
 
         for catalog in invalid_catalogs {
             assert_eq!(
-                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                validate_workflow_catalog(&catalog, &runtime_catalog(), &provisioner_catalog()),
                 Err(DomainValidationError)
             );
         }
+    }
+
+    #[test]
+    fn validate_workflow_catalog_rejects_stale_provisioner_contract_reference() {
+        let catalog = WorkflowCatalog {
+            workflow_presets: vec![WorkflowPreset {
+                provisioner_contract: ProvisionerContractReference {
+                    id: "luma-forge-provisioner".to_string(),
+                    version: "2.0.0".to_string(),
+                },
+                ..valid_preset("comfyui-t2i-basic")
+            }],
+        };
+
+        assert_eq!(
+            validate_workflow_catalog(&catalog, &runtime_catalog(), &provisioner_catalog()),
+            Err(DomainValidationError)
+        );
     }
 
     #[test]
@@ -301,9 +273,7 @@ mod tests {
                 ..valid_model_asset()
             },
             ModelAsset {
-                install: ModelAssetInstall {
-                    comfyui_relative_path: "/models/checkpoints/model.safetensors".to_string(),
-                },
+                install_comfyui_relative_path: "/models/checkpoints/model.safetensors".to_string(),
                 ..valid_model_asset()
             },
         ];
@@ -317,59 +287,7 @@ mod tests {
             };
 
             assert_eq!(
-                validate_workflow_catalog(&catalog, &runtime_catalog()),
-                Err(DomainValidationError)
-            );
-        }
-    }
-
-    #[test]
-    fn validate_workflow_catalog_rejects_mutable_or_unsafe_custom_nodes() {
-        let invalid_nodes = [
-            CustomNode {
-                id: " ".to_string(),
-                ..valid_custom_node()
-            },
-            CustomNode {
-                git_source: CustomNodeGitSource::Git {
-                    repository_url: "github.com/example/node.git".to_string(),
-                    revision: "0123456789abcdef0123456789abcdef01234567".to_string(),
-                },
-                ..valid_custom_node()
-            },
-            CustomNode {
-                git_source: CustomNodeGitSource::Git {
-                    repository_url: "https://github.com/example/node.git".to_string(),
-                    revision: "main".to_string(),
-                },
-                ..valid_custom_node()
-            },
-            CustomNode {
-                install: CustomNodeInstall {
-                    comfyui_custom_nodes_relative_path: "nodes/example".to_string(),
-                    python_requirements_path: None,
-                },
-                ..valid_custom_node()
-            },
-            CustomNode {
-                install: CustomNodeInstall {
-                    comfyui_custom_nodes_relative_path: "custom_nodes/example".to_string(),
-                    python_requirements_path: Some("../requirements.txt".to_string()),
-                },
-                ..valid_custom_node()
-            },
-        ];
-
-        for node in invalid_nodes {
-            let catalog = WorkflowCatalog {
-                workflow_presets: vec![WorkflowPreset {
-                    required_custom_nodes: vec![node],
-                    ..valid_preset("comfyui-t2i-basic")
-                }],
-            };
-
-            assert_eq!(
-                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                validate_workflow_catalog(&catalog, &runtime_catalog(), &provisioner_catalog()),
                 Err(DomainValidationError)
             );
         }

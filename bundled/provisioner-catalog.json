@@ -1,0 +1,14 @@
+{
+  "contracts": [
+    {
+      "id": "luma-forge-provisioner",
+      "revisions": [
+        {
+          "version": "1.0.0",
+          "provisioner_worker_image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55",
+          "volume_mount_path": "/workspace"
+        }
+      ]
+    }
+  ]
+}

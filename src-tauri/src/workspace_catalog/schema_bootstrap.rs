@@ -105,8 +105,23 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
             workspace_id TEXT PRIMARY KEY NOT NULL,
             contract_id TEXT NOT NULL,
             contract_version TEXT NOT NULL,
-            provisioner_image_ref TEXT NOT NULL,
             endpoint_image_ref TEXT NOT NULL,
+            FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS workspace_provisioner_images (
+            workspace_id TEXT PRIMARY KEY NOT NULL,
+            contract_id TEXT NOT NULL,
+            contract_version TEXT NOT NULL,
+            provisioner_worker_image_ref TEXT NOT NULL,
+            volume_mount_path TEXT NOT NULL,
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
         )
         "#,
@@ -189,6 +204,7 @@ async fn has_existing_catalog_objects(
             'workspaces',
             'workspace_runpod_placements',
             'workspace_runtime_images',
+            'workspace_provisioner_images',
             'workspace_resource_snapshots',
             'workspace_runpod_endpoint_templates',
             'workspace_provisioning_failures'
@@ -256,6 +272,7 @@ async fn validate_current_schema(
             AND name IN (
                 'workspace_runpod_placements',
                 'workspace_runtime_images',
+                'workspace_provisioner_images',
                 'workspace_resource_snapshots',
                 'workspace_runpod_endpoint_templates',
                 'workspace_provisioning_failures'
@@ -267,7 +284,7 @@ async fn validate_current_schema(
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?
     .try_get("count")
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
-    if normalized_table_count != 5 {
+    if normalized_table_count != 6 {
         return Err(WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     }
 

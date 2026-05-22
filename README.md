@@ -67,10 +67,12 @@ spec/
   ubiquitous-language/   Domain vocabulary
 
 workers/
-  Dockerfile             Shared worker image entrypoint
-  provisioner/           Container-side workspace preparation worker and tests
-  runpod-endpoint/       RunPod endpoint runtime generation worker and tests
-  runtime-recipes/       Runtime image recipe schema, catalog inputs, and release tooling
+  provisioner/           Container-side workspace preparation worker, Dockerfile, and tests
+  promote-provisioner-contract/
+                         Provisioner Catalog promotion tooling and tests
+  promote-runtime-contract/
+                         Runtime contract schema, metadata, and Runtime Catalog promotion
+  runpod-endpoint/       RunPod endpoint runtime worker, Dockerfile, and tests
 ```
 
 ## Key Flows

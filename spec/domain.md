@@ -22,7 +22,6 @@ This document focuses on provisioning and Workspace management. Sessions, genera
 - [Provisioning Pod](./ubiquitous-language/provisioning-pod.md)
 - [Serverless Endpoint](./ubiquitous-language/serverless-endpoint.md)
 - [Workflow](./ubiquitous-language/workflow.md)
-- [Custom Nodes](./ubiquitous-language/custom-nodes.md)
 - [Workflow Preset](./ubiquitous-language/workflow-preset.md)
 - [Workflow Catalog](./ubiquitous-language/workflow-catalog.md)
 - [Provisioner Worker](./ubiquitous-language/provisioner-worker.md)

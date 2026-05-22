@@ -44,12 +44,13 @@ fn endpoint_template_matches_workspace(
 ) -> bool {
     template.provider_resource_status == ProviderResourceStatus::Ready
         && template.endpoint_worker_image_ref == workspace.resolved_runtime_image.endpoint_image_ref
-        && template.mount_path
-            == workspace
-                .persistent_storage_volume_snapshot
-                .as_ref()
-                .map(|volume| volume.mount_path.clone())
-                .unwrap_or_default()
+        && template.mount_path == workspace.resolved_provisioner_image.volume_mount_path
+        && workspace
+            .persistent_storage_volume_snapshot
+            .as_ref()
+            .is_some_and(|volume| {
+                volume.mount_path == workspace.resolved_provisioner_image.volume_mount_path
+            })
 }
 
 #[cfg(test)]

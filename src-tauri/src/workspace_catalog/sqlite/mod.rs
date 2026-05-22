@@ -303,8 +303,12 @@ mod test_fixtures {
         domain::{
             placement::PlacementPlan,
             provider_setup::GpuCloudProviderId,
+            provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
-            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workflow::{
+                ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+                WorkflowPreset,
+            },
             workspace::{
                 PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot,
                 ProviderResourceStatus, ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot,
@@ -317,8 +321,8 @@ mod test_fixtures {
         workspace_catalog::schema_bootstrap,
     };
 
-    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const DIGEST_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     pub(super) async fn bootstrapped_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -357,8 +361,11 @@ mod test_fixtures {
                 id: "comfyui-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            },
             required_model_assets: vec![],
-            required_custom_nodes: vec![],
         }
     }
 
@@ -376,8 +383,18 @@ mod test_fixtures {
         ResolvedRuntimeImageSnapshot {
             contract_id: "comfyui-python312-cu121".to_string(),
             contract_version: "1.0.0".to_string(),
-            provisioner_image_ref: format!("ghcr.io/luma-forge/provisioner@sha256:{DIGEST_A}"),
             endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
+        }
+    }
+
+    fn provisioner_snapshot() -> ResolvedProvisionerImageSnapshot {
+        ResolvedProvisionerImageSnapshot {
+            contract_id: "luma-forge-provisioner".to_string(),
+            contract_version: "1.0.0".to_string(),
+            provisioner_worker_image_ref: format!(
+                "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
+            ),
+            volume_mount_path: "/workspace".to_string(),
         }
     }
 
@@ -388,6 +405,7 @@ mod test_fixtures {
             name.to_string(),
             placement_plan(workflow_preset_id),
             runtime_snapshot(),
+            provisioner_snapshot(),
         )
         .expect("valid draft workspace")
     }

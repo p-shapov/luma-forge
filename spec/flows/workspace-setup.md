@@ -207,7 +207,6 @@ Partial or corrupt Workspace metadata must not be treated as `Ready` or used for
 - [Persistent Storage Volume](../ubiquitous-language/persistent-storage-volume.md)
 - [Provisioning Pod](../ubiquitous-language/provisioning-pod.md)
 - [Serverless Endpoint](../ubiquitous-language/serverless-endpoint.md)
-- [Custom Nodes](../ubiquitous-language/custom-nodes.md)
 - [Endpoint Worker](../ubiquitous-language/endpoint-worker.md)
 - [Health Check](../ubiquitous-language/health-check.md)
 - [Workspace](../ubiquitous-language/workspace.md)

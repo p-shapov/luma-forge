@@ -3,8 +3,7 @@ import unittest
 from pathlib import Path
 
 from app.errors import ValidationError
-from auxiliary.paths import safe_child_path, safe_custom_node_child_path, safe_relative_path
-from runtime.manifest import runtime_paths
+from auxiliary.paths import safe_child_path, safe_relative_path
 
 
 class PathSafetyTests(unittest.TestCase):
@@ -42,61 +41,6 @@ class PathSafetyTests(unittest.TestCase):
 
             with self.assertRaises(ValidationError):
                 safe_child_path(workspace, "models/checkpoints/model.safetensors", field_name="model_path")
-
-    def test_rejects_custom_nodes_root_symlink_escape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            comfyui_root = Path(directory) / "workspace" / "ComfyUI"
-            outside = Path(directory) / "outside-custom-nodes"
-            comfyui_root.mkdir(parents=True)
-            outside.mkdir()
-            _symlink_or_skip(self, outside, comfyui_root / "custom_nodes")
-
-            with self.assertRaises(ValidationError):
-                safe_custom_node_child_path(
-                    comfyui_root,
-                    "custom_nodes/example-node",
-                    field_name="custom_node_path",
-                )
-
-    def test_rejects_custom_node_child_symlink_escape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            comfyui_root = Path(directory) / "workspace" / "ComfyUI"
-            custom_nodes = comfyui_root / "custom_nodes"
-            outside = Path(directory) / "outside-node"
-            custom_nodes.mkdir(parents=True)
-            outside.mkdir()
-            _symlink_or_skip(self, outside, custom_nodes / "example-node")
-
-            with self.assertRaises(ValidationError):
-                safe_custom_node_child_path(
-                    comfyui_root,
-                    "custom_nodes/example-node/requirements.txt",
-                    field_name="requirements_path",
-                )
-
-    def test_rejects_runtime_metadata_symlink_escape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory) / "workspace"
-            outside = Path(directory) / "outside-metadata"
-            workspace.mkdir()
-            outside.mkdir()
-            _symlink_or_skip(self, outside, workspace / ".luma-forge")
-
-            with self.assertRaises(ValidationError):
-                runtime_paths(workspace)
-
-    def test_rejects_python_overlay_symlink_escape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            workspace = Path(directory) / "workspace"
-            outside = Path(directory) / "outside-overlay"
-            workspace.mkdir()
-            outside.mkdir()
-            metadata = workspace / ".luma-forge"
-            metadata.mkdir()
-            _symlink_or_skip(self, outside, metadata / "python-overlay")
-
-            with self.assertRaises(ValidationError):
-                runtime_paths(workspace)
 
     def test_rejects_model_asset_symlink_escape(self):
         with tempfile.TemporaryDirectory() as directory:

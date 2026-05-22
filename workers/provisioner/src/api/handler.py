@@ -132,7 +132,7 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
 
     def _config(self) -> WorkerConfig:
         if self.config is None:
-            raise RuntimeError("Provisioner request handler is missing runtime config.")
+            raise RuntimeError("Provisioner request handler is missing worker config.")
         return self.config
 
     def _manager(self) -> JobManager:

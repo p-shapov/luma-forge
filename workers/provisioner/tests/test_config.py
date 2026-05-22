@@ -8,9 +8,7 @@ from pathlib import Path
 
 from app.config import (
     ConfigurationError,
-    DEFAULT_DEPENDENCY_TIMEOUT_SECONDS,
     DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
-    DEFAULT_GIT_TIMEOUT_SECONDS,
     DEFAULT_HOST,
     DEFAULT_MAX_REQUEST_BYTES,
     DEFAULT_PORT,
@@ -39,8 +37,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.port, DEFAULT_PORT)
         self.assertEqual(config.bearer_token, VALID_TOKEN)
         self.assertEqual(config.max_request_bytes, DEFAULT_MAX_REQUEST_BYTES)
-        self.assertEqual(config.git_timeout_seconds, DEFAULT_GIT_TIMEOUT_SECONDS)
-        self.assertEqual(config.dependency_timeout_seconds, DEFAULT_DEPENDENCY_TIMEOUT_SECONDS)
         self.assertEqual(config.download_timeout_seconds, DEFAULT_DOWNLOAD_TIMEOUT_SECONDS)
         self.assertEqual(config.workspace_mount_path, Path(DEFAULT_WORKSPACE_MOUNT_PATH).resolve(strict=False))
 
@@ -50,8 +46,6 @@ class ConfigTests(unittest.TestCase):
                 LUMA_FORGE_PROVISIONER_HOST="worker.internal",
                 LUMA_FORGE_PROVISIONER_PORT="9000",
                 LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES="2048",
-                LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS="12.5",
-                LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS="13.5",
                 LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS="14.5",
                 LUMA_FORGE_WORKSPACE_MOUNT_PATH="/workspace/custom",
             )
@@ -60,8 +54,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.host, "worker.internal")
         self.assertEqual(config.port, 9000)
         self.assertEqual(config.max_request_bytes, 2048)
-        self.assertEqual(config.git_timeout_seconds, 12.5)
-        self.assertEqual(config.dependency_timeout_seconds, 13.5)
         self.assertEqual(config.download_timeout_seconds, 14.5)
         self.assertEqual(config.workspace_mount_path, Path("/workspace/custom").resolve(strict=False))
 
@@ -98,14 +90,6 @@ class ConfigTests(unittest.TestCase):
         invalid_values = {
             "LUMA_FORGE_PROVISIONER_PORT": ["", "abc", "0", "65536"],
             "LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES": ["", "abc", "0", str(MAX_REQUEST_BYTES_LIMIT + 1)],
-            "LUMA_FORGE_PROVISIONER_GIT_TIMEOUT_SECONDS": ["", "abc", "0", "inf", str(MAX_TIMEOUT_SECONDS + 1)],
-            "LUMA_FORGE_PROVISIONER_DEPENDENCY_TIMEOUT_SECONDS": [
-                "",
-                "abc",
-                "0",
-                "nan",
-                str(MAX_TIMEOUT_SECONDS + 1),
-            ],
             "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS": [
                 "",
                 "abc",

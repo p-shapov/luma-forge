@@ -14,30 +14,6 @@ class UnsupportedExecutionTypeError(ValidationError):
     code = "unsupported_execution_type"
 
 
-class PreparedEnvironmentError(EndpointWorkerError):
-    code = "prepared_environment_missing"
-
-
-class PreparedRuntimeError(PreparedEnvironmentError):
-    code = "prepared_runtime_invalid"
-
-
-class ComfyUiStartupError(EndpointWorkerError):
-    code = "comfyui_startup_failed"
-
-
-class ComfyUiExecutionError(EndpointWorkerError):
-    code = "comfyui_execution_failed"
-
-
-class ComfyUiTimeoutError(ComfyUiExecutionError):
-    code = "comfyui_timeout"
-
-
-class MissingOutputError(ComfyUiExecutionError):
-    code = "missing_output"
-
-
 class UnexpectedRuntimeError(EndpointWorkerError):
     code = "runtime_failed"
 

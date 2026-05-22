@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn relative_paths_must_not_escape_or_be_empty() {
-        for path in ["models/checkpoint.safetensors", "custom_nodes/node"] {
+        for path in ["models/checkpoint.safetensors", "workflows/t2i.json"] {
             assert!(is_safe_relative_path(path), "{path} should be accepted");
         }
 

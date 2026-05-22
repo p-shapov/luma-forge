@@ -2,8 +2,8 @@ import json
 import unittest
 
 from app.errors import (
+    AssetDownloadError,
     ConflictError,
-    GitCheckoutError,
     RequestTooLargeError,
     UnauthorizedError,
     ValidationError,
@@ -42,10 +42,10 @@ class WorkerErrorTests(unittest.TestCase):
         self.assertEqual(error.to_dict()["reason_code"], "malformed_content_length")
 
     def test_preparation_errors_use_stable_reason_codes(self):
-        payload = GitCheckoutError("Git checkout failed.").to_dict()
+        payload = AssetDownloadError("Asset download failed.").to_dict()
 
-        self.assertEqual(payload["code"], "git_checkout_failed")
-        self.assertEqual(payload["reason_code"], "git_checkout_failed")
+        self.assertEqual(payload["code"], "asset_download_failed")
+        self.assertEqual(payload["reason_code"], "asset_download_failed")
 
     def test_serialized_errors_do_not_include_unpassed_unsafe_values(self):
         secret = "Bearer secret-token-0123456789abcdef"

@@ -1,22 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-pub mod validator;
+pub use crate::domain::provisioner::ProvisionerContractReference;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelAssetKind {
-    Checkpoint,
-    DiffusionModel,
-    Vae,
-    TextEncoder,
-    Clip,
-    ClipVision,
-    Lora,
-    Controlnet,
-    Upscaler,
-    Embedding,
-    Other,
-}
+pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]
@@ -32,37 +18,8 @@ pub enum ModelAssetSource {
 pub struct ModelAsset {
     pub id: String,
     pub name: String,
-    pub model_asset_kind: ModelAssetKind,
     pub download_source: ModelAssetSource,
-    pub install: ModelAssetInstall,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelAssetInstall {
-    pub comfyui_relative_path: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "source_type", rename_all = "snake_case")]
-pub enum CustomNodeGitSource {
-    Git {
-        repository_url: String,
-        revision: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CustomNodeInstall {
-    pub comfyui_custom_nodes_relative_path: String,
-    pub python_requirements_path: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CustomNode {
-    pub id: String,
-    pub name: String,
-    pub git_source: CustomNodeGitSource,
-    pub install: CustomNodeInstall,
+    pub install_comfyui_relative_path: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,8 +42,8 @@ pub struct WorkflowPreset {
     pub workflow_execution_type: WorkflowExecutionType,
     pub required_base_volume_size_bytes: u64,
     pub runtime_contract: RuntimeContractReference,
+    pub provisioner_contract: ProvisionerContractReference,
     pub required_model_assets: Vec<ModelAsset>,
-    pub required_custom_nodes: Vec<CustomNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

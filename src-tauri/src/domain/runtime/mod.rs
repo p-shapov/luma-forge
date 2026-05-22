@@ -16,7 +16,6 @@ pub struct RuntimeContract {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeContractRevision {
     pub version: String,
-    pub provisioner_image_ref: String,
     pub endpoint_image_ref: String,
 }
 
@@ -24,7 +23,6 @@ pub struct RuntimeContractRevision {
 pub struct ResolvedRuntimeImageSnapshot {
     pub contract_id: String,
     pub contract_version: String,
-    pub provisioner_image_ref: String,
     pub endpoint_image_ref: String,
 }
 
@@ -46,7 +44,6 @@ impl RuntimeCatalog {
         Some(ResolvedRuntimeImageSnapshot {
             contract_id: contract.id.clone(),
             contract_version: revision.version.clone(),
-            provisioner_image_ref: revision.provisioner_image_ref.clone(),
             endpoint_image_ref: revision.endpoint_image_ref.clone(),
         })
     }

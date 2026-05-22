@@ -22,7 +22,6 @@ pub fn validate_runtime_catalog(catalog: &RuntimeCatalog) -> DomainValidationRes
         for revision in &contract.revisions {
             if !is_semver(&revision.version)
                 || !versions.insert(revision.version.as_str())
-                || !is_immutable_image_ref(&revision.provisioner_image_ref)
                 || !is_immutable_image_ref(&revision.endpoint_image_ref)
             {
                 return Err(DomainValidationError);
@@ -53,7 +52,6 @@ pub fn validate_resolved_runtime_snapshot(
 ) -> DomainValidationResult {
     if !is_contract_id(&snapshot.contract_id)
         || !is_semver(&snapshot.contract_version)
-        || !is_immutable_image_ref(&snapshot.provisioner_image_ref)
         || !is_immutable_image_ref(&snapshot.endpoint_image_ref)
     {
         return Err(DomainValidationError);
@@ -99,7 +97,6 @@ mod tests {
     use super::*;
     use crate::domain::runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision};
 
-    const DIGEST_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     fn image_ref(name: &str, digest: &str) -> String {
@@ -109,7 +106,6 @@ mod tests {
     fn valid_revision(version: &str) -> RuntimeContractRevision {
         RuntimeContractRevision {
             version: version.to_string(),
-            provisioner_image_ref: image_ref("provisioner", DIGEST_A),
             endpoint_image_ref: image_ref("endpoint", DIGEST_B),
         }
     }
@@ -175,10 +171,6 @@ mod tests {
             },
             RuntimeContractRevision {
                 version: "1.0".to_string(),
-                ..valid_revision("1.0.0")
-            },
-            RuntimeContractRevision {
-                provisioner_image_ref: "ghcr.io/luma-forge/provisioner:latest".to_string(),
                 ..valid_revision("1.0.0")
             },
             RuntimeContractRevision {
