@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-runtime-contract/release_tool.py"
-CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-python312-cu121.yaml"
+CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-hidream-o1-dev-python312-cu121.yaml"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 CATALOG_PATH = ROOT / "bundled/runtime-catalog.json"
 WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runtime-contract.yml"
@@ -25,15 +25,43 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
         outputs = release_tool.contract_outputs(contract, CONTRACT_PATH)
 
         self.assertEqual(str(CONTRACT_PATH), outputs["contract"])
-        self.assertEqual("comfyui-python312-cu121", outputs["contract_id"])
+        self.assertEqual("comfyui-hidream-o1-dev-python312-cu121", outputs["contract_id"])
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
+        self.assertEqual("bundled/workflows/comfyui-hidream-o1-dev.json", outputs["bundled_workflow_path"])
         self.assertEqual("https://download.pytorch.org/whl/cu121", outputs["pytorch_index_url"])
         self.assertEqual(
             ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"],
             json.loads(outputs["pytorch_packages_json"]),
         )
-        self.assertEqual("aa9d2fc713664e9ffe37763f4c9240c0c3eda667", outputs["comfyui_revision"])
+        self.assertEqual("8e53f001a492cc818768a308362adbd3d75a1c43", outputs["comfyui_revision"])
+
+    def test_contract_rejects_missing_bundled_workflow_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            contract_path = Path(directory) / "missing-workflow.yaml"
+            contract_path.write_text(
+                """
+contract:
+  id: missing-workflow-python312-cu121
+  version: 1.0.0
+runtime:
+  workflow_preset_id: missing-workflow
+  python_version: "3.12"
+  comfyui_revision: 8e53f001a492cc818768a308362adbd3d75a1c43
+  pytorch:
+    index_url: https://download.pytorch.org/whl/cu121
+    packages:
+      - torch==2.5.1
+""".strip(),
+                encoding="utf-8",
+            )
+            (Path(directory) / "schema.json").write_text(
+                (ROOT / "workers/promote-runtime-contract/schema.json").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "bundled workflow file does not exist"):
+                release_tool.load_contract(contract_path)
 
     def test_contract_schema_rejects_invalid_contract(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -44,6 +72,7 @@ contract:
   id: Invalid
   version: 1.0.0
 runtime:
+  workflow_preset_id: comfyui-hidream-o1-dev
   python_version: "3.12"
   comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
   pytorch:
@@ -65,6 +94,10 @@ runtime:
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
+        self.assertIn(
+            "ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json",
+            dockerfile,
+        )
         self.assertNotIn("LUMA_FORGE_PROVISIONER_IMAGE_REF", dockerfile)
         self.assertNotIn("runtime-contract.json", dockerfile)
 
@@ -101,6 +134,7 @@ runtime:
         self.assertIn("test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/base-runtime/pip-freeze.txt", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/base-runtime/install-report.json", dockerfile)
+        self.assertIn("/opt/luma-forge/runtime/workflows/workflow.json", dockerfile)
 
     def test_workflow_promotes_runtime_image_after_publish(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -120,6 +154,7 @@ runtime:
         self.assertIn("workers/promote-runtime-contract/release_tool.py promote-runtime-image", promotion_section)
         self.assertIn("--image-ref \"${{ steps.digest.outputs.endpoint_ref }}\"", promotion_section)
         self.assertIn("--contract-version \"${{ steps.contract.outputs.contract_version }}\"", promotion_section)
+        self.assertNotIn("--workflow-catalog", promotion_section)
         self.assertNotIn("update-catalog", workflow)
         self.assertNotIn("--endpoint-ref", workflow)
 
@@ -132,18 +167,18 @@ runtime:
         pr_section = workflow.split("Open Runtime Catalog promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("grep -Evx 'bundled/(runtime|workflow)-catalog\\.json'", verify_section)
+        self.assertIn("grep -Evx 'bundled/runtime-catalog\\.json'", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
         self.assertIn("bundled/runtime-catalog.json", pr_section)
-        self.assertIn("bundled/workflow-catalog.json", pr_section)
+        self.assertNotIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote runtime image", pr_section)
 
     def test_find_contract_matches_contract_id(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         catalog = _catalog_with_contract(contract, image_ref=_image_ref("2"))
 
-        contract = release_tool.find_contract(catalog, "comfyui-python312-cu121")
+        contract = release_tool.find_contract(catalog, "comfyui-hidream-o1-dev-python312-cu121")
 
         self.assertIsNotNone(contract)
         assert contract is not None
@@ -165,7 +200,7 @@ runtime:
         self.assertEqual(
             [
                 {
-                    "id": "comfyui-python312-cu121",
+                    "id": "comfyui-hidream-o1-dev-python312-cu121",
                     "revisions": [
                         {
                             "version": "1.0.0",
@@ -224,50 +259,12 @@ runtime:
 
         self.assertEqual("2.0.0", release_tool.next_contract_version(contract=contract, catalog=catalog))
 
-    def test_promote_runtime_image_updates_workflow_catalog(self):
-        workflow_catalog = {
-            "workflow_presets": [
-                {
-                    "id": "preset",
-                    "runtime_contract": {
-                        "id": "comfyui-python312-cu121",
-                        "version": "1.0.0",
-                    },
-                }
-            ]
-        }
-
-        updated = release_tool.update_workflow_catalog(
-            catalog=workflow_catalog,
-            contract_id="comfyui-python312-cu121",
-            contract_version="1.0.1",
-        )
-
-        self.assertEqual("1.0.1", updated["workflow_presets"][0]["runtime_contract"]["version"])
-
-    def test_cli_promote_runtime_image_appends_revision_and_updates_workflow_catalog(self):
+    def test_cli_promote_runtime_image_appends_runtime_catalog_revision_only(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "runtime-catalog.json"
-            workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(
                 json.dumps(_catalog_with_contract(contract, image_ref=_image_ref("2"))),
-                encoding="utf-8",
-            )
-            workflow_path.write_text(
-                json.dumps(
-                    {
-                        "workflow_presets": [
-                            {
-                                "id": "preset",
-                                "runtime_contract": {
-                                    "id": "comfyui-python312-cu121",
-                                    "version": "1.0.0",
-                                },
-                            }
-                        ]
-                    }
-                ),
                 encoding="utf-8",
             )
 
@@ -278,8 +275,6 @@ runtime:
                     str(CONTRACT_PATH),
                     "--catalog",
                     str(catalog_path),
-                    "--workflow-catalog",
-                    str(workflow_path),
                     "--contract-version",
                     "1.0.1",
                     "--image-ref",
@@ -289,9 +284,7 @@ runtime:
 
             self.assertEqual(0, exit_code)
             updated_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-            updated_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
-            self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["runtime_contract"]["version"])
 
     def test_cli_writes_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:

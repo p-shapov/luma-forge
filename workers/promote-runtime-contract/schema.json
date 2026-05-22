@@ -15,9 +15,10 @@
     },
     "runtime": {
       "type": "object",
-      "required": ["python_version", "comfyui_revision", "pytorch"],
+      "required": ["workflow_preset_id", "python_version", "comfyui_revision", "pytorch"],
       "additionalProperties": false,
       "properties": {
+        "workflow_preset_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
         "python_version": { "type": "string", "minLength": 1 },
         "comfyui_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "pytorch": {

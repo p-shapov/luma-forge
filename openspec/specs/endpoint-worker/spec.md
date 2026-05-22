@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the RunPod Endpoint Worker package, container, and temporary stubbed generation boundary.
-
 ## Requirements
 ### Requirement: Package RunPod Endpoint Worker runtime
 The repository SHALL provide a RunPod-specific Endpoint Worker package and container image boundary with a temporary stubbed generation handler.
@@ -45,3 +44,18 @@ The RunPod Endpoint Worker SHALL support the Native-provided workspace mount pat
 - **WHEN** the Native Layer creates an Endpoint Worker template with a resolved workspace volume mount path
 - **THEN** the Endpoint Worker container SHALL receive the same value through `LUMA_FORGE_WORKSPACE_MOUNT_PATH`
 - **AND** the RunPod template volume mount path SHALL match the worker environment value
+
+### Requirement: Include selected workflow in workflow-specific endpoint image
+The Endpoint Worker image built for a workflow-specific runtime contract SHALL include the selected bundled UI workflow at a fixed image-local path owned by the endpoint runtime implementation.
+
+#### Scenario: Workflow-specific endpoint image is built
+- **WHEN** the Endpoint Worker image is built for runtime contract id `comfyui-hidream-o1-dev-python312-cu121`
+- **THEN** the image SHALL contain the workflow derived from `bundled/workflows/comfyui-hidream-o1-dev.json`
+- **AND** the workflow SHALL be copied to a fixed image-local path selected by the endpoint runtime implementation
+- **AND** the image build validation SHALL prove the fixed workflow file exists
+
+#### Scenario: Endpoint worker remains stubbed
+- **WHEN** the Endpoint Worker receives a generation request while request handling remains stubbed
+- **THEN** it SHALL continue returning the deterministic stubbed response
+- **AND** it MUST NOT start ComfyUI, submit the baked workflow, validate model files, or collect outputs
+

@@ -39,6 +39,7 @@ class ContainerSmokeTests(unittest.TestCase):
                     " && test -x /opt/luma-forge/runtime/.venv/bin/python"
                     " && test -f /opt/luma-forge/runtime/base-runtime/pip-freeze.txt"
                     " && test -f /opt/luma-forge/runtime/base-runtime/install-report.json"
+                    " && test -s /opt/luma-forge/runtime/workflows/workflow.json"
                     " && test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager"
                     " && python -c 'from runpod_endpoint_worker.handler import create_handler; from runpod_endpoint_worker.service import GenerationService; from runpod_endpoint_worker.config import EndpointConfig; payload = create_handler(GenerationService.from_config(EndpointConfig()))({\"input\":{\"execution_type\":\"t2i\",\"prompt\":\"x\"}}); assert payload[\"generation\"][\"implemented\"] is False'"
                 ),
