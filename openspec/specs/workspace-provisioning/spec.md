@@ -52,3 +52,30 @@ Workspace Provisioning SHALL treat endpoint Python, PyTorch, ComfyUI, runtime ex
 - **WHEN** Workspace Provisioning creates or observes RunPod compute resources for a selected GPU
 - **THEN** the selected GPU SHALL determine provider resource placement
 - **AND** the selected GPU MUST NOT determine which base runtime dependencies are installed
+
+### Requirement: Use resolved provisioner image snapshot
+Workspace Provisioning SHALL use the Workspace's persisted resolved provisioner image snapshot as the authoritative source for Provisioner Worker image and workspace volume mount path.
+
+#### Scenario: Provisioning creates provider resources
+- **WHEN** Workspace Provisioning creates or reconciles provider resources for a Workspace
+- **THEN** the Native Layer SHALL use `resolved_provisioner_image.provisioner_worker_image_ref` as the Provisioner Worker image ref
+- **AND** the Native Layer SHALL use `resolved_provisioner_image.volume_mount_path` as the workspace volume mount path
+- **AND** the Native Layer MUST NOT use NativeAppState constants or unversioned app-level provisioning defaults for those values
+
+#### Scenario: Existing provider resources are checked for compatibility
+- **WHEN** Workspace Provisioning observes a provider resource whose image ref or mount path is relevant to readiness or reconciliation
+- **THEN** the Native Layer SHALL compare the observed provider resource data against the Workspace's persisted resolved runtime and provisioner snapshots
+- **AND** the Native Layer SHALL treat mismatched provider resource metadata as not satisfying the Workspace's desired provisioning state
+
+### Requirement: Pass resolved mount path to worker containers
+Workspace Provisioning SHALL pass the resolved workspace volume mount path to worker containers as both provider mount configuration and worker process environment configuration.
+
+#### Scenario: Provisioner Worker pod is created
+- **WHEN** the Native Layer creates a Provisioner Worker pod
+- **THEN** the RunPod pod volume mount path SHALL equal `resolved_provisioner_image.volume_mount_path`
+- **AND** the pod environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with the same value
+
+#### Scenario: Endpoint Worker template is created
+- **WHEN** the Native Layer creates an Endpoint Worker template
+- **THEN** the RunPod template volume mount path SHALL equal `resolved_provisioner_image.volume_mount_path`
+- **AND** the template environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with the same value

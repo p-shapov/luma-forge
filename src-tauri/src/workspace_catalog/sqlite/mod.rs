@@ -303,8 +303,12 @@ mod test_fixtures {
         domain::{
             placement::PlacementPlan,
             provider_setup::GpuCloudProviderId,
+            provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
-            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workflow::{
+                ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+                WorkflowPreset,
+            },
             workspace::{
                 PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot,
                 ProviderResourceStatus, ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot,
@@ -318,6 +322,7 @@ mod test_fixtures {
     };
 
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const DIGEST_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     pub(super) async fn bootstrapped_pool() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -356,6 +361,10 @@ mod test_fixtures {
                 id: "comfyui-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            },
             required_model_assets: vec![],
         }
     }
@@ -378,6 +387,17 @@ mod test_fixtures {
         }
     }
 
+    fn provisioner_snapshot() -> ResolvedProvisionerImageSnapshot {
+        ResolvedProvisionerImageSnapshot {
+            contract_id: "luma-forge-provisioner".to_string(),
+            contract_version: "1.0.0".to_string(),
+            provisioner_worker_image_ref: format!(
+                "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
+            ),
+            volume_mount_path: "/workspace".to_string(),
+        }
+    }
+
     pub(super) fn draft_workspace(id: &str, name: &str, workflow_preset_id: &str) -> Workspace {
         Workspace::new_draft(
             GpuCloudProviderId::Runpod,
@@ -385,6 +405,7 @@ mod test_fixtures {
             name.to_string(),
             placement_plan(workflow_preset_id),
             runtime_snapshot(),
+            provisioner_snapshot(),
         )
         .expect("valid draft workspace")
     }

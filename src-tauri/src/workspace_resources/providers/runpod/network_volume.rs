@@ -7,20 +7,18 @@ use crate::{
     workspace_provisioning::{
         failure, failure::fail_workspace, helpers::persistent_storage_volume_snapshot,
     },
+    workspace_resources::WorkspaceResourceSyncResult,
     workspace_resources::{
         state::is_terminal_provider_resource_status, CreateNetworkVolumeInput,
         DiscoverNetworkVolumesInput, WorkspaceResourceError,
     },
 };
 
-use crate::workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceSyncResult};
-
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
 
 pub(crate) async fn sync<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
-    _config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: AsyncSecretStore,
@@ -184,7 +182,7 @@ mod tests {
     ) -> WorkspaceResourceSyncResult {
         let secrets = FakeSecretStore::default();
         let context = context(&secrets, catalog);
-        sync_network_volume_with_client(client, &context, workspace, &config()).await
+        sync_network_volume_with_client(client, &context, workspace).await
     }
 
     #[tokio::test]

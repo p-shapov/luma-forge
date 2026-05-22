@@ -206,8 +206,12 @@ mod tests {
         domain::{
             placement::PlacementPlan,
             provider_setup::{GpuCloudProviderId, ProviderApiKey},
+            provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
-            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workflow::{
+                ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+                WorkflowPreset,
+            },
             workspace::{
                 ProvisioningPodSnapshot, WorkspaceCatalog, WorkspaceLifecycleState,
                 WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
@@ -494,6 +498,10 @@ mod tests {
                 id: "runtime".to_string(),
                 version: "1.0.0".to_string(),
             },
+            provisioner_contract: ProvisionerContractReference {
+                id: "provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            },
             required_model_assets: Vec::new(),
         };
         let placement_plan = PlacementPlan::Runpod {
@@ -508,12 +516,19 @@ mod tests {
             contract_version: "1.0.0".to_string(),
             endpoint_image_ref: "endpoint:latest".to_string(),
         };
+        let provisioner = ResolvedProvisionerImageSnapshot {
+            contract_id: "provisioner".to_string(),
+            contract_version: "1.0.0".to_string(),
+            provisioner_worker_image_ref: "provisioner:latest".to_string(),
+            volume_mount_path: "/workspace".to_string(),
+        };
         let mut workspace = Workspace::new_draft(
             GpuCloudProviderId::Runpod,
             "workspace-1".to_string(),
             "Workspace".to_string(),
             placement_plan,
             runtime,
+            provisioner,
         )
         .expect("workspace should be valid");
         workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;

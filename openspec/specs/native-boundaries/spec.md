@@ -871,3 +871,20 @@ The Native Layer SHALL construct production HTTP clients through fallible initia
 - **WHEN** Native commands need RunPod provider communication or Provisioner Worker communication after production initialization succeeds
 - **THEN** they SHALL use initialized client or gateway instances instead of constructing panic-capable HTTP clients inside command execution
 - **AND** any later network, authorization, rate-limit, response, or worker availability failures SHALL continue to use the existing operation-specific error mappings
+
+### Requirement: Bundled catalog infrastructure includes Provisioner Catalog
+
+Bundled catalog loading infrastructure SHALL own parsing and validation for the Provisioner Catalog alongside Workflow Catalog and Runtime Catalog loading.
+
+#### Scenario: Provisioner Catalog data is parsed
+
+- **WHEN** bundled catalog readers deserialize provisioner contract metadata
+- **THEN** the parsing code SHALL convert JSON into provisioner domain values
+- **AND** bundled parsing code SHALL delegate provisioner invariant checks to a provisioner catalog domain validator
+- **AND** provisioner catalog parsing MUST NOT construct provider clients, read secrets, create Workspace records, or access Tauri runtime APIs
+
+#### Scenario: Native application state composes provisioning services
+
+- **WHEN** Native application state constructs Workspace Provisioning services
+- **THEN** it SHALL provide catalog readers and persisted Workspace access needed to resolve and use provisioner snapshots
+- **AND** it MUST NOT own production Provisioner Worker image refs or hard-coded provisioning mount paths as app-state constants

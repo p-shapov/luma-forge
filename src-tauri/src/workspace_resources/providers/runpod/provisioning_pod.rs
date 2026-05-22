@@ -9,20 +9,18 @@ use crate::{
     workspace_provisioning::{
         failure, failure::fail_workspace, helpers::observed_provisioning_pod_snapshot,
     },
+    workspace_resources::WorkspaceResourceSyncResult,
     workspace_resources::{
         state::is_terminal_provider_resource_status, CreateProvisioningPodInput,
         DiscoverProvisioningPodsInput, ObserveProvisioningPodInput, WorkspaceResourceError,
     },
 };
 
-use crate::workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceSyncResult};
-
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
 
 pub(crate) async fn sync<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
-    config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: AsyncSecretStore,
@@ -43,12 +41,12 @@ where
             .as_ref()
             .expect("volume checked above");
         let network_volume_id = volume.provider_resource_id.clone();
-        let provisioner_worker_image_ref = config.provisioner_worker_image_ref.clone();
         let PlacementPlan::Runpod {
             selected_datacenter_id,
             selected_gpu_id,
             ..
         } = &workspace.placement_plan;
+        let provisioner_image = &workspace.resolved_provisioner_image;
         let discovered_pods = context
             .discover_provisioning_pods(DiscoverProvisioningPodsInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
@@ -74,11 +72,13 @@ where
             .create_provisioning_pod(CreateProvisioningPodInput {
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
-                provisioner_worker_image_ref: provisioner_worker_image_ref.clone(),
+                provisioner_worker_image_ref: provisioner_image
+                    .provisioner_worker_image_ref
+                    .clone(),
                 datacenter_id: selected_datacenter_id.clone(),
                 selected_gpu_id: selected_gpu_id.clone(),
                 network_volume_id: network_volume_id.clone(),
-                mount_path: config.volume_mount_path.clone(),
+                mount_path: provisioner_image.volume_mount_path.clone(),
                 bearer_token: token,
             })
             .await
@@ -311,7 +311,7 @@ mod tests {
         catalog: &FakeWorkspaceCatalog,
     ) -> WorkspaceResourceSyncResult {
         let context = context(secrets, catalog);
-        sync_provisioning_pod_with_client(client, &context, workspace, &config()).await
+        sync_provisioning_pod_with_client(client, &context, workspace).await
     }
 
     async fn finish(
@@ -378,6 +378,10 @@ mod tests {
                 assert!(request
                     .env
                     .contains_key("LUMA_FORGE_PROVISIONER_BEARER_TOKEN"));
+                assert_eq!(
+                    request.env.get("LUMA_FORGE_WORKSPACE_MOUNT_PATH"),
+                    Some(&request.volume_mount_path)
+                );
             }
             call => panic!("unexpected call: {call:?}"),
         }

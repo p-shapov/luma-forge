@@ -21,6 +21,7 @@ pub(super) async fn persist_workspace_details(
 ) -> Result<(), WorkspaceSetupError> {
     persist_placement(transaction, workspace).await?;
     persist_runtime_image(transaction, workspace).await?;
+    persist_provisioner_image(transaction, workspace).await?;
     persist_resource_snapshots(transaction, workspace).await?;
     persist_provider_provisioning_snapshot(transaction, workspace).await?;
     persist_provisioning_failure(transaction, workspace).await?;
@@ -34,6 +35,7 @@ pub(super) async fn delete_workspace_details(
     for table in [
         "workspace_runpod_placements",
         "workspace_runtime_images",
+        "workspace_provisioner_images",
         "workspace_resource_snapshots",
         "workspace_runpod_endpoint_templates",
         "workspace_provisioning_failures",
@@ -45,6 +47,36 @@ pub(super) async fn delete_workspace_details(
             .await
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
     }
+    Ok(())
+}
+
+async fn persist_provisioner_image(
+    transaction: &mut SqliteTransaction<'_>,
+    workspace: &Workspace,
+) -> Result<(), WorkspaceSetupError> {
+    sqlx::query(
+        r#"
+        INSERT INTO workspace_provisioner_images (
+            workspace_id,
+            contract_id,
+            contract_version,
+            provisioner_worker_image_ref,
+            volume_mount_path
+        ) VALUES (?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&workspace.id)
+    .bind(&workspace.resolved_provisioner_image.contract_id)
+    .bind(&workspace.resolved_provisioner_image.contract_version)
+    .bind(
+        &workspace
+            .resolved_provisioner_image
+            .provisioner_worker_image_ref,
+    )
+    .bind(&workspace.resolved_provisioner_image.volume_mount_path)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
     Ok(())
 }
 

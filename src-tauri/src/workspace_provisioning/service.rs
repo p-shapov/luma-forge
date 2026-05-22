@@ -15,11 +15,8 @@ use super::{
     WorkspaceProvisioningError,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceProvisioningConfig {
-    pub volume_mount_path: String,
-    pub provisioner_worker_image_ref: String,
-}
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorkspaceProvisioningConfig;
 
 pub struct WorkspaceProvisioningService<
     S,
@@ -35,7 +32,6 @@ pub struct WorkspaceProvisioningService<
     provider_registry: P,
     workspace_provisioner: WorkspaceProvisionerService,
     coordinator: WorkspaceProvisioningCoordinator,
-    config: WorkspaceProvisioningConfig,
 }
 
 impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q, WorkspaceProvisioningProviderRegistry> {
@@ -45,7 +41,7 @@ impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q, WorkspaceProvisioningP
         workspace_catalog: W,
         workers: R,
         coordinator: WorkspaceProvisioningCoordinator,
-        config: WorkspaceProvisioningConfig,
+        _config: WorkspaceProvisioningConfig,
     ) -> Self {
         Self::with_provider_registry(
             secrets,
@@ -53,7 +49,7 @@ impl<S, W, R, Q> WorkspaceProvisioningService<S, W, R, Q, WorkspaceProvisioningP
             workspace_catalog,
             workers,
             coordinator,
-            config,
+            _config,
             WorkspaceProvisioningProviderRegistry::default(),
         )
     }
@@ -66,7 +62,7 @@ impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P> {
         workspace_catalog: W,
         workers: R,
         coordinator: WorkspaceProvisioningCoordinator,
-        config: WorkspaceProvisioningConfig,
+        _config: WorkspaceProvisioningConfig,
         provider_registry: P,
     ) -> Self {
         Self {
@@ -77,7 +73,6 @@ impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P> {
             provider_registry,
             workspace_provisioner: WorkspaceProvisionerService::new(),
             coordinator,
-            config,
         }
     }
 
@@ -88,7 +83,6 @@ impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P> {
             &self.workspace_catalog,
             &self.workers,
             &self.workspace_provisioner,
-            &self.config,
         )
     }
 }
@@ -359,10 +353,7 @@ mod tests {
             catalog.clone(),
             FakeProvisionerWorkerGateway::default(),
             WorkspaceProvisioningCoordinator::default(),
-            WorkspaceProvisioningConfig {
-                volume_mount_path: "/workspace".to_string(),
-                provisioner_worker_image_ref: "provisioner:latest".to_string(),
-            },
+            WorkspaceProvisioningConfig,
             FakeProvisioningProviderResolver { provider },
         );
 
@@ -437,10 +428,7 @@ mod tests {
                 catalog.clone(),
                 FakeProvisionerWorkerGateway::default(),
                 WorkspaceProvisioningCoordinator::default(),
-                WorkspaceProvisioningConfig {
-                    volume_mount_path: "/workspace".to_string(),
-                    provisioner_worker_image_ref: "provisioner:latest".to_string(),
-                },
+                WorkspaceProvisioningConfig,
             );
 
             let error = service
@@ -469,10 +457,7 @@ mod tests {
             FakeWorkspaceCatalog::missing(),
             FakeProvisionerWorkerGateway::default(),
             WorkspaceProvisioningCoordinator::default(),
-            WorkspaceProvisioningConfig {
-                volume_mount_path: "/workspace".to_string(),
-                provisioner_worker_image_ref: "provisioner:latest".to_string(),
-            },
+            WorkspaceProvisioningConfig,
         );
         assert_eq!(
             missing_service
@@ -488,10 +473,7 @@ mod tests {
             FakeWorkspaceCatalog::unavailable(),
             FakeProvisionerWorkerGateway::default(),
             WorkspaceProvisioningCoordinator::default(),
-            WorkspaceProvisioningConfig {
-                volume_mount_path: "/workspace".to_string(),
-                provisioner_worker_image_ref: "provisioner:latest".to_string(),
-            },
+            WorkspaceProvisioningConfig,
         );
         assert_eq!(
             unavailable_service
@@ -534,10 +516,7 @@ mod tests {
                 catalog.clone(),
                 FakeProvisionerWorkerGateway::default(),
                 WorkspaceProvisioningCoordinator::default(),
-                WorkspaceProvisioningConfig {
-                    volume_mount_path: "/workspace".to_string(),
-                    provisioner_worker_image_ref: "provisioner:latest".to_string(),
-                },
+                WorkspaceProvisioningConfig,
             );
 
             let error = service

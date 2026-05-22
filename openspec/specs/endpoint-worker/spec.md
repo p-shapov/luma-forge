@@ -32,3 +32,16 @@ The RunPod Endpoint Worker SHALL preserve the RunPod handler and response contra
 - **WHEN** the stubbed Endpoint Worker receives a request with workflow, model, output, or workspace path inputs
 - **THEN** it MUST NOT treat those paths as authoritative prepared-runtime evidence
 - **AND** it MUST NOT read a prepared runtime manifest, prevalidate model files, prevalidate output directories, or validate image-local ComfyUI paths
+
+### Requirement: Configure endpoint workspace mount path from Native provisioning
+The RunPod Endpoint Worker SHALL support the Native-provided workspace mount path when its template is created.
+
+#### Scenario: Endpoint Worker receives shared workspace mount path
+- **WHEN** the Endpoint Worker container starts with `LUMA_FORGE_WORKSPACE_MOUNT_PATH` set to an absolute safe path
+- **THEN** the Endpoint Worker SHALL use that path as its shared prepared workspace root unless an endpoint-specific override is configured
+- **AND** it MUST NOT assume `/workspace` when a valid Native-provided mount path is present
+
+#### Scenario: Endpoint Worker template is mounted at the configured path
+- **WHEN** the Native Layer creates an Endpoint Worker template with a resolved workspace volume mount path
+- **THEN** the Endpoint Worker container SHALL receive the same value through `LUMA_FORGE_WORKSPACE_MOUNT_PATH`
+- **AND** the RunPod template volume mount path SHALL match the worker environment value

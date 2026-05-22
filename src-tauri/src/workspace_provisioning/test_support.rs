@@ -9,8 +9,12 @@ use crate::{
     domain::{
         placement::PlacementPlan,
         provider_setup::{GpuCloudProviderId, ProviderApiKey},
+        provisioner::ResolvedProvisionerImageSnapshot,
         runtime::ResolvedRuntimeImageSnapshot,
-        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+        workflow::{
+            ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+            WorkflowPreset,
+        },
         workspace::{
             PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
             ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
@@ -19,9 +23,7 @@ use crate::{
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_resources::{
-        WorkspaceResourceConfig, WorkspaceResourceError, WorkspaceResourceSyncResult,
-    },
+    workspace_resources::{WorkspaceResourceError, WorkspaceResourceSyncResult},
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -48,7 +50,6 @@ pub(crate) struct TestHarness {
     pub(crate) resources: FakeWorkspaceResources,
     pub(crate) workers: FakeProvisionerWorkerGateway,
     workspace_provisioner: WorkspaceProvisionerService,
-    config: WorkspaceProvisioningConfig,
 }
 
 impl TestHarness {
@@ -63,10 +64,6 @@ impl TestHarness {
             resources: FakeWorkspaceResources::default(),
             workers: FakeProvisionerWorkerGateway::default(),
             workspace_provisioner: WorkspaceProvisionerService::new(),
-            config: WorkspaceProvisioningConfig {
-                volume_mount_path: "/workspace".to_string(),
-                provisioner_worker_image_ref: "provisioner:latest".to_string(),
-            },
         }
     }
 
@@ -85,7 +82,6 @@ impl TestHarness {
             &self.catalog,
             &self.workers,
             &self.workspace_provisioner,
-            &self.config,
         )
     }
 }
@@ -395,7 +391,6 @@ impl WorkspaceProvisioningResources for FakeWorkspaceResources {
     fn sync_network_volume<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-        _config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
@@ -409,7 +404,6 @@ impl WorkspaceProvisioningResources for FakeWorkspaceResources {
     fn sync_provisioning_pod<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-        _config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
@@ -436,7 +430,6 @@ impl WorkspaceProvisioningResources for FakeWorkspaceResources {
     fn sync_serverless_endpoint<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-        _config: &'a WorkspaceResourceConfig,
     ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
@@ -566,10 +559,7 @@ pub(crate) fn service_parts(
         catalog.clone(),
         workers.clone(),
         coordinator.clone(),
-        WorkspaceProvisioningConfig {
-            volume_mount_path: "/workspace".to_string(),
-            provisioner_worker_image_ref: "provisioner:latest".to_string(),
-        },
+        WorkspaceProvisioningConfig,
     );
 
     (service, secrets, catalog, resources, workers, coordinator)
@@ -586,6 +576,10 @@ pub(crate) fn workspace() -> Workspace {
             id: "runtime".to_string(),
             version: "1.0.0".to_string(),
         },
+        provisioner_contract: ProvisionerContractReference {
+            id: "provisioner".to_string(),
+            version: "1.0.0".to_string(),
+        },
         required_model_assets: Vec::new(),
     };
     let placement_plan = PlacementPlan::Runpod {
@@ -600,12 +594,19 @@ pub(crate) fn workspace() -> Workspace {
         contract_version: "1.0.0".to_string(),
         endpoint_image_ref: "endpoint:latest".to_string(),
     };
+    let provisioner = ResolvedProvisionerImageSnapshot {
+        contract_id: "provisioner".to_string(),
+        contract_version: "1.0.0".to_string(),
+        provisioner_worker_image_ref: "provisioner:latest".to_string(),
+        volume_mount_path: "/workspace".to_string(),
+    };
     Workspace::new_draft(
         GpuCloudProviderId::Runpod,
         "workspace-1".to_string(),
         "Workspace".to_string(),
         placement_plan,
         runtime,
+        provisioner,
     )
     .expect("test workspace should be valid")
 }

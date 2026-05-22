@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::domain::{
     error::{DomainValidationError, DomainValidationResult},
     provider_setup::GpuCloudProviderId,
+    provisioner::validator as provisioner_validator,
     runtime::validator as runtime_validator,
     validation::{is_blank, is_safe_absolute_posix_path},
 };
@@ -31,6 +32,10 @@ pub fn validate_workspace(workspace: &Workspace) -> DomainValidationResult {
         || workspace.placement_plan.gpu_cloud_provider_id() != workspace.gpu_cloud_provider_id
         || runtime_validator::validate_resolved_runtime_snapshot(&workspace.resolved_runtime_image)
             .is_err()
+        || provisioner_validator::validate_resolved_provisioner_snapshot(
+            &workspace.resolved_provisioner_image,
+        )
+        .is_err()
         || workspace
             .environment_prepared_at
             .as_deref()
@@ -201,8 +206,12 @@ mod tests {
     use super::*;
     use crate::domain::{
         placement::PlacementPlan,
+        provisioner::ResolvedProvisionerImageSnapshot,
         runtime::ResolvedRuntimeImageSnapshot,
-        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+        workflow::{
+            ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+            WorkflowPreset,
+        },
         workspace::{
             WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
             WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
@@ -211,6 +220,7 @@ mod tests {
     };
 
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const DIGEST_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     fn workflow_preset() -> WorkflowPreset {
         WorkflowPreset {
@@ -221,6 +231,10 @@ mod tests {
             required_base_volume_size_bytes: 80 * 1024 * 1024 * 1024,
             runtime_contract: RuntimeContractReference {
                 id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
                 version: "1.0.0".to_string(),
             },
             required_model_assets: vec![],
@@ -245,6 +259,17 @@ mod tests {
         }
     }
 
+    fn provisioner_snapshot() -> ResolvedProvisionerImageSnapshot {
+        ResolvedProvisionerImageSnapshot {
+            contract_id: "luma-forge-provisioner".to_string(),
+            contract_version: "1.0.0".to_string(),
+            provisioner_worker_image_ref: format!(
+                "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
+            ),
+            volume_mount_path: "/workspace".to_string(),
+        }
+    }
+
     fn draft_workspace() -> Workspace {
         Workspace::new_draft(
             GpuCloudProviderId::Runpod,
@@ -252,6 +277,7 @@ mod tests {
             "Workspace".to_string(),
             placement_plan(),
             runtime_snapshot(),
+            provisioner_snapshot(),
         )
         .expect("valid draft workspace")
     }
@@ -337,6 +363,13 @@ mod tests {
                 resolved_runtime_image: ResolvedRuntimeImageSnapshot {
                     contract_version: "1.0".to_string(),
                     ..runtime_snapshot()
+                },
+                ..draft_workspace()
+            },
+            Workspace {
+                resolved_provisioner_image: ResolvedProvisionerImageSnapshot {
+                    volume_mount_path: "workspace".to_string(),
+                    ..provisioner_snapshot()
                 },
                 ..draft_workspace()
             },

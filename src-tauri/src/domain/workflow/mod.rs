@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub use crate::domain::provisioner::ProvisionerContractReference;
+
 pub mod validator;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +64,7 @@ pub struct WorkflowPreset {
     pub workflow_execution_type: WorkflowExecutionType,
     pub required_base_volume_size_bytes: u64,
     pub runtime_contract: RuntimeContractReference,
+    pub provisioner_contract: ProvisionerContractReference,
     pub required_model_assets: Vec<ModelAsset>,
 }
 

@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::domain::{
     error::{DomainValidationError, DomainValidationResult},
+    provisioner::{validator as provisioner_validator, ProvisionerCatalog},
     runtime::{validator as runtime_validator, RuntimeCatalog},
     validation::{is_blank, is_safe_relative_path},
 };
@@ -11,6 +12,7 @@ use super::{ModelAssetSource, WorkflowCatalog};
 pub fn validate_workflow_catalog(
     catalog: &WorkflowCatalog,
     runtime_catalog: &RuntimeCatalog,
+    provisioner_catalog: &ProvisionerCatalog,
 ) -> DomainValidationResult {
     if catalog.workflow_presets.is_empty() {
         return Err(DomainValidationError);
@@ -41,6 +43,16 @@ pub fn validate_workflow_catalog(
             &preset.runtime_contract.id,
             &preset.runtime_contract.version,
             runtime_catalog,
+        )
+        .is_err()
+        {
+            return Err(DomainValidationError);
+        }
+
+        if provisioner_validator::validate_provisioner_contract_reference(
+            &preset.provisioner_contract.id,
+            &preset.provisioner_contract.version,
+            provisioner_catalog,
         )
         .is_err()
         {
@@ -83,14 +95,16 @@ fn is_huggingface_repository_id(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::domain::{
+        provisioner::{ProvisionerCatalog, ProvisionerContract, ProvisionerContractRevision},
         runtime::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
         workflow::{
-            ModelAsset, ModelAssetInstall, ModelAssetKind, RuntimeContractReference,
-            WorkflowExecutionType, WorkflowPreset,
+            ModelAsset, ModelAssetInstall, ModelAssetKind, ProvisionerContractReference,
+            RuntimeContractReference, WorkflowExecutionType, WorkflowPreset,
         },
     };
 
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const DIGEST_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 
     fn runtime_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
@@ -99,6 +113,21 @@ mod tests {
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
+                }],
+            }],
+        }
+    }
+
+    fn provisioner_catalog() -> ProvisionerCatalog {
+        ProvisionerCatalog {
+            contracts: vec![ProvisionerContract {
+                id: "luma-forge-provisioner".to_string(),
+                revisions: vec![ProvisionerContractRevision {
+                    version: "1.0.0".to_string(),
+                    provisioner_worker_image_ref: format!(
+                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
+                    ),
+                    volume_mount_path: "/workspace".to_string(),
                 }],
             }],
         }
@@ -131,6 +160,10 @@ mod tests {
                 id: "comfyui-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            },
             required_model_assets: vec![valid_model_asset()],
         }
     }
@@ -144,7 +177,7 @@ mod tests {
     #[test]
     fn validate_workflow_catalog_accepts_valid_catalog() {
         assert_eq!(
-            validate_workflow_catalog(&valid_catalog(), &runtime_catalog()),
+            validate_workflow_catalog(&valid_catalog(), &runtime_catalog(), &provisioner_catalog()),
             Ok(())
         );
     }
@@ -186,10 +219,28 @@ mod tests {
 
         for catalog in invalid_catalogs {
             assert_eq!(
-                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                validate_workflow_catalog(&catalog, &runtime_catalog(), &provisioner_catalog()),
                 Err(DomainValidationError)
             );
         }
+    }
+
+    #[test]
+    fn validate_workflow_catalog_rejects_stale_provisioner_contract_reference() {
+        let catalog = WorkflowCatalog {
+            workflow_presets: vec![WorkflowPreset {
+                provisioner_contract: ProvisionerContractReference {
+                    id: "luma-forge-provisioner".to_string(),
+                    version: "2.0.0".to_string(),
+                },
+                ..valid_preset("comfyui-t2i-basic")
+            }],
+        };
+
+        assert_eq!(
+            validate_workflow_catalog(&catalog, &runtime_catalog(), &provisioner_catalog()),
+            Err(DomainValidationError)
+        );
     }
 
     #[test]
@@ -240,7 +291,7 @@ mod tests {
             };
 
             assert_eq!(
-                validate_workflow_catalog(&catalog, &runtime_catalog()),
+                validate_workflow_catalog(&catalog, &runtime_catalog(), &provisioner_catalog()),
                 Err(DomainValidationError)
             );
         }

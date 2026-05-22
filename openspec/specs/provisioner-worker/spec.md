@@ -64,3 +64,16 @@ The Provisioner Worker SHALL validate workspace-specific model files and path sa
 - **WHEN** final validation finds a missing declared model asset or unsafe filesystem state
 - **THEN** the Provisioner Worker SHALL report the job as `failed`
 - **AND** the Provisioner Worker MUST NOT report terminal success
+
+### Requirement: Configure workspace mount path from environment
+The Provisioner Worker SHALL treat `LUMA_FORGE_WORKSPACE_MOUNT_PATH` as the workspace mount path configured by Native provisioning.
+
+#### Scenario: Provisioner Worker receives workspace mount path
+- **WHEN** the Provisioner Worker container starts with `LUMA_FORGE_WORKSPACE_MOUNT_PATH` set to an absolute safe path
+- **THEN** the Provisioner Worker SHALL use that path as the workspace preparation root
+- **AND** model asset installation and workspace directory preparation SHALL occur under that path
+
+#### Scenario: Provisioner Worker receives invalid workspace mount path
+- **WHEN** the Provisioner Worker container starts with `LUMA_FORGE_WORKSPACE_MOUNT_PATH` set to an empty, relative, or unsafe path
+- **THEN** the Provisioner Worker SHALL reject the configuration
+- **AND** it MUST NOT prepare files under a fallback path for that invalid configuration

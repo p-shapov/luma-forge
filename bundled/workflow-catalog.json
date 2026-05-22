@@ -10,6 +10,10 @@
         "id": "comfyui-python312-cu121",
         "version": "1.0.0"
       },
+      "provisioner_contract": {
+        "id": "luma-forge-provisioner",
+        "version": "1.0.0"
+      },
       "required_model_assets": [
         {
           "id": "sdxl-base-1-0",

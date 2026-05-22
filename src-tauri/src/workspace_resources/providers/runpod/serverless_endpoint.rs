@@ -13,13 +13,12 @@ use crate::{
     workspace_resources::contracts::{
         CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
     },
+    workspace_resources::WorkspaceResourceSyncResult,
     workspace_resources::{
         state::is_terminal_provider_resource_status, CreateServerlessEndpointInput,
         DiscoverServerlessEndpointsInput, WorkspaceResourceError,
     },
 };
-
-use crate::workspace_resources::{WorkspaceResourceConfig, WorkspaceResourceSyncResult};
 
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
 
@@ -38,18 +37,18 @@ fn endpoint_template_matches_workspace(
 ) -> bool {
     template.provider_resource_status == ProviderResourceStatus::Ready
         && template.endpoint_worker_image_ref == workspace.resolved_runtime_image.endpoint_image_ref
-        && template.mount_path
-            == workspace
-                .persistent_storage_volume_snapshot
-                .as_ref()
-                .map(|volume| volume.mount_path.clone())
-                .unwrap_or_default()
+        && template.mount_path == workspace.resolved_provisioner_image.volume_mount_path
+        && workspace
+            .persistent_storage_volume_snapshot
+            .as_ref()
+            .is_some_and(|volume| {
+                volume.mount_path == workspace.resolved_provisioner_image.volume_mount_path
+            })
 }
 
 pub(crate) async fn sync<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
-    config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: AsyncSecretStore,
@@ -62,7 +61,7 @@ where
         return Ok(None);
     }
 
-    if let Some(result) = sync_template(context, workspace, config).await? {
+    if let Some(result) = sync_template(context, workspace).await? {
         return Ok(Some(result));
     }
 
@@ -72,7 +71,6 @@ where
 async fn sync_template<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
-    config: &WorkspaceResourceConfig,
 ) -> WorkspaceResourceSyncResult
 where
     S: AsyncSecretStore,
@@ -150,7 +148,10 @@ where
                 gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
                 workspace_id: workspace.id.clone(),
                 endpoint_worker_image_ref: endpoint_worker_image_ref.clone(),
-                mount_path: config.volume_mount_path.clone(),
+                mount_path: workspace
+                    .resolved_provisioner_image
+                    .volume_mount_path
+                    .clone(),
             })
             .await
         {
@@ -473,7 +474,7 @@ mod tests {
     ) -> WorkspaceResourceSyncResult {
         let secrets = FakeSecretStore::default();
         let context = context(&secrets, catalog);
-        sync_serverless_endpoint_with_client(client, &context, workspace, &config()).await
+        sync_serverless_endpoint_with_client(client, &context, workspace).await
     }
 
     fn prepared_workspace() -> Workspace {
@@ -539,6 +540,16 @@ mod tests {
             .expect("workspace should be persisted");
 
         assert!(updated.serverless_endpoint_snapshot.is_none());
+        match &client.calls()[1] {
+            RunPodCall::CreateTemplate(request) => {
+                assert_eq!(request.volume_mount_path, "/workspace");
+                assert_eq!(
+                    request.env.get("LUMA_FORGE_WORKSPACE_MOUNT_PATH"),
+                    Some(&request.volume_mount_path)
+                );
+            }
+            call => panic!("unexpected call: {call:?}"),
+        }
         match updated
             .provider_provisioning_snapshot
             .expect("template snapshot should be stored")

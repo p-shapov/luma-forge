@@ -3,6 +3,7 @@ use sqlx::{sqlite::SqliteRow, Row, SqliteTransaction};
 use crate::{
     domain::{
         placement::PlacementPlan,
+        provisioner::ResolvedProvisionerImageSnapshot,
         runtime::ResolvedRuntimeImageSnapshot,
         workflow::WorkflowPreset,
         workspace::validator as workspace_validator,
@@ -47,6 +48,7 @@ pub(super) async fn decode_workspace(
 
     let placement_plan = read_placement(transaction, &id).await?;
     let resolved_runtime_image = read_runtime_image(transaction, &id).await?;
+    let resolved_provisioner_image = read_provisioner_image(transaction, &id).await?;
     let persistent_storage_volume_snapshot =
         read_persistent_storage_volume_snapshot(transaction, &id).await?;
     let active_provisioning_pod_snapshot =
@@ -65,6 +67,7 @@ pub(super) async fn decode_workspace(
         lifecycle_state,
         placement_plan,
         resolved_runtime_image,
+        resolved_provisioner_image,
         persistent_storage_volume_snapshot,
         active_provisioning_pod_snapshot,
         serverless_endpoint_snapshot,
@@ -78,6 +81,38 @@ pub(super) async fn decode_workspace(
         .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
 
     Ok(workspace)
+}
+
+async fn read_provisioner_image(
+    transaction: &mut SqliteTransaction<'_>,
+    workspace_id: &str,
+) -> Result<ResolvedProvisionerImageSnapshot, WorkspaceSetupError> {
+    let row = sqlx::query(
+        r#"
+        SELECT contract_id, contract_version, provisioner_worker_image_ref, volume_mount_path
+        FROM workspace_provisioner_images
+        WHERE workspace_id = ?
+        "#,
+    )
+    .bind(workspace_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?;
+
+    Ok(ResolvedProvisionerImageSnapshot {
+        contract_id: row
+            .try_get("contract_id")
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
+        contract_version: row
+            .try_get("contract_version")
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
+        provisioner_worker_image_ref: row
+            .try_get("provisioner_worker_image_ref")
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
+        volume_mount_path: row
+            .try_get("volume_mount_path")
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
+    })
 }
 
 async fn read_placement(

@@ -4,8 +4,8 @@ use specta::Type;
 use crate::{
     domain::{
         placement as domain_placement, provider_inventory as domain_inventory,
-        provider_setup as domain_provider_setup, runtime as domain_runtime,
-        workflow as domain_workflow, workspace as domain_workspace,
+        provider_setup as domain_provider_setup, provisioner as domain_provisioner,
+        runtime as domain_runtime, workflow as domain_workflow, workspace as domain_workspace,
     },
     workspace_setup::contracts::{CreateWorkspaceInput, ProviderPlacementOptions},
 };
@@ -76,8 +76,24 @@ mod remote_types {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_provisioner::ResolvedProvisionerImageSnapshot)]
+    pub(super) struct ResolvedProvisionerImageSnapshot {
+        pub contract_id: String,
+        pub contract_version: String,
+        pub provisioner_worker_image_ref: String,
+        pub volume_mount_path: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
     #[specta(remote = domain_workflow::RuntimeContractReference)]
     pub(super) struct RuntimeContractReference {
+        pub id: String,
+        pub version: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+    #[specta(remote = domain_provisioner::ProvisionerContractReference)]
+    pub(super) struct ProvisionerContractReference {
         pub id: String,
         pub version: String,
     }
@@ -91,6 +107,7 @@ mod remote_types {
         pub workflow_execution_type: domain_workflow::WorkflowExecutionType,
         pub required_base_volume_size_bytes: u64,
         pub runtime_contract: domain_workflow::RuntimeContractReference,
+        pub provisioner_contract: domain_provisioner::ProvisionerContractReference,
         pub required_model_assets: Vec<domain_workflow::ModelAsset>,
     }
 
@@ -189,6 +206,7 @@ mod remote_types {
         pub lifecycle_state: domain_workspace::WorkspaceLifecycleState,
         pub placement_plan: domain_placement::PlacementPlan,
         pub resolved_runtime_image: domain_runtime::ResolvedRuntimeImageSnapshot,
+        pub resolved_provisioner_image: domain_provisioner::ResolvedProvisionerImageSnapshot,
         pub persistent_storage_volume_snapshot:
             Option<domain_workspace::PersistentStorageVolumeSnapshot>,
         pub active_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,

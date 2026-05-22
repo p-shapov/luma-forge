@@ -1,5 +1,6 @@
 use crate::domain::{
     provider_setup::GpuCloudProviderId,
+    provisioner::{validator as provisioner_validator, ProvisionerCatalog},
     runtime::{validator as runtime_validator, RuntimeCatalog},
     validation::is_blank,
     workflow::WorkflowCatalog,
@@ -23,6 +24,7 @@ pub fn validate_placement_plan(
     placement_plan: &PlacementPlan,
     workflow_catalog: &WorkflowCatalog,
     runtime_catalog: &RuntimeCatalog,
+    provisioner_catalog: &ProvisionerCatalog,
 ) -> Result<(), PlacementValidationError> {
     let PlacementPlan::Runpod {
         selected_datacenter_id,
@@ -56,6 +58,12 @@ pub fn validate_placement_plan(
         runtime_catalog,
     )
     .map_err(|_| PlacementValidationError::WorkflowPresetStale)?;
+    provisioner_validator::validate_provisioner_contract_reference(
+        &selected_workflow_preset.provisioner_contract.id,
+        &selected_workflow_preset.provisioner_contract.version,
+        provisioner_catalog,
+    )
+    .map_err(|_| PlacementValidationError::WorkflowPresetStale)?;
 
     if *persistent_storage_volume_size_bytes < preset.required_base_volume_size_bytes {
         return Err(PlacementValidationError::StorageSizeBelowPresetMinimum);
@@ -77,11 +85,16 @@ mod tests {
             RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS, RUNPOD_ENDPOINT_KEEP_ALIVE_MAX_SECONDS,
             RUNPOD_ENDPOINT_KEEP_ALIVE_MIN_SECONDS,
         },
+        provisioner::{ProvisionerCatalog, ProvisionerContract, ProvisionerContractRevision},
         runtime::{RuntimeContract, RuntimeContractRevision},
-        workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+        workflow::{
+            ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+            WorkflowPreset,
+        },
     };
 
     const DIGEST_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const DIGEST_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
     const REQUIRED_VOLUME_SIZE: u64 = 80 * 1024 * 1024 * 1024;
 
     fn runtime_catalog() -> RuntimeCatalog {
@@ -96,6 +109,21 @@ mod tests {
         }
     }
 
+    fn provisioner_catalog() -> ProvisionerCatalog {
+        ProvisionerCatalog {
+            contracts: vec![ProvisionerContract {
+                id: "luma-forge-provisioner".to_string(),
+                revisions: vec![ProvisionerContractRevision {
+                    version: "1.0.0".to_string(),
+                    provisioner_worker_image_ref: format!(
+                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
+                    ),
+                    volume_mount_path: "/workspace".to_string(),
+                }],
+            }],
+        }
+    }
+
     fn workflow_preset() -> WorkflowPreset {
         WorkflowPreset {
             id: "comfyui-t2i-basic".to_string(),
@@ -105,6 +133,10 @@ mod tests {
             required_base_volume_size_bytes: REQUIRED_VOLUME_SIZE,
             runtime_contract: RuntimeContractReference {
                 id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
                 version: "1.0.0".to_string(),
             },
             required_model_assets: vec![],
@@ -151,6 +183,7 @@ mod tests {
                 &placement_plan(),
                 &workflow_catalog(),
                 &runtime_catalog(),
+                &provisioner_catalog(),
             ),
             Ok(())
         );
@@ -176,6 +209,7 @@ mod tests {
                     &plan,
                     &workflow_catalog(),
                     &runtime_catalog(),
+                    &provisioner_catalog(),
                 ),
                 Ok(())
             );
@@ -214,6 +248,7 @@ mod tests {
                     &plan,
                     &workflow_catalog(),
                     &runtime_catalog(),
+                    &provisioner_catalog(),
                 ),
                 Err(expected_error)
             );
@@ -238,6 +273,7 @@ mod tests {
                 &missing_preset,
                 &workflow_catalog(),
                 &runtime_catalog(),
+                &provisioner_catalog(),
             ),
             Err(PlacementValidationError::WorkflowPresetStale)
         );
@@ -258,6 +294,7 @@ mod tests {
                 &changed_preset,
                 &workflow_catalog(),
                 &runtime_catalog(),
+                &provisioner_catalog(),
             ),
             Err(PlacementValidationError::WorkflowPresetStale)
         );
@@ -288,6 +325,38 @@ mod tests {
                 &stale_runtime,
                 &catalog,
                 &runtime_catalog(),
+                &provisioner_catalog(),
+            ),
+            Err(PlacementValidationError::WorkflowPresetStale)
+        );
+    }
+
+    #[test]
+    fn validate_placement_plan_rejects_stale_provisioner_contract_reference() {
+        let stale_provisioner = plan_with(
+            "EU-RO-1",
+            "NVIDIA A40",
+            REQUIRED_VOLUME_SIZE,
+            RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
+            WorkflowPreset {
+                provisioner_contract: ProvisionerContractReference {
+                    id: "luma-forge-provisioner".to_string(),
+                    version: "2.0.0".to_string(),
+                },
+                ..workflow_preset()
+            },
+        );
+        let catalog = WorkflowCatalog {
+            workflow_presets: vec![stale_provisioner.selected_workflow_preset().clone()],
+        };
+
+        assert_eq!(
+            validate_placement_plan(
+                GpuCloudProviderId::Runpod,
+                &stale_provisioner,
+                &catalog,
+                &runtime_catalog(),
+                &provisioner_catalog(),
             ),
             Err(PlacementValidationError::WorkflowPresetStale)
         );
@@ -335,6 +404,7 @@ mod tests {
                     &plan,
                     &workflow_catalog(),
                     &runtime_catalog(),
+                    &provisioner_catalog(),
                 ),
                 Err(expected_error)
             );

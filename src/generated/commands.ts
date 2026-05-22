@@ -144,6 +144,18 @@ export type ProvisioningPodSnapshot = {
 	provisioner_status_url: string,
 };
 
+export type ProvisionerContractReference = {
+	id: string,
+	version: string,
+};
+
+export type ResolvedProvisionerImageSnapshot = {
+	contract_id: string,
+	contract_version: string,
+	provisioner_worker_image_ref: string,
+	volume_mount_path: string,
+};
+
 export type ResolvedRuntimeImageSnapshot = {
 	contract_id: string,
 	contract_version: string,
@@ -191,6 +203,7 @@ export type WorkflowPreset = {
 	workflow_execution_type: WorkflowExecutionType,
 	required_base_volume_size_bytes: number,
 	runtime_contract: RuntimeContractReference,
+	provisioner_contract: ProvisionerContractReference,
 	required_model_assets: ModelAsset[],
 };
 
@@ -201,6 +214,7 @@ export type Workspace = {
 	lifecycle_state: WorkspaceLifecycleState,
 	placement_plan: PlacementPlan,
 	resolved_runtime_image: ResolvedRuntimeImageSnapshot,
+	resolved_provisioner_image: ResolvedProvisionerImageSnapshot,
 	persistent_storage_volume_snapshot: PersistentStorageVolumeSnapshot | null,
 	active_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
 	serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null,

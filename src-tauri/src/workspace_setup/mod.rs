@@ -7,6 +7,7 @@ use crate::{
         placement::validator as placement_validator,
         provider_inventory::validator as provider_inventory_validator,
         provider_setup::GpuCloudProviderId,
+        provisioner::ProvisionerCatalog,
         runtime::RuntimeCatalog,
         workflow::WorkflowCatalog,
         workspace::{Workspace, WorkspaceCatalog},
@@ -25,6 +26,7 @@ pub use providers::{
 pub trait WorkspaceSetupCatalogReader: Send + Sync {
     fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError>;
     fn runtime_catalog(&self) -> Result<RuntimeCatalog, WorkspaceSetupError>;
+    fn provisioner_catalog(&self) -> Result<ProvisionerCatalog, WorkspaceSetupError>;
 }
 
 pub struct WorkspaceSetupService<C, S, W, R = WorkspaceSetupProviderRegistry> {
@@ -114,25 +116,26 @@ where
 
         let workflow_catalog = self.catalogs.workflow_catalog()?;
         let runtime_catalog = self.catalogs.runtime_catalog()?;
+        let provisioner_catalog = self.catalogs.provisioner_catalog()?;
         placement_validator::validate_placement_plan(
             provider_id,
             &request.placement_plan,
             &workflow_catalog,
             &runtime_catalog,
+            &provisioner_catalog,
         )
         .map_err(WorkspaceSetupError::from)?;
+        let selected_preset = request.placement_plan.selected_workflow_preset();
         let resolved_runtime_image = runtime_catalog
             .resolve(
-                &request
-                    .placement_plan
-                    .selected_workflow_preset()
-                    .runtime_contract
-                    .id,
-                &request
-                    .placement_plan
-                    .selected_workflow_preset()
-                    .runtime_contract
-                    .version,
+                &selected_preset.runtime_contract.id,
+                &selected_preset.runtime_contract.version,
+            )
+            .ok_or(WorkspaceSetupError::WorkflowCatalogUnavailable)?;
+        let resolved_provisioner_image = provisioner_catalog
+            .resolve(
+                &selected_preset.provisioner_contract.id,
+                &selected_preset.provisioner_contract.version,
             )
             .ok_or(WorkspaceSetupError::WorkflowCatalogUnavailable)?;
 
@@ -142,6 +145,7 @@ where
             name.to_string(),
             request.placement_plan,
             resolved_runtime_image,
+            resolved_provisioner_image,
         )
         .map_err(|_| WorkspaceSetupError::InvalidWorkspaceMetadata)?;
 
@@ -161,8 +165,12 @@ mod tests {
             },
             provider_inventory::{Datacenter, GpuOption, ProviderInventory},
             provider_setup::ProviderApiKey,
+            provisioner::{ProvisionerCatalog, ProvisionerContract, ProvisionerContractRevision},
             runtime::{RuntimeContract, RuntimeContractRevision},
-            workflow::{RuntimeContractReference, WorkflowExecutionType, WorkflowPreset},
+            workflow::{
+                ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
+                WorkflowPreset,
+            },
             workspace::WorkspaceLifecycleState,
         },
         secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
@@ -179,14 +187,16 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum CatalogCall {
-        WorkflowCatalog,
-        RuntimeCatalog,
+        Workflow,
+        Runtime,
+        Provisioner,
     }
 
     #[derive(Debug)]
     struct FakeCatalogReaderState {
         workflow_catalog: Result<WorkflowCatalog, WorkspaceSetupError>,
         runtime_catalog: Result<RuntimeCatalog, WorkspaceSetupError>,
+        provisioner_catalog: Result<ProvisionerCatalog, WorkspaceSetupError>,
         calls: Vec<CatalogCall>,
     }
 
@@ -201,6 +211,7 @@ mod tests {
                 state: Arc::new(Mutex::new(FakeCatalogReaderState {
                     workflow_catalog: Ok(workflow_catalog()),
                     runtime_catalog: Ok(runtime_catalog()),
+                    provisioner_catalog: Ok(provisioner_catalog()),
                     calls: Vec::new(),
                 })),
             }
@@ -230,6 +241,14 @@ mod tests {
             self
         }
 
+        fn with_provisioner_error(self, error: WorkspaceSetupError) -> Self {
+            self.state
+                .lock()
+                .expect("fake catalog mutex")
+                .provisioner_catalog = Err(error);
+            self
+        }
+
         fn calls(&self) -> Vec<CatalogCall> {
             self.state.lock().expect("fake catalog mutex").calls.clone()
         }
@@ -238,14 +257,20 @@ mod tests {
     impl WorkspaceSetupCatalogReader for FakeCatalogReader {
         fn workflow_catalog(&self) -> Result<WorkflowCatalog, WorkspaceSetupError> {
             let mut state = self.state.lock().expect("fake catalog mutex");
-            state.calls.push(CatalogCall::WorkflowCatalog);
+            state.calls.push(CatalogCall::Workflow);
             state.workflow_catalog.clone()
         }
 
         fn runtime_catalog(&self) -> Result<RuntimeCatalog, WorkspaceSetupError> {
             let mut state = self.state.lock().expect("fake catalog mutex");
-            state.calls.push(CatalogCall::RuntimeCatalog);
+            state.calls.push(CatalogCall::Runtime);
             state.runtime_catalog.clone()
+        }
+
+        fn provisioner_catalog(&self) -> Result<ProvisionerCatalog, WorkspaceSetupError> {
+            let mut state = self.state.lock().expect("fake catalog mutex");
+            state.calls.push(CatalogCall::Provisioner);
+            state.provisioner_catalog.clone()
         }
     }
 
@@ -596,6 +621,21 @@ mod tests {
         }
     }
 
+    fn provisioner_catalog() -> ProvisionerCatalog {
+        ProvisionerCatalog {
+            contracts: vec![ProvisionerContract {
+                id: "luma-forge-provisioner".to_string(),
+                revisions: vec![ProvisionerContractRevision {
+                    version: "1.0.0".to_string(),
+                    provisioner_worker_image_ref: format!(
+                        "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_B}"
+                    ),
+                    volume_mount_path: "/workspace".to_string(),
+                }],
+            }],
+        }
+    }
+
     fn workflow_preset() -> WorkflowPreset {
         WorkflowPreset {
             id: "comfyui-t2i-basic".to_string(),
@@ -605,6 +645,10 @@ mod tests {
             required_base_volume_size_bytes: REQUIRED_VOLUME_SIZE,
             runtime_contract: RuntimeContractReference {
                 id: "comfyui-python312-cu121".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            provisioner_contract: ProvisionerContractReference {
+                id: "luma-forge-provisioner".to_string(),
                 version: "1.0.0".to_string(),
             },
             required_model_assets: vec![],
@@ -669,6 +713,9 @@ mod tests {
             runtime_catalog()
                 .resolve("comfyui-python312-cu121", "1.0.0")
                 .expect("runtime should resolve"),
+            provisioner_catalog()
+                .resolve("luma-forge-provisioner", "1.0.0")
+                .expect("provisioner should resolve"),
         )
         .expect("test workspace should be valid")
     }
@@ -775,10 +822,20 @@ mod tests {
                 .resolve("comfyui-python312-cu121", "1.0.0")
                 .expect("runtime should resolve")
         );
+        assert_eq!(
+            workspace.resolved_provisioner_image,
+            provisioner_catalog()
+                .resolve("luma-forge-provisioner", "1.0.0")
+                .expect("provisioner should resolve")
+        );
         assert_eq!(secrets.calls(), vec![SecretStoreCall::ReadApiKey]);
         assert_eq!(
             catalogs.calls(),
-            vec![CatalogCall::WorkflowCatalog, CatalogCall::RuntimeCatalog]
+            vec![
+                CatalogCall::Workflow,
+                CatalogCall::Runtime,
+                CatalogCall::Provisioner
+            ]
         );
         assert_eq!(workspace_catalog.inserts(), vec![workspace.clone()]);
         assert_eq!(
@@ -874,13 +931,23 @@ mod tests {
                 FakeCatalogReader::valid()
                     .with_workflow_error(WorkspaceSetupError::WorkflowCatalogUnavailable),
                 WorkspaceSetupError::WorkflowCatalogUnavailable,
-                vec![CatalogCall::WorkflowCatalog],
+                vec![CatalogCall::Workflow],
             ),
             (
                 FakeCatalogReader::valid()
                     .with_runtime_error(WorkspaceSetupError::WorkflowCatalogUnavailable),
                 WorkspaceSetupError::WorkflowCatalogUnavailable,
-                vec![CatalogCall::WorkflowCatalog, CatalogCall::RuntimeCatalog],
+                vec![CatalogCall::Workflow, CatalogCall::Runtime],
+            ),
+            (
+                FakeCatalogReader::valid()
+                    .with_provisioner_error(WorkspaceSetupError::WorkflowCatalogUnavailable),
+                WorkspaceSetupError::WorkflowCatalogUnavailable,
+                vec![
+                    CatalogCall::Workflow,
+                    CatalogCall::Runtime,
+                    CatalogCall::Provisioner,
+                ],
             ),
         ] {
             let secrets = FakeSecretStore::with_api_key("rp_key_secret");
@@ -1028,7 +1095,7 @@ mod tests {
         .get_workflow_catalog();
 
         assert_eq!(ok_result, Ok(workflow_catalog()));
-        assert_eq!(ok_catalogs.calls(), vec![CatalogCall::WorkflowCatalog]);
+        assert_eq!(ok_catalogs.calls(), vec![CatalogCall::Workflow]);
 
         let error_catalogs = FakeCatalogReader::valid()
             .with_workflow_error(WorkspaceSetupError::WorkflowCatalogUnavailable);
