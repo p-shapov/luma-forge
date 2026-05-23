@@ -1,6 +1,6 @@
 use crate::{
     domain::workspace::Workspace,
-    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProvisionerTokenStore},
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProvisionerTokenStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -9,7 +9,6 @@ use super::{
     failure,
     gateway::ProvisionerWorkerGateway,
     helpers::result,
-    WorkspaceProvisioningError,
 };
 
 pub(crate) async fn sync_hugging_face_api_key_setup<S, W, R, Q>(
@@ -26,13 +25,14 @@ where
         .placement_plan
         .selected_workflow_preset()
         .requires_hugging_face_api_key
-        || context
-            .secrets
-            .has_hugging_face_api_key_entry()
-            .await
-            .map_err(WorkspaceProvisioningError::from)?
     {
         return Ok(None);
+    }
+
+    match context.secrets.read_hugging_face_api_key().await {
+        Ok(Some(_)) => return Ok(None),
+        Ok(None) | Err(SecretStoreError::InvalidStoredHuggingFaceApiKey) => {}
+        Err(error) => return Err(error.into()),
     }
 
     let mut workspace = workspace.clone();
