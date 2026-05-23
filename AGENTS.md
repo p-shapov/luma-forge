@@ -14,6 +14,25 @@ LumaForge is a desktop application that helps a user provision remote GPU infras
 
 ---
 
+## Project Structure
+
+- `src/`: React frontend. UI, routes, pages, shared UI primitives, and generated frontend bindings.
+- `src-tauri/src/commands/`: Tauri command adapters and generated binding export only.
+- `src-tauri/src/domain/`: Native domain models, validation, and rules. Keep independent from Tauri runtime APIs, command handlers, UI concerns, and provider SDK details.
+- `src-tauri/src/provider_setup/`: Provider API key validation and secure setup workflow.
+- `src-tauri/src/workspace_setup/`: Draft Workspace creation from catalogs and placement input.
+- `src-tauri/src/workspace_provisioning/`: Native provisioning lifecycle orchestration, progress sync, cancellation, and failure handling.
+- `src-tauri/src/workspace_resources/`: Provider resource lifecycle, naming, state, and cleanup.
+- `src-tauri/src/secrets/`: Secure secret storage. Raw secrets must stay here or inside provider-call paths.
+- `src-tauri/src/workspace_catalog/`: SQLite-backed Workspace Catalog persistence.
+- `workers/provisioner/`: Container-side workspace preparation worker.
+- `workers/runpod-endpoint/`: RunPod Serverless runtime worker for prepared ComfyUI environments.
+- `bundled/`: Bundled catalogs consumed by native and worker flows.
+- `openspec/`: Active and archived behavior specs. Check before changing behavior.
+- `spec/`: Product flows, reference contracts, architecture notes, and ubiquitous language.
+
+---
+
 ## Architecture Principles
 
 ### React Frontend
