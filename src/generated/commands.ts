@@ -130,16 +130,16 @@ export type ProviderProvisioningSnapshot = { gpu_cloud_provider_id: "runpod"; en
 
 export type ProviderResourceStatus = "creating" | "running" | "ready" | "terminated" | "failed" | "unknown";
 
+export type ProvisionerContractReference = {
+	id: string,
+	version: string,
+};
+
 export type ProvisioningPodSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	provider_resource_id: string,
 	provider_resource_status: ProviderResourceStatus,
 	provisioner_status_url: string,
-};
-
-export type ProvisionerContractReference = {
-	id: string,
-	version: string,
 };
 
 export type ResolvedProvisionerImageSnapshot = {
@@ -265,3 +265,4 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
+

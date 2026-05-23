@@ -26,7 +26,7 @@ use super::{
 const PROGRESS_NOT_STARTED: u8 = 0;
 const PROGRESS_CREATING_VOLUME: u8 = 0;
 const PROGRESS_STARTING_PROVISIONING_POD: u8 = 10;
-const PROGRESS_PREPARING_ENVIRONMENT_START: u8 = 40;
+const PROGRESS_PREPARING_ENVIRONMENT_START: u8 = 30;
 const PROGRESS_PREPARING_ENVIRONMENT_END: u8 = 90;
 const PROGRESS_CREATING_ENDPOINT: u8 = 90;
 const PROGRESS_VALIDATING_READINESS: u8 = 98;
@@ -613,7 +613,7 @@ mod tests {
             running.phase,
             WorkspaceProvisioningPhase::PreparingEnvironment
         );
-        assert_eq!(running.percent, Some(67));
+        assert_eq!(running.percent, Some(63));
         assert_eq!(running.failure, None);
 
         let startup = progress_from_worker_status(&worker_status(
@@ -637,9 +637,9 @@ mod tests {
             missing_preparation_percent.phase,
             WorkspaceProvisioningPhase::PreparingEnvironment
         );
-        assert_eq!(missing_preparation_percent.percent, Some(40));
+        assert_eq!(missing_preparation_percent.percent, Some(30));
 
-        for (worker_percent, expected_percent) in [(0, 40), (50, 65), (100, 90)] {
+        for (worker_percent, expected_percent) in [(0, 30), (50, 60), (100, 90)] {
             let progress = progress_from_worker_status(&worker_status(
                 ProvisionerWorkerJobStatus::Running,
                 ProvisionerWorkerPhase::DownloadingAssets,

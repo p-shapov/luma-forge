@@ -2512,7 +2512,6 @@ dependencies = [
  "tokio-util",
  "url",
  "uuid",
- "zeroize",
 ]
 
 [[package]]

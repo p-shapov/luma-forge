@@ -12,11 +12,11 @@ from auxiliary.paths import safe_child_path
 ProgressCallback = Callable[[str, int | None, str | None], None]
 
 
-def _phase_progress(start: int, end: int, index: int, total: int) -> int:
-    if total <= 1:
-        progress = start
+def _completed_phase_progress(start: int, end: int, completed: int, total: int) -> int:
+    if total <= 0:
+        progress = end
     else:
-        progress = start + ((index - 1) * (end - start)) // (total - 1)
+        progress = start + (completed * (end - start)) // total
     return max(0, min(100, progress))
 
 
@@ -54,13 +54,9 @@ class Provisioner:
         cancel_event: Event,
     ) -> None:
         total_assets = len(assets)
+        progress("downloading_assets", 55, "Downloading model assets")
         for index, asset in enumerate(assets, start=1):
             self._check_cancelled(cancel_event)
-            progress(
-                "downloading_assets",
-                _phase_progress(55, 90, index, total_assets),
-                f"Downloading model asset {asset.name}",
-            )
             target = safe_child_path(
                 workspace_root,
                 asset.install_comfyui_relative_path.as_posix(),
@@ -71,6 +67,11 @@ class Provisioner:
                 target,
                 cancel_event=cancel_event,
                 timeout_seconds=self.config.download_timeout_seconds,
+            )
+            progress(
+                "downloading_assets",
+                _completed_phase_progress(55, 90, index, total_assets),
+                f"Downloaded model asset {asset.name}",
             )
 
     def _check_cancelled(self, cancel_event: Event) -> None:

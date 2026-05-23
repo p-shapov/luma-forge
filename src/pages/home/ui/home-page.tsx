@@ -62,7 +62,7 @@ const DEFAULT_MAX_STORAGE_SIZE_GB = 100;
 const DEFAULT_ENDPOINT_KEEP_ALIVE_SECONDS = 5;
 const MIN_ENDPOINT_KEEP_ALIVE_SECONDS = 5;
 const MAX_ENDPOINT_KEEP_ALIVE_SECONDS = 3600;
-const PROVISIONING_SYNC_INTERVAL_MS = 10_000;
+const PROVISIONING_SYNC_INTERVAL_MS = 1000;
 
 type CommandResult<T>
   = | { status: "ok"; data: T }
@@ -346,20 +346,6 @@ export function HomePage() {
   const requestedStorageSizeBytes = requiredBaseStorageSizeBytes
     + Math.round(selectedAdditionalStorageSizeGb * GIB);
   const requestedStorageSizeGb = Math.ceil(requestedStorageSizeBytes / GIB);
-
-  const canCreateWorkspace = Boolean(
-    workspaceName.trim().length > 0
-    && selectedWorkflowPreset !== undefined
-    && selectedDatacenter !== undefined
-    && selectedGpu !== undefined
-    && selectedGpuAvailable
-    && selectedAdditionalStorageSizeGb >= 0
-    && requestedStorageSizeBytes >= requiredBaseStorageSizeBytes
-    && requestedStorageSizeGb <= maxTotalStorageSizeGb
-    && keepAliveRange.supported
-    && selectedEndpointKeepAliveSeconds >= keepAliveRange.minSeconds
-    && selectedEndpointKeepAliveSeconds <= keepAliveRange.maxSeconds,
-  );
   const selectedProvisioningWorkspaceId = provisioningWorkspaceId || workspaces[0]?.id || "";
   const canRunProvisioningCommand = selectedProvisioningWorkspaceId.trim().length > 0;
   const selectedProvisioningWorkspace = workspaces.find(({ id }) => id === selectedProvisioningWorkspaceId);
@@ -989,7 +975,7 @@ export function HomePage() {
                     </FieldError>
                   )}
 
-                  <Button disabled={!canCreateWorkspace || pendingCommand !== null} onClick={createWorkspace}>
+                  <Button disabled={pendingCommand !== null} onClick={createWorkspace}>
                     <HugeiconsIcon icon={Add01Icon} strokeWidth={2} data-icon="inline-start" />
                     Create workspace
                   </Button>

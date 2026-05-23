@@ -62,6 +62,40 @@ class PreparerTests(unittest.TestCase):
             self.assertFalse((workspace / "ComfyUI").exists())
             self.assertFalse((workspace / "custom_nodes").exists())
 
+    def test_download_progress_advances_after_each_asset_completes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            preset = {
+                "required_model_assets": [
+                    model_asset(id="model-a", install_path="models/checkpoints/model-a.safetensors"),
+                    model_asset(id="model-b", install_path="models/checkpoints/model-b.safetensors"),
+                ]
+            }
+            request = parse_start_request(start_payload(preset=preset))
+            events = []
+
+            Provisioner(
+                downloader=FakeDownloader(),
+                config=test_config(workspace_mount_path=Path(directory)),
+            ).prepare(
+                request,
+                lambda phase, progress, message: events.append((phase, progress, message)),
+                Event(),
+            )
+
+            download_events = [
+                (progress, message)
+                for phase, progress, message in events
+                if phase == "downloading_assets"
+            ]
+            self.assertEqual(
+                download_events,
+                [
+                    (55, "Downloading model assets"),
+                    (72, "Downloaded model asset Model"),
+                    (90, "Downloaded model asset Model"),
+                ],
+            )
+
     def test_rejects_unsafe_model_asset_identifiers_without_echoing_values(self):
         unsafe_values = [
             "../unsafe-token",
@@ -145,9 +179,10 @@ class PreparerTests(unittest.TestCase):
             self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
 
 
-def model_asset(*, id: str = "model") -> dict:
+def model_asset(*, id: str = "model", install_path: str = "models/checkpoints/model.safetensors") -> dict:
     asset = start_payload()["workflow_preset"]["required_model_assets"][0].copy()
     asset["id"] = id
+    asset["install_comfyui_relative_path"] = install_path
     return asset
 
 
