@@ -91,8 +91,9 @@ workers/
 | `bun run build`                                                                                        | Build and type-check the frontend.          |
 | `bun run lint`                                                                                         | Run ESLint.                                 |
 | `bun run lint:fix`                                                                                     | Apply ESLint autofixes.                     |
+| `bun run format`                                                                                       | Format frontend files with ESLint fixes.    |
 | `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run native tests.                           |
-| `cargo fmt --manifest-path src-tauri/Cargo.toml`                                                       | Format native code.                         |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --check`                                               | Check native formatting.                    |
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict native linting.                  |
 | `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`         | Run provisioner worker tests.               |
 | `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests` | Run RunPod endpoint worker tests.           |
@@ -113,9 +114,9 @@ Deleting this file removes local Workspace Catalog records only. It does not cle
 
 Generated files live in `src/generated` and should not be edited manually.
 
-| Command                        | Purpose                                                                        |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| `bun run codegen`              | Regenerate all generated frontend contracts.                                   |
-| `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` with the TanStack Router CLI.      |
-| `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                   |
-| `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` from Tauri commands via `tauri-specta`. |
+| Command                        | Purpose                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| `bun run codegen`              | Regenerate all generated frontend contracts.                                 |
+| `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` after `src/routes/**` changes.   |
+| `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                 |
+| `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` after Tauri command contract changes. |
