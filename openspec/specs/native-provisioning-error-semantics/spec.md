@@ -73,12 +73,14 @@ Workspace Provisioning SHALL map `WorkspaceResourceError` into `WorkspaceProvisi
 - **WHEN** a resource-operation failure is local, pre-provisioning, or otherwise does not require durable Workspace recovery state
 - **THEN** Workspace Provisioning SHALL map it to a `WorkspaceProvisioningError` that the command boundary can return as a UI-safe command error
 - **AND** Workspace Provisioning MUST NOT persist a `WorkspaceProvisioningFailure` solely for that escaped command error
+- **AND** Workspace Resources MUST NOT persist a `WorkspaceProvisioningFailure` for that escaped command error
 
 #### Scenario: Resource error becomes persisted failure
 
 - **WHEN** a resource-operation failure means provider state may be unsafe, remote resources are missing or orphaned, cleanup is incomplete, or worker/token state requires inspection or recovery
 - **THEN** Workspace Provisioning SHALL persist a structured `WorkspaceProvisioningFailure` when catalog persistence is available
 - **AND** command responses and Workspace progress SHALL expose the persisted failure through generated binding-safe types
+- **AND** Workspace Resources MUST return the resource error to Workspace Provisioning instead of writing the persisted failure directly
 
 #### Scenario: Terminal worker subtype becomes persisted failure
 
@@ -95,7 +97,8 @@ Workspace Provisioning SHALL map `WorkspaceResourceError` into `WorkspaceProvisi
 #### Scenario: Mapping is regression tested
 
 - **WHEN** regression tests exercise `WorkspaceResourceError -> WorkspaceProvisioningError`, `WorkspaceProvisioningError -> WorkspaceProvisioningFailure`, and `WorkspaceProvisioningError -> NativeCommandError` conversions
-- **THEN** catalog, secret/keyring, provider API, provider uncertainty, resource lifecycle, worker, worker subtype, and token lifecycle categories SHALL map to the expected command-error, persisted-failure, non-mutating progress, or defensive command mapping behavior
+- **THEN** catalog, secret/keyring, provider API, provider uncertainty, resource lifecycle, orphaned resource, cleanup, worker, worker subtype, and token lifecycle categories SHALL map to the expected command-error, persisted-failure, non-mutating progress, or defensive command mapping behavior
+- **AND** regression tests SHALL verify Workspace Resources does not write `last_provisioning_failure`
 
 ### Requirement: Worker token lifecycle respects provider certainty
 

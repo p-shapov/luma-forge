@@ -29,7 +29,6 @@ where
     let network_volume_id = volume.provider_resource_id.clone();
     let PlacementPlan::Runpod {
         selected_datacenter_id,
-        selected_gpu_id,
         ..
     } = &workspace.placement_plan;
     let provisioner_image = &workspace.resolved_provisioner_image;
@@ -56,7 +55,6 @@ where
             workspace_id: workspace.id.clone(),
             provisioner_worker_image_ref: provisioner_image.provisioner_worker_image_ref.clone(),
             datacenter_id: selected_datacenter_id.clone(),
-            selected_gpu_id: selected_gpu_id.clone(),
             network_volume_id,
             mount_path: provisioner_image.volume_mount_path.clone(),
             bearer_token: token,
@@ -196,4 +194,47 @@ async fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
         .secrets
         .delete_provisioner_worker_token(&workspace.id)
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace_resources::providers::runpod::test_support::*;
+
+    #[tokio::test]
+    async fn create_uses_cheapest_cpu_policy_without_selected_gpu() {
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Ok(runpod_pod(
+            "pod-1",
+            ProviderResourceStatus::Running,
+            Some("https://pod/status"),
+        )));
+
+        create(&runpod_context, &mut workspace)
+            .await
+            .expect("provisioning pod create should succeed");
+
+        let calls = client.calls();
+        let RunPodCall::CreatePod(request) = &calls[1] else {
+            panic!("expected create pod call");
+        };
+        let payload = serde_json::to_value(request).expect("request should serialize");
+        assert_eq!(payload["computeType"], "CPU");
+        assert_eq!(payload["cpuFlavorIds"], serde_json::json!(["cpu3g"]));
+        assert_eq!(payload["cpuFlavorPriority"], "availability");
+        assert_eq!(payload["vcpuCount"], 2);
+        assert!(payload.get("gpuTypeIds").is_none());
+        assert_eq!(payload["dataCenterIds"], serde_json::json!(["dc-1"]));
+        assert_eq!(payload["networkVolumeId"], "volume-1");
+        assert_eq!(payload["volumeMountPath"], "/workspace");
+        assert_eq!(payload["ports"], serde_json::json!(["8000/http"]));
+    }
 }

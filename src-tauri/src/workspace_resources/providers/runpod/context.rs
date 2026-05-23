@@ -29,6 +29,11 @@ use super::{
     RUNPOD_PROVISIONER_WORKER_HTTP_PORT,
 };
 
+const RUNPOD_PROVISIONING_POD_COMPUTE_TYPE: &str = "CPU";
+const RUNPOD_PROVISIONING_POD_CPU_FLAVOR_ID: &str = "cpu3g";
+const RUNPOD_PROVISIONING_POD_CPU_FLAVOR_PRIORITY: &str = "availability";
+const RUNPOD_PROVISIONING_POD_VCPU_COUNT: u32 = 2;
+
 pub(super) struct RunPodWorkspaceResourceContext<'a, S, W, C> {
     base: &'a WorkspaceResourceContext<'a, S, W>,
     client: &'a C,
@@ -143,7 +148,11 @@ where
                 &RunPodCreatePodRequest {
                     name: provider_resource_name(&input.workspace_id, "provisioner"),
                     image_name: input.provisioner_worker_image_ref,
-                    gpu_type_ids: vec![input.selected_gpu_id],
+                    compute_type: RUNPOD_PROVISIONING_POD_COMPUTE_TYPE.to_string(),
+                    cpu_flavor_ids: vec![RUNPOD_PROVISIONING_POD_CPU_FLAVOR_ID.to_string()],
+                    cpu_flavor_priority: RUNPOD_PROVISIONING_POD_CPU_FLAVOR_PRIORITY.to_string(),
+                    vcpu_count: RUNPOD_PROVISIONING_POD_VCPU_COUNT,
+                    gpu_type_ids: None,
                     data_center_ids: vec![input.datacenter_id],
                     network_volume_id: input.network_volume_id,
                     volume_mount_path: input.mount_path.clone(),

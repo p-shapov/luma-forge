@@ -29,7 +29,6 @@ pub(crate) struct CreateProvisioningPodInput {
     pub(crate) workspace_id: String,
     pub(crate) provisioner_worker_image_ref: String,
     pub(crate) datacenter_id: String,
-    pub(crate) selected_gpu_id: String,
     pub(crate) network_volume_id: String,
     pub(crate) mount_path: String,
     pub(crate) bearer_token: ProvisionerWorkerBearerToken,
