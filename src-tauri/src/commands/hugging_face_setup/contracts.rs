@@ -12,7 +12,7 @@ mod remote_types {
     #[derive(Debug, Clone, Serialize, Deserialize, Type)]
     #[specta(remote = domain_hugging_face_setup::HuggingFaceApiKeySetup)]
     pub(super) struct HuggingFaceApiKeySetup {
-        pub api_key_fingerprint: String,
+        pub token_name: String,
         pub user_name: String,
         pub user_email: Option<String>,
     }

@@ -86,7 +86,9 @@ impl From<WorkspaceSetupError> for WorkspaceResourceError {
 impl From<ProviderClientError> for WorkspaceResourceError {
     fn from(error: ProviderClientError) -> Self {
         match error {
-            ProviderClientError::Unauthorized => Self::ProviderApiKeyUnauthorized,
+            ProviderClientError::Unauthorized | ProviderClientError::InsufficientPermissions => {
+                Self::ProviderApiKeyUnauthorized
+            }
             ProviderClientError::ApiUnavailable => Self::ProviderApiUnavailable,
             ProviderClientError::RateLimited => Self::ProviderRateLimited,
             ProviderClientError::RequestRejected => Self::ProviderRequestRejected,

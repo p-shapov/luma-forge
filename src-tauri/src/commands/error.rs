@@ -27,6 +27,7 @@ pub enum NativeCommandErrorCode {
     HuggingFaceSetupNotFound,
     HuggingFaceApiKeyRequired,
     HuggingFaceApiKeyUnauthorized,
+    HuggingFaceApiKeyInsufficientPermissions,
     StoredHuggingFaceApiKeyInvalid,
     HuggingFaceApiUnavailable,
     HuggingFaceRateLimited,
@@ -84,6 +85,9 @@ impl NativeCommandErrorCode {
             Self::HuggingFaceSetupNotFound => "hugging_face_setup_not_found",
             Self::HuggingFaceApiKeyRequired => "hugging_face_api_key_required",
             Self::HuggingFaceApiKeyUnauthorized => "hugging_face_api_key_unauthorized",
+            Self::HuggingFaceApiKeyInsufficientPermissions => {
+                "hugging_face_api_key_insufficient_permissions"
+            }
             Self::StoredHuggingFaceApiKeyInvalid => "stored_hugging_face_api_key_invalid",
             Self::HuggingFaceApiUnavailable => "hugging_face_api_unavailable",
             Self::HuggingFaceRateLimited => "hugging_face_rate_limited",
@@ -191,6 +195,9 @@ fn hugging_face_setup_error_code(error: &HuggingFaceSetupError) -> NativeCommand
         HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized => {
             NativeCommandErrorCode::HuggingFaceApiKeyUnauthorized
         }
+        HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            NativeCommandErrorCode::HuggingFaceApiKeyInsufficientPermissions
+        }
         HuggingFaceSetupError::StoredHuggingFaceApiKeyInvalid => {
             NativeCommandErrorCode::StoredHuggingFaceApiKeyInvalid
         }
@@ -227,6 +234,9 @@ fn hugging_face_setup_error_message(error: &HuggingFaceSetupError) -> &'static s
         HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized => {
             "Hugging Face API key is not authorized."
         }
+        HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            "Hugging Face API key has insufficient permissions."
+        }
         HuggingFaceSetupError::StoredHuggingFaceApiKeyInvalid => {
             "Stored Hugging Face API key is invalid."
         }
@@ -242,7 +252,10 @@ fn hugging_face_setup_error_message(error: &HuggingFaceSetupError) -> &'static s
 fn hugging_face_setup_error_field(error: &HuggingFaceSetupError) -> Option<&'static str> {
     match error {
         HuggingFaceSetupError::HuggingFaceApiKeyRequired
-        | HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized => Some("hugging_face_api_key"),
+        | HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized
+        | HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            Some("hugging_face_api_key")
+        }
         _ => None,
     }
 }
@@ -251,7 +264,8 @@ fn hugging_face_setup_error_recovery_action(error: &HuggingFaceSetupError) -> Op
     match error {
         HuggingFaceSetupError::HuggingFaceSetupNotFound => Some("refresh_hugging_face_setup"),
         HuggingFaceSetupError::HuggingFaceApiKeyRequired
-        | HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized => {
+        | HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized
+        | HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
             Some("enter_hugging_face_api_key")
         }
         HuggingFaceSetupError::StoredHuggingFaceApiKeyInvalid
@@ -747,6 +761,13 @@ mod tests {
             (
                 HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized,
                 NativeCommandErrorCode::HuggingFaceApiKeyUnauthorized,
+                false,
+                Some("hugging_face_api_key"),
+                "enter_hugging_face_api_key",
+            ),
+            (
+                HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions,
+                NativeCommandErrorCode::HuggingFaceApiKeyInsufficientPermissions,
                 false,
                 Some("hugging_face_api_key"),
                 "enter_hugging_face_api_key",

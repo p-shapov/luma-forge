@@ -808,7 +808,7 @@ export function HomePage() {
                     <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm md:grid-cols-3">
                       <div>
                         <p className="text-xs font-medium uppercase text-muted-foreground">Token</p>
-                        <p className="break-all">{huggingFaceSetup.api_key_fingerprint}</p>
+                        <p className="break-all">{huggingFaceSetup.token_name}</p>
                       </div>
                       <div>
                         <p className="text-xs font-medium uppercase text-muted-foreground">User</p>

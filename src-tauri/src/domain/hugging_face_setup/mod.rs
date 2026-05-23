@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HuggingFaceApiKeySetup {
-    pub api_key_fingerprint: String,
+    pub token_name: String,
     pub user_name: String,
     pub user_email: Option<String>,
 }
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn setup_identity_accepts_optional_email() {
         let setup = HuggingFaceApiKeySetup {
-            api_key_fingerprint: "RUNPOD_READ".to_string(),
+            token_name: "RUNPOD_READ".to_string(),
             user_name: "pavel".to_string(),
             user_email: None,
         };

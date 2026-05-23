@@ -36,6 +36,9 @@ const ERROR_COPY = {
   hugging_face_setup_not_found: { title: "Hugging Face setup not found" },
   hugging_face_api_key_required: { title: "Hugging Face API key required" },
   hugging_face_api_key_unauthorized: { title: "Hugging Face API key unauthorized" },
+  hugging_face_api_key_insufficient_permissions: {
+    title: "Hugging Face API key has insufficient permissions",
+  },
   stored_hugging_face_api_key_invalid: { title: "Stored Hugging Face API key invalid" },
   hugging_face_api_unavailable: { title: "Hugging Face API unavailable" },
   hugging_face_rate_limited: { title: "Hugging Face rate limited" },

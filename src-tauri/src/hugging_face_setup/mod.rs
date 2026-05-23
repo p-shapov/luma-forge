@@ -34,6 +34,8 @@ pub enum HuggingFaceSetupError {
     HuggingFaceApiKeyRequired,
     #[error("hugging face api key unauthorized")]
     HuggingFaceApiKeyUnauthorized,
+    #[error("hugging face api key has insufficient permissions")]
+    HuggingFaceApiKeyInsufficientPermissions,
     #[error("stored hugging face api key invalid")]
     StoredHuggingFaceApiKeyInvalid,
     #[error("hugging face api unavailable")]
@@ -65,6 +67,9 @@ impl From<ProviderClientError> for HuggingFaceSetupError {
     fn from(error: ProviderClientError) -> Self {
         match error {
             ProviderClientError::Unauthorized => Self::HuggingFaceApiKeyUnauthorized,
+            ProviderClientError::InsufficientPermissions => {
+                Self::HuggingFaceApiKeyInsufficientPermissions
+            }
             ProviderClientError::ApiUnavailable => Self::HuggingFaceApiUnavailable,
             ProviderClientError::RateLimited => Self::HuggingFaceRateLimited,
             ProviderClientError::ResponseInvalid => Self::HuggingFaceIdentityResponseInvalid,
@@ -255,7 +260,7 @@ mod tests {
 
     fn setup() -> HuggingFaceApiKeySetup {
         HuggingFaceApiKeySetup {
-            api_key_fingerprint: "RUNPOD_READ".to_string(),
+            token_name: "RUNPOD_READ".to_string(),
             user_name: "pavel".to_string(),
             user_email: Some("pavel@example.com".to_string()),
         }
@@ -303,6 +308,21 @@ mod tests {
         assert_eq!(
             service.setup(key("hf_bad")).await,
             Err(HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized)
+        );
+        assert_eq!(secrets.calls(), Vec::<&'static str>::new());
+        assert_eq!(secrets.stored_key(), None);
+    }
+
+    #[tokio::test]
+    async fn setup_does_not_store_key_with_insufficient_permissions() {
+        let secrets = FakeSecretStore::default();
+        let provider =
+            FakeIdentityProvider::with_error(ProviderClientError::InsufficientPermissions);
+        let service = HuggingFaceSetupService::new(secrets.clone(), provider);
+
+        assert_eq!(
+            service.setup(key("hf_bad")).await,
+            Err(HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions)
         );
         assert_eq!(secrets.calls(), Vec::<&'static str>::new());
         assert_eq!(secrets.stored_key(), None);

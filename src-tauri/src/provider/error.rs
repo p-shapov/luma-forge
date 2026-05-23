@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum ProviderClientError {
     #[error("provider authorization failed")]
     Unauthorized,
+    #[error("provider api key has insufficient permissions")]
+    InsufficientPermissions,
     #[error("provider api unavailable")]
     ApiUnavailable,
     #[error("provider rate limited")]

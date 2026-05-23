@@ -99,6 +99,25 @@ struct WhoamiAuth {
 struct WhoamiAccessToken {
     #[serde(rename = "displayName")]
     display_name: String,
+    role: String,
+    #[serde(rename = "fineGrained")]
+    fine_grained: Option<WhoamiFineGrained>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WhoamiFineGrained {
+    #[serde(rename = "canReadGatedRepos")]
+    can_read_gated_repos: Option<bool>,
+    #[serde(default)]
+    global: Vec<String>,
+    #[serde(default)]
+    scoped: Vec<WhoamiScopedPermissions>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WhoamiScopedPermissions {
+    #[serde(default)]
+    permissions: Vec<String>,
 }
 
 fn identity_from_whoami_response(
@@ -109,12 +128,38 @@ fn identity_from_whoami_response(
     if is_blank(&response.auth.access_token.display_name) || is_blank(&response.name) {
         return Err(ProviderClientError::ResponseInvalid);
     }
+    if !token_can_download_models(&response.auth.access_token) {
+        return Err(ProviderClientError::InsufficientPermissions);
+    }
 
     Ok(HuggingFaceApiKeySetup {
-        api_key_fingerprint: response.auth.access_token.display_name,
+        token_name: response.auth.access_token.display_name,
         user_name: response.name,
         user_email: response.email,
     })
+}
+
+fn token_can_download_models(access_token: &WhoamiAccessToken) -> bool {
+    match access_token.role.as_str() {
+        "read" | "write" => true,
+        "fineGrained" => {
+            let Some(fine_grained) = &access_token.fine_grained else {
+                return false;
+            };
+            fine_grained.can_read_gated_repos == Some(true)
+                && (fine_grained
+                    .global
+                    .iter()
+                    .any(|permission| permission == "repo.content.read")
+                    || fine_grained.scoped.iter().any(|scope| {
+                        scope
+                            .permissions
+                            .iter()
+                            .any(|permission| permission == "repo.content.read")
+                    }))
+        }
+        _ => false,
+    }
 }
 
 fn provider_error_from_status(status: StatusCode) -> Option<ProviderClientError> {
@@ -166,7 +211,7 @@ mod tests {
         assert_eq!(
             identity_from_whoami_response(payload),
             Ok(HuggingFaceApiKeySetup {
-                api_key_fingerprint: "RUNPOD_READ".to_string(),
+                token_name: "RUNPOD_READ".to_string(),
                 user_name: "pavel".to_string(),
                 user_email: Some("pavel@example.com".to_string()),
             })
@@ -200,6 +245,107 @@ mod tests {
                 .user_email,
             None
         );
+    }
+
+    #[test]
+    fn identity_from_whoami_response_accepts_fine_grained_download_flags() {
+        let payload = serde_json::json!({
+            "auth": {
+                "type": "access_token",
+                "accessToken": {
+                    "displayName": "1",
+                    "role": "fineGrained",
+                    "createdAt": "2026-05-23T11:23:45.759Z",
+                    "fineGrained": {
+                        "canReadGatedRepos": true,
+                        "global": [],
+                        "scoped": [
+                            {
+                                "entity": {
+                                    "_id": "6999f419d475051977e04a24",
+                                    "type": "user",
+                                    "name": "p-shapov"
+                                },
+                                "permissions": [
+                                    "repo.content.read",
+                                    "repo.access.read"
+                                ]
+                            }
+                        ]
+                    }
+                }
+            },
+            "type": "user",
+            "id": "user-id",
+            "name": "p-shapov",
+            "fullname": "Pavel Shapov",
+            "avatarUrl": "https://example.com/avatar.png",
+            "isPro": false,
+            "orgs": []
+        });
+
+        assert_eq!(
+            identity_from_whoami_response(payload),
+            Ok(HuggingFaceApiKeySetup {
+                token_name: "1".to_string(),
+                user_name: "p-shapov".to_string(),
+                user_email: None,
+            })
+        );
+    }
+
+    #[test]
+    fn identity_from_whoami_response_rejects_fine_grained_token_without_download_flags() {
+        for mutate in [
+            |payload: &mut serde_json::Value| {
+                payload["auth"]["accessToken"]["fineGrained"]["canReadGatedRepos"] =
+                    serde_json::json!(false);
+            },
+            |payload: &mut serde_json::Value| {
+                payload["auth"]["accessToken"]["fineGrained"]["scoped"][0]["permissions"] =
+                    serde_json::json!(["repo.access.read"]);
+            },
+        ] {
+            let mut payload = serde_json::json!({
+                "auth": {
+                    "type": "access_token",
+                    "accessToken": {
+                        "displayName": "1",
+                        "role": "fineGrained",
+                        "createdAt": "2026-05-23T11:23:45.759Z",
+                        "fineGrained": {
+                            "canReadGatedRepos": true,
+                            "global": [],
+                            "scoped": [
+                                {
+                                    "entity": {
+                                        "_id": "6999f419d475051977e04a24",
+                                        "type": "user",
+                                        "name": "p-shapov"
+                                    },
+                                    "permissions": [
+                                        "repo.content.read"
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                },
+                "type": "user",
+                "id": "user-id",
+                "name": "p-shapov",
+                "fullname": "Pavel Shapov",
+                "avatarUrl": "https://example.com/avatar.png",
+                "isPro": false,
+                "orgs": []
+            });
+            mutate(&mut payload);
+
+            assert_eq!(
+                identity_from_whoami_response(payload),
+                Err(ProviderClientError::InsufficientPermissions)
+            );
+        }
     }
 
     #[test]
