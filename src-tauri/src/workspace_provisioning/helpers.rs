@@ -15,7 +15,6 @@ use crate::{
 };
 
 use super::{
-    failure::legacy_failure,
     gateway::{
         ProvisionerWorkerError, ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus,
         ProvisionerWorkerPhase, ProvisionerWorkerStatus,
@@ -232,12 +231,7 @@ pub(crate) fn progress_for_workspace(workspace: &Workspace) -> WorkspaceProvisio
             status: WorkspaceProvisioningStatus::Failed,
             phase: WorkspaceProvisioningPhase::Failed,
             percent: None,
-            failure: Some(
-                workspace
-                    .last_provisioning_failure
-                    .clone()
-                    .unwrap_or_else(legacy_failure),
-            ),
+            failure: workspace.last_provisioning_failure.clone(),
         },
     }
 }
@@ -414,13 +408,6 @@ mod tests {
         workspace,
     };
 
-    fn failed_workspace() -> Workspace {
-        Workspace {
-            lifecycle_state: WorkspaceLifecycleState::Failed,
-            ..workspace()
-        }
-    }
-
     fn worker_status(
         status: ProvisionerWorkerJobStatus,
         phase: ProvisionerWorkerPhase,
@@ -458,15 +445,6 @@ mod tests {
                 percent: Some(100),
                 failure: None,
             }
-        );
-
-        let failed_progress = progress_for_workspace(&failed_workspace());
-        assert_eq!(failed_progress.status, WorkspaceProvisioningStatus::Failed);
-        assert_eq!(failed_progress.phase, WorkspaceProvisioningPhase::Failed);
-        assert_eq!(failed_progress.percent, None);
-        assert_eq!(
-            failed_progress.failure.expect("legacy failure").code,
-            crate::domain::workspace::WorkspaceProvisioningFailureCode::LegacyFailure
         );
     }
 

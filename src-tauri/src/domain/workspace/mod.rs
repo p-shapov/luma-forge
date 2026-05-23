@@ -122,7 +122,6 @@ pub enum WorkspaceProvisioningFailureCode {
     ProvisionerWorkerUnexpectedError,
     ReadinessValidationFailed,
     CancellationCleanupFailed,
-    LegacyFailure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

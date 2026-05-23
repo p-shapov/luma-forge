@@ -12,15 +12,6 @@ pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvis
     workspace.last_provisioning_failure = Some(failure);
 }
 
-pub(crate) fn legacy_failure() -> WorkspaceProvisioningFailure {
-    WorkspaceProvisioningFailure {
-        code: WorkspaceProvisioningFailureCode::LegacyFailure,
-        phase: WorkspaceProvisioningPhase::Failed,
-        source: WorkspaceProvisioningFailureSource::Native,
-        recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-    }
-}
-
 pub(crate) fn provider_resource_failure(
     phase: WorkspaceProvisioningPhase,
     status: &ProviderResourceStatus,

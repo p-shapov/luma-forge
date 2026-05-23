@@ -2,11 +2,8 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from threading import Event
-from unittest.mock import patch
 
 from helpers import start_payload
-from auxiliary.cancellation import Cancelled
 from auxiliary.huggingface import PublicFileDownloader
 from app.errors import AssetAuthRequiredError, AssetDownloadError, StepTimeoutError
 from app.schemas import parse_start_request
@@ -41,7 +38,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
             target = Path(directory) / "models/checkpoints/model.safetensors"
             hub_download = FakeHubDownload()
 
-            PublicFileDownloader(hub_download).download(asset, target, cancel_event=Event(), timeout_seconds=None)
+            PublicFileDownloader(hub_download).download(asset, target, timeout_seconds=None)
 
             self.assertEqual(hub_download.calls[0]["repo_id"], "owner/model")
             self.assertEqual(hub_download.calls[0]["filename"], "model.safetensors")
@@ -62,7 +59,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 calls.append(kwargs)
                 return str(target)
 
-            PublicFileDownloader(cached_download).download(asset, target, cancel_event=Event(), timeout_seconds=None)
+            PublicFileDownloader(cached_download).download(asset, target, timeout_seconds=None)
 
             self.assertEqual(len(calls), 1)
             self.assertEqual(target.read_bytes(), b"cached")
@@ -79,7 +76,6 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 PublicFileDownloader(fail_auth).download(
                     request.workflow_preset.required_model_assets[0],
                     Path(directory) / "model.safetensors",
-                    cancel_event=Event(),
                     timeout_seconds=None,
                 )
 
@@ -93,7 +89,6 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 PublicFileDownloader(fail_download).download(
                     request.workflow_preset.required_model_assets[0],
                     Path(directory) / "model.safetensors",
-                    cancel_event=Event(),
                     timeout_seconds=None,
                 )
 
@@ -107,55 +102,11 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 PublicFileDownloader(SlowHubDownload()).download(
                     asset,
                     target,
-                    cancel_event=Event(),
                     timeout_seconds=0.1,
                 )
 
             time.sleep(0.3)
             self.assertFalse(target.exists())
-
-    def test_cancel_during_file_placement_removes_partial_file(self):
-        cancel_event = Event()
-        with tempfile.TemporaryDirectory() as directory:
-            downloaded_path = Path(directory) / "cache/model.safetensors"
-            target = Path(directory) / "models/checkpoints/model.safetensors"
-            target.parent.mkdir(parents=True)
-            original_open = Path.open
-
-            def patched_open(path, *args, **kwargs):
-                if path == downloaded_path:
-                    return CancellingSource(cancel_event)
-                return original_open(path, *args, **kwargs)
-
-            with patch.object(Path, "open", patched_open):
-                with self.assertRaises(Cancelled):
-                    PublicFileDownloader()._place_downloaded_file(
-                        downloaded_path,
-                        target,
-                        cancel_event=cancel_event,
-                    )
-
-            self.assertFalse(target.exists())
-            self.assertFalse((target.with_suffix(target.suffix + ".part")).exists())
-
-
-class CancellingSource:
-    def __init__(self, cancel_event: Event):
-        self.cancel_event = cancel_event
-        self.reads = 0
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def read(self, size):
-        self.reads += 1
-        if self.reads == 1:
-            self.cancel_event.set()
-            return b"x"
-        return b""
 
 
 if __name__ == "__main__":

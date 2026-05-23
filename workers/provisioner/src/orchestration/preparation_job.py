@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
-from threading import Event, Lock, Thread
+from threading import Lock, Thread
 from typing import TypedDict
 
 from app import __version__
 from app.config import WorkerConfig
 from app.errors import ConflictError, WorkerError, WorkerErrorPayload
-from orchestration.preparer import Cancelled, Provisioner
+from orchestration.preparer import Provisioner
 from app.schemas import StartRequest
 
 ACTIVE_STATUSES = {"running"}
@@ -49,7 +49,6 @@ class JobManager:
     def __init__(self, provisioner: Provisioner | None = None, *, config: WorkerConfig):
         self._provisioner = provisioner or Provisioner(config=config)
         self._lock = Lock()
-        self._cancel_event = Event()
         self._snapshot = JobSnapshot(
             status="idle",
             job_id=None,
@@ -73,7 +72,6 @@ class JobManager:
                     context={"active_job_id": self._snapshot.job_id},
                 )
 
-            self._cancel_event = Event()
             self._snapshot = JobSnapshot(
                 status="running",
                 job_id=request.job_id,
@@ -83,7 +81,7 @@ class JobManager:
                 updated_at=_now(),
                 provisioner_version=__version__,
             )
-            self._thread = Thread(target=self._run, args=(request, self._cancel_event), daemon=True)
+            self._thread = Thread(target=self._run, args=(request,), daemon=True)
             self._thread.start()
             _log_event(
                 "provisioner_job_started",
@@ -94,11 +92,9 @@ class JobManager:
             )
             return _copy_snapshot(self._snapshot)
 
-    def _run(self, request: StartRequest, cancel_event: Event) -> None:
+    def _run(self, request: StartRequest) -> None:
         try:
-            self._provisioner.prepare(request, self._progress, cancel_event)
-        except Cancelled:
-            self._terminal("cancelled", None)
+            self._provisioner.prepare(request, self._progress)
         except WorkerError as error:
             self._terminal("failed", error.to_dict())
         except Exception:
@@ -106,16 +102,12 @@ class JobManager:
             self._terminal(
                 "failed",
                 {
-                    "code": "unexpected_error",
-                    "reason_code": "unexpected_exception",
+                    "code": "unexpected_exception",
                     "message": message,
                 },
             )
         else:
-            if cancel_event.is_set():
-                self._terminal("cancelled", None)
-            else:
-                self._terminal("succeeded", None)
+            self._terminal("succeeded", None)
 
     def _progress(self, phase: str, progress_percent: int | None, _message: str | None) -> None:
         with self._lock:
@@ -144,7 +136,6 @@ class JobManager:
                 status=status,
                 progress_percent=self._snapshot.progress_percent,
                 error_code=error.get("code") if error else None,
-                error_reason_code=error.get("reason_code") if error else None,
             )
 
 

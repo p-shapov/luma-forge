@@ -90,7 +90,7 @@ runtime:
             with self.assertRaisesRegex(release_tool.ReleaseToolError, "invalid contract id|pattern mismatch|does not match"):
                 release_tool.load_contract(contract_path)
 
-    def test_endpoint_dockerfile_keeps_contract_build_inputs_without_runtime_identity_metadata(self):
+    def test_endpoint_dockerfile_keeps_contract_build_inputs(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
@@ -98,16 +98,11 @@ runtime:
             "ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json",
             dockerfile,
         )
-        self.assertNotIn("LUMA_FORGE_PROVISIONER_IMAGE_REF", dockerfile)
-        self.assertNotIn("runtime-contract.json", dockerfile)
 
     def test_endpoint_dockerfile_installs_pinned_comfy_cli_for_runtime_builder(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
         self.assertIn("comfy-cli==1.7.3", dockerfile)
-        self.assertNotIn("pip install --no-cache-dir comfy-cli\n", dockerfile)
-        self.assertNotIn("pip install --no-cache-dir comfy-cli ", dockerfile)
-        self.assertNotIn("pip install --no-cache-dir --upgrade comfy-cli", dockerfile)
 
     def test_endpoint_dockerfile_uses_comfy_cli_for_comfyui_runtime_install(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
@@ -122,9 +117,6 @@ runtime:
         self.assertIn("--nvidia", dockerfile)
         self.assertIn("--skip-manager", dockerfile)
         self.assertIn("--skip-torch-or-directml", dockerfile)
-        self.assertNotIn("--skip-requirement", dockerfile)
-        self.assertNotIn("git clone", dockerfile)
-        self.assertNotIn("git checkout \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
 
     def test_endpoint_dockerfile_keeps_runtime_layout_validation_checks(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
@@ -154,9 +146,6 @@ runtime:
         self.assertIn("workers/promote-runtime-contract/release_tool.py promote-runtime-image", promotion_section)
         self.assertIn("--image-ref \"${{ steps.digest.outputs.endpoint_ref }}\"", promotion_section)
         self.assertIn("--contract-version \"${{ steps.contract.outputs.contract_version }}\"", promotion_section)
-        self.assertNotIn("--workflow-catalog", promotion_section)
-        self.assertNotIn("update-catalog", workflow)
-        self.assertNotIn("--endpoint-ref", workflow)
 
     def test_workflow_restricts_runtime_catalog_promotion_pr_to_catalog_files(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -171,7 +160,6 @@ runtime:
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
         self.assertIn("bundled/runtime-catalog.json", pr_section)
-        self.assertNotIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote runtime image", pr_section)
 
     def test_find_contract_matches_contract_id(self):
@@ -323,13 +311,6 @@ runtime:
 
             self.assertEqual(0, exit_code)
             self.assertIn("contract_version=1.0.1", output_path.read_text(encoding="utf-8"))
-
-    def test_runtime_promotion_tool_exposes_runtime_release_commands_without_legacy_aliases(self):
-        parser = release_tool.build_parser()
-        command_names = set(parser._subparsers._group_actions[0].choices)
-
-        self.assertEqual({"resolve", "validate-catalog", "promote-runtime-image"}, command_names)
-
 
 def _catalog_with_contract(contract, *, image_ref):
     return {

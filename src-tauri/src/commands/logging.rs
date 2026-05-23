@@ -69,7 +69,7 @@ impl CommandLog {
 
     fn failure_message(&self, error: &NativeCommandError) -> String {
         format!(
-            "native_command_finish command={} operation_id={} outcome=error elapsed_ms={}{} code={} retryable={}{}{}{}",
+            "native_command_finish command={} operation_id={} outcome=error elapsed_ms={}{} code={} retryable={}{}{}",
             self.command_name,
             self.operation_id,
             self.elapsed_ms(),
@@ -77,7 +77,6 @@ impl CommandLog {
             error.code.as_str(),
             error.retryable,
             optional_field("field", error.field.as_deref()),
-            optional_field("reason", error.reason.as_deref()),
             optional_field("recovery_action", error.recovery_action.as_deref())
         )
     }
@@ -114,4 +113,30 @@ fn safe_log_value(value: impl AsRef<str>) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::error::{NativeCommandError, NativeCommandErrorCode};
+
+    #[test]
+    fn failure_message_omits_reason_metadata() {
+        let log = CommandLog::new("test_command");
+        let error = NativeCommandError {
+            code: NativeCommandErrorCode::ProviderRequestRejected,
+            message: "Provider request was rejected.".to_string(),
+            retryable: false,
+            field: Some("selected_gpu_id".to_string()),
+            recovery_action: Some("reselect_placement".to_string()),
+        };
+
+        let message = log.failure_message(&error);
+
+        assert!(message.contains("code=provider_request_rejected"));
+        assert!(message.contains("retryable=false"));
+        assert!(message.contains("field=selected_gpu_id"));
+        assert!(message.contains("recovery_action=reselect_placement"));
+        assert!(!message.contains("reason="));
+    }
 }

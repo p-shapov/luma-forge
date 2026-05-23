@@ -2,7 +2,6 @@
 
 ## Purpose
 Define the Provisioner Worker API and workspace preparation responsibilities.
-
 ## Requirements
 ### Requirement: Prepare workspace paths without endpoint runtime
 The Provisioner Worker SHALL prepare workspace-specific directories without requiring, validating, or starting a ComfyUI runtime and without writing endpoint runtime metadata on the mounted volume.
@@ -23,20 +22,22 @@ The Provisioner Worker SHALL prepare workspace-specific directories without requ
 - **AND** the status payload MUST NOT include secrets
 
 ### Requirement: Report provisioning status
-
 The Provisioner Worker SHALL report UI-safe provisioning job status through `GET /status`.
 
-#### Scenario: Worker is idle
-- **WHEN** no provisioning job has been started
-- **THEN** `GET /status` SHALL return status `idle`
-- **AND** the response SHALL include no active job identifier
-- **AND** the response MAY report no active phase
-- **AND** the response MUST NOT include secrets, request bodies, raw command output, stack traces, or environment dumps
+#### Scenario: No job has started
+- **WHEN** no job has started since worker startup
+- **THEN** `GET /status` SHALL return `idle`
+- **AND** the response MAY include no active job id
+- **AND** the response MAY include no active phase
+- **AND** the response SHALL NOT include an error
 
 #### Scenario: Job is running
-- **WHEN** a provisioning job is active
-- **THEN** `GET /status` SHALL return the active job identifier, status `running`, current phase, updated timestamp, and optional progress percentage
-- **AND** the current phase SHALL use a stable worker phase value for the active preparation step
+- **WHEN** an accepted job is actively preparing the workspace
+- **THEN** `GET /status` SHALL return `running`
+- **AND** the response SHALL include the active job id
+- **AND** the response SHALL include a UI-safe phase value
+- **AND** the response MAY include bounded progress percent
+- **AND** the response SHALL NOT include raw command output, raw provider responses, bearer tokens, Provider API Keys, Hugging Face keys, or credential-bearing URLs
 - **AND** the response MAY include structured error metadata
 
 #### Scenario: Job succeeds
@@ -49,7 +50,9 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **WHEN** a provisioning step cannot complete safely
 - **THEN** the Provisioner Worker SHALL mark the active job `failed`
 - **AND** `GET /status` SHALL report terminal failure with UI-safe error metadata
-- **AND** the terminal error metadata SHALL use the standard worker error payload shape with `code`, `reason_code`, and `message`
+- **AND** the terminal error metadata SHALL use the standard worker error payload shape with `code` and `message`
+- **AND** the terminal error `code` SHALL be the stable specific worker error classifier
+- **AND** the terminal error metadata MUST NOT include `reason_code`
 - **AND** the response MAY include structured error metadata
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
@@ -78,3 +81,4 @@ The Provisioner Worker SHALL treat `LUMA_FORGE_WORKSPACE_MOUNT_PATH` as the work
 - **WHEN** the Provisioner Worker container starts with `LUMA_FORGE_WORKSPACE_MOUNT_PATH` set to an empty, relative, or unsafe path
 - **THEN** the Provisioner Worker SHALL reject the configuration
 - **AND** it MUST NOT prepare files under a fallback path for that invalid configuration
+

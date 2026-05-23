@@ -100,7 +100,7 @@ mod tests {
     fn runtime_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
             contracts: vec![RuntimeContract {
-                id: "comfyui-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
@@ -126,13 +126,13 @@ mod tests {
 
     fn workflow_preset() -> WorkflowPreset {
         WorkflowPreset {
-            id: "comfyui-t2i-basic".to_string(),
+            id: "comfyui-hidream-o1-dev".to_string(),
             version: "1.0.0".to_string(),
             name: "ComfyUI Text to Image".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: REQUIRED_VOLUME_SIZE,
             runtime_contract: RuntimeContractReference {
-                id: "comfyui-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
             provisioner_contract: ProvisionerContractReference {
@@ -309,7 +309,7 @@ mod tests {
             RUNPOD_ENDPOINT_KEEP_ALIVE_DEFAULT_SECONDS,
             WorkflowPreset {
                 runtime_contract: RuntimeContractReference {
-                    id: "comfyui-python312-cu121".to_string(),
+                    id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                     version: "2.0.0".to_string(),
                 },
                 ..workflow_preset()

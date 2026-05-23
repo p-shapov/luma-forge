@@ -28,19 +28,16 @@ _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
 class ConfigurationError(Exception):
-    code = "configuration_error"
-
-    def __init__(self, env_name: str, reason_code: str, reason: str):
+    def __init__(self, env_name: str, code: str, reason: str):
         super().__init__(f"Invalid Provisioner Worker configuration for {env_name}: {reason}.")
         self.env_name = env_name
-        self.reason_code = reason_code
+        self.code = code
         self.reason = reason
 
     def to_dict(self) -> dict[str, str]:
         return {
             "code": self.code,
             "env_name": self.env_name,
-            "reason_code": self.reason_code,
             "message": str(self),
         }
 

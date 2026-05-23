@@ -413,7 +413,7 @@ mod tests {
             runtime
                 .try_get::<String, _>("contract_id")
                 .expect("contract id"),
-            "comfyui-python312-cu121"
+            "comfyui-hidream-o1-dev-python312-cu121"
         );
         assert_eq!(
             runtime

@@ -82,7 +82,6 @@ export function presentNativeCommandError(
     details: [
       { label: "Code", value: error.code },
       error.field === null ? null : { label: "Field", value: error.field },
-      error.reason === null ? null : { label: "Reason", value: error.reason },
     ].filter((detail): detail is { label: string; value: string } => detail !== null),
   };
 }

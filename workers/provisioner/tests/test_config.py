@@ -62,8 +62,7 @@ class ConfigTests(unittest.TestCase):
             WorkerConfig.from_env({})
 
         self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
-        self.assertEqual(context.exception.code, "configuration_error")
-        self.assertEqual(context.exception.reason_code, "missing_required_value")
+        self.assertEqual(context.exception.code, "missing_required_value")
         self.assertNotIn(VALID_TOKEN, str(context.exception))
 
     def test_rejects_malformed_bearer_tokens_without_leaking_value(self):
@@ -82,7 +81,6 @@ class ConfigTests(unittest.TestCase):
                     WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_BEARER_TOKEN=value))
 
                 self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
-                self.assertEqual(context.exception.code, "configuration_error")
                 if value:
                     self.assertNotIn(value, str(context.exception))
 
@@ -106,7 +104,6 @@ class ConfigTests(unittest.TestCase):
                         WorkerConfig.from_env(valid_env(**{name: value}))
 
                     self.assertEqual(context.exception.env_name, name)
-                    self.assertEqual(context.exception.code, "configuration_error")
 
     def test_rejects_invalid_bind_host(self):
         for value in ["", "-bad-host", "bad_host", ".bad", "bad..host"]:
@@ -115,7 +112,6 @@ class ConfigTests(unittest.TestCase):
                     WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_HOST=value))
 
                 self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_HOST")
-                self.assertEqual(context.exception.code, "configuration_error")
 
     def test_rejects_invalid_workspace_mount_path(self):
         for value in ["", "workspace", "/workspace/../other", "/workspace/./other"]:
@@ -124,7 +120,6 @@ class ConfigTests(unittest.TestCase):
                     WorkerConfig.from_env(valid_env(LUMA_FORGE_WORKSPACE_MOUNT_PATH=value))
 
                 self.assertEqual(context.exception.env_name, "LUMA_FORGE_WORKSPACE_MOUNT_PATH")
-                self.assertEqual(context.exception.code, "configuration_error")
 
     def test_configuration_error_payload_is_machine_readable_without_secret(self):
         error = ConfigurationError(
@@ -135,9 +130,8 @@ class ConfigTests(unittest.TestCase):
 
         payload = error.to_dict()
 
-        self.assertEqual(payload["code"], "configuration_error")
+        self.assertEqual(payload["code"], "value_too_short")
         self.assertEqual(payload["env_name"], "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
-        self.assertEqual(payload["reason_code"], "value_too_short")
         self.assertNotIn(VALID_TOKEN, json.dumps(payload))
 
     def test_main_prints_config_error_payload_and_exits_before_serving(self):
@@ -155,9 +149,8 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, 78)
         payload = json.loads(stderr.getvalue())
-        self.assertEqual(payload["code"], "configuration_error")
+        self.assertEqual(payload["code"], "invalid_integer")
         self.assertEqual(payload["env_name"], "LUMA_FORGE_PROVISIONER_PORT")
-        self.assertEqual(payload["reason_code"], "invalid_integer")
 
     def test_create_server_uses_validated_config(self):
         config = WorkerConfig.from_env(

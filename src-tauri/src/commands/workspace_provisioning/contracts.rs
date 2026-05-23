@@ -67,7 +67,6 @@ mod remote_types {
         ProvisionerWorkerUnexpectedError,
         ReadinessValidationFailed,
         CancellationCleanupFailed,
-        LegacyFailure,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

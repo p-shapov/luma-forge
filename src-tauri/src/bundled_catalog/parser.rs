@@ -48,7 +48,7 @@ mod tests {
             r#"{{
                 "contracts": [
                     {{
-                        "id": "comfyui-python312-cu121",
+                        "id": "comfyui-hidream-o1-dev-python312-cu121",
                         "revisions": [
                             {{
                                 "version": "1.0.0",
@@ -94,13 +94,13 @@ mod tests {
         r#"{
             "workflow_presets": [
                 {
-                    "id": "comfyui-t2i-basic",
+                    "id": "comfyui-hidream-o1-dev",
                     "version": "1.0.0",
                     "name": "ComfyUI Text to Image Basic",
                     "workflow_execution_type": "t2i",
                     "required_base_volume_size_bytes": 85899345920,
                     "runtime_contract": {
-                        "id": "comfyui-python312-cu121",
+                        "id": "comfyui-hidream-o1-dev-python312-cu121",
                         "version": "1.0.0"
                     },
                     "provisioner_contract": {
@@ -109,15 +109,15 @@ mod tests {
                     },
                     "required_model_assets": [
                         {
-                            "id": "sdxl-base-1-0",
-                            "name": "SDXL Base 1.0",
+                            "id": "hidream-o1-dev-checkpoint",
+                            "name": "HiDream O1 Dev",
                             "download_source": {
                                 "source_type": "huggingface",
-                                "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
-                                "file_path": "sd_xl_base_1.0.safetensors",
+                                "repository_id": "Comfy-Org/HiDream-O1-Image",
+                                "file_path": "hidream_o1_image_dev_fp8_scaled.safetensors",
                                 "revision": "462165984030d82259a11f4367a4eed129e94a7b"
                             },
-                            "install_comfyui_relative_path": "models/checkpoints/sd_xl_base_1.0.safetensors"
+                            "install_comfyui_relative_path": "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"
                         }
                     ]
                 }
@@ -133,7 +133,7 @@ mod tests {
         let [contract] = catalog.contracts.as_slice() else {
             panic!("expected one runtime contract");
         };
-        assert_eq!(contract.id, "comfyui-python312-cu121");
+        assert_eq!(contract.id, "comfyui-hidream-o1-dev-python312-cu121");
 
         let [revision] = contract.revisions.as_slice() else {
             panic!("expected one runtime revision");
@@ -210,7 +210,7 @@ mod tests {
         let [preset] = catalog.workflow_presets.as_slice() else {
             panic!("expected one workflow preset");
         };
-        assert_eq!(preset.id, "comfyui-t2i-basic");
+        assert_eq!(preset.id, "comfyui-hidream-o1-dev");
         assert_eq!(preset.required_model_assets.len(), 1);
     }
 
@@ -241,7 +241,7 @@ mod tests {
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
                             "runtime_contract": {
-                                "id": "comfyui-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -258,13 +258,13 @@ mod tests {
                 r#"{
                     "workflow_presets": [
                         {
-                            "id": "comfyui-t2i-basic",
+                            "id": "comfyui-hidream-o1-dev",
                             "version": "1.0.0",
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 0,
                             "runtime_contract": {
-                                "id": "comfyui-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -281,7 +281,7 @@ mod tests {
                 r#"{
                     "workflow_presets": [
                         {
-                            "id": "comfyui-t2i-basic",
+                            "id": "comfyui-hidream-o1-dev",
                             "version": "1.0.0",
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
@@ -304,13 +304,13 @@ mod tests {
                 r#"{
                     "workflow_presets": [
                         {
-                            "id": "comfyui-t2i-basic",
+                            "id": "comfyui-hidream-o1-dev",
                             "version": "1.0.0",
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
                             "runtime_contract": {
-                                "id": "comfyui-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -327,13 +327,13 @@ mod tests {
                 r#"{
                     "workflow_presets": [
                         {
-                            "id": "comfyui-t2i-basic",
+                            "id": "comfyui-hidream-o1-dev",
                             "version": "1.0.0",
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
                             "runtime_contract": {
-                                "id": "comfyui-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -342,15 +342,15 @@ mod tests {
                             },
                             "required_model_assets": [
                                 {
-                                    "id": "sdxl-base-1-0",
-                                    "name": "SDXL Base 1.0",
+                                    "id": "hidream-o1-dev-checkpoint",
+                                    "name": "HiDream O1 Dev",
                                     "download_source": {
                                         "source_type": "huggingface",
-                                        "repository_id": "stabilityai/stable-diffusion-xl-base-1.0",
-                                        "file_path": "sd_xl_base_1.0.safetensors",
+                                        "repository_id": "Comfy-Org/HiDream-O1-Image",
+                                        "file_path": "hidream_o1_image_dev_fp8_scaled.safetensors",
                                         "revision": "462165984030d82259a11f4367a4eed129e94a7b"
                                     },
-                                    "install_comfyui_relative_path": "../models/checkpoints/sd_xl_base_1.0.safetensors"
+                                    "install_comfyui_relative_path": "../models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"
                                 }
                             ]
                         }

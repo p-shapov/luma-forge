@@ -7,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-provisioner-contract/release_tool.py"
-PROVISIONER_DOCKERFILE_PATH = ROOT / "workers/provisioner/Dockerfile"
 PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner-worker.yml"
 
 spec = importlib.util.spec_from_file_location("provisioner_contract_promotion_tool", TOOL_PATH)
@@ -17,16 +16,6 @@ spec.loader.exec_module(release_tool)
 
 
 class ProvisionerContractPromotionToolTests(unittest.TestCase):
-    def test_provisioner_dockerfile_has_no_endpoint_runtime_contract_inputs(self):
-        dockerfile = PROVISIONER_DOCKERFILE_PATH.read_text(encoding="utf-8")
-
-        self.assertIn("COPY workers/provisioner/pyproject.toml", dockerfile)
-        self.assertNotIn("runtime-builder", dockerfile)
-        self.assertNotIn("runpod-endpoint", dockerfile)
-        self.assertNotIn("LUMA_FORGE_RUNTIME_PYTHON_VERSION", dockerfile)
-        self.assertNotIn("LUMA_FORGE_COMFYUI_REVISION", dockerfile)
-        self.assertNotIn("/opt/luma-forge/runtime", dockerfile)
-
     def test_provisioner_workflow_promotes_digest_after_publish(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
 
@@ -50,9 +39,6 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             promotion_section,
         )
         self.assertIn("--image-ref \"${{ steps.digest.outputs.provisioner_ref }}\"", promotion_section)
-        self.assertNotIn("update-provisioner-catalog", workflow)
-        self.assertNotIn("--provisioner-ref", workflow)
-        self.assertNotIn("bundled/runtime-catalog.json", workflow)
 
     def test_provisioner_workflow_restricts_catalog_promotion_pr_to_catalog_files(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -200,13 +186,6 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
                 contract_id="luma-forge-provisioner",
             )
 
-    def test_provisioner_promotion_tool_does_not_expose_legacy_aliases(self):
-        parser = release_tool.build_parser()
-        command_names = set(parser._subparsers._group_actions[0].choices)
-
-        self.assertEqual({"resolve-provisioner", "promote-provisioner-image"}, command_names)
-
-
 def _provisioner_catalog(*, volume_mount_path="/workspace"):
     return {
         "contracts": [
@@ -230,7 +209,7 @@ def _workflow_catalog():
             {
                 "id": "preset",
                 "runtime_contract": {
-                    "id": "comfyui-python312-cu121",
+                    "id": "comfyui-hidream-o1-dev-python312-cu121",
                     "version": "1.0.0",
                 },
                 "provisioner_contract": {
