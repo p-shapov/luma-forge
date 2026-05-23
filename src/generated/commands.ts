@@ -100,7 +100,6 @@ export type NativeCommandError = {
 	message: string,
 	retryable: boolean,
 	field: string | null,
-	reason: string | null,
 	recovery_action: string | null,
 };
 
@@ -230,7 +229,7 @@ export type WorkspaceProvisioningFailure = {
 	recovery_action: WorkspaceProvisioningRecoveryAction,
 };
 
-export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_setup_incomplete" | "provider_api_key_unauthorized" | "provider_api_unavailable" | "provider_rate_limited" | "provider_request_rejected" | "provider_response_invalid" | "provider_operation_conflict" | "provider_operation_indeterminate" | "secure_keyring_unavailable" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "readiness_validation_failed" | "cancellation_cleanup_failed" | "legacy_failure";
+export type WorkspaceProvisioningFailureCode = "provider_resource_failed" | "provider_resource_terminated" | "provider_resource_unknown" | "provider_resource_missing" | "provider_orphaned_resources" | "provider_setup_incomplete" | "provider_api_key_unauthorized" | "provider_api_unavailable" | "provider_rate_limited" | "provider_request_rejected" | "provider_response_invalid" | "provider_operation_conflict" | "provider_operation_indeterminate" | "secure_keyring_unavailable" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "readiness_validation_failed" | "cancellation_cleanup_failed";
 
 export type WorkspaceProvisioningFailureSource = "native" | "provider" | "provider_resource" | "provisioner_worker";
 

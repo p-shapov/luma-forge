@@ -1,9 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from threading import Event
 
-from auxiliary.cancellation import Cancelled
 from app.errors import PreparationError, ValidationError
 from app.schemas import parse_start_request
 from helpers import start_payload, test_config
@@ -14,21 +12,14 @@ class FakeDownloader:
     def __init__(self):
         self.calls = []
 
-    def download(self, asset, target, *, cancel_event=None, timeout_seconds=None):
+    def download(self, asset, target, *, timeout_seconds=None):
         self.calls.append((asset, target, timeout_seconds))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"model")
 
 
-class CancelAwareFakeDownloader(FakeDownloader):
-    def download(self, asset, target, *, cancel_event=None, timeout_seconds=None):
-        if cancel_event is not None and cancel_event.is_set():
-            raise Cancelled()
-        super().download(asset, target, cancel_event=cancel_event, timeout_seconds=timeout_seconds)
-
-
 class MissingFileDownloader:
-    def download(self, asset, target, *, cancel_event=None, timeout_seconds=None):
+    def download(self, asset, target, *, timeout_seconds=None):
         target.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -45,7 +36,6 @@ class PreparerTests(unittest.TestCase):
             ).prepare(
                 request,
                 lambda phase, progress, message: phases.append(phase),
-                Event(),
             )
 
             workspace = Path(directory)
@@ -79,7 +69,6 @@ class PreparerTests(unittest.TestCase):
             ).prepare(
                 request,
                 lambda phase, progress, message: events.append((phase, progress, message)),
-                Event(),
             )
 
             download_events = [
@@ -143,40 +132,7 @@ class PreparerTests(unittest.TestCase):
                 Provisioner(
                     downloader=MissingFileDownloader(),
                     config=test_config(workspace_mount_path=Path(directory)),
-                ).prepare(request, lambda phase, progress, message: None, Event())
-
-    def test_cancel_before_prepare_stops_without_creating_workspace(self):
-        with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload())
-            cancel = Event()
-            cancel.set()
-
-            with self.assertRaises(Cancelled):
-                Provisioner(
-                    config=test_config(workspace_mount_path=Path(directory)),
-                ).prepare(request, lambda phase, progress, message: None, cancel)
-
-            self.assertEqual(list(Path(directory).iterdir()), [])
-
-    def test_cancel_during_download_stops_before_validation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            request = parse_start_request(start_payload())
-            cancel = Event()
-            phases = []
-
-            class CancellingDownloader(CancelAwareFakeDownloader):
-                def download(self, asset, target, *, cancel_event=None, timeout_seconds=None):
-                    cancel.set()
-                    super().download(asset, target, cancel_event=cancel_event, timeout_seconds=timeout_seconds)
-
-            with self.assertRaises(Cancelled):
-                Provisioner(
-                    downloader=CancellingDownloader(),
-                    config=test_config(workspace_mount_path=Path(directory)),
-                ).prepare(request, lambda phase, progress, message: phases.append(phase), cancel)
-
-            self.assertIn("downloading_assets", phases)
-            self.assertFalse((Path(directory) / ".luma-forge/runtime-manifest.json").exists())
+                ).prepare(request, lambda phase, progress, message: None)
 
 
 def model_asset(*, id: str = "model", install_path: str = "models/checkpoints/model.safetensors") -> dict:

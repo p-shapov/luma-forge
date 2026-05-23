@@ -70,9 +70,8 @@ The worker validates runtime environment before binding the HTTP server. Invalid
 
 ```json
 {
-  "code": "configuration_error",
+  "code": "invalid_integer",
   "env_name": "LUMA_FORGE_PROVISIONER_PORT",
-  "reason_code": "invalid_integer",
   "message": "Invalid Provisioner Worker configuration for LUMA_FORGE_PROVISIONER_PORT: value must be an integer."
 }
 ```
@@ -180,7 +179,6 @@ Failure responses include UI-safe error metadata:
   "progress_percent": 56,
   "error": {
     "code": "asset_download_failed",
-    "reason_code": "asset_download_failed",
     "message": "Hugging Face asset download failed"
   },
   "updated_at": "2026-05-09T00:00:00Z",
@@ -190,14 +188,13 @@ Failure responses include UI-safe error metadata:
 
 ## Error Responses
 
-Worker API errors use `code` for broad classification and `reason_code` for specific handling. Safe structured metadata appears under `context` when available. Error payloads must not include bearer tokens, provider API keys, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs.
+Worker API errors use `code` as the stable specific classifier. Safe structured metadata appears under `context` when available. Error payloads must not include `reason_code`, bearer tokens, provider API keys, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs.
 
 Invalid requests return `400`:
 
 ```json
 {
   "code": "invalid_request",
-  "reason_code": "invalid_request",
   "message": "job_id must be a non-empty string"
 }
 ```
@@ -206,8 +203,7 @@ Calling `POST /start` while a job is active returns `409`:
 
 ```json
 {
-  "code": "job_already_running",
-  "reason_code": "active_job_exists",
+  "code": "active_job_exists",
   "message": "Provisioner worker already has an active job.",
   "context": {
     "active_job_id": "workspace-id"
@@ -219,8 +215,7 @@ Unknown endpoints return `404`:
 
 ```json
 {
-  "code": "not_found",
-  "reason_code": "endpoint_not_found",
+  "code": "endpoint_not_found",
   "message": "Endpoint not found"
 }
 ```
@@ -229,8 +224,7 @@ Unauthorized requests return `401`:
 
 ```json
 {
-  "code": "unauthorized",
-  "reason_code": "invalid_authorization",
+  "code": "invalid_authorization",
   "message": "Unauthorized."
 }
 ```
@@ -239,8 +233,7 @@ Oversized requests return `413`:
 
 ```json
 {
-  "code": "request_too_large",
-  "reason_code": "request_body_too_large",
+  "code": "request_body_too_large",
   "message": "Request body is too large.",
   "context": {
     "max_request_bytes": 1048576

@@ -772,20 +772,6 @@ mod tests {
                 },
             })
         );
-        let serialized = request_json.to_string();
-        for field in [
-            "workflow_execution_type",
-            "required_base_volume_size_bytes",
-            "runtime_contract",
-            "provisioner_contract",
-            "resolved_runtime_image",
-            "resolved_provisioner_image",
-        ] {
-            assert!(
-                !serialized.contains(field),
-                "start request should not include {field}"
-            );
-        }
     }
 
     #[tokio::test]

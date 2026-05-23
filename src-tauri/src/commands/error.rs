@@ -108,7 +108,6 @@ pub struct NativeCommandError {
     pub message: String,
     pub retryable: bool,
     pub field: Option<String>,
-    pub reason: Option<String>,
     pub recovery_action: Option<String>,
 }
 
@@ -119,7 +118,6 @@ impl From<ProviderSetupError> for NativeCommandError {
             message: provider_setup_error_message(&error).to_string(),
             retryable: provider_setup_error_retryable(&error),
             field: provider_setup_error_field(&error).map(str::to_string),
-            reason: provider_setup_error_reason(&error).map(str::to_string),
             recovery_action: provider_setup_error_recovery_action(&error).map(str::to_string),
         }
     }
@@ -132,7 +130,6 @@ impl From<WorkspaceSetupError> for NativeCommandError {
             message: error_message(&error).to_string(),
             retryable: error_retryable(&error),
             field: error_field(&error).map(str::to_string),
-            reason: error_reason(&error).map(str::to_string),
             recovery_action: error_recovery_action(&error).map(str::to_string),
         }
     }
@@ -145,7 +142,6 @@ impl From<WorkspaceProvisioningError> for NativeCommandError {
             message: provisioning_error_message(&error).to_string(),
             retryable: provisioning_error_retryable(&error),
             field: provisioning_error_field(&error).map(str::to_string),
-            reason: provisioning_error_reason(&error).map(str::to_string),
             recovery_action: provisioning_error_recovery_action(&error).map(str::to_string),
         }
     }
@@ -213,22 +209,6 @@ fn provider_setup_error_field(error: &ProviderSetupError) -> Option<&'static str
         ProviderSetupError::ProviderApiKeyRequired
         | ProviderSetupError::ProviderApiKeyUnauthorized => Some("provider_api_key"),
         _ => None,
-    }
-}
-
-fn provider_setup_error_reason(error: &ProviderSetupError) -> Option<&'static str> {
-    match error {
-        ProviderSetupError::ProviderSetupNotFound => Some("setup_not_found"),
-        ProviderSetupError::ProviderSetupAlreadyExists => Some("setup_already_exists"),
-        ProviderSetupError::ProviderApiKeyRequired => Some("missing_required_value"),
-        ProviderSetupError::ProviderApiKeyUnauthorized => Some("provider_rejected_key"),
-        ProviderSetupError::StoredProviderApiKeyInvalid => Some("stored_secret_invalid"),
-        ProviderSetupError::ProviderApiUnavailable => Some("provider_unavailable"),
-        ProviderSetupError::ProviderIdentityResponseInvalid => {
-            Some("provider_identity_response_invalid")
-        }
-        ProviderSetupError::SecureKeyringUnavailable => Some("secure_keyring_unavailable"),
-        ProviderSetupError::ProviderSetupRecoveryRequired => Some("local_recovery_required"),
     }
 }
 
@@ -387,43 +367,6 @@ fn error_field(error: &WorkspaceSetupError) -> Option<&'static str> {
         }
         WorkspaceSetupError::EndpointKeepAliveOutOfRange => Some("endpoint_keep_alive_seconds"),
         _ => None,
-    }
-}
-
-fn error_reason(error: &WorkspaceSetupError) -> Option<&'static str> {
-    match error {
-        WorkspaceSetupError::ProviderSetupIncomplete => Some("setup_incomplete"),
-        WorkspaceSetupError::ProviderApiKeyUnauthorized => Some("provider_rejected_key"),
-        WorkspaceSetupError::StoredProviderApiKeyInvalid => Some("stored_secret_invalid"),
-        WorkspaceSetupError::ProviderApiUnavailable => Some("provider_unavailable"),
-        WorkspaceSetupError::ProviderRateLimited => Some("provider_rate_limited"),
-        WorkspaceSetupError::ProviderRequestRejected => Some("provider_request_rejected"),
-        WorkspaceSetupError::ProviderResponseInvalid => Some("provider_response_invalid"),
-        WorkspaceSetupError::ProviderInventoryInvalid => Some("provider_inventory_invalid"),
-        WorkspaceSetupError::SecureKeyringUnavailable => Some("secure_keyring_unavailable"),
-        WorkspaceSetupError::WorkflowCatalogUnavailable => Some("workflow_catalog_unavailable"),
-        WorkspaceSetupError::WorkspaceCatalogUnavailable => Some("workspace_catalog_unavailable"),
-        WorkspaceSetupError::WorkspaceCatalogStorageUnavailable => {
-            Some("workspace_catalog_storage_unavailable")
-        }
-        WorkspaceSetupError::WorkspaceCatalogMigrationFailed => {
-            Some("workspace_catalog_migration_failed")
-        }
-        WorkspaceSetupError::WorkspaceCatalogQueryFailed => Some("workspace_catalog_query_failed"),
-        WorkspaceSetupError::WorkspaceCatalogCorrupt => Some("workspace_catalog_corrupt"),
-        WorkspaceSetupError::WorkspaceCatalogSchemaMismatch => {
-            Some("workspace_catalog_schema_mismatch")
-        }
-        WorkspaceSetupError::PlacementProviderMismatch => Some("placement_provider_mismatch"),
-        WorkspaceSetupError::PlacementDatacenterRequired => Some("missing_required_value"),
-        WorkspaceSetupError::PlacementGpuRequired => Some("missing_required_value"),
-        WorkspaceSetupError::WorkflowPresetStale => Some("stale_catalog_object"),
-        WorkspaceSetupError::StorageSizeBelowPresetMinimum => Some("below_minimum"),
-        WorkspaceSetupError::EndpointKeepAliveOutOfRange => Some("outside_allowed_range"),
-        WorkspaceSetupError::WorkspaceAlreadyExists => Some("workspace_already_exists"),
-        WorkspaceSetupError::InvalidWorkspaceId => Some("invalid_uuid"),
-        WorkspaceSetupError::WorkspaceNameRequired => Some("missing_required_value"),
-        WorkspaceSetupError::InvalidWorkspaceMetadata => Some("invalid_workspace_metadata"),
     }
 }
 
@@ -617,53 +560,6 @@ fn provisioning_error_field(error: &WorkspaceProvisioningError) -> Option<&'stat
     }
 }
 
-fn provisioning_error_reason(error: &WorkspaceProvisioningError) -> Option<&'static str> {
-    match error {
-        WorkspaceProvisioningError::WorkspaceNotFound => Some("workspace_not_found"),
-        WorkspaceProvisioningError::InvalidWorkspaceLifecycle => {
-            Some("invalid_workspace_lifecycle")
-        }
-        WorkspaceProvisioningError::WorkspaceCatalogUnavailable => {
-            Some("workspace_catalog_unavailable")
-        }
-        WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable => {
-            Some("workspace_catalog_storage_unavailable")
-        }
-        WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed => {
-            Some("workspace_catalog_migration_failed")
-        }
-        WorkspaceProvisioningError::WorkspaceCatalogQueryFailed => {
-            Some("workspace_catalog_query_failed")
-        }
-        WorkspaceProvisioningError::WorkspaceCatalogCorrupt => Some("workspace_catalog_corrupt"),
-        WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch => {
-            Some("workspace_catalog_schema_mismatch")
-        }
-        WorkspaceProvisioningError::ProviderSetupIncomplete => Some("setup_incomplete"),
-        WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("provider_rejected_key"),
-        WorkspaceProvisioningError::ProviderApiUnavailable => Some("provider_unavailable"),
-        WorkspaceProvisioningError::ProviderRateLimited => Some("provider_rate_limited"),
-        WorkspaceProvisioningError::ProviderRequestRejected => Some("provider_request_rejected"),
-        WorkspaceProvisioningError::ProviderResponseInvalid => Some("provider_response_invalid"),
-        WorkspaceProvisioningError::ProviderResourceNotFound => Some("provider_resource_not_found"),
-        WorkspaceProvisioningError::ProviderOperationConflict => {
-            Some("provider_operation_conflict")
-        }
-        WorkspaceProvisioningError::ProviderOperationIndeterminate => {
-            Some("provider_operation_indeterminate")
-        }
-        WorkspaceProvisioningError::SecureKeyringUnavailable => Some("secure_keyring_unavailable"),
-        WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid => Some("stored_secret_invalid"),
-        WorkspaceProvisioningError::ProvisionerWorkerUnauthorized => Some("worker_unauthorized"),
-        WorkspaceProvisioningError::ProvisionerWorkerUnavailable => Some("worker_unavailable"),
-        WorkspaceProvisioningError::ProvisionerWorkerConflict => Some("worker_conflict"),
-        WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid => {
-            Some("worker_response_invalid")
-        }
-        WorkspaceProvisioningError::ProvisionerWorkerFailed => Some("worker_failed"),
-    }
-}
-
 fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Option<&'static str> {
     match error {
         WorkspaceProvisioningError::WorkspaceNotFound => Some("refresh_workspace_catalog"),
@@ -703,47 +599,41 @@ mod tests {
 
     #[test]
     fn provisioning_catalog_errors_map_to_granular_command_errors() {
-        for (error, code, retryable, reason, recovery_action) in [
+        for (error, code, retryable, recovery_action) in [
             (
                 WorkspaceProvisioningError::WorkspaceCatalogUnavailable,
                 NativeCommandErrorCode::WorkspaceCatalogUnavailable,
                 true,
-                "workspace_catalog_unavailable",
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable,
                 NativeCommandErrorCode::WorkspaceCatalogStorageUnavailable,
                 true,
-                "workspace_catalog_storage_unavailable",
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed,
                 NativeCommandErrorCode::WorkspaceCatalogMigrationFailed,
                 true,
-                "workspace_catalog_migration_failed",
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::WorkspaceCatalogQueryFailed,
                 NativeCommandErrorCode::WorkspaceCatalogQueryFailed,
                 true,
-                "workspace_catalog_query_failed",
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::WorkspaceCatalogCorrupt,
                 NativeCommandErrorCode::WorkspaceCatalogCorrupt,
                 false,
-                "workspace_catalog_corrupt",
                 "recover_workspace_catalog",
             ),
             (
                 WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch,
                 NativeCommandErrorCode::WorkspaceCatalogSchemaMismatch,
                 false,
-                "workspace_catalog_schema_mismatch",
                 "recover_workspace_catalog",
             ),
         ] {
@@ -751,7 +641,7 @@ mod tests {
 
             assert_eq!(command_error.code, code);
             assert_eq!(command_error.retryable, retryable);
-            assert_eq!(command_error.reason.as_deref(), Some(reason));
+            assert!(command_error.field.is_none());
             assert_eq!(
                 command_error.recovery_action.as_deref(),
                 Some(recovery_action)
@@ -761,90 +651,80 @@ mod tests {
 
     #[test]
     fn provisioning_command_errors_map_stable_recovery_metadata() {
-        for (error, code, retryable, reason, recovery_action) in [
+        for (error, code, retryable, field, recovery_action) in [
             (
                 WorkspaceProvisioningError::SecureKeyringUnavailable,
                 NativeCommandErrorCode::SecureKeyringUnavailable,
                 true,
-                "secure_keyring_unavailable",
+                None,
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::ProviderApiUnavailable,
                 NativeCommandErrorCode::ProviderApiUnavailable,
                 true,
-                "provider_unavailable",
+                None,
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::ProviderRateLimited,
                 NativeCommandErrorCode::ProviderRateLimited,
                 true,
-                "provider_rate_limited",
+                None,
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::ProviderOperationConflict,
                 NativeCommandErrorCode::ProviderOperationConflict,
                 true,
-                "provider_operation_conflict",
+                None,
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::ProvisionerWorkerUnavailable,
                 NativeCommandErrorCode::ProvisionerWorkerUnavailable,
                 true,
-                "worker_unavailable",
+                None,
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::ProvisionerWorkerConflict,
                 NativeCommandErrorCode::ProvisionerWorkerConflict,
                 true,
-                "worker_conflict",
+                None,
                 "retry",
             ),
             (
                 WorkspaceProvisioningError::ProviderRequestRejected,
                 NativeCommandErrorCode::ProviderRequestRejected,
                 false,
-                "provider_request_rejected",
+                None,
                 "reselect_placement",
             ),
             (
                 WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid,
                 NativeCommandErrorCode::ProvisionerWorkerTokenInvalid,
                 false,
-                "stored_secret_invalid",
+                None,
                 "inspect_workspace_provisioning",
+            ),
+            (
+                WorkspaceProvisioningError::ProviderApiKeyUnauthorized,
+                NativeCommandErrorCode::ProviderApiKeyUnauthorized,
+                false,
+                Some("provider_api_key"),
+                "recover_provider_setup",
             ),
         ] {
             let command_error = NativeCommandError::from(error);
 
             assert_eq!(command_error.code, code);
             assert_eq!(command_error.retryable, retryable);
-            assert_eq!(command_error.reason.as_deref(), Some(reason));
+            assert_eq!(command_error.field.as_deref(), field);
             assert_eq!(
                 command_error.recovery_action.as_deref(),
                 Some(recovery_action)
             );
         }
-    }
-
-    #[test]
-    fn provisioning_worker_failed_uses_defensive_generic_command_fallback() {
-        let command_error =
-            NativeCommandError::from(WorkspaceProvisioningError::ProvisionerWorkerFailed);
-
-        assert_eq!(
-            command_error.code,
-            NativeCommandErrorCode::ProvisionerWorkerFailed
-        );
-        assert!(!command_error.retryable);
-        assert_eq!(command_error.reason.as_deref(), Some("worker_failed"));
-        assert_eq!(
-            command_error.recovery_action.as_deref(),
-            Some("inspect_workspace_provisioning")
-        );
     }
 }

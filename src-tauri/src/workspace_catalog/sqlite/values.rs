@@ -104,7 +104,6 @@ pub(super) fn provisioning_failure_code_value(
         WorkspaceProvisioningFailureCode::CancellationCleanupFailed => {
             "cancellation_cleanup_failed"
         }
-        WorkspaceProvisioningFailureCode::LegacyFailure => "legacy_failure",
     }
 }
 
@@ -266,7 +265,6 @@ pub(super) fn parse_provisioning_failure_code(
         "cancellation_cleanup_failed" => {
             Ok(WorkspaceProvisioningFailureCode::CancellationCleanupFailed)
         }
-        "legacy_failure" => Ok(WorkspaceProvisioningFailureCode::LegacyFailure),
         _ => Err(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch),
     }
 }
@@ -486,10 +484,6 @@ mod tests {
             (
                 WorkspaceProvisioningFailureCode::CancellationCleanupFailed,
                 "cancellation_cleanup_failed",
-            ),
-            (
-                WorkspaceProvisioningFailureCode::LegacyFailure,
-                "legacy_failure",
             ),
         ] {
             assert_eq!(provisioning_failure_code_value(&code), value);

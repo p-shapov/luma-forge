@@ -3,10 +3,8 @@ from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty
-from threading import Event
 from time import monotonic
 
-from auxiliary.cancellation import Cancelled
 from app.errors import (
     AssetAuthRequiredError,
     AssetDownloadError,
@@ -27,7 +25,6 @@ class PublicFileDownloader:
         asset: ModelAsset,
         target: Path,
         *,
-        cancel_event: Event | None = None,
         timeout_seconds: float | None = None,
     ) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -38,11 +35,8 @@ class PublicFileDownloader:
                 target.parent,
                 self.hub_download,
                 timeout_seconds=timeout_seconds,
-                cancel_event=cancel_event,
             )
-            self._place_downloaded_file(Path(cached_path), target, cancel_event=cancel_event)
-        except Cancelled:
-            raise
+            self._place_downloaded_file(Path(cached_path), target)
         except WorkerError:
             raise
         except Exception as error:
@@ -50,7 +44,7 @@ class PublicFileDownloader:
                 raise AssetAuthRequiredError("Hugging Face asset requires authentication.") from error
             raise AssetDownloadError("Hugging Face asset download failed.") from error
 
-    def _place_downloaded_file(self, downloaded_path: Path, target: Path, *, cancel_event: Event | None) -> None:
+    def _place_downloaded_file(self, downloaded_path: Path, target: Path) -> None:
         if downloaded_path.resolve(strict=False) == target.resolve(strict=False):
             return
 
@@ -58,8 +52,6 @@ class PublicFileDownloader:
         try:
             with downloaded_path.open("rb") as source, temporary.open("wb") as output:
                 while True:
-                    if cancel_event is not None and cancel_event.is_set():
-                        raise Cancelled()
                     chunk = source.read(1024 * 1024)
                     if not chunk:
                         break
@@ -84,7 +76,6 @@ def _download_with_isolated_process(
     hub_download: HubDownload | None,
     *,
     timeout_seconds: float | None,
-    cancel_event: Event | None,
 ) -> str:
     if timeout_seconds is None:
         return _download_from_hub(source, local_dir, hub_download)
@@ -99,9 +90,6 @@ def _download_with_isolated_process(
 
     deadline = monotonic() + timeout_seconds
     while process.is_alive():
-        if cancel_event is not None and cancel_event.is_set():
-            _terminate_process(process)
-            raise Cancelled()
         if monotonic() >= deadline:
             _terminate_process(process)
             raise StepTimeoutError("Hugging Face asset download timed out.")

@@ -83,18 +83,18 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
     def _read_json(self) -> Any:
         raw_content_length = self.headers.get("Content-Length")
         if raw_content_length is None:
-            raise ValidationError("Content-Length header is required.", reason_code="missing_content_length")
+            raise ValidationError("Content-Length header is required.", code="missing_content_length")
         try:
             content_length = int(raw_content_length)
         except ValueError as error:
             raise ValidationError(
                 "Content-Length header must be an integer.",
-                reason_code="malformed_content_length",
+                code="malformed_content_length",
             ) from error
         if content_length < 0:
             raise ValidationError(
                 "Content-Length header must be non-negative.",
-                reason_code="negative_content_length",
+                code="negative_content_length",
             )
         if content_length > self._config().max_request_bytes:
             raise RequestTooLargeError(

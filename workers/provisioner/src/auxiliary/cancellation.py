@@ -1,2 +1,0 @@
-class Cancelled(Exception):
-    pass

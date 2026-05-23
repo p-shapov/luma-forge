@@ -39,7 +39,7 @@ def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None
 
 
 class ImmediateProvisioner:
-    def prepare(self, request, progress, cancel_event):
+    def prepare(self, request, progress):
         progress("validating_environment", 100, "done")
 
 
@@ -49,7 +49,7 @@ class RecordingProvisioner:
         self.called = False
         self.requests = []
 
-    def prepare(self, request, progress, cancel_event):
+    def prepare(self, request, progress):
         self.called = True
         self.requests.append(request)
         if self.error is not None:
@@ -62,10 +62,10 @@ class BlockingProvisioner:
         self.started = Event()
         self.release = Event()
 
-    def prepare(self, request, progress, cancel_event):
+    def prepare(self, request, progress):
         self.started.set()
         progress("preparing_workspace", 10, "blocked")
-        while not self.release.is_set() and not cancel_event.is_set():
+        while not self.release.is_set():
             self.release.wait(0.01)
 
 

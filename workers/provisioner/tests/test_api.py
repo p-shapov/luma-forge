@@ -42,7 +42,6 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "invalid_request")
-        self.assertEqual(payload["reason_code"], "invalid_request")
 
     def test_invalid_start_has_no_side_effects(self):
         provisioner = RecordingProvisioner()
@@ -62,13 +61,13 @@ class ApiTests(unittest.TestCase):
 
     def test_native_only_start_fields_have_no_side_effects(self):
         native_only_fields = {
-            "id": "comfyui-t2i-basic",
+            "id": "comfyui-hidream-o1-dev",
             "version": "1.0.0",
             "name": "ComfyUI Text to Image Basic",
             "workflow_execution_type": "t2i",
             "required_base_volume_size_bytes": 1,
             "runtime_contract": {
-                "id": "comfyui-python312-cu121",
+                "id": "comfyui-hidream-o1-dev-python312-cu121",
                 "version": "1.0.0",
             },
             "provisioner_contract": {
@@ -118,7 +117,7 @@ class ApiTests(unittest.TestCase):
                     workspace_entries = list(Path(directory).iterdir())
 
                 self.assertEqual(status, 400)
-                self.assertIn(response["code"], {"invalid_request", "path_validation_failed"})
+                self.assertEqual(response["code"], "path_validation_failed")
                 self.assertEqual(latest["status"], "idle")
                 self.assertFalse(provisioner.called)
                 self.assertEqual(workspace_entries, [])
@@ -136,17 +135,8 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(first_status, 202)
         self.assertEqual(second_status, 409)
-        self.assertEqual(payload["code"], "job_already_running")
-        self.assertEqual(payload["reason_code"], "active_job_exists")
+        self.assertEqual(payload["code"], "active_job_exists")
         self.assertEqual(payload["context"], {"active_job_id": "job-1"})
-
-    def test_cancel_endpoint_is_not_available(self):
-        with ServerFixture(ImmediateProvisioner()) as server:
-            status, payload = server.request("POST", "/cancel", {"job_id": "job-1"})
-
-        self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "not_found")
-        self.assertEqual(payload["reason_code"], "endpoint_not_found")
 
     def test_success_status_after_job_finishes(self):
         with tempfile.TemporaryDirectory() as directory, ServerFixture(
@@ -165,13 +155,13 @@ class ApiTests(unittest.TestCase):
 
     def test_failed_job_reports_expected_error_codes(self):
         cases = [
-            (AssetDownloadError("Asset download failed."), "asset_download_failed", "asset_download_failed"),
-            (AssetAuthRequiredError("Asset auth required."), "asset_auth_required", "asset_auth_required"),
-            (PathValidationError("path must be safe"), "path_validation_failed", "path_validation_failed"),
-            (StepTimeoutError("Provisioning step timed out."), "step_timeout", "step_timeout"),
+            (AssetDownloadError("Asset download failed."), "asset_download_failed"),
+            (AssetAuthRequiredError("Asset auth required."), "asset_auth_required"),
+            (PathValidationError("path must be safe"), "path_validation_failed"),
+            (StepTimeoutError("Provisioning step timed out."), "step_timeout"),
         ]
 
-        for error, expected_code, expected_reason in cases:
+        for error, expected_code in cases:
             with self.subTest(error=error.__class__.__name__):
                 provisioner = RecordingProvisioner(error)
                 with tempfile.TemporaryDirectory() as directory, ServerFixture(
@@ -184,7 +174,6 @@ class ApiTests(unittest.TestCase):
                 self.assertTrue(provisioner.called)
                 self.assertEqual(payload["status"], "failed")
                 self.assertEqual(payload["error"]["code"], expected_code)
-                self.assertEqual(payload["error"]["reason_code"], expected_reason)
                 self.assertEqual(payload["error"]["message"], error.message)
 
     def test_running_status_does_not_include_console_output(self):
@@ -231,14 +220,13 @@ class ApiTests(unittest.TestCase):
         self.assertIn(raw_output, stderr.getvalue())
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], "asset_download_failed")
-        self.assertEqual(payload["error"]["reason_code"], "asset_download_failed")
         self.assertNotIn(raw_output, str(payload))
 
     def test_unexpected_job_error_is_sanitized(self):
         secret = "secret-token-0123456789abcdef"
 
         class UnexpectedProvisioner(ImmediateProvisioner):
-            def prepare(self, request, progress, cancel_event):
+            def prepare(self, request, progress):
                 raise RuntimeError(f"unexpected failure {secret}")
 
         stderr = StringIO()
@@ -251,8 +239,7 @@ class ApiTests(unittest.TestCase):
                 payload = _wait_for_status(server, "failed")
 
         self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["error"]["code"], "unexpected_error")
-        self.assertEqual(payload["error"]["reason_code"], "unexpected_exception")
+        self.assertEqual(payload["error"]["code"], "unexpected_exception")
         self.assertNotIn(secret, str(payload))
         self.assertNotIn(secret, stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
@@ -271,8 +258,7 @@ class ApiTests(unittest.TestCase):
             status, payload = server.request("GET", "/status", headers={"Authorization": "Bearer wrong"})
 
         self.assertEqual(status, 401)
-        self.assertEqual(payload["code"], "unauthorized")
-        self.assertEqual(payload["reason_code"], "invalid_authorization")
+        self.assertEqual(payload["code"], "invalid_authorization")
         self.assertNotIn("secret", payload["message"])
 
     def test_non_ascii_authorization_is_rejected(self):
@@ -281,16 +267,14 @@ class ApiTests(unittest.TestCase):
             status, payload = server.request("GET", "/status", headers={"Authorization": "Bearer é"})
 
         self.assertEqual(status, 401)
-        self.assertEqual(payload["code"], "unauthorized")
-        self.assertEqual(payload["reason_code"], "invalid_authorization")
+        self.assertEqual(payload["code"], "invalid_authorization")
 
     def test_missing_authorization_is_rejected(self):
         with ServerFixture(ImmediateProvisioner()) as server:
             status, payload = server.request("GET", "/status", authorize=False)
 
         self.assertEqual(status, 401)
-        self.assertEqual(payload["code"], "unauthorized")
-        self.assertEqual(payload["reason_code"], "invalid_authorization")
+        self.assertEqual(payload["code"], "invalid_authorization")
 
     def test_rejects_oversized_request_before_parsing_json(self):
         with ServerFixture(
@@ -300,8 +284,7 @@ class ApiTests(unittest.TestCase):
             status, payload = server.request("POST", "/start", {"bad": "json"})
 
         self.assertEqual(status, 413)
-        self.assertEqual(payload["code"], "request_too_large")
-        self.assertEqual(payload["reason_code"], "request_body_too_large")
+        self.assertEqual(payload["code"], "request_body_too_large")
         self.assertEqual(payload["context"], {"max_request_bytes": 2})
 
     def test_rejects_malformed_content_length(self):
@@ -317,16 +300,14 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(status, 400)
-        self.assertEqual(payload["code"], "invalid_request")
-        self.assertEqual(payload["reason_code"], "malformed_content_length")
+        self.assertEqual(payload["code"], "malformed_content_length")
 
-    def test_unknown_endpoint_includes_reason_code(self):
+    def test_unknown_endpoint_returns_specific_code(self):
         with ServerFixture(ImmediateProvisioner()) as server:
             status, payload = server.request("GET", "/unknown")
 
         self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "not_found")
-        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+        self.assertEqual(payload["code"], "endpoint_not_found")
 
     def test_unknown_post_endpoint_does_not_parse_malformed_json(self):
         with ServerFixture(ImmediateProvisioner()) as server:
@@ -341,8 +322,7 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "not_found")
-        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+        self.assertEqual(payload["code"], "endpoint_not_found")
 
     def test_unknown_post_endpoint_does_not_enforce_body_size(self):
         with ServerFixture(
@@ -360,8 +340,7 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "not_found")
-        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+        self.assertEqual(payload["code"], "endpoint_not_found")
 
     def test_unsupported_method_requires_authorization(self):
         with ServerFixture(ImmediateProvisioner()) as server:
@@ -372,8 +351,7 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(status, 401)
-        self.assertEqual(payload["code"], "unauthorized")
-        self.assertEqual(payload["reason_code"], "invalid_authorization")
+        self.assertEqual(payload["code"], "invalid_authorization")
 
     def test_unsupported_method_rejects_invalid_authorization(self):
         with ServerFixture(ImmediateProvisioner()) as server:
@@ -385,8 +363,7 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(status, 401)
-        self.assertEqual(payload["code"], "unauthorized")
-        self.assertEqual(payload["reason_code"], "invalid_authorization")
+        self.assertEqual(payload["code"], "invalid_authorization")
         self.assertNotIn("wrong", str(payload))
 
     def test_unsupported_method_returns_json_not_found_when_authorized(self):
@@ -399,10 +376,9 @@ class ApiTests(unittest.TestCase):
             )
 
         self.assertEqual(status, 404)
-        self.assertEqual(payload["code"], "not_found")
-        self.assertEqual(payload["reason_code"], "endpoint_not_found")
+        self.assertEqual(payload["code"], "endpoint_not_found")
 
-    def test_invalid_json_includes_reason_code(self):
+    def test_invalid_json_returns_specific_code(self):
         with ServerFixture(ImmediateProvisioner()) as server:
             status, payload = server.raw_request(
                 b"POST /start HTTP/1.1\r\n"
@@ -416,7 +392,6 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(status, 400)
         self.assertEqual(payload["code"], "invalid_json")
-        self.assertEqual(payload["reason_code"], "invalid_json")
 
     def test_worker_error_payload_does_not_include_authorization_value(self):
         token = "authorized-token-0123456789abcdef"
@@ -444,7 +419,7 @@ class ConsoleOutputProvisioner:
         self.started = Event()
         self.release = Event()
 
-    def prepare(self, request, progress, cancel_event):
+    def prepare(self, request, progress):
         progress(
             "preparing_workspace",
             25,
@@ -455,7 +430,7 @@ class ConsoleOutputProvisioner:
         self.started.set()
         if self.error is not None:
             raise self.error
-        while not self.release.is_set() and not cancel_event.is_set():
+        while not self.release.is_set():
             self.release.wait(0.01)
 
 

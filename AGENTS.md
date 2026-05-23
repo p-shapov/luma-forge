@@ -16,90 +16,86 @@ LumaForge is a desktop application that helps a user provision remote GPU infras
 
 ## Project Structure
 
-- `src/`: React frontend. UI, routes, pages, shared UI primitives, and generated frontend bindings.
-- `src-tauri/src/commands/`: Tauri command adapters and generated binding export only.
-- `src-tauri/src/domain/`: Native domain models, validation, and rules. Keep independent from Tauri runtime APIs, command handlers, UI concerns, and provider SDK details.
-- `src-tauri/src/provider_setup/`: Provider API key validation and secure setup workflow.
-- `src-tauri/src/workspace_setup/`: Draft Workspace creation from catalogs and placement input.
-- `src-tauri/src/workspace_provisioning/`: Native provisioning lifecycle orchestration, progress sync, cancellation, and failure handling.
-- `src-tauri/src/workspace_resources/`: Provider resource lifecycle, naming, state, and cleanup.
-- `src-tauri/src/secrets/`: Secure secret storage. Raw secrets must stay here or inside provider-call paths.
-- `src-tauri/src/workspace_catalog/`: SQLite-backed Workspace Catalog persistence.
-- `workers/provisioner/`: Container-side workspace preparation worker.
-- `workers/runpod-endpoint/`: RunPod Serverless runtime worker for prepared ComfyUI environments.
-- `bundled/`: Bundled catalogs consumed by native and worker flows.
+- `src/`: React frontend. See `src/AGENTS.md`.
+- `src-tauri/`: Tauri native backend. See `src-tauri/AGENTS.md`.
+- `workers/`: Python workers and worker contract tooling. See `workers/AGENTS.md`.
+- `bundled/`: Bundled workflow, runtime, and provisioner catalogs.
 - `openspec/`: Active and archived behavior specs. Check before changing behavior.
 - `spec/`: Product flows, reference contracts, architecture notes, and ubiquitous language.
 
 ---
 
-## Architecture Principles
+## Nested Instructions
+
+Additional local instructions live in nested `AGENTS.md` files:
+
+- `src/AGENTS.md`: React frontend.
+- `src-tauri/AGENTS.md`: Tauri native backend.
+- `workers/AGENTS.md`: Python workers.
+
+When editing files under those directories, follow both this root file and the nearest nested `AGENTS.md`.
+
+---
+
+## Runtime Responsibilities
 
 ### React Frontend
 
-- Own presentation, navigation, user interaction, and temporary UI state.
-- Keep React as a thin client over Native-owned domain state. React composes screens, collects input, renders status, and calls Native commands.
-- Do not encode Native-owned workflow decisions in React. React may trigger operations and render returned state, but Native Layer owns durable decisions and side effects.
-- Treat Native Layer responses as authoritative for persisted state and long-running operations.
-- Keep `shared/` infrastructure-only: UI primitives, generic utilities, generated command access, and non-domain helpers.
+- Owns presentation, navigation, user interaction, and temporary UI state.
+- Delegates durable state changes, provider access, and local system access to the Native Layer.
+- Treats Native Layer responses as authoritative for persisted state and long-running operations.
+- Must not persist, log, or re-expose secrets after submission.
 
-### Tauri Backend
+### Tauri Native Layer
 
-- Own local system integration, secure storage, provider communication, durable state, and authoritative validation.
-- Coordinate operations that mutate local or provider-owned resources.
-- Ensure durable state is consistent before reporting success.
-- Keep Tauri commands as adapters. Commands accept typed requests, call application-layer code, map errors, and return generated binding-safe responses.
-- Keep business workflows out of command handlers. Application-layer services coordinate validation, state changes, provider calls, transactions, and error handling.
-- Keep domain models and rules independent from Tauri runtime APIs, command handlers, UI concerns, and provider-specific SDK details.
+- Owns local system integration, secure storage, provider communication, durable state, and authoritative validation.
+- Coordinates operations that mutate local or provider-owned resources.
+- Returns only UI-safe data to React.
+- Ensures durable state is consistent before reporting success.
 
-### Workers
+### Python Workers
 
-- Keep worker runtime contracts explicit and compatible with the bundled catalogs and native provisioning flow.
-- Treat `workers/provisioner/` as the container-side workspace preparation worker.
-- Treat `workers/runpod-endpoint/` as the RunPod Serverless runtime worker for prepared ComfyUI environments.
-
-### Secrets
-
-- Keep secrets and bearer tokens behind secure storage and provider-call paths.
-- Do not include raw provider API keys, worker tokens, Hugging Face keys, or future credentials in domain snapshots, command responses, generated frontend types, logs, metadata, persisted workspace JSON, or test fixtures.
+- Own remote environment preparation and runtime workflow execution inside provider-managed compute.
+- Follow worker contracts consumed by the Native Layer and bundled catalogs.
+- Return only UI-safe progress, status, and result data to the Native Layer.
+- Must not persist, log, or re-expose secrets unless explicitly required by an approved spec.
 
 ---
 
-## Generated Files
+## General Rules
 
-- Do not manually edit `src/generated/**`.
-- If `src/routes/**` changes, run `bun run codegen:routes`.
-- If Tauri command signatures, command request/response types, or Specta-exported types change, run `bun run codegen:commands`.
-- After generated frontend contracts change, run `bun run build` and `bun run lint`.
+### Security and Secrets
 
----
+- Keep secrets, bearer tokens, provider API keys, worker tokens, Hugging Face keys, and future credentials behind secure storage and trusted provider-call paths.
+- Never expose raw credentials to the React renderer, generated frontend types, domain snapshots, command responses, logs, metadata, persisted workspace JSON, test fixtures, or error payloads.
+- Treat credentials as write-only from the UI perspective: the frontend may request that a credential exists, is updated, deleted, or validated, but must not receive the raw value back.
 
-## Verification
+### Pre-v1 Refactoring Policy
 
-For frontend changes in `src/`, run:
+- LumaForge is not in production yet.
+- During refactoring, do not add or preserve legacy fallback paths, compatibility shims, deprecated behavior branches, migration layers, or silent fallback behavior for old contracts.
+- Prefer updating all callers, tests, fixtures, and docs to the current contract.
+- Do not add tests or assertions for removed functionality, removed fields, legacy vocabulary, or absence of deprecated behavior.
+- If old behavior is intentionally removed, delete it directly instead of preserving compatibility code.
 
-- `bun run build`
-- `bun run lint`
+### Simplicity First
 
-For backend changes in `src-tauri/`, run:
+Minimum code that solves the problem. Nothing speculative.
 
-- `cargo test --manifest-path src-tauri/Cargo.toml`
-- `cargo fmt --manifest-path src-tauri/Cargo.toml --check`
-- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-For provisioner worker changes in `workers/provisioner/`, run:
+### Surgical Changes
 
-- `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`
+Touch only what you must.
 
-For RunPod endpoint worker changes in `workers/runpod-endpoint/`, run:
-
-- `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests`
-
-If Tauri command contracts change, also run:
-
-- `bun run codegen:commands`
-- `bun run build`
-- `bun run lint`
+- Don't improve adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- Every changed line should trace directly to the user's reques
 
 ---
 

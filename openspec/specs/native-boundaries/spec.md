@@ -549,7 +549,8 @@ The Native command boundary SHALL expose command errors with stable UI-safe cate
 - **THEN** the generated command error SHALL include a stable `code`
 - **AND** the generated command error SHALL include a UI-safe `message`
 - **AND** the generated command error SHALL include a `retryable` flag
-- **AND** the generated command error MAY include optional UI-safe metadata such as affected field, reason category, or recovery action
+- **AND** the generated command error MAY include optional UI-safe metadata for the affected field or recovery action
+- **AND** the generated command error MUST NOT include `reason` metadata
 - **AND** the generated command error MUST NOT include Provider API Keys, keyring values, raw provider transport bodies, raw GraphQL responses, raw SQLite errors, raw SQL statements, raw `workspace_json`, stack traces, or implementation-only source errors
 
 #### Scenario: Frontend handles command error
@@ -557,6 +558,7 @@ The Native command boundary SHALL expose command errors with stable UI-safe cate
 - **WHEN** React receives a generated native command error
 - **THEN** React SHALL be able to choose user-facing copy and recovery affordances from the error `code` and optional safe metadata
 - **AND** React MUST NOT parse `message` to determine recovery behavior
+- **AND** React MUST NOT require a `reason` field to determine recovery behavior
 
 ### Requirement: Command error contract is generated and reference-aligned
 
@@ -740,7 +742,8 @@ The Tauri command boundary SHALL map `WorkspaceProvisioningError` and related se
 #### Scenario: Immediate provisioning command error is mapped
 
 - **WHEN** Workspace Provisioning returns an immediate command failure for workspace identity, lifecycle state, catalog/persistence, secret/keyring, conflict, transient provider availability, transient worker availability, or escaped resource-operation failure
-- **THEN** the command boundary SHALL return a stable `NativeCommandErrorCode`, message, retryability flag, reason, and recovery action aligned with that category
+- **THEN** the command boundary SHALL return a stable `NativeCommandErrorCode`, message, retryability flag, and recovery action aligned with that category
+- **AND** the command error MUST NOT include `reason` metadata
 - **AND** the command error MUST NOT expose SQLite errors, migration SQL, raw filesystem details, reqwest details, keyring details, RunPod-specific errors, raw request bodies, raw response bodies, Provider API Keys, or Provisioner Worker bearer tokens
 
 #### Scenario: Persisted provisioning failure is returned through workspace payload
@@ -758,8 +761,9 @@ The Tauri command boundary SHALL map `WorkspaceProvisioningError` and related se
 #### Scenario: Command mapping is regression tested
 
 - **WHEN** regression tests cover `WorkspaceProvisioningError -> NativeCommandError` mappings
-- **THEN** each tested category SHALL assert code, reason, retryability, and recovery action
+- **THEN** each tested category SHALL assert code, retryability, and recovery action
 - **AND** tests SHALL assert that mapped command errors remain implementation-safe
+- **AND** tests SHALL assert that mapped command errors do not expose `reason` metadata
 
 ### Requirement: Async native flows isolate blocking secret-store work
 
@@ -888,3 +892,4 @@ Bundled catalog loading infrastructure SHALL own parsing and validation for the 
 - **WHEN** Native application state constructs Workspace Provisioning services
 - **THEN** it SHALL provide catalog readers and persisted Workspace access needed to resolve and use provisioner snapshots
 - **AND** it MUST NOT own production Provisioner Worker image refs or hard-coded provisioning mount paths as app-state constants
+

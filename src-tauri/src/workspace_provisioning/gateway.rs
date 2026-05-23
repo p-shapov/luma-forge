@@ -235,7 +235,6 @@ struct ProvisionerWorkerStatusResponse {
 #[derive(Debug, Deserialize)]
 struct ProvisionerWorkerErrorResponse {
     code: Option<String>,
-    reason_code: Option<String>,
 }
 
 async fn parse_worker_response(
@@ -339,12 +338,8 @@ fn phase_from_response(
         Some("starting") => Ok(ProvisionerWorkerPhase::Starting),
         Some("resolving_workflow") => Ok(ProvisionerWorkerPhase::ResolvingWorkflow),
         Some("preparing_workspace") => Ok(ProvisionerWorkerPhase::PreparingWorkspace),
-        Some("installing_models" | "downloading_assets") => {
-            Ok(ProvisionerWorkerPhase::DownloadingAssets)
-        }
-        Some("validating_environment" | "verifying_assets") => {
-            Ok(ProvisionerWorkerPhase::ValidatingAssets)
-        }
+        Some("downloading_assets") => Ok(ProvisionerWorkerPhase::DownloadingAssets),
+        Some("validating_environment") => Ok(ProvisionerWorkerPhase::ValidatingAssets),
         Some("completed") => Ok(ProvisionerWorkerPhase::Completed),
         Some("cancelled") => Ok(ProvisionerWorkerPhase::Cancelled),
         Some("failed") => Ok(ProvisionerWorkerPhase::Failed),
@@ -364,16 +359,11 @@ fn phase_from_response(
 fn terminal_failure_from_worker_error(
     error: ProvisionerWorkerErrorResponse,
 ) -> ProvisionerWorkerError {
-    provisioner_worker_failure_code(error.code.as_deref(), error.reason_code.as_deref())
+    provisioner_worker_failure_code(error.code.as_deref())
 }
 
-fn provisioner_worker_failure_code(
-    code: Option<&str>,
-    reason_code: Option<&str>,
-) -> ProvisionerWorkerError {
-    reason_code
-        .and_then(known_provisioner_worker_failure_code)
-        .or_else(|| code.and_then(known_provisioner_worker_failure_code))
+fn provisioner_worker_failure_code(code: Option<&str>) -> ProvisionerWorkerError {
+    code.and_then(known_provisioner_worker_failure_code)
         .unwrap_or(ProvisionerWorkerError::Failed)
 }
 
@@ -433,7 +423,7 @@ mod tests {
     fn status_from_response_rejects_unsafe_progress_percent() {
         let error = status_from_response(response(
             Some("running"),
-            Some("installing_models"),
+            Some("downloading_assets"),
             Some(101),
         ))
         .expect_err("progress above 100 should be invalid");
@@ -446,7 +436,6 @@ mod tests {
         let mut payload = response(Some("failed"), Some("failed"), None);
         payload.error = Some(ProvisionerWorkerErrorResponse {
             code: Some("asset_download_failed".to_string()),
-            reason_code: Some("asset_download_failed".to_string()),
         });
 
         let error = status_from_response(payload)
@@ -456,50 +445,12 @@ mod tests {
     }
 
     #[test]
-    fn worker_error_reason_code_maps_to_terminal_failure_code() {
+    fn worker_error_code_maps_to_terminal_failure_code() {
         let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
             code: Some("asset_download_failed".to_string()),
-            reason_code: Some("asset_download_failed".to_string()),
         });
 
         assert_eq!(code, ProvisionerWorkerError::AssetDownloadFailed);
-    }
-
-    #[test]
-    fn worker_error_unknown_reason_code_falls_back_to_recognized_code() {
-        let code = terminal_failure_from_worker_error(ProvisionerWorkerErrorResponse {
-            code: Some("asset_download_failed".to_string()),
-            reason_code: Some("future_worker_reason".to_string()),
-        });
-
-        assert_eq!(code, ProvisionerWorkerError::AssetDownloadFailed);
-    }
-
-    #[test]
-    fn status_from_response_normalizes_worker_phase_aliases() {
-        let workspace = status_from_response(response(
-            Some("running"),
-            Some("preparing_workspace"),
-            Some(20),
-        ))
-        .expect("workspace phase should be valid");
-        assert_eq!(workspace.phase, ProvisionerWorkerPhase::PreparingWorkspace);
-
-        let assets = status_from_response(response(
-            Some("running"),
-            Some("downloading_assets"),
-            Some(60),
-        ))
-        .expect("asset phase should be valid");
-        assert_eq!(assets.phase, ProvisionerWorkerPhase::DownloadingAssets);
-
-        let validation = status_from_response(response(
-            Some("running"),
-            Some("verifying_assets"),
-            Some(90),
-        ))
-        .expect("validation phase should be valid");
-        assert_eq!(validation.phase, ProvisionerWorkerPhase::ValidatingAssets);
     }
 
     #[test]

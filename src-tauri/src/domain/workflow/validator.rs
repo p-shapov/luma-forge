@@ -110,7 +110,7 @@ mod tests {
     fn runtime_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
             contracts: vec![RuntimeContract {
-                id: "comfyui-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
@@ -136,15 +136,15 @@ mod tests {
 
     fn valid_model_asset() -> ModelAsset {
         ModelAsset {
-            id: "sdxl-base".to_string(),
-            name: "SDXL Base".to_string(),
+            id: "hidream-o1-dev".to_string(),
+            name: "HiDream O1 Dev".to_string(),
             download_source: ModelAssetSource::Huggingface {
-                repository_id: "stabilityai/stable-diffusion-xl-base-1.0".to_string(),
-                file_path: "sd_xl_base_1.0.safetensors".to_string(),
+                repository_id: "Comfy-Org/HiDream-O1-Image".to_string(),
+                file_path: "hidream_o1_image_dev_fp8_scaled.safetensors".to_string(),
                 revision: "462165984030d82259a11f4367a4eed129e94a7b".to_string(),
             },
-            install_comfyui_relative_path: "models/checkpoints/sd_xl_base_1.0.safetensors"
-                .to_string(),
+            install_comfyui_relative_path:
+                "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors".to_string(),
         }
     }
 
@@ -156,7 +156,7 @@ mod tests {
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 80 * 1024 * 1024 * 1024,
             runtime_contract: RuntimeContractReference {
-                id: "comfyui-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),
             },
             provisioner_contract: ProvisionerContractReference {
@@ -169,7 +169,7 @@ mod tests {
 
     fn valid_catalog() -> WorkflowCatalog {
         WorkflowCatalog {
-            workflow_presets: vec![valid_preset("comfyui-t2i-basic")],
+            workflow_presets: vec![valid_preset("comfyui-hidream-o1-dev")],
         }
     }
 
@@ -190,28 +190,28 @@ mod tests {
             WorkflowCatalog {
                 workflow_presets: vec![WorkflowPreset {
                     id: " ".to_string(),
-                    ..valid_preset("comfyui-t2i-basic")
+                    ..valid_preset("comfyui-hidream-o1-dev")
                 }],
             },
             WorkflowCatalog {
                 workflow_presets: vec![WorkflowPreset {
                     required_base_volume_size_bytes: 0,
-                    ..valid_preset("comfyui-t2i-basic")
+                    ..valid_preset("comfyui-hidream-o1-dev")
                 }],
             },
             WorkflowCatalog {
                 workflow_presets: vec![
-                    valid_preset("comfyui-t2i-basic"),
-                    valid_preset("comfyui-t2i-basic"),
+                    valid_preset("comfyui-hidream-o1-dev"),
+                    valid_preset("comfyui-hidream-o1-dev"),
                 ],
             },
             WorkflowCatalog {
                 workflow_presets: vec![WorkflowPreset {
                     runtime_contract: RuntimeContractReference {
-                        id: "comfyui-python312-cu121".to_string(),
+                        id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                         version: "2.0.0".to_string(),
                     },
-                    ..valid_preset("comfyui-t2i-basic")
+                    ..valid_preset("comfyui-hidream-o1-dev")
                 }],
             },
         ];
@@ -232,7 +232,7 @@ mod tests {
                     id: "luma-forge-provisioner".to_string(),
                     version: "2.0.0".to_string(),
                 },
-                ..valid_preset("comfyui-t2i-basic")
+                ..valid_preset("comfyui-hidream-o1-dev")
             }],
         };
 
@@ -283,7 +283,7 @@ mod tests {
             let catalog = WorkflowCatalog {
                 workflow_presets: vec![WorkflowPreset {
                     required_model_assets: vec![asset],
-                    ..valid_preset("comfyui-t2i-basic")
+                    ..valid_preset("comfyui-hidream-o1-dev")
                 }],
             };
 
