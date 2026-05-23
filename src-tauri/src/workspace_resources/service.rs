@@ -1,5 +1,6 @@
 use crate::{
-    domain::workspace::Workspace, secrets::AsyncSecretStore,
+    domain::workspace::Workspace,
+    secrets::{AsyncProviderKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::state::reset_after_resource_cleanup,
 };
@@ -39,7 +40,7 @@ impl<S, W, R> WorkspaceResourceService<S, W, R> {
 
 impl<S, W, R> WorkspaceResourceService<S, W, R>
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: WorkspaceResourceProviderResolver<S, W>,
 {
@@ -152,7 +153,9 @@ mod tests {
                 WorkspaceLifecycleState,
             },
         },
-        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+        secrets::{
+            ProviderKeyStore, ProvisionerTokenStore, ProvisionerWorkerBearerToken, SecretStoreError,
+        },
         workspace_catalog::repository::WorkspaceCatalogRepository,
         workspace_resources::providers::{
             WorkspaceResourceProvider, WorkspaceResourceProviderResolver,
@@ -286,7 +289,7 @@ mod tests {
     #[derive(Debug, Clone, Default)]
     struct FakeSecretStore;
 
-    impl SecretStore for FakeSecretStore {
+    impl ProviderKeyStore for FakeSecretStore {
         fn has_api_key_entry(
             &self,
             _provider_id: &GpuCloudProviderId,
@@ -315,7 +318,9 @@ mod tests {
         ) -> Result<(), SecretStoreError> {
             Ok(())
         }
+    }
 
+    impl ProvisionerTokenStore for FakeSecretStore {
         fn write_provisioner_worker_token(
             &self,
             _workspace_id: &str,

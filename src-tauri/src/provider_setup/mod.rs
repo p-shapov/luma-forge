@@ -10,7 +10,7 @@ use crate::{
         self, GpuCloudProviderId as DomainGpuCloudProviderId,
         GpuCloudProviderSetup as DomainGpuCloudProviderSetup, ProviderApiKey, ProviderIdentity,
     },
-    secrets::AsyncSecretStore,
+    secrets::AsyncProviderKeyStore,
 };
 
 pub use providers::{
@@ -33,7 +33,7 @@ impl<S, R> ProviderSetupService<S, R> {
 
 impl<S, R> ProviderSetupService<S, R>
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     R: ProviderSetupProviderResolver,
 {
     pub async fn get_setup(
@@ -143,7 +143,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError};
+    use crate::secrets::{ProviderKeyStore, SecretStoreError};
     use std::{
         collections::VecDeque,
         future::Future,
@@ -207,7 +207,7 @@ mod tests {
         }
     }
 
-    impl SecretStore for FakeSecretStore {
+    impl ProviderKeyStore for FakeSecretStore {
         fn has_api_key_entry(
             &self,
             _provider_id: &DomainGpuCloudProviderId,
@@ -274,28 +274,6 @@ mod tests {
             }
 
             state.api_key = None;
-            Ok(())
-        }
-
-        fn write_provisioner_worker_token(
-            &self,
-            _workspace_id: &str,
-            _token: &ProvisionerWorkerBearerToken,
-        ) -> Result<(), SecretStoreError> {
-            Ok(())
-        }
-
-        fn read_provisioner_worker_token(
-            &self,
-            _workspace_id: &str,
-        ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
-            Ok(None)
-        }
-
-        fn delete_provisioner_worker_token(
-            &self,
-            _workspace_id: &str,
-        ) -> Result<(), SecretStoreError> {
             Ok(())
         }
     }

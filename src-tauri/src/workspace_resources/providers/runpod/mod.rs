@@ -3,7 +3,7 @@ use std::{future::Future, pin::Pin};
 use crate::{
     domain::workspace::Workspace,
     provider::runpod::{RunPodClient, RunPodHttpClientInitError},
-    secrets::AsyncSecretStore,
+    secrets::{AsyncProviderKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
         WorkspaceResourceContext, WorkspaceResourceError, WorkspaceResourceOperationResult,
@@ -45,7 +45,7 @@ impl RunPodWorkspaceResourceProvider {
 
 impl<S, W> WorkspaceResourceProvider<S, W> for RunPodWorkspaceResourceProvider
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
 {
     fn create_network_volume<'a>(
@@ -135,7 +135,7 @@ async fn create_network_volume_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -149,7 +149,7 @@ async fn observe_network_volume_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -163,7 +163,7 @@ async fn create_provisioning_pod_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -177,7 +177,7 @@ async fn observe_provisioning_pod_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -191,7 +191,7 @@ async fn delete_provisioning_pod_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -205,7 +205,7 @@ async fn create_serverless_endpoint_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -219,7 +219,7 @@ async fn observe_serverless_endpoint_with_client<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

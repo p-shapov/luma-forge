@@ -10,7 +10,7 @@ use crate::{
         RunPodCreateTemplateRequest, RunPodEndpointObservation, RunPodNetworkVolumeObservation,
         RunPodPodObservation, RunPodTemplateObservation,
     },
-    secrets::AsyncSecretStore,
+    secrets::AsyncProviderKeyStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::contracts::{
         CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
@@ -64,7 +64,7 @@ where
 
 impl<S, W, C> RunPodWorkspaceResourceContext<'_, S, W, C>
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     C: RunPodWorkspaceResourceClient,
 {
     pub(super) async fn create_network_volume(

@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceLifecycleState},
-    secrets::AsyncSecretStore,
+    secrets::AsyncProvisionerTokenStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -24,7 +24,7 @@ pub(crate) struct RunPodWorkspaceProvisioningProvider;
 
 impl<S, W, R, Q> WorkspaceProvisioningProvider<S, W, R, Q> for RunPodWorkspaceProvisioningProvider
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -58,7 +58,7 @@ async fn sync<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -87,7 +87,7 @@ async fn sync_network_volume<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -125,7 +125,7 @@ async fn sync_provisioning_pod<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -180,7 +180,7 @@ async fn sync_environment<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -211,7 +211,7 @@ async fn finish_provisioning_pod<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -234,7 +234,7 @@ async fn sync_endpoint<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,

@@ -21,7 +21,9 @@ use crate::{
             WorkspaceCatalog, WorkspaceLifecycleState,
         },
     },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    secrets::{
+        ProviderKeyStore, ProvisionerTokenStore, ProvisionerWorkerBearerToken, SecretStoreError,
+    },
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{WorkspaceResourceError, WorkspaceResourceOperationResult},
     workspace_setup::error::WorkspaceSetupError,
@@ -130,7 +132,7 @@ impl FakeSecretStore {
     }
 }
 
-impl SecretStore for FakeSecretStore {
+impl ProviderKeyStore for FakeSecretStore {
     fn has_api_key_entry(
         &self,
         _provider_id: &GpuCloudProviderId,
@@ -176,7 +178,9 @@ impl SecretStore for FakeSecretStore {
     fn delete_api_key(&self, _provider_id: &GpuCloudProviderId) -> Result<(), SecretStoreError> {
         Ok(())
     }
+}
 
+impl ProvisionerTokenStore for FakeSecretStore {
     fn write_provisioner_worker_token(
         &self,
         _workspace_id: &str,

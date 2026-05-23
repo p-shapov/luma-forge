@@ -892,3 +892,38 @@ Bundled catalog loading infrastructure SHALL own parsing and validation for the 
 - **WHEN** Native application state constructs Workspace Provisioning services
 - **THEN** it SHALL provide catalog readers and persisted Workspace access needed to resolve and use provisioner snapshots
 - **AND** it MUST NOT own production Provisioner Worker image refs or hard-coded provisioning mount paths as app-state constants
+
+### Requirement: Secret storage exposes category-specific contracts
+
+Secret storage abstractions SHALL expose Provider API Key access and Provisioner Worker bearer token access as separate native contracts while preserving secret-storage-owned errors.
+
+#### Scenario: Provider setup depends on provider key storage only
+
+- **WHEN** Provider Setup checks, reads, replaces, or deletes a Provider API Key
+- **THEN** it SHALL depend on a provider-key storage contract
+- **AND** it MUST NOT require Provisioner Worker token storage access
+
+#### Scenario: Workspace setup depends on provider key storage only
+
+- **WHEN** Workspace Setup validates provider setup prerequisites or fetches provider placement options
+- **THEN** it SHALL depend on a provider-key storage contract
+- **AND** it MUST NOT require Provisioner Worker token storage access
+
+#### Scenario: Workspace provisioner depends on provisioner token storage only
+
+- **WHEN** Workspace Provisioning syncs with a Provisioner Worker
+- **THEN** the worker sync path SHALL depend on a provisioner-token storage contract
+- **AND** it MUST NOT require Provider API Key storage access
+
+#### Scenario: Workspace resources use both storage contracts where needed
+
+- **WHEN** Workspace Resource operations create, observe, or delete provider resources and manage Provisioner Worker tokens
+- **THEN** those operations SHALL depend on provider-key and provisioner-token storage contracts only where each secret category is needed
+- **AND** the contracts MUST preserve separate keyring scopes for Provider API Keys and Provisioner Worker bearer tokens
+
+#### Scenario: Secret storage errors remain use-case independent
+
+- **WHEN** either storage contract returns a storage failure
+- **THEN** it SHALL return a secret-storage-owned error
+- **AND** it MUST NOT return Provider Setup, Workspace Setup, Workspace Provisioning, or Workspace Resource error types
+

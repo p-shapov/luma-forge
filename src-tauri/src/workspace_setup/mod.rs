@@ -12,7 +12,7 @@ use crate::{
         workflow::WorkflowCatalog,
         workspace::{Workspace, WorkspaceCatalog},
     },
-    secrets::AsyncSecretStore,
+    secrets::AsyncProviderKeyStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -55,7 +55,7 @@ impl<C, S, W, R> WorkspaceSetupService<C, S, W, R> {
 impl<C, S, W, R> WorkspaceSetupService<C, S, W, R>
 where
     C: WorkspaceSetupCatalogReader,
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: WorkspaceCatalogRepository,
     R: WorkspaceSetupProviderResolver,
 {
@@ -173,7 +173,7 @@ mod tests {
             },
             workspace::WorkspaceLifecycleState,
         },
-        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+        secrets::{ProviderKeyStore, SecretStoreError},
     };
     use std::{
         future::Future,
@@ -280,9 +280,6 @@ mod tests {
         ReadApiKey,
         ReplaceApiKey,
         DeleteApiKey,
-        WriteProvisionerWorkerToken,
-        ReadProvisionerWorkerToken,
-        DeleteProvisionerWorkerToken,
     }
 
     #[derive(Debug)]
@@ -329,7 +326,7 @@ mod tests {
         }
     }
 
-    impl SecretStore for FakeSecretStore {
+    impl ProviderKeyStore for FakeSecretStore {
         fn has_api_key_entry(
             &self,
             _provider_id: &GpuCloudProviderId,
@@ -375,43 +372,6 @@ mod tests {
                 .expect("fake secret mutex")
                 .calls
                 .push(SecretStoreCall::DeleteApiKey);
-            Ok(())
-        }
-
-        fn write_provisioner_worker_token(
-            &self,
-            _workspace_id: &str,
-            _token: &ProvisionerWorkerBearerToken,
-        ) -> Result<(), SecretStoreError> {
-            self.state
-                .lock()
-                .expect("fake secret mutex")
-                .calls
-                .push(SecretStoreCall::WriteProvisionerWorkerToken);
-            Ok(())
-        }
-
-        fn read_provisioner_worker_token(
-            &self,
-            _workspace_id: &str,
-        ) -> Result<Option<ProvisionerWorkerBearerToken>, SecretStoreError> {
-            self.state
-                .lock()
-                .expect("fake secret mutex")
-                .calls
-                .push(SecretStoreCall::ReadProvisionerWorkerToken);
-            Ok(None)
-        }
-
-        fn delete_provisioner_worker_token(
-            &self,
-            _workspace_id: &str,
-        ) -> Result<(), SecretStoreError> {
-            self.state
-                .lock()
-                .expect("fake secret mutex")
-                .calls
-                .push(SecretStoreCall::DeleteProvisionerWorkerToken);
             Ok(())
         }
     }

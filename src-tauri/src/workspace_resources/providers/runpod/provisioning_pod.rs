@@ -3,7 +3,7 @@ use crate::{
         placement::PlacementPlan,
         workspace::{ProviderResourceStatus, ProvisioningPodSnapshot, Workspace},
     },
-    secrets::{AsyncSecretStore, ProvisionerWorkerBearerToken},
+    secrets::{AsyncProviderKeyStore, AsyncProvisionerTokenStore, ProvisionerWorkerBearerToken},
     workspace_resources::{
         state::observed_provisioning_pod_snapshot, CreateProvisioningPodInput,
         DiscoverProvisioningPodsInput, ObserveProvisioningPodInput, WorkspaceResourceError,
@@ -18,7 +18,7 @@ pub(crate) async fn create<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -94,7 +94,7 @@ pub(crate) async fn observe<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -125,7 +125,7 @@ pub(crate) async fn delete<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -161,7 +161,7 @@ async fn handle_pod_create_error_after_token_write<S, W, C>(
     error: WorkspaceResourceError,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -188,7 +188,7 @@ async fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &Workspace,
 ) where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
 {
     let _ = context
         .secrets

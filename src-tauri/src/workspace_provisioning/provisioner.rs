@@ -1,6 +1,6 @@
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
-    secrets::{AsyncSecretStore, SecretStoreError},
+    secrets::{AsyncProvisionerTokenStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -43,7 +43,7 @@ impl WorkspaceProvisionerService {
         workspace: &mut Workspace,
     ) -> WorkspaceProvisionerSyncResult
     where
-        S: AsyncSecretStore,
+        S: AsyncProvisionerTokenStore,
         W: WorkspaceCatalogRepository,
         R: ProvisionerWorkerGateway,
     {
@@ -205,7 +205,7 @@ mod tests {
     use crate::{
         domain::{
             placement::PlacementPlan,
-            provider_setup::{GpuCloudProviderId, ProviderApiKey},
+            provider_setup::GpuCloudProviderId,
             provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
             workflow::{
@@ -217,7 +217,7 @@ mod tests {
                 WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
             },
         },
-        secrets::{ProvisionerWorkerBearerToken, SecretStore},
+        secrets::{ProvisionerTokenStore, ProvisionerWorkerBearerToken},
         workspace_setup::error::WorkspaceSetupError,
     };
     use std::{
@@ -248,36 +248,7 @@ mod tests {
         }
     }
 
-    impl SecretStore for FakeSecretStore {
-        fn has_api_key_entry(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-        ) -> Result<bool, SecretStoreError> {
-            Ok(false)
-        }
-
-        fn read_api_key(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-        ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
-            Ok(None)
-        }
-
-        fn replace_api_key(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-            _api_key: &ProviderApiKey,
-        ) -> Result<(), SecretStoreError> {
-            Ok(())
-        }
-
-        fn delete_api_key(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-        ) -> Result<(), SecretStoreError> {
-            Ok(())
-        }
-
+    impl ProvisionerTokenStore for FakeSecretStore {
         fn write_provisioner_worker_token(
             &self,
             _workspace_id: &str,

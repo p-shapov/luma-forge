@@ -31,7 +31,9 @@ use crate::{
         },
         ProviderClientError,
     },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    secrets::{
+        ProviderKeyStore, ProvisionerTokenStore, ProvisionerWorkerBearerToken, SecretStoreError,
+    },
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::WorkspaceResourceContext,
     workspace_setup::error::WorkspaceSetupError,
@@ -542,7 +544,7 @@ impl FakeSecretStore {
     }
 }
 
-impl SecretStore for FakeSecretStore {
+impl ProviderKeyStore for FakeSecretStore {
     fn has_api_key_entry(
         &self,
         _provider_id: &GpuCloudProviderId,
@@ -580,7 +582,9 @@ impl SecretStore for FakeSecretStore {
         self.state.lock().expect("fake secret store").api_key = None;
         Ok(())
     }
+}
 
+impl ProvisionerTokenStore for FakeSecretStore {
     fn write_provisioner_worker_token(
         &self,
         workspace_id: &str,
