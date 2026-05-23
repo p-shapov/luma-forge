@@ -8,7 +8,7 @@ Provision one saved `Draft` Workspace into a `Ready` Workspace by creating requi
 
 - Runs after Workspace Setup persists a complete `Draft` Workspace.
 - Uses Native Layer (Rust / Tauri) as the workflow orchestrator and Client (React) only for initiate, sync, progress rendering, and cancellation.
-- Creates required Provider Resources: Persistent Storage Volume, temporary Provisioning Pod, and Serverless Endpoint.
+- Creates required Provider Resources: Persistent Storage Volume, temporary provider-side Provisioning Pod, and Serverless Endpoint.
 - Persists Provider Resource snapshots and reports Workspace Provisioning Progress.
 - Deletes all created Workspace resources and returns the Workspace to `Draft` when the user cancels provisioning and cancellation cleanup succeeds.
 
@@ -35,7 +35,7 @@ Provision one saved `Draft` Workspace into a `Ready` Workspace by creating requi
 ## Preconditions
 
 - Workspace Setup completed and persisted a complete `Draft` Workspace.
-- Workspace contains a valid Placement Plan with selected GPU, data center, Persistent Storage Volume size, and selected Workflow Preset.
+- Workspace contains a valid Placement Plan with selected GPU for the Serverless Endpoint, data center, Persistent Storage Volume size, and selected Workflow Preset.
 - GPU Cloud Provider Setup is complete.
 - Provider API Key exists in the secure keyring.
 - Native Layer can read and write the Workspace Catalog.
@@ -83,7 +83,7 @@ Sync loop begins after Workspace lifecycle becomes `Provisioning`.
 
    - Native Layer (Rust / Tauri) -> Provider / Workspace Catalog
      Sync temporary provisioning compute.
-     Result: temporary compute state is reflected in Workspace metadata.
+     Result: temporary provider-side compute state is reflected in Workspace metadata.
 
    - Native Layer (Rust / Tauri) -> Provisioner Worker
      Observe environment preparation.
@@ -91,7 +91,7 @@ Sync loop begins after Workspace lifecycle becomes `Provisioning`.
 
    - Native Layer (Rust / Tauri) -> Provider / Workspace Catalog
      Finish temporary provisioning compute after environment preparation succeeds.
-     Result: no active provisioning compute remains.
+     Result: no active provider-side provisioning compute remains.
 
    - Native Layer (Rust / Tauri) -> Provider / Workspace Catalog
      Sync persistent runtime entry point.

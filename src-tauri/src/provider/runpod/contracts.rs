@@ -99,7 +99,12 @@ pub struct RunPodNetworkVolumeObservation {
 pub struct RunPodCreatePodRequest {
     pub name: String,
     pub image_name: String,
-    pub gpu_type_ids: Vec<String>,
+    pub compute_type: String,
+    pub cpu_flavor_ids: Vec<String>,
+    pub cpu_flavor_priority: String,
+    pub vcpu_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_type_ids: Option<Vec<String>>,
     pub data_center_ids: Vec<String>,
     pub network_volume_id: String,
     pub volume_mount_path: String,

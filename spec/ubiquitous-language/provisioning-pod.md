@@ -1,8 +1,8 @@
 ## Provisioning Pod
 
-A temporary provider-side GPU compute resource used during provisioning.
+A temporary provider-side compute resource used during provisioning.
 
-The Provisioning Pod uses the GPU selected in the Placement Plan. It runs the Provisioner Worker and prepares the remote environment required by Workspace.
+The Provisioning Pod runs the Provisioner Worker and prepares the remote environment required by Workspace on the mounted Persistent Storage Volume.
 
 **Invariants:**
 

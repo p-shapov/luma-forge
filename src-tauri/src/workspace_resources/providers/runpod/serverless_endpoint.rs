@@ -203,3 +203,45 @@ fn endpoint_template_matches_workspace(
                 volume.mount_path == workspace.resolved_provisioner_image.volume_mount_path
             })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace_resources::providers::runpod::test_support::*;
+
+    #[tokio::test]
+    async fn create_keeps_selected_gpu_for_serverless_endpoint() {
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_templates(Ok(vec![runpod_template(
+            "template-1",
+            ProviderResourceStatus::Ready,
+            "endpoint:latest",
+            "/workspace",
+        )]));
+        client.push_discover_endpoints(Ok(Vec::new()));
+        client.push_create_endpoint(Ok(runpod_endpoint(
+            "endpoint-1",
+            ProviderResourceStatus::Ready,
+        )));
+
+        create(&runpod_context, &mut workspace)
+            .await
+            .expect("serverless endpoint create should succeed");
+
+        let calls = client.calls();
+        let RunPodCall::CreateEndpoint(request) = &calls[2] else {
+            panic!("expected create endpoint call");
+        };
+        assert_eq!(request.gpu_type_ids, vec!["gpu-1".to_string()]);
+        assert_eq!(request.data_center_ids, vec!["dc-1".to_string()]);
+        assert_eq!(request.network_volume_id, "volume-1");
+        assert_eq!(request.template_id, "template-1");
+    }
+}

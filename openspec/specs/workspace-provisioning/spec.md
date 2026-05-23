@@ -48,10 +48,16 @@ Workspace Provisioning SHALL treat endpoint Python, PyTorch, ComfyUI, runtime ex
 - **AND** Workspace Provisioning MUST NOT request or depend on provisioning-time endpoint runtime validation, workflow validation, output directory validation, runtime manifest writing, ComfyUI dependency installation, runtime extension checkout, runtime extension dependency installation, Python overlay creation, or pip execution
 - **AND** Workspace Provisioning MUST NOT require the provisioner image to match the selected endpoint runtime image
 
-#### Scenario: Selected GPU is used for provider resources
+#### Scenario: Selected GPU is used for runtime endpoint placement
 - **WHEN** Workspace Provisioning creates or observes RunPod compute resources for a selected GPU
-- **THEN** the selected GPU SHALL determine provider resource placement
+- **THEN** the selected GPU SHALL determine persistent runtime endpoint placement
+- **AND** the selected GPU MUST NOT determine Provisioning Pod compute selection
 - **AND** the selected GPU MUST NOT determine which base runtime dependencies are installed
+
+#### Scenario: Provisioning Pod uses temporary provider compute
+- **WHEN** Workspace Provisioning creates a Provisioning Pod for environment preparation
+- **THEN** the Provisioning Pod SHALL run the Provisioner Worker on temporary provider-side compute attached to the Workspace network volume
+- **AND** Workspace Provisioning MUST NOT require the Provisioning Pod to use GPU compute
 
 ### Requirement: Use resolved provisioner image snapshot
 Workspace Provisioning SHALL use the Workspace's persisted resolved provisioner image snapshot as the authoritative source for Provisioner Worker image and workspace volume mount path.
@@ -79,3 +85,59 @@ Workspace Provisioning SHALL pass the resolved workspace volume mount path to wo
 - **WHEN** the Native Layer creates an Endpoint Worker template
 - **THEN** the RunPod template volume mount path SHALL equal `resolved_provisioner_image.volume_mount_path`
 - **AND** the template environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with the same value
+
+### Requirement: Own resource operation sequencing
+Workspace Provisioning SHALL own the provisioning state machine and decide which explicit Workspace Resources operation is safe to run for each sync iteration.
+
+#### Scenario: Provisioning selects volume operation
+- **WHEN** a provisioning Workspace requires persistent storage work
+- **THEN** Workspace Provisioning SHALL decide whether to call Workspace Resources to create or observe the persistent storage volume
+- **AND** Workspace Resources MUST NOT infer that decision from provisioning lifecycle state
+
+#### Scenario: Provisioning selects provisioning pod operation
+- **WHEN** a provisioning Workspace requires temporary provisioning compute work
+- **THEN** Workspace Provisioning SHALL decide whether to call Workspace Resources to create, observe, or delete the provisioning pod
+- **AND** Workspace Resources MUST NOT infer that decision from environment preparation state or provisioning lifecycle state
+
+#### Scenario: Provisioning selects endpoint operation
+- **WHEN** a provisioning Workspace requires serverless endpoint work
+- **THEN** Workspace Provisioning SHALL decide whether to call Workspace Resources to create or observe the serverless endpoint
+- **AND** Workspace Resources MUST NOT infer that decision from environment preparation state, active pod state, or provisioning lifecycle state
+
+### Requirement: Own lifecycle and failure persistence
+Workspace Provisioning SHALL be the only Workspace Provisioning module that sets provisioning lifecycle state, provisioning progress, provisioning phase, recovery action, or `last_provisioning_failure`.
+
+#### Scenario: Resource operation succeeds
+- **WHEN** a Workspace Resources operation succeeds and returns updated Workspace snapshots
+- **THEN** Workspace Provisioning SHALL derive the next progress result from the updated Workspace
+- **AND** Workspace Resources MUST NOT write provisioning progress or lifecycle state
+
+#### Scenario: Resource operation fails
+- **WHEN** a Workspace Resources operation returns a `WorkspaceResourceError`
+- **THEN** Workspace Provisioning SHALL map the error using the current provisioning phase and recovery semantics
+- **AND** Workspace Provisioning SHALL decide whether to return a command error, persist a provisioning failure, or continue with non-terminal progress
+- **AND** Workspace Resources MUST NOT persist `last_provisioning_failure`
+
+#### Scenario: Cancellation cleanup succeeds
+- **WHEN** Workspace Provisioning cancels provisioning and Workspace Resources cleanup succeeds
+- **THEN** Workspace Provisioning SHALL set the Workspace lifecycle state to `Draft`
+- **AND** Workspace Provisioning SHALL clear provisioning failure state as needed for a clean draft Workspace
+
+#### Scenario: Cancellation cleanup fails
+- **WHEN** Workspace Provisioning cancels provisioning and Workspace Resources cleanup fails
+- **THEN** Workspace Provisioning SHALL set the Workspace lifecycle state to `Failed`
+- **AND** Workspace Provisioning SHALL persist a cancellation cleanup failure
+- **AND** Workspace Resources MUST NOT set the Workspace lifecycle state to `Failed`
+
+### Requirement: Serverless endpoint provider metadata is part of endpoint state
+Workspace Provisioning SHALL treat optional serverless endpoint provider metadata as provider-specific endpoint management data, not generic provisioning state.
+
+#### Scenario: RunPod endpoint template id is persisted with endpoint
+- **WHEN** RunPod Workspace Resources creates a serverless endpoint
+- **THEN** the resulting serverless endpoint snapshot SHALL include provider metadata containing the RunPod endpoint template identifier
+- **AND** Workspace Provisioning SHALL use that endpoint snapshot as the authoritative cleanup metadata for the RunPod endpoint resource set
+
+#### Scenario: Provider provisioning snapshot is not required
+- **WHEN** Workspace Provisioning syncs or cancels a Workspace
+- **THEN** it SHALL NOT require `provider_provisioning_snapshot` to track RunPod endpoint template cleanup metadata
+- **AND** endpoint provider metadata SHALL replace that provider provisioning snapshot role
