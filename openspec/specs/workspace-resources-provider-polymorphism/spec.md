@@ -77,7 +77,7 @@ Workspace Resources SHALL report provider resource lifecycle failures and uncert
 
 #### Scenario: Cleanup fails
 
-- **WHEN** provider cleanup or required local token cleanup cannot confirm that known resources and credentials were removed
+- **WHEN** provider cleanup or required local token cleanup cannot confirm cleanup of known resources and credentials
 - **THEN** Workspace Resources SHALL return a cleanup failure category
 - **AND** Workspace Provisioning SHALL be able to preserve cleanup metadata for later recovery
 
@@ -103,4 +103,3 @@ Workspace Resources SHALL manage Provisioner Worker bearer token lifecycle aroun
 - **WHEN** token cleanup fails during provisioning pod creation or cancellation cleanup
 - **THEN** Workspace Resources SHALL return a token lifecycle or cleanup category suitable for command mapping or persisted recovery semantics
 - **AND** no command response, persisted failure, log, or error metadata may include the token value
-

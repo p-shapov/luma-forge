@@ -85,7 +85,6 @@ Workspace Provisioning SHALL map `WorkspaceResourceError` into `WorkspaceProvisi
 - **WHEN** Workspace Provisioning receives terminal worker preparation subtype `ProvisionerWorkerAssetDownloadFailed`, `ProvisionerWorkerAssetAuthRequired`, `ProvisionerWorkerPathValidationFailed`, `ProvisionerWorkerStepTimeout`, or `ProvisionerWorkerUnexpectedError` during active provisioning sync
 - **THEN** Workspace Provisioning SHALL persist the corresponding granular `WorkspaceProvisioningFailureCode` when catalog persistence is available
 - **AND** Workspace Provisioning SHALL return authoritative failed Workspace state and failed progress after persistence succeeds
-- **AND** Workspace Provisioning MUST NOT rely on the command boundary's generic `provisioner_worker_failed` fallback for normal sync handling
 
 #### Scenario: Defensive command mapping remains available
 
@@ -96,7 +95,7 @@ Workspace Provisioning SHALL map `WorkspaceResourceError` into `WorkspaceProvisi
 #### Scenario: Mapping is regression tested
 
 - **WHEN** regression tests exercise `WorkspaceResourceError -> WorkspaceProvisioningError`, `WorkspaceProvisioningError -> WorkspaceProvisioningFailure`, and `WorkspaceProvisioningError -> NativeCommandError` conversions
-- **THEN** catalog, secret/keyring, provider API, provider uncertainty, resource lifecycle, worker, worker subtype, and token lifecycle categories SHALL map to the expected command-error, persisted-failure, non-mutating progress, or defensive fallback behavior
+- **THEN** catalog, secret/keyring, provider API, provider uncertainty, resource lifecycle, worker, worker subtype, and token lifecycle categories SHALL map to the expected command-error, persisted-failure, non-mutating progress, or defensive command mapping behavior
 
 ### Requirement: Worker token lifecycle respects provider certainty
 

@@ -6,7 +6,7 @@ TBD - created by archiving change remove-runtime-profiles. Update Purpose after 
 ### Requirement: Parse worker build configuration during native build
 The Native build SHALL NOT parse Provisioner Worker or RunPod Endpoint Worker port or image ref values as native build-time configuration. Worker image refs SHALL be resolved from bundled Runtime Catalog data and Workspace-persisted runtime implementation snapshots, and fixed worker/provider deployment port values SHALL be owned by provisioning/provider implementation code rather than Cargo build environment output.
 
-#### Scenario: Worker ports are absent from build environment
+#### Scenario: Native build starts without worker port environment values
 - **WHEN** the native build starts without `LUMA_FORGE_PROVISIONER_WORKER_PORT` or `LUMA_FORGE_RUNPOD_ENDPOINT_WORKER_PORT`
 - **THEN** the native build SHALL continue without a worker port configuration error
 - **AND** the build MUST NOT emit worker port values through Cargo build environment output
@@ -33,7 +33,7 @@ The Native build SHALL NOT parse Provisioner Worker or RunPod Endpoint Worker po
 
 ### Requirement: Defer fixed RunPod runtime values until provisioning implementation
 
-RunPod runtime values that are not current product choices SHALL be removed from catalog/profile contracts and deferred until provisioning code introduces provider-owned implementation details.
+RunPod runtime values that are provider implementation details SHALL be introduced inside provisioning code when provider-owned implementation needs them.
 
 #### Scenario: RunPod provisioning resources are created
 

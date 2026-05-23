@@ -28,4 +28,4 @@ Workspace Provisioning SHALL keep provider-neutral lifecycle, command, and error
 
 #### Scenario: RunPod behavior is unchanged
 - **WHEN** the selected provider is `runpod`
-- **THEN** Workspace Provisioning SHALL preserve the existing RunPod provisioning sequence, cancellation behavior, durable state transitions, cleanup failure fallback, progress derivation, and command responses
+- **THEN** Workspace Provisioning SHALL preserve the existing RunPod provisioning sequence, cancellation behavior, durable state transitions, cleanup failure handling, progress derivation, and command responses

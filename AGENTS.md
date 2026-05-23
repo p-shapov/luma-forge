@@ -77,6 +77,7 @@ When editing files under those directories, follow both this root file and the n
 - Prefer updating all callers, tests, fixtures, and docs to the current contract.
 - Do not add tests or assertions for removed functionality, removed fields, legacy vocabulary, or absence of deprecated behavior.
 - If old behavior is intentionally removed, delete it directly instead of preserving compatibility code.
+- Spec requirements must describe the current contract directly. Do not add spec scenarios or assertions whose purpose is to guard against deprecated behavior, removed fields, legacy vocabulary, or the absence of old behavior.
 
 ### Simplicity First
 

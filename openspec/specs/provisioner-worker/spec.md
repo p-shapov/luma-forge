@@ -13,7 +13,7 @@ The Provisioner Worker SHALL prepare workspace-specific directories without requ
 - **AND** the Provisioner Worker MUST NOT require Workflow Preset id, Workflow Preset version, workflow execution type, required base volume size, runtime contract reference, provisioner contract reference, resolved runtime image snapshot, resolved provisioner image snapshot, or model asset kind in the start request
 - **AND** the Provisioner Worker MUST NOT start ComfyUI, clone ComfyUI, create a base virtual environment, extract a base runtime archive, run `comfy install`, run pip, clone runtime extensions, install runtime extension dependencies, install ComfyUI base requirements, or write `.luma-forge/runtime-manifest.json` during workspace provisioning
 - **AND** `GET /status` SHALL report a preparation phase while this work is active
-- **AND** current worker status payloads MUST NOT emit obsolete ComfyUI installation phase names such as `installing_comfyui`
+- **AND** current worker status payloads SHALL emit phase names that describe workspace preparation work
 
 #### Scenario: Workspace path preparation fails
 - **WHEN** workspace directory creation fails
@@ -52,7 +52,6 @@ The Provisioner Worker SHALL report UI-safe provisioning job status through `GET
 - **AND** `GET /status` SHALL report terminal failure with UI-safe error metadata
 - **AND** the terminal error metadata SHALL use the standard worker error payload shape with `code` and `message`
 - **AND** the terminal error `code` SHALL be the stable specific worker error classifier
-- **AND** the terminal error metadata MUST NOT include `reason_code`
 - **AND** the response MAY include structured error metadata
 - **AND** the response MUST NOT include provider secrets, tokens, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs
 
@@ -80,5 +79,4 @@ The Provisioner Worker SHALL treat `LUMA_FORGE_WORKSPACE_MOUNT_PATH` as the work
 #### Scenario: Provisioner Worker receives invalid workspace mount path
 - **WHEN** the Provisioner Worker container starts with `LUMA_FORGE_WORKSPACE_MOUNT_PATH` set to an empty, relative, or unsafe path
 - **THEN** the Provisioner Worker SHALL reject the configuration
-- **AND** it MUST NOT prepare files under a fallback path for that invalid configuration
-
+- **AND** workspace preparation SHALL only occur after a valid configured mount path is accepted

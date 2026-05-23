@@ -40,5 +40,4 @@ Workspace records SHALL include a resolved provisioner image snapshot derived fr
 #### Scenario: Provisioner contract cannot resolve
 - **WHEN** Workspace Setup creates a Workspace from a Workflow Preset whose provisioner contract reference cannot be resolved through the bundled Provisioner Catalog
 - **THEN** the Native Layer SHALL reject Workspace creation before persisting a Workspace
-- **AND** it MUST NOT fall back to app-state constants, environment variables, or unversioned default provisioner metadata
-
+- **AND** Workspace creation SHALL use resolved bundled Provisioner Catalog metadata for provisioner image and mount-path decisions

@@ -42,7 +42,6 @@ The Native Layer SHALL log safe lifecycle records for Tauri command execution at
 - **THEN** the Native Layer SHALL log a command failure record
 - **AND** the record SHALL include the command name, operation identifier, failure outcome, elapsed time, and UI-safe native command error metadata
 - **AND** the UI-safe error metadata MAY include error code, retryability, field, and recovery action
-- **AND** the UI-safe error metadata MUST NOT include reason metadata
 
 ### Requirement: Native command logs exclude sensitive values
 
@@ -105,11 +104,10 @@ Native command logging SHALL keep provider-related failures observable through s
 
 - **WHEN** a Tauri command fails because a provider error was mapped into a native command error
 - **THEN** the command failure log MAY include the provider id, command error code, retryability, field, and recovery action
-- **AND** the log MUST NOT include reason metadata, Provider API Keys, bearer headers, raw provider request bodies, raw provider response bodies, provider-specific error codes, stack traces, keyring details, worker bearer tokens, or raw provider error text
+- **AND** the log MUST NOT include Provider API Keys, bearer headers, raw provider request bodies, raw provider response bodies, provider-specific error codes, stack traces, keyring details, worker bearer tokens, or raw provider error text
 
 #### Scenario: Provider request rejection is logged
 
 - **WHEN** a provider request rejection reaches the native command logging boundary
 - **THEN** the log SHALL include only stable UI-safe command metadata such as `provider_request_rejected`, retryability, and recovery action
-- **AND** the log MUST NOT include reason metadata, RunPod-specific rejection messages, raw response payloads, placement request bodies, or secrets
-
+- **AND** the log MUST NOT include RunPod-specific rejection messages, raw response payloads, placement request bodies, or secrets

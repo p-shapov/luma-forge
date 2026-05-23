@@ -211,7 +211,7 @@ The Native Layer SHALL keep generated frontend binding concerns owned by the Tau
 - **AND** Workspace Setup command modules MAY provide command-owned remote generated binding metadata for Workspace Setup domain models
 - **AND** Workspace Setup domain models and services MUST NOT derive `specta::Type`
 - **AND** Workspace Setup command payload shape changes SHALL be reflected in generated TypeScript bindings and the corresponding Workspace Setup specification delta
-- **AND** generated Workspace Setup bindings MUST NOT expose Provisioning Profile or Endpoint Profile command types after profiles are removed
+- **AND** generated Workspace Setup bindings SHALL expose current Workspace Setup command types only
 
 ### Requirement: Workspace Provisioning command DTOs own generated binding concerns
 
@@ -300,7 +300,7 @@ Workspace catalog persistence SHALL serialize and deserialize domain Workspace r
 
 ### Requirement: Domain modules do not use broad unused-code suppressions
 
-Native domain modules MUST NOT use broad `#[allow(dead_code)]` or `#![allow(dead_code)]` workarounds. Domain types, functions, and modules SHALL either participate in live application behavior, represent spec-defined near-term domain vocabulary with a targeted explanatory `#[allow(dead_code)]`, or be removed until live behavior requires them.
+Native domain modules MUST NOT use broad `#[allow(dead_code)]` or `#![allow(dead_code)]` workarounds. Domain types, functions, and modules SHALL either participate in live application behavior or represent spec-defined near-term domain vocabulary with a targeted explanatory `#[allow(dead_code)]`.
 
 #### Scenario: Domain code is introduced
 
@@ -311,7 +311,7 @@ Native domain modules MUST NOT use broad `#[allow(dead_code)]` or `#![allow(dead
 #### Scenario: Domain code is no longer used
 
 - **WHEN** a native domain type, function, or module is no longer used by live native application behavior
-- **THEN** it SHALL be removed or reconnected to the behavior that owns its invariant
+- **THEN** it SHALL be reconnected to the behavior that owns its invariant or deleted
 - **AND** it MUST NOT remain in the domain as speculative placeholder code behind a broad `dead_code` allowance
 
 #### Scenario: Spec-defined lifecycle vocabulary is ahead of implementation
@@ -395,13 +395,13 @@ The Native Layer SHALL keep Workspace Setup orchestration code and Workspace Cat
 
 - **WHEN** native Workspace Setup service code is compiled
 - **THEN** the service, setup input contracts, setup error type, and setup-focused tests SHALL be owned by a `workspace_setup` native module directory
-- **AND** production Workspace Setup imports MUST NOT use obsolete flat `crate::workspace::workspace_setup_*` module paths
+- **AND** production Workspace Setup imports SHALL use the `workspace_setup` native module directory
 
 #### Scenario: Workspace catalog module owns persistence
 
 - **WHEN** native Workspace Catalog persistence code is compiled
 - **THEN** the repository trait, unavailable repository adapter, SQLite implementation, and catalog persistence tests SHALL be owned by a `workspace_catalog` native module directory
-- **AND** production Workspace Catalog imports MUST NOT use obsolete flat `crate::workspace::workspace_catalog_*` module paths
+- **AND** production Workspace Catalog imports SHALL use the `workspace_catalog` native module directory
 
 #### Scenario: Public behavior remains compatible
 
@@ -566,7 +566,7 @@ The Native command error contract SHALL remain generated from the Tauri command 
 
 #### Scenario: Command error codes change
 
-- **WHEN** a native command error code or error metadata field is added, removed, or renamed
+- **WHEN** a native command error code or error metadata field changes
 - **THEN** generated TypeScript command bindings SHALL be regenerated
 - **AND** the reference native contract SHALL be updated to match the generated contract
 - **AND** command mapping tests SHALL prove every native use-case error maps to a UI-safe command error
@@ -597,13 +597,13 @@ The Native command boundary SHALL expose RunPod endpoint template metadata to Re
 
 #### Scenario: Generated bindings are exported
 - **WHEN** generated TypeScript command bindings are exported for Workspace payloads
-- **THEN** the exported RunPod endpoint template snapshot type SHALL NOT contain a `runtime_env` field
+- **THEN** the exported RunPod endpoint template snapshot type SHALL use the same UI-safe template metadata shape as Workspace command responses
 - **AND** React MUST NOT depend on endpoint template environment maps for provisioning state, cleanup state, or readiness state
 
-#### Scenario: Legacy Workspace metadata is mapped to a command response
-- **WHEN** the command boundary maps a Workspace loaded from legacy metadata that included RunPod template runtime environment values
+#### Scenario: Workspace metadata is mapped to a command response
+- **WHEN** the command boundary maps a Workspace loaded from persisted metadata that includes RunPod template runtime environment values
 - **THEN** the command response SHALL omit those runtime environment values
-- **AND** no command response, command error, log, or metadata SHALL expose the legacy values
+- **AND** no command response, command error, log, or metadata SHALL expose those values
 
 ### Requirement: Provider resource contracts are use-case independent
 
@@ -892,4 +892,3 @@ Bundled catalog loading infrastructure SHALL own parsing and validation for the 
 - **WHEN** Native application state constructs Workspace Provisioning services
 - **THEN** it SHALL provide catalog readers and persisted Workspace access needed to resolve and use provisioner snapshots
 - **AND** it MUST NOT own production Provisioner Worker image refs or hard-coded provisioning mount paths as app-state constants
-
