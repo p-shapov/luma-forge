@@ -53,7 +53,9 @@ pub(in crate::workspace_setup) fn workspace_setup_error_from_client_error(
     error: ProviderClientError,
 ) -> WorkspaceSetupError {
     match error {
-        ProviderClientError::Unauthorized => WorkspaceSetupError::ProviderApiKeyUnauthorized,
+        ProviderClientError::Unauthorized | ProviderClientError::InsufficientPermissions => {
+            WorkspaceSetupError::ProviderApiKeyUnauthorized
+        }
         ProviderClientError::ApiUnavailable => WorkspaceSetupError::ProviderApiUnavailable,
         ProviderClientError::RateLimited => WorkspaceSetupError::ProviderRateLimited,
         ProviderClientError::RequestRejected => WorkspaceSetupError::ProviderRequestRejected,

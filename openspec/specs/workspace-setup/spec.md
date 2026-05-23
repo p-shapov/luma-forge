@@ -11,15 +11,15 @@ The Native Layer SHALL expose a command that returns the bundled Workflow Catalo
 - **THEN** the Native Layer SHALL return a Workflow Catalog containing selectable Workflow Presets
 - **AND** every returned Workflow Preset SHALL include a required runtime contract reference instead of direct Endpoint Worker image refs or ComfyUI Git source fields
 - **AND** every returned Workflow Preset SHALL include a required provisioner contract reference instead of direct Provisioner Worker image refs, volume mount paths, or unversioned provisioning defaults
-- **AND** every returned model asset SHALL include public Hugging Face download metadata with repository id, file path, revision, and explicit ComfyUI-relative install path
-- **AND** every returned model asset MUST NOT include extra app-owned asset metadata
+- **AND** every returned Workflow Preset SHALL include a `requires_hugging_face_api_key` flag
+- **AND** every returned model asset SHALL include Hugging Face download metadata with repository id, file path, revision, and explicit ComfyUI-relative install path
+- **AND** every returned model asset MUST NOT include raw Hugging Face API keys, credential-bearing URLs, provider secrets, worker bearer tokens, or runtime-provisioned asset metadata
 - **AND** the Workflow Catalog MUST NOT expose runtime-provisioned runtime extension declarations
-- **AND** the response MUST NOT read or mutate the Workspace Catalog
 
 #### Scenario: Workflow Catalog is unavailable or invalid
 - **WHEN** the Client requests the Workflow Catalog and the bundled catalog is unavailable, unreadable, empty, internally inconsistent, or contains unsafe or malformed Workflow Preset surface data
 - **THEN** the Native Layer SHALL reject the request with `workflow_catalog_unavailable`
-- **AND** the Native Layer MUST NOT mutate the Workspace Catalog
+- **AND** the Native Layer MUST NOT return partial catalog data
 
 ### Requirement: Create Workspace with resolved provisioner image
 Workspace Setup SHALL resolve and snapshot the selected Workflow Preset's provisioner contract when creating a Workspace.
@@ -54,4 +54,17 @@ The bundled Workflow Catalog SHALL expose `comfyui-hidream-o1-dev` as the suppor
 - **AND** it SHALL declare the Gemma text encoder asset from `Comfy-Org/gemma-4`
 - **AND** it SHALL install that text encoder under `models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors`
 - **AND** every declared asset SHALL include a non-empty immutable Hugging Face revision
+
+### Requirement: Declare Hugging Face workflow authentication requirements
+Bundled Workflow Presets SHALL declare whether the workflow requires a configured Hugging Face API key before provisioning can download its model assets.
+
+#### Scenario: Workflow requiring authenticated model assets is declared
+- **WHEN** a bundled Workflow Preset includes a Hugging Face model asset that requires authenticated access
+- **THEN** the Workflow Preset SHALL set `requires_hugging_face_api_key` to `true`
+- **AND** the Workflow Catalog response MUST NOT include raw Hugging Face API keys or credential-bearing download URLs
+
+#### Scenario: Public model asset is declared
+- **WHEN** a bundled Workflow Preset includes a Hugging Face model asset that can be downloaded without authentication
+- **THEN** the Workflow Preset SHALL set `requires_hugging_face_api_key` to `false`
+- **AND** Workspace Setup MUST NOT require Hugging Face setup solely because public Hugging Face assets exist
 

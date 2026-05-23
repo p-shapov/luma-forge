@@ -6,6 +6,7 @@ mod bindings;
 mod builder;
 mod contracts;
 mod error;
+mod hugging_face_setup;
 mod logging;
 mod provider_setup;
 mod workspace;

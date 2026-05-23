@@ -9,13 +9,14 @@ use std::{
 
 use crate::{
     domain::{
+        hugging_face_setup::HuggingFaceApiKey,
         placement::PlacementPlan,
         provider_setup::{GpuCloudProviderId, ProviderApiKey},
         provisioner::ResolvedProvisionerImageSnapshot,
         runtime::ResolvedRuntimeImageSnapshot,
         workflow::{
-            ProvisionerContractReference, RuntimeContractReference, WorkflowExecutionType,
-            WorkflowPreset,
+            ModelAsset, ModelAssetSource, ProvisionerContractReference, RuntimeContractReference,
+            WorkflowExecutionType, WorkflowPreset,
         },
         workspace::{
             PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
@@ -31,7 +32,10 @@ use crate::{
         },
         ProviderClientError,
     },
-    secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+    secrets::{
+        HuggingFaceApiKeyStore, ProviderKeyStore, ProvisionerTokenStore,
+        ProvisionerWorkerBearerToken, SecretStoreError,
+    },
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::WorkspaceResourceContext,
     workspace_setup::error::WorkspaceSetupError,
@@ -494,8 +498,10 @@ pub(super) struct FakeSecretStore {
 #[derive(Debug)]
 struct FakeSecretStoreState {
     api_key: Option<ProviderApiKey>,
+    hugging_face_api_key: Option<HuggingFaceApiKey>,
     write_tokens: Vec<(String, String)>,
     delete_token_calls: Vec<String>,
+    read_hugging_face_key_error: Option<SecretStoreError>,
     write_token_error: Option<SecretStoreError>,
     delete_token_error: Option<SecretStoreError>,
 }
@@ -508,8 +514,10 @@ impl Default for FakeSecretStore {
                     ProviderApiKey::new("rp_test_key".to_string())
                         .expect("test api key should be valid"),
                 ),
+                hugging_face_api_key: None,
                 write_tokens: Vec::new(),
                 delete_token_calls: Vec::new(),
+                read_hugging_face_key_error: None,
                 write_token_error: None,
                 delete_token_error: None,
             })),
@@ -540,9 +548,24 @@ impl FakeSecretStore {
             .expect("fake secret store")
             .delete_token_error = Some(error);
     }
+
+    pub(super) fn set_hugging_face_api_key(&self, value: &str) {
+        self.state
+            .lock()
+            .expect("fake secret store")
+            .hugging_face_api_key =
+            Some(HuggingFaceApiKey::new(value.to_string()).expect("test hugging face key"));
+    }
+
+    pub(super) fn fail_read_hugging_face_api_key(&self, error: SecretStoreError) {
+        self.state
+            .lock()
+            .expect("fake secret store")
+            .read_hugging_face_key_error = Some(error);
+    }
 }
 
-impl SecretStore for FakeSecretStore {
+impl ProviderKeyStore for FakeSecretStore {
     fn has_api_key_entry(
         &self,
         _provider_id: &GpuCloudProviderId,
@@ -580,7 +603,9 @@ impl SecretStore for FakeSecretStore {
         self.state.lock().expect("fake secret store").api_key = None;
         Ok(())
     }
+}
 
+impl ProvisionerTokenStore for FakeSecretStore {
     fn write_provisioner_worker_token(
         &self,
         workspace_id: &str,
@@ -610,6 +635,44 @@ impl SecretStore for FakeSecretStore {
             Some(error) => Err(error),
             None => Ok(()),
         }
+    }
+}
+
+impl HuggingFaceApiKeyStore for FakeSecretStore {
+    fn has_hugging_face_api_key_entry(&self) -> Result<bool, SecretStoreError> {
+        Ok(self
+            .state
+            .lock()
+            .expect("fake secret store")
+            .hugging_face_api_key
+            .is_some())
+    }
+
+    fn read_hugging_face_api_key(&self) -> Result<Option<HuggingFaceApiKey>, SecretStoreError> {
+        let state = self.state.lock().expect("fake secret store");
+        match state.read_hugging_face_key_error.clone() {
+            Some(error) => Err(error),
+            None => Ok(state.hugging_face_api_key.clone()),
+        }
+    }
+
+    fn replace_hugging_face_api_key(
+        &self,
+        api_key: &HuggingFaceApiKey,
+    ) -> Result<(), SecretStoreError> {
+        self.state
+            .lock()
+            .expect("fake secret store")
+            .hugging_face_api_key = Some(api_key.clone());
+        Ok(())
+    }
+
+    fn delete_hugging_face_api_key(&self) -> Result<(), SecretStoreError> {
+        self.state
+            .lock()
+            .expect("fake secret store")
+            .hugging_face_api_key = None;
+        Ok(())
     }
 }
 
@@ -675,6 +738,7 @@ pub(super) fn workspace() -> Workspace {
         name: "Preset".to_string(),
         workflow_execution_type: WorkflowExecutionType::T2i,
         required_base_volume_size_bytes: 1,
+        requires_hugging_face_api_key: false,
         runtime_contract: RuntimeContractReference {
             id: "runtime".to_string(),
             version: "1.0.0".to_string(),
@@ -713,6 +777,28 @@ pub(super) fn workspace() -> Workspace {
     )
     .expect("test workspace should be valid");
     workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+    workspace
+}
+
+pub(super) fn workspace_requiring_hugging_face_api_key() -> Workspace {
+    let mut workspace = workspace();
+    let mut preset = workspace.placement_plan.selected_workflow_preset().clone();
+    preset.requires_hugging_face_api_key = true;
+    preset.required_model_assets.push(ModelAsset {
+        id: "asset-1".to_string(),
+        name: "Private model".to_string(),
+        download_source: ModelAssetSource::Huggingface {
+            repository_id: "owner/private-model".to_string(),
+            file_path: "model.safetensors".to_string(),
+            revision: "main".to_string(),
+        },
+        install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
+    });
+    let PlacementPlan::Runpod {
+        selected_workflow_preset,
+        ..
+    } = &mut workspace.placement_plan;
+    *selected_workflow_preset = preset;
     workspace
 }
 

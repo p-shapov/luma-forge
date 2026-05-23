@@ -6,6 +6,7 @@
       "name": "ComfyUI HiDream O1 Dev",
       "workflow_execution_type": "t2i",
       "required_base_volume_size_bytes": 18837849239,
+      "requires_hugging_face_api_key": true,
       "runtime_contract": {
         "id": "comfyui-hidream-o1-dev-python312-cu121",
         "version": "1.0.1"

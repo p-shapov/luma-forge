@@ -52,6 +52,7 @@ mod remote_types {
         ProviderResponseInvalid,
         ProviderOperationConflict,
         ProviderOperationIndeterminate,
+        HuggingFaceApiKeySetupRequired,
         SecureKeyringUnavailable,
         ProvisionerWorkerTokenMissing,
         ProvisionerWorkerTokenInvalid,
@@ -86,6 +87,7 @@ mod remote_types {
         Retry,
         RecoverProviderSetup,
         ReselectPlacement,
+        ConfigureHuggingFaceSetup,
         InspectWorkspaceProvisioning,
         CleanupWorkspaceResources,
     }

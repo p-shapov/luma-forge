@@ -1,5 +1,6 @@
 use crate::{
-    domain::workspace::WorkspaceLifecycleState, secrets::AsyncSecretStore,
+    domain::workspace::WorkspaceLifecycleState,
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::WorkspaceResourceService,
 };
@@ -89,7 +90,7 @@ impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P> {
 
 impl<S, W, R, Q, P> WorkspaceProvisioningService<S, W, R, Q, P>
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,

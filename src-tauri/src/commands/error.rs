@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    provider_setup::ProviderSetupError, workspace_provisioning::WorkspaceProvisioningError,
+    hugging_face_setup::HuggingFaceSetupError, provider_setup::ProviderSetupError,
+    workspace_provisioning::WorkspaceProvisioningError,
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -23,6 +24,14 @@ pub enum NativeCommandErrorCode {
     ProviderIdentityResponseInvalid,
     SecureKeyringUnavailable,
     ProviderSetupRecoveryRequired,
+    HuggingFaceSetupNotFound,
+    HuggingFaceApiKeyRequired,
+    HuggingFaceApiKeyUnauthorized,
+    HuggingFaceApiKeyInsufficientPermissions,
+    StoredHuggingFaceApiKeyInvalid,
+    HuggingFaceApiUnavailable,
+    HuggingFaceRateLimited,
+    HuggingFaceIdentityResponseInvalid,
     WorkflowCatalogUnavailable,
     WorkspaceCatalogUnavailable,
     WorkspaceCatalogStorageUnavailable,
@@ -46,6 +55,7 @@ pub enum NativeCommandErrorCode {
     ProviderOrphanedResources,
     ProviderOperationConflict,
     ProviderOperationIndeterminate,
+    HuggingFaceApiKeySetupRequired,
     CleanupFailed,
     ProvisionerWorkerTokenInvalid,
     ProvisionerWorkerUnauthorized,
@@ -72,6 +82,16 @@ impl NativeCommandErrorCode {
             Self::ProviderIdentityResponseInvalid => "provider_identity_response_invalid",
             Self::SecureKeyringUnavailable => "secure_keyring_unavailable",
             Self::ProviderSetupRecoveryRequired => "provider_setup_recovery_required",
+            Self::HuggingFaceSetupNotFound => "hugging_face_setup_not_found",
+            Self::HuggingFaceApiKeyRequired => "hugging_face_api_key_required",
+            Self::HuggingFaceApiKeyUnauthorized => "hugging_face_api_key_unauthorized",
+            Self::HuggingFaceApiKeyInsufficientPermissions => {
+                "hugging_face_api_key_insufficient_permissions"
+            }
+            Self::StoredHuggingFaceApiKeyInvalid => "stored_hugging_face_api_key_invalid",
+            Self::HuggingFaceApiUnavailable => "hugging_face_api_unavailable",
+            Self::HuggingFaceRateLimited => "hugging_face_rate_limited",
+            Self::HuggingFaceIdentityResponseInvalid => "hugging_face_identity_response_invalid",
             Self::WorkflowCatalogUnavailable => "workflow_catalog_unavailable",
             Self::WorkspaceCatalogUnavailable => "workspace_catalog_unavailable",
             Self::WorkspaceCatalogStorageUnavailable => "workspace_catalog_storage_unavailable",
@@ -95,6 +115,7 @@ impl NativeCommandErrorCode {
             Self::ProviderOrphanedResources => "provider_orphaned_resources",
             Self::ProviderOperationConflict => "provider_operation_conflict",
             Self::ProviderOperationIndeterminate => "provider_operation_indeterminate",
+            Self::HuggingFaceApiKeySetupRequired => "hugging_face_api_key_setup_required",
             Self::CleanupFailed => "cleanup_failed",
             Self::ProvisionerWorkerTokenInvalid => "provisioner_worker_token_invalid",
             Self::ProvisionerWorkerUnauthorized => "provisioner_worker_unauthorized",
@@ -139,6 +160,18 @@ impl From<WorkspaceSetupError> for NativeCommandError {
     }
 }
 
+impl From<HuggingFaceSetupError> for NativeCommandError {
+    fn from(error: HuggingFaceSetupError) -> Self {
+        Self {
+            code: hugging_face_setup_error_code(&error),
+            message: hugging_face_setup_error_message(&error).to_string(),
+            retryable: hugging_face_setup_error_retryable(&error),
+            field: hugging_face_setup_error_field(&error).map(str::to_string),
+            recovery_action: hugging_face_setup_error_recovery_action(&error).map(str::to_string),
+        }
+    }
+}
+
 impl From<WorkspaceProvisioningError> for NativeCommandError {
     fn from(error: WorkspaceProvisioningError) -> Self {
         Self {
@@ -148,6 +181,100 @@ impl From<WorkspaceProvisioningError> for NativeCommandError {
             field: provisioning_error_field(&error).map(str::to_string),
             recovery_action: provisioning_error_recovery_action(&error).map(str::to_string),
         }
+    }
+}
+
+fn hugging_face_setup_error_code(error: &HuggingFaceSetupError) -> NativeCommandErrorCode {
+    match error {
+        HuggingFaceSetupError::HuggingFaceSetupNotFound => {
+            NativeCommandErrorCode::HuggingFaceSetupNotFound
+        }
+        HuggingFaceSetupError::HuggingFaceApiKeyRequired => {
+            NativeCommandErrorCode::HuggingFaceApiKeyRequired
+        }
+        HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized => {
+            NativeCommandErrorCode::HuggingFaceApiKeyUnauthorized
+        }
+        HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            NativeCommandErrorCode::HuggingFaceApiKeyInsufficientPermissions
+        }
+        HuggingFaceSetupError::StoredHuggingFaceApiKeyInvalid => {
+            NativeCommandErrorCode::StoredHuggingFaceApiKeyInvalid
+        }
+        HuggingFaceSetupError::HuggingFaceApiUnavailable => {
+            NativeCommandErrorCode::HuggingFaceApiUnavailable
+        }
+        HuggingFaceSetupError::HuggingFaceRateLimited => {
+            NativeCommandErrorCode::HuggingFaceRateLimited
+        }
+        HuggingFaceSetupError::HuggingFaceIdentityResponseInvalid => {
+            NativeCommandErrorCode::HuggingFaceIdentityResponseInvalid
+        }
+        HuggingFaceSetupError::SecureKeyringUnavailable => {
+            NativeCommandErrorCode::SecureKeyringUnavailable
+        }
+    }
+}
+
+fn hugging_face_setup_error_retryable(error: &HuggingFaceSetupError) -> bool {
+    matches!(
+        error,
+        HuggingFaceSetupError::HuggingFaceApiUnavailable
+            | HuggingFaceSetupError::HuggingFaceRateLimited
+            | HuggingFaceSetupError::SecureKeyringUnavailable
+    )
+}
+
+fn hugging_face_setup_error_message(error: &HuggingFaceSetupError) -> &'static str {
+    match error {
+        HuggingFaceSetupError::HuggingFaceSetupNotFound => {
+            "Hugging Face API key setup was not found."
+        }
+        HuggingFaceSetupError::HuggingFaceApiKeyRequired => "Hugging Face API key is required.",
+        HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized => {
+            "Hugging Face API key is not authorized."
+        }
+        HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            "Hugging Face API key has insufficient permissions."
+        }
+        HuggingFaceSetupError::StoredHuggingFaceApiKeyInvalid => {
+            "Stored Hugging Face API key is invalid."
+        }
+        HuggingFaceSetupError::HuggingFaceApiUnavailable => "Hugging Face API is unavailable.",
+        HuggingFaceSetupError::HuggingFaceRateLimited => "Hugging Face API is rate limited.",
+        HuggingFaceSetupError::HuggingFaceIdentityResponseInvalid => {
+            "Hugging Face identity response is invalid."
+        }
+        HuggingFaceSetupError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
+    }
+}
+
+fn hugging_face_setup_error_field(error: &HuggingFaceSetupError) -> Option<&'static str> {
+    match error {
+        HuggingFaceSetupError::HuggingFaceApiKeyRequired
+        | HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized
+        | HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            Some("hugging_face_api_key")
+        }
+        _ => None,
+    }
+}
+
+fn hugging_face_setup_error_recovery_action(error: &HuggingFaceSetupError) -> Option<&'static str> {
+    match error {
+        HuggingFaceSetupError::HuggingFaceSetupNotFound => Some("refresh_hugging_face_setup"),
+        HuggingFaceSetupError::HuggingFaceApiKeyRequired
+        | HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized
+        | HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions => {
+            Some("enter_hugging_face_api_key")
+        }
+        HuggingFaceSetupError::StoredHuggingFaceApiKeyInvalid
+        | HuggingFaceSetupError::HuggingFaceIdentityResponseInvalid => {
+            Some("recover_hugging_face_setup")
+        }
+        HuggingFaceSetupError::HuggingFaceApiUnavailable
+        | HuggingFaceSetupError::HuggingFaceRateLimited
+        | HuggingFaceSetupError::SecureKeyringUnavailable => Some("retry"),
     }
 }
 
@@ -459,6 +586,9 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         WorkspaceProvisioningError::ProviderOperationIndeterminate => {
             NativeCommandErrorCode::ProviderOperationIndeterminate
         }
+        WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired => {
+            NativeCommandErrorCode::HuggingFaceApiKeySetupRequired
+        }
         WorkspaceProvisioningError::CleanupFailed => NativeCommandErrorCode::CleanupFailed,
         WorkspaceProvisioningError::SecureKeyringUnavailable => {
             NativeCommandErrorCode::SecureKeyringUnavailable
@@ -543,6 +673,9 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
         WorkspaceProvisioningError::ProviderOperationIndeterminate => {
             "Provider operation result is indeterminate."
         }
+        WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired => {
+            "Hugging Face API key setup is required."
+        }
         WorkspaceProvisioningError::CleanupFailed => "Workspace resource cleanup failed.",
         WorkspaceProvisioningError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
         WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid => {
@@ -568,6 +701,7 @@ fn provisioning_error_field(error: &WorkspaceProvisioningError) -> Option<&'stat
     match error {
         WorkspaceProvisioningError::WorkspaceNotFound => Some("workspace_id"),
         WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("provider_api_key"),
+        WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired => Some("hugging_face_api_key"),
         _ => None,
     }
 }
@@ -594,6 +728,9 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         }
         WorkspaceProvisioningError::ProviderSetupIncomplete
         | WorkspaceProvisioningError::ProviderApiKeyUnauthorized => Some("recover_provider_setup"),
+        WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired => {
+            Some("configure_hugging_face_setup")
+        }
         WorkspaceProvisioningError::ProviderRequestRejected => Some("reselect_placement"),
         WorkspaceProvisioningError::ProviderResponseInvalid
         | WorkspaceProvisioningError::ProviderResourceNotFound
@@ -610,6 +747,57 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hugging_face_setup_errors_map_to_safe_command_errors() {
+        for (error, code, retryable, field, recovery_action) in [
+            (
+                HuggingFaceSetupError::HuggingFaceApiKeyRequired,
+                NativeCommandErrorCode::HuggingFaceApiKeyRequired,
+                false,
+                Some("hugging_face_api_key"),
+                "enter_hugging_face_api_key",
+            ),
+            (
+                HuggingFaceSetupError::HuggingFaceApiKeyUnauthorized,
+                NativeCommandErrorCode::HuggingFaceApiKeyUnauthorized,
+                false,
+                Some("hugging_face_api_key"),
+                "enter_hugging_face_api_key",
+            ),
+            (
+                HuggingFaceSetupError::HuggingFaceApiKeyInsufficientPermissions,
+                NativeCommandErrorCode::HuggingFaceApiKeyInsufficientPermissions,
+                false,
+                Some("hugging_face_api_key"),
+                "enter_hugging_face_api_key",
+            ),
+            (
+                HuggingFaceSetupError::HuggingFaceApiUnavailable,
+                NativeCommandErrorCode::HuggingFaceApiUnavailable,
+                true,
+                None,
+                "retry",
+            ),
+            (
+                HuggingFaceSetupError::HuggingFaceIdentityResponseInvalid,
+                NativeCommandErrorCode::HuggingFaceIdentityResponseInvalid,
+                false,
+                None,
+                "recover_hugging_face_setup",
+            ),
+        ] {
+            let command_error = NativeCommandError::from(error);
+
+            assert_eq!(command_error.code, code);
+            assert_eq!(command_error.retryable, retryable);
+            assert_eq!(command_error.field.as_deref(), field);
+            assert_eq!(
+                command_error.recovery_action.as_deref(),
+                Some(recovery_action)
+            );
+        }
+    }
 
     #[test]
     fn provisioning_catalog_errors_map_to_granular_command_errors() {

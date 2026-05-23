@@ -4,7 +4,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::{provider_setup::GpuCloudProviderId, workspace::Workspace},
-    secrets::AsyncSecretStore,
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -82,7 +82,7 @@ impl WorkspaceResourceProviderRegistry {
 
 impl<S, W> WorkspaceResourceProviderResolver<S, W> for WorkspaceResourceProviderRegistry
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
 {
     fn for_provider(
@@ -99,14 +99,18 @@ where
 mod tests {
     use super::*;
     use crate::{
+        domain::hugging_face_setup::HuggingFaceApiKey,
         domain::provider_setup::ProviderApiKey,
-        secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
+        secrets::{
+            HuggingFaceApiKeyStore, ProviderKeyStore, ProvisionerTokenStore,
+            ProvisionerWorkerBearerToken, SecretStoreError,
+        },
     };
 
     #[derive(Debug)]
     struct TestSecretStore;
 
-    impl SecretStore for TestSecretStore {
+    impl ProviderKeyStore for TestSecretStore {
         fn has_api_key_entry(
             &self,
             _provider_id: &GpuCloudProviderId,
@@ -135,7 +139,9 @@ mod tests {
         ) -> Result<(), SecretStoreError> {
             Ok(())
         }
+    }
 
+    impl ProvisionerTokenStore for TestSecretStore {
         fn write_provisioner_worker_token(
             &self,
             _workspace_id: &str,
@@ -155,6 +161,27 @@ mod tests {
             &self,
             _workspace_id: &str,
         ) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+    }
+
+    impl HuggingFaceApiKeyStore for TestSecretStore {
+        fn has_hugging_face_api_key_entry(&self) -> Result<bool, SecretStoreError> {
+            Ok(false)
+        }
+
+        fn read_hugging_face_api_key(&self) -> Result<Option<HuggingFaceApiKey>, SecretStoreError> {
+            Ok(None)
+        }
+
+        fn replace_hugging_face_api_key(
+            &self,
+            _api_key: &HuggingFaceApiKey,
+        ) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+
+        fn delete_hugging_face_api_key(&self) -> Result<(), SecretStoreError> {
             Ok(())
         }
     }

@@ -1,6 +1,6 @@
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceProvisioningPhase},
-    secrets::{AsyncSecretStore, SecretStoreError},
+    secrets::{AsyncProvisionerTokenStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -43,7 +43,7 @@ impl WorkspaceProvisionerService {
         workspace: &mut Workspace,
     ) -> WorkspaceProvisionerSyncResult
     where
-        S: AsyncSecretStore,
+        S: AsyncProvisionerTokenStore,
         W: WorkspaceCatalogRepository,
         R: ProvisionerWorkerGateway,
     {
@@ -99,12 +99,9 @@ impl WorkspaceProvisionerService {
                     .start(
                         &active_pod.provisioner_status_url,
                         &token,
-                        &ProvisionerWorkerStartRequest::from_model_assets(
+                        &ProvisionerWorkerStartRequest::from_workflow_preset(
                             workspace.id.clone(),
-                            &workspace
-                                .placement_plan
-                                .selected_workflow_preset()
-                                .required_model_assets,
+                            workspace.placement_plan.selected_workflow_preset(),
                         ),
                     )
                     .await
@@ -205,7 +202,7 @@ mod tests {
     use crate::{
         domain::{
             placement::PlacementPlan,
-            provider_setup::{GpuCloudProviderId, ProviderApiKey},
+            provider_setup::GpuCloudProviderId,
             provisioner::ResolvedProvisionerImageSnapshot,
             runtime::ResolvedRuntimeImageSnapshot,
             workflow::{
@@ -217,7 +214,7 @@ mod tests {
                 WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
             },
         },
-        secrets::{ProvisionerWorkerBearerToken, SecretStore},
+        secrets::{ProvisionerTokenStore, ProvisionerWorkerBearerToken},
         workspace_setup::error::WorkspaceSetupError,
     };
     use std::{
@@ -248,36 +245,7 @@ mod tests {
         }
     }
 
-    impl SecretStore for FakeSecretStore {
-        fn has_api_key_entry(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-        ) -> Result<bool, SecretStoreError> {
-            Ok(false)
-        }
-
-        fn read_api_key(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-        ) -> Result<Option<ProviderApiKey>, SecretStoreError> {
-            Ok(None)
-        }
-
-        fn replace_api_key(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-            _api_key: &ProviderApiKey,
-        ) -> Result<(), SecretStoreError> {
-            Ok(())
-        }
-
-        fn delete_api_key(
-            &self,
-            _provider_id: &GpuCloudProviderId,
-        ) -> Result<(), SecretStoreError> {
-            Ok(())
-        }
-
+    impl ProvisionerTokenStore for FakeSecretStore {
         fn write_provisioner_worker_token(
             &self,
             _workspace_id: &str,
@@ -494,6 +462,7 @@ mod tests {
             name: "Preset".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 1,
+            requires_hugging_face_api_key: false,
             runtime_contract: RuntimeContractReference {
                 id: "runtime".to_string(),
                 version: "1.0.0".to_string(),
@@ -755,8 +724,9 @@ mod tests {
             request_json,
             serde_json::json!({
                 "job_id": "workspace-1",
-                "workflow_preset": {
-                    "required_model_assets": [
+                    "workflow_preset": {
+                        "requires_hugging_face_api_key": false,
+                        "required_model_assets": [
                         {
                             "id": "model-1",
                             "name": "Model One",

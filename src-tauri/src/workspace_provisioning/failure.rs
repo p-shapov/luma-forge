@@ -12,6 +12,17 @@ pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvis
     workspace.last_provisioning_failure = Some(failure);
 }
 
+pub(crate) fn hugging_face_api_key_setup_required(
+    phase: WorkspaceProvisioningPhase,
+) -> WorkspaceProvisioningFailure {
+    WorkspaceProvisioningFailure {
+        code: WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired,
+        phase,
+        source: WorkspaceProvisioningFailureSource::Native,
+        recovery_action: WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup,
+    }
+}
+
 pub(crate) fn provider_resource_failure(
     phase: WorkspaceProvisioningPhase,
     status: &ProviderResourceStatus,
@@ -93,6 +104,11 @@ pub(crate) fn provisioning_error(
             WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
             WorkspaceProvisioningFailureSource::Provider,
             WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        ),
+        WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired => (
+            WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired,
+            WorkspaceProvisioningFailureSource::Native,
+            WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup,
         ),
         WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid => (
             WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenInvalid,

@@ -23,6 +23,7 @@ PORT_ENV = "LUMA_FORGE_PROVISIONER_PORT"
 MAX_REQUEST_BYTES_ENV = "LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES"
 DOWNLOAD_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS"
 WORKSPACE_MOUNT_PATH_ENV = "LUMA_FORGE_WORKSPACE_MOUNT_PATH"
+HUGGING_FACE_API_KEY_ENV = "LUMA_FORGE_HUGGING_FACE_API_KEY"
 
 _DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
@@ -50,6 +51,7 @@ class WorkerConfig:
     max_request_bytes: int
     download_timeout_seconds: float
     workspace_mount_path: Path
+    hugging_face_api_key: str | None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
@@ -79,6 +81,7 @@ class WorkerConfig:
                 maximum=MAX_TIMEOUT_SECONDS,
             ),
             workspace_mount_path=_parse_workspace_mount_path(source),
+            hugging_face_api_key=_parse_optional_secret(source, HUGGING_FACE_API_KEY_ENV),
         )
 
 
@@ -125,6 +128,14 @@ def _parse_host(env: Mapping[str, str]) -> str:
 
 def _parse_workspace_mount_path(env: Mapping[str, str]) -> Path:
     return _parse_absolute_path(env, WORKSPACE_MOUNT_PATH_ENV, DEFAULT_WORKSPACE_MOUNT_PATH)
+
+
+def _parse_optional_secret(env: Mapping[str, str], name: str) -> str | None:
+    raw = env.get(name)
+    if raw is None:
+        return None
+    value = raw.strip()
+    return value or None
 
 
 def _parse_absolute_path(env: Mapping[str, str], name: str, default: str) -> Path:

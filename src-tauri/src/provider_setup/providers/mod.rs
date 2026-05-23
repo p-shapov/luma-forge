@@ -45,7 +45,9 @@ pub(in crate::provider_setup) fn provider_setup_error_from_client_error(
     error: ProviderClientError,
 ) -> ProviderSetupError {
     match error {
-        ProviderClientError::Unauthorized => ProviderSetupError::ProviderApiKeyUnauthorized,
+        ProviderClientError::Unauthorized | ProviderClientError::InsufficientPermissions => {
+            ProviderSetupError::ProviderApiKeyUnauthorized
+        }
         ProviderClientError::ApiUnavailable | ProviderClientError::RateLimited => {
             ProviderSetupError::ProviderApiUnavailable
         }

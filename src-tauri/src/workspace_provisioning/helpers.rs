@@ -62,6 +62,8 @@ pub enum WorkspaceProvisioningError {
     ProviderOperationConflict,
     #[error("provider operation indeterminate")]
     ProviderOperationIndeterminate,
+    #[error("hugging face api key setup is required")]
+    HuggingFaceApiKeySetupRequired,
     #[error("secure keyring unavailable")]
     SecureKeyringUnavailable,
     #[error("provisioner worker token invalid")]
@@ -87,6 +89,9 @@ impl From<SecretStoreError> for WorkspaceProvisioningError {
             SecretStoreError::InvalidStoredProviderApiKey => Self::ProviderSetupIncomplete,
             SecretStoreError::InvalidStoredProvisionerWorkerToken => {
                 Self::ProvisionerWorkerTokenInvalid
+            }
+            SecretStoreError::InvalidStoredHuggingFaceApiKey => {
+                Self::HuggingFaceApiKeySetupRequired
             }
         }
     }
@@ -122,6 +127,9 @@ impl From<WorkspaceResourceError> for WorkspaceProvisioningError {
             WorkspaceResourceError::ProviderOperationConflict => Self::ProviderOperationConflict,
             WorkspaceResourceError::ProviderOperationIndeterminate => {
                 Self::ProviderOperationIndeterminate
+            }
+            WorkspaceResourceError::HuggingFaceApiKeySetupRequired => {
+                Self::HuggingFaceApiKeySetupRequired
             }
             WorkspaceResourceError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
             WorkspaceResourceError::ProvisionerWorkerTokenInvalid => {
@@ -598,6 +606,14 @@ mod tests {
         ] {
             assert_eq!(WorkspaceProvisioningError::from(resource_error), expected);
         }
+    }
+
+    #[test]
+    fn invalid_stored_hugging_face_key_maps_to_setup_required() {
+        assert_eq!(
+            WorkspaceProvisioningError::from(SecretStoreError::InvalidStoredHuggingFaceApiKey),
+            WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired
+        );
     }
 
     #[test]

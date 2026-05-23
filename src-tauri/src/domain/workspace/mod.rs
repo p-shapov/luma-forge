@@ -99,6 +99,7 @@ pub enum WorkspaceProvisioningFailureCode {
     ProviderResponseInvalid,
     ProviderOperationConflict,
     ProviderOperationIndeterminate,
+    HuggingFaceApiKeySetupRequired,
     SecureKeyringUnavailable,
     ProvisionerWorkerTokenMissing,
     ProvisionerWorkerTokenInvalid,
@@ -131,6 +132,7 @@ pub enum WorkspaceProvisioningRecoveryAction {
     Retry,
     RecoverProviderSetup,
     ReselectPlacement,
+    ConfigureHuggingFaceSetup,
     InspectWorkspaceProvisioning,
     CleanupWorkspaceResources,
 }

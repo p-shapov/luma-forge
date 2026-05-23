@@ -1,5 +1,8 @@
 use crate::{
-    domain::{provider_setup::GpuCloudProviderId, workspace::ProviderResourceStatus},
+    domain::{
+        hugging_face_setup::HuggingFaceApiKey, provider_setup::GpuCloudProviderId,
+        workspace::ProviderResourceStatus,
+    },
     secrets::ProvisionerWorkerBearerToken,
 };
 
@@ -32,6 +35,7 @@ pub(crate) struct CreateProvisioningPodInput {
     pub(crate) network_volume_id: String,
     pub(crate) mount_path: String,
     pub(crate) bearer_token: ProvisionerWorkerBearerToken,
+    pub(crate) hugging_face_api_key: Option<HuggingFaceApiKey>,
 }
 
 #[derive(Debug, Clone)]

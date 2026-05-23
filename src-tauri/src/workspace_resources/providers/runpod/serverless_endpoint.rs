@@ -3,7 +3,7 @@ use crate::{
         placement::PlacementPlan,
         workspace::{ProviderResourceStatus, Workspace},
     },
-    secrets::AsyncSecretStore,
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore},
     workspace_resources::contracts::{
         CreateEndpointTemplateInput, DiscoverEndpointTemplatesInput, EndpointTemplateObservation,
     },
@@ -20,7 +20,7 @@ pub(crate) async fn create<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -91,7 +91,7 @@ pub(crate) async fn observe<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -128,7 +128,7 @@ async fn ensure_ready_template<S, W, C>(
     workspace: &Workspace,
 ) -> Result<Option<EndpointTemplateObservation>, WorkspaceResourceError>
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

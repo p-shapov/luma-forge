@@ -3,7 +3,10 @@ use crate::{
         placement::PlacementPlan,
         workspace::{ProviderResourceStatus, ProvisioningPodSnapshot, Workspace},
     },
-    secrets::{AsyncSecretStore, ProvisionerWorkerBearerToken},
+    secrets::{
+        AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore, AsyncProvisionerTokenStore,
+        ProvisionerWorkerBearerToken,
+    },
     workspace_resources::{
         state::observed_provisioning_pod_snapshot, CreateProvisioningPodInput,
         DiscoverProvisioningPodsInput, ObserveProvisioningPodInput, WorkspaceResourceError,
@@ -18,7 +21,7 @@ pub(crate) async fn create<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -41,6 +44,22 @@ where
     if !discovered_pods.is_empty() {
         return Err(WorkspaceResourceError::ProviderOrphanedResources);
     }
+    let requires_hugging_face_api_key = workspace
+        .placement_plan
+        .selected_workflow_preset()
+        .requires_hugging_face_api_key;
+    let hugging_face_api_key = if requires_hugging_face_api_key {
+        Some(
+            context
+                .secrets
+                .read_hugging_face_api_key()
+                .await
+                .map_err(WorkspaceResourceError::from)?
+                .ok_or(WorkspaceResourceError::HuggingFaceApiKeySetupRequired)?,
+        )
+    } else {
+        None
+    };
 
     let token = ProvisionerWorkerBearerToken::new(uuid::Uuid::new_v4().to_string())
         .map_err(|_| WorkspaceResourceError::ProvisionerWorkerTokenInvalid)?;
@@ -58,6 +77,7 @@ where
             network_volume_id,
             mount_path: provisioner_image.volume_mount_path.clone(),
             bearer_token: token,
+            hugging_face_api_key,
         })
         .await
     {
@@ -94,7 +114,7 @@ pub(crate) async fn observe<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -125,7 +145,7 @@ pub(crate) async fn delete<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -161,7 +181,7 @@ async fn handle_pod_create_error_after_token_write<S, W, C>(
     error: WorkspaceResourceError,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncSecretStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -188,7 +208,7 @@ async fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &Workspace,
 ) where
-    S: AsyncSecretStore,
+    S: AsyncProvisionerTokenStore,
 {
     let _ = context
         .secrets
@@ -199,7 +219,9 @@ async fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace_resources::providers::runpod::test_support::*;
+    use crate::{
+        secrets::SecretStoreError, workspace_resources::providers::runpod::test_support::*,
+    };
 
     #[tokio::test]
     async fn create_uses_cheapest_cpu_policy_without_selected_gpu() {
@@ -236,5 +258,91 @@ mod tests {
         assert_eq!(payload["networkVolumeId"], "volume-1");
         assert_eq!(payload["volumeMountPath"], "/workspace");
         assert_eq!(payload["ports"], serde_json::json!(["8000/http"]));
+        assert!(payload["env"]
+            .get("LUMA_FORGE_HUGGING_FACE_API_KEY")
+            .is_none());
+        let serialized_workspace = serde_json::to_string(&workspace).expect("serialize workspace");
+        assert!(!serialized_workspace.contains("hf_secret"));
+    }
+
+    #[tokio::test]
+    async fn create_injects_hugging_face_api_key_only_when_workflow_requires_it() {
+        let secrets = FakeSecretStore::default();
+        secrets.set_hugging_face_api_key("hf_secret");
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace_requiring_hugging_face_api_key();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+        client.push_create_pod(Ok(runpod_pod(
+            "pod-1",
+            ProviderResourceStatus::Running,
+            Some("https://pod/status"),
+        )));
+
+        create(&runpod_context, &mut workspace)
+            .await
+            .expect("provisioning pod create should succeed");
+
+        let calls = client.calls();
+        let RunPodCall::CreatePod(request) = &calls[1] else {
+            panic!("expected create pod call");
+        };
+        assert_eq!(
+            request.env.get("LUMA_FORGE_HUGGING_FACE_API_KEY"),
+            Some(&"hf_secret".to_string())
+        );
+        let serialized_workspace = serde_json::to_string(&workspace).expect("serialize workspace");
+        assert!(!serialized_workspace.contains("hf_secret"));
+    }
+
+    #[tokio::test]
+    async fn create_rejects_required_hugging_face_key_missing_before_pod_create() {
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace_requiring_hugging_face_api_key();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+
+        let error = create(&runpod_context, &mut workspace)
+            .await
+            .expect_err("missing key should reject create");
+
+        assert_eq!(
+            error,
+            WorkspaceResourceError::HuggingFaceApiKeySetupRequired
+        );
+        assert_eq!(client.calls().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_maps_invalid_stored_hugging_face_key_to_setup_required() {
+        let secrets = FakeSecretStore::default();
+        secrets.fail_read_hugging_face_api_key(SecretStoreError::InvalidStoredHuggingFaceApiKey);
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace_requiring_hugging_face_api_key();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+
+        let error = create(&runpod_context, &mut workspace)
+            .await
+            .expect_err("invalid stored key should require setup recovery");
+
+        assert_eq!(
+            error,
+            WorkspaceResourceError::HuggingFaceApiKeySetupRequired
+        );
+        assert_eq!(client.calls().len(), 1);
     }
 }

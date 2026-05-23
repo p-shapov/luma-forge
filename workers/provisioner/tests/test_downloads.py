@@ -46,6 +46,23 @@ class PublicFileDownloaderTests(unittest.TestCase):
             self.assertFalse(hub_download.calls[0]["token"])
             self.assertTrue(target.is_file())
 
+    def test_uses_configured_token_for_authenticated_asset(self):
+        request = parse_start_request(start_payload())
+        asset = request.workflow_preset.required_model_assets[0]
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "models/checkpoints/model.safetensors"
+            hub_download = FakeHubDownload()
+
+            PublicFileDownloader(hub_download).download(
+                asset,
+                target,
+                timeout_seconds=None,
+                hugging_face_api_key="test-hugging-face-key",
+            )
+
+            self.assertEqual(hub_download.calls[0]["token"], "test-hugging-face-key")
+            self.assertTrue(target.is_file())
+
     def test_uses_hub_returned_target_for_cache_reuse(self):
         request = parse_start_request(start_payload())
         asset = request.workflow_preset.required_model_assets[0]

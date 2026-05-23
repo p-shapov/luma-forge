@@ -1,4 +1,5 @@
 pub mod error;
+pub mod hugging_face_setup;
 pub mod placement;
 pub mod provider_inventory;
 pub mod provider_setup;

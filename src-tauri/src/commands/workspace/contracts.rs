@@ -82,6 +82,7 @@ mod remote_types {
         pub name: String,
         pub workflow_execution_type: domain_workflow::WorkflowExecutionType,
         pub required_base_volume_size_bytes: u64,
+        pub requires_hugging_face_api_key: bool,
         pub runtime_contract: domain_workflow::RuntimeContractReference,
         pub provisioner_contract: domain_provisioner::ProvisionerContractReference,
         pub required_model_assets: Vec<domain_workflow::ModelAsset>,

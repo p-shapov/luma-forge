@@ -41,6 +41,7 @@ pub struct WorkflowPreset {
     pub name: String,
     pub workflow_execution_type: WorkflowExecutionType,
     pub required_base_volume_size_bytes: u64,
+    pub requires_hugging_face_api_key: bool,
     pub runtime_contract: RuntimeContractReference,
     pub provisioner_contract: ProvisionerContractReference,
     pub required_model_assets: Vec<ModelAsset>,
