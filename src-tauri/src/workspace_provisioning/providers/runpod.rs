@@ -94,6 +94,9 @@ where
     Q: WorkspaceProvisioningResources,
 {
     let updated = if workspace.persistent_storage_volume_snapshot.is_none() {
+        if let Some(result) = sync_hugging_face_api_key_setup(context, workspace).await? {
+            return Ok(Some(result));
+        }
         context.resources.create_network_volume(workspace).await?
     } else if workspace
         .persistent_storage_volume_snapshot
@@ -351,33 +354,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sync_creates_network_volume_before_hugging_face_key_check() {
+    async fn sync_fails_before_network_volume_create_when_hugging_face_key_is_missing() {
         let workspace = provisioning_workspace_requiring_hugging_face_api_key();
         let harness = TestHarness::new(workspace.clone());
         let mut workspace = workspace;
-        let mut updated = provisioning_workspace_requiring_hugging_face_api_key();
-        updated.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Creating));
-        harness
-            .resources
-            .push_network_volume_result(Ok(Some(updated)));
 
         let result = super::sync(&harness.context(), &mut workspace)
             .await
-            .expect("sync should succeed")
-            .expect("volume action should return result");
+            .expect("sync should persist missing key failure")
+            .expect("missing key should return failed workspace");
 
-        assert_eq!(harness.resources.calls(), vec!["create_network_volume"]);
-        assert_eq!(harness.secrets.has_hugging_face_key_call_count(), 0);
-        assert_eq!(harness.secrets.read_hugging_face_key_call_count(), 0);
+        assert!(harness.resources.calls().is_empty());
+        assert_eq!(harness.secrets.read_hugging_face_key_call_count(), 1);
         assert_eq!(
             result.workspace.lifecycle_state,
-            WorkspaceLifecycleState::Provisioning
+            WorkspaceLifecycleState::Failed
         );
-        assert!(result.workspace.last_provisioning_failure.is_none());
         assert!(result
             .workspace
             .persistent_storage_volume_snapshot
-            .is_some());
+            .is_none());
+        let failure = result
+            .workspace
+            .last_provisioning_failure
+            .expect("missing key failure should be persisted");
+        assert_eq!(
+            failure.code,
+            WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired
+        );
+        assert_eq!(
+            failure.recovery_action,
+            WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup
+        );
     }
 
     #[tokio::test]
