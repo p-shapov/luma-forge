@@ -1,5 +1,5 @@
 use crate::{
-    domain::workspace::Workspace,
+    domain::workspace::{Workspace, WorkspaceProvisioningPhase},
     secrets::{AsyncHuggingFaceApiKeyStore, AsyncProvisionerTokenStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
@@ -14,6 +14,7 @@ use super::{
 pub(crate) async fn sync_hugging_face_api_key_setup<S, W, R, Q>(
     context: &WorkspaceProvisioningContext<'_, S, W, R, Q>,
     workspace: &mut Workspace,
+    phase: WorkspaceProvisioningPhase,
 ) -> SyncStepResult
 where
     S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
@@ -38,7 +39,7 @@ where
     let mut workspace = workspace.clone();
     failure::fail_workspace(
         &mut workspace,
-        failure::hugging_face_api_key_setup_required(),
+        failure::hugging_face_api_key_setup_required(phase),
     );
     let workspace = context.update_workspace(&workspace).await?;
     Ok(Some(result(workspace)))

@@ -12,10 +12,12 @@ pub(crate) fn fail_workspace(workspace: &mut Workspace, failure: WorkspaceProvis
     workspace.last_provisioning_failure = Some(failure);
 }
 
-pub(crate) fn hugging_face_api_key_setup_required() -> WorkspaceProvisioningFailure {
+pub(crate) fn hugging_face_api_key_setup_required(
+    phase: WorkspaceProvisioningPhase,
+) -> WorkspaceProvisioningFailure {
     WorkspaceProvisioningFailure {
         code: WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired,
-        phase: WorkspaceProvisioningPhase::StartingProvisioningPod,
+        phase,
         source: WorkspaceProvisioningFailureSource::Native,
         recovery_action: WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup,
     }

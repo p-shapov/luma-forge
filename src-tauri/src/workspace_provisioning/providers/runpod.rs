@@ -94,7 +94,13 @@ where
     Q: WorkspaceProvisioningResources,
 {
     let updated = if workspace.persistent_storage_volume_snapshot.is_none() {
-        if let Some(result) = sync_hugging_face_api_key_setup(context, workspace).await? {
+        if let Some(result) = sync_hugging_face_api_key_setup(
+            context,
+            workspace,
+            crate::domain::workspace::WorkspaceProvisioningPhase::CreatingVolume,
+        )
+        .await?
+        {
             return Ok(Some(result));
         }
         context.resources.create_network_volume(workspace).await?
@@ -148,7 +154,13 @@ where
         .as_ref()
         .is_some_and(|snapshot| snapshot.provider_resource_status == ProviderResourceStatus::Ready)
     {
-        if let Some(result) = sync_hugging_face_api_key_setup(context, workspace).await? {
+        if let Some(result) = sync_hugging_face_api_key_setup(
+            context,
+            workspace,
+            crate::domain::workspace::WorkspaceProvisioningPhase::StartingProvisioningPod,
+        )
+        .await?
+        {
             return Ok(Some(result));
         }
         context.resources.create_provisioning_pod(workspace).await?
@@ -382,6 +394,8 @@ mod tests {
             failure.code,
             WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired
         );
+        assert_eq!(failure.phase, WorkspaceProvisioningPhase::CreatingVolume);
+        assert_eq!(failure.source, WorkspaceProvisioningFailureSource::Native);
         assert_eq!(
             failure.recovery_action,
             WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup
