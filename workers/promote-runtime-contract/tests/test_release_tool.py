@@ -296,6 +296,10 @@ runtime:
     def test_cli_resolve_uses_next_bundled_runtime_catalog_revision(self):
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "github-output"
+            catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+            revisions = catalog["contracts"][0]["revisions"]
+            latest = max(tuple(int(part) for part in revision["version"].split(".")) for revision in revisions)
+            expected_version = f"{latest[0]}.{latest[1]}.{latest[2] + 1}"
 
             exit_code = release_tool.main(
                 [
@@ -310,7 +314,7 @@ runtime:
             )
 
             self.assertEqual(0, exit_code)
-            self.assertIn("contract_version=1.0.1", output_path.read_text(encoding="utf-8"))
+            self.assertIn(f"contract_version={expected_version}", output_path.read_text(encoding="utf-8"))
 
 def _catalog_with_contract(contract, *, image_ref):
     return {
