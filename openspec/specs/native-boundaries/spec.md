@@ -927,3 +927,45 @@ Secret storage abstractions SHALL expose Provider API Key access and Provisioner
 - **THEN** it SHALL return a secret-storage-owned error
 - **AND** it MUST NOT return Provider Setup, Workspace Setup, Workspace Provisioning, or Workspace Resource error types
 
+### Requirement: Secret store supports Hugging Face API keys
+The secret store SHALL support Hugging Face API keys as a separate secret category from GPU Cloud Provider API Keys and Provisioner Worker bearer tokens.
+
+#### Scenario: Hugging Face API key is written
+- **WHEN** Hugging Face setup stores a validated Hugging Face API key
+- **THEN** the secret store SHALL write it to a keyring scope or account that is separate from Provider API Key entries and Provisioner Worker bearer token entries
+- **AND** the secret store SHALL return secret-storage-owned failures
+- **AND** the secret store MUST NOT return Hugging Face setup, Workspace Provisioning, or Workspace Resources error types
+
+#### Scenario: Hugging Face API key is read
+- **WHEN** Hugging Face setup, Workspace Provisioning, or Workspace Resources reads a Hugging Face API key through the secret store
+- **THEN** the secret store SHALL return the key only to native code that has the Hugging Face API key storage contract
+- **AND** command DTOs, Workspace metadata, provider metadata, logs, and generated frontend types MUST NOT include the key value
+
+#### Scenario: Hugging Face API key is deleted
+- **WHEN** Hugging Face setup deletes the stored Hugging Face API key
+- **THEN** the secret store SHALL remove only the Hugging Face API key entry
+- **AND** it MUST NOT delete GPU Cloud Provider API Key entries or Provisioner Worker bearer token entries
+
+### Requirement: Hugging Face setup command DTOs are generated safely
+The Native command boundary SHALL own generated request and response DTOs for Hugging Face API key setup commands and SHALL expose only UI-safe setup identity to React.
+
+#### Scenario: Hugging Face setup command returns setup identity
+- **WHEN** Hugging Face setup commands are exported as generated TypeScript bindings
+- **THEN** the generated response type SHALL expose `token_name`, `user_name`, and `user_email`
+- **AND** generated command bindings MUST NOT expose the raw Hugging Face API key in any response type
+- **AND** the command boundary SHALL redact submitted Hugging Face API keys from debug output
+
+#### Scenario: Hugging Face setup command maps errors
+- **WHEN** Hugging Face setup returns a use-case error
+- **THEN** the Tauri command handler SHALL map it into a UI-safe command error response
+- **AND** the generated command error MUST NOT include Hugging Face API keys, bearer headers, raw Hugging Face response bodies, keyring internals, or transport details
+
+### Requirement: Hugging Face provider client is use-case independent
+Hugging Face identity client implementations SHALL return provider-local results and errors instead of depending on setup, provisioning, workspace resource, command, or secret-store error types.
+
+#### Scenario: Hugging Face identity validation fails
+- **WHEN** the Hugging Face identity client observes transport failure, unauthorized access, rate limiting, or invalid response shape
+- **THEN** it SHALL return a provider-local error category
+- **AND** consumer-owned Hugging Face setup code SHALL map that category into use-case errors
+- **AND** the provider-local error MUST NOT include raw Hugging Face API keys, authorization headers, or raw response bodies
+

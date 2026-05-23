@@ -58,7 +58,9 @@ impl From<SecretStoreError> for WorkspaceResourceError {
             SecretStoreError::InvalidStoredProvisionerWorkerToken => {
                 Self::ProvisionerWorkerTokenInvalid
             }
-            SecretStoreError::InvalidStoredHuggingFaceApiKey => Self::SecureKeyringUnavailable,
+            SecretStoreError::InvalidStoredHuggingFaceApiKey => {
+                Self::HuggingFaceApiKeySetupRequired
+            }
         }
     }
 }
@@ -140,6 +142,14 @@ mod tests {
         ] {
             assert_eq!(WorkspaceResourceError::from(setup_error), expected);
         }
+    }
+
+    #[test]
+    fn invalid_stored_hugging_face_key_maps_to_setup_required() {
+        assert_eq!(
+            WorkspaceResourceError::from(SecretStoreError::InvalidStoredHuggingFaceApiKey),
+            WorkspaceResourceError::HuggingFaceApiKeySetupRequired
+        );
     }
 
     #[test]

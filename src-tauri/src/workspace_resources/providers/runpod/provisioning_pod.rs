@@ -219,7 +219,9 @@ async fn cleanup_worker_token_after_determinate_create_failure<S, W, C>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workspace_resources::providers::runpod::test_support::*;
+    use crate::{
+        secrets::SecretStoreError, workspace_resources::providers::runpod::test_support::*,
+    };
 
     #[tokio::test]
     async fn create_uses_cheapest_cpu_policy_without_selected_gpu() {
@@ -312,6 +314,30 @@ mod tests {
         let error = create(&runpod_context, &mut workspace)
             .await
             .expect_err("missing key should reject create");
+
+        assert_eq!(
+            error,
+            WorkspaceResourceError::HuggingFaceApiKeySetupRequired
+        );
+        assert_eq!(client.calls().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_maps_invalid_stored_hugging_face_key_to_setup_required() {
+        let secrets = FakeSecretStore::default();
+        secrets.fail_read_hugging_face_api_key(SecretStoreError::InvalidStoredHuggingFaceApiKey);
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace_requiring_hugging_face_api_key();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_pods(Ok(Vec::new()));
+
+        let error = create(&runpod_context, &mut workspace)
+            .await
+            .expect_err("invalid stored key should require setup recovery");
 
         assert_eq!(
             error,

@@ -501,6 +501,7 @@ struct FakeSecretStoreState {
     hugging_face_api_key: Option<HuggingFaceApiKey>,
     write_tokens: Vec<(String, String)>,
     delete_token_calls: Vec<String>,
+    read_hugging_face_key_error: Option<SecretStoreError>,
     write_token_error: Option<SecretStoreError>,
     delete_token_error: Option<SecretStoreError>,
 }
@@ -516,6 +517,7 @@ impl Default for FakeSecretStore {
                 hugging_face_api_key: None,
                 write_tokens: Vec::new(),
                 delete_token_calls: Vec::new(),
+                read_hugging_face_key_error: None,
                 write_token_error: None,
                 delete_token_error: None,
             })),
@@ -553,6 +555,13 @@ impl FakeSecretStore {
             .expect("fake secret store")
             .hugging_face_api_key =
             Some(HuggingFaceApiKey::new(value.to_string()).expect("test hugging face key"));
+    }
+
+    pub(super) fn fail_read_hugging_face_api_key(&self, error: SecretStoreError) {
+        self.state
+            .lock()
+            .expect("fake secret store")
+            .read_hugging_face_key_error = Some(error);
     }
 }
 
@@ -640,12 +649,11 @@ impl HuggingFaceApiKeyStore for FakeSecretStore {
     }
 
     fn read_hugging_face_api_key(&self) -> Result<Option<HuggingFaceApiKey>, SecretStoreError> {
-        Ok(self
-            .state
-            .lock()
-            .expect("fake secret store")
-            .hugging_face_api_key
-            .clone())
+        let state = self.state.lock().expect("fake secret store");
+        match state.read_hugging_face_key_error.clone() {
+            Some(error) => Err(error),
+            None => Ok(state.hugging_face_api_key.clone()),
+        }
     }
 
     fn replace_hugging_face_api_key(

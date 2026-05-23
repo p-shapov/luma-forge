@@ -129,3 +129,32 @@ Workspace Resources SHALL manage Provisioner Worker bearer token lifecycle aroun
 - **WHEN** token cleanup fails during provisioning pod creation or cancellation cleanup
 - **THEN** Workspace Resources SHALL return a token lifecycle or cleanup category suitable for command mapping or persisted recovery semantics
 - **AND** no command response, persisted failure, log, or error metadata may include the token value
+
+### Requirement: Pass Hugging Face API key to Provisioner Pod only when required
+Workspace Resources SHALL pass a stored Hugging Face API key to the provider-side Provisioner Worker pod environment only for Workspaces whose selected Workflow Preset requires authenticated Hugging Face model asset downloads.
+
+#### Scenario: Provisioner Pod is created for a workflow requiring Hugging Face authentication
+- **WHEN** Workspace Resources creates a Provisioner Pod for a Workspace whose selected Workflow Preset has `requires_hugging_face_api_key` set to `true`
+- **AND** Workspace Provisioning has confirmed that a Hugging Face API key exists
+- **THEN** the RunPod pod environment SHALL include `LUMA_FORGE_HUGGING_FACE_API_KEY` with the stored Hugging Face API key value
+- **AND** the pod environment SHALL continue to include the Provisioner Worker bearer token and workspace mount path required by existing provisioning behavior
+- **AND** the raw Hugging Face API key MUST NOT be persisted in Workspace metadata, provider resource snapshots, provider metadata, command responses, command errors, or logs
+
+#### Scenario: Provisioner Pod is created for public Hugging Face assets
+- **WHEN** Workspace Resources creates a Provisioner Pod for a Workspace whose selected Workflow Preset has `requires_hugging_face_api_key` set to `false`
+- **THEN** the RunPod pod environment MUST NOT include `LUMA_FORGE_HUGGING_FACE_API_KEY`
+- **AND** public Hugging Face downloads SHALL continue to use the Provisioner Worker public download path
+
+#### Scenario: Hugging Face API key read fails during pod creation
+- **WHEN** Workspace Resources needs the stored Hugging Face API key for Provisioner Pod creation
+- **AND** secure keyring read fails
+- **THEN** Workspace Resources SHALL return a secret/keyring resource-operation error category suitable for Workspace Provisioning recovery semantics
+- **AND** it MUST NOT create the Provisioner Pod
+- **AND** no returned error, persisted metadata, or log may include the raw Hugging Face API key
+
+#### Scenario: Stored Hugging Face API key is malformed during pod creation
+- **WHEN** Workspace Resources needs the stored Hugging Face API key for Provisioner Pod creation
+- **AND** the stored Hugging Face API key cannot be parsed as a valid key
+- **THEN** Workspace Resources SHALL return a Hugging Face setup-required resource-operation error category suitable for Workspace Provisioning recovery semantics
+- **AND** it MUST NOT create the Provisioner Pod
+- **AND** no returned error, persisted metadata, or log may include the raw Hugging Face API key

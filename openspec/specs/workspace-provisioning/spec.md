@@ -2,7 +2,6 @@
 
 ## Purpose
 Define Native-owned Workspace Provisioning orchestration, progress, and worker interaction rules.
-
 ## Requirements
 ### Requirement: Drive Provisioner Worker Preparation
 Workspace Provisioning SHALL start and observe the Provisioner Worker job using a worker-specific start request derived from the selected Workflow Preset's declared model assets and a per-workspace bearer token, while treating worker startup lag behind a running Provisioning Pod as non-terminal `starting_provisioning_pod` progress.
@@ -141,3 +140,26 @@ Workspace Provisioning SHALL treat optional serverless endpoint provider metadat
 - **WHEN** Workspace Provisioning syncs or cancels a Workspace
 - **THEN** it SHALL NOT require `provider_provisioning_snapshot` to track RunPod endpoint template cleanup metadata
 - **AND** endpoint provider metadata SHALL replace that provider provisioning snapshot role
+
+### Requirement: Enforce Hugging Face API key prerequisite before authenticated workflow provisioning
+Workspace Provisioning SHALL detect when a selected Workflow Preset requires a Hugging Face API key and fail the Workspace before creating a Provisioner Pod when no configured Hugging Face API key exists.
+
+#### Scenario: Required Hugging Face API key is missing
+- **WHEN** Workspace Provisioning is about to create a Provisioner Pod for a Workspace whose selected Workflow Preset has `requires_hugging_face_api_key` set to `true`
+- **AND** no Hugging Face API key exists in secure keyring storage
+- **THEN** Workspace Provisioning SHALL mark the Workspace `Failed`
+- **AND** it SHALL persist a structured provisioning failure whose recovery action directs the Client to configure Hugging Face setup before retry
+- **AND** it MUST NOT create a Provisioner Pod
+- **AND** it MUST NOT create or mutate provider resources solely to discover that the key is missing
+
+#### Scenario: Required Hugging Face API key exists
+- **WHEN** Workspace Provisioning is about to create a Provisioner Pod for a Workspace whose selected Workflow Preset has `requires_hugging_face_api_key` set to `true`
+- **AND** a Hugging Face API key exists in secure keyring storage
+- **THEN** Workspace Provisioning SHALL allow Provisioner Pod creation to proceed through the normal resource operation sequence
+- **AND** it MUST NOT include the raw Hugging Face API key in Workspace metadata, progress, command responses, command errors, or logs
+
+#### Scenario: Selected workflow does not require a Hugging Face API key
+- **WHEN** Workspace Provisioning is about to create a Provisioner Pod for a Workspace whose selected Workflow Preset has `requires_hugging_face_api_key` set to `false`
+- **THEN** Workspace Provisioning SHALL NOT require Hugging Face setup
+- **AND** public Hugging Face asset downloads SHALL remain eligible to proceed without a configured Hugging Face API key
+

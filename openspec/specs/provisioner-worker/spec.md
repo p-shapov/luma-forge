@@ -80,3 +80,29 @@ The Provisioner Worker SHALL treat `LUMA_FORGE_WORKSPACE_MOUNT_PATH` as the work
 - **WHEN** the Provisioner Worker container starts with `LUMA_FORGE_WORKSPACE_MOUNT_PATH` set to an empty, relative, or unsafe path
 - **THEN** the Provisioner Worker SHALL reject the configuration
 - **AND** workspace preparation SHALL only occur after a valid configured mount path is accepted
+
+### Requirement: Use configured Hugging Face API key for authenticated downloads
+The Provisioner Worker SHALL read an optional Hugging Face API key from `LUMA_FORGE_HUGGING_FACE_API_KEY` and use it only for Hugging Face model asset downloads that require authentication.
+
+#### Scenario: Authenticated Hugging Face asset is downloaded
+- **WHEN** a started preparation job includes a Workflow Preset whose `requires_hugging_face_api_key` flag is `true`
+- **AND** `LUMA_FORGE_HUGGING_FACE_API_KEY` is configured with a non-empty value
+- **THEN** the Provisioner Worker SHALL pass that token explicitly to the Hugging Face download client for that asset
+- **AND** the worker status payload, logs, errors, and prepared workspace files MUST NOT include the raw Hugging Face API key
+
+#### Scenario: Required Hugging Face API key is missing in worker environment
+- **WHEN** a started preparation job includes a Workflow Preset whose `requires_hugging_face_api_key` flag is `true`
+- **AND** `LUMA_FORGE_HUGGING_FACE_API_KEY` is absent or blank
+- **THEN** the Provisioner Worker SHALL fail the job with the existing asset-auth-required worker error classification
+- **AND** the failure response MUST NOT include environment dumps, secret names with values, or raw token material
+
+#### Scenario: Public Hugging Face asset is downloaded
+- **WHEN** a started preparation job includes a Workflow Preset whose `requires_hugging_face_api_key` flag is `false`
+- **THEN** the Provisioner Worker SHALL keep public Hugging Face downloads working without requiring `LUMA_FORGE_HUGGING_FACE_API_KEY`
+- **AND** the Provisioner Worker MAY use a configured Hugging Face API key for the download only if doing so does not make public-only workflows require setup
+
+#### Scenario: Hugging Face reports asset authorization failure
+- **WHEN** Hugging Face rejects an authenticated or public model asset download with an authorization failure
+- **THEN** the Provisioner Worker SHALL fail the job with the existing asset-auth-required worker error classification
+- **AND** the worker error payload MUST NOT include the raw Hugging Face API key, authorization headers, credential-bearing URLs, or raw Hugging Face response body
+
