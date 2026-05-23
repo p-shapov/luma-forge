@@ -40,6 +40,8 @@ pub(crate) enum WorkspaceResourceError {
     ProviderOperationConflict,
     #[error("provider operation indeterminate")]
     ProviderOperationIndeterminate,
+    #[error("hugging face api key setup is required")]
+    HuggingFaceApiKeySetupRequired,
     #[error("resource cleanup failed")]
     CleanupFailed,
     #[error("secure keyring unavailable")]
@@ -56,6 +58,7 @@ impl From<SecretStoreError> for WorkspaceResourceError {
             SecretStoreError::InvalidStoredProvisionerWorkerToken => {
                 Self::ProvisionerWorkerTokenInvalid
             }
+            SecretStoreError::InvalidStoredHuggingFaceApiKey => Self::SecureKeyringUnavailable,
         }
     }
 }

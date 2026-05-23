@@ -1,6 +1,6 @@
 use crate::{
     domain::workspace::{ServerlessEndpointProviderMetadata, Workspace},
-    secrets::{AsyncProviderKeyStore, AsyncProvisionerTokenStore},
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{WorkspaceResourceContext, WorkspaceResourceError},
 };
@@ -13,7 +13,7 @@ pub(super) async fn cleanup_known_resources_with_client<S, W, C>(
     workspace: &Workspace,
 ) -> Result<(), WorkspaceResourceError>
 where
-    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

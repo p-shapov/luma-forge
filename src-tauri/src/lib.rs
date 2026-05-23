@@ -2,6 +2,7 @@ mod app_state;
 mod bundled_catalog;
 mod commands;
 mod domain;
+mod hugging_face_setup;
 mod provider;
 mod provider_setup;
 mod secrets;

@@ -1,6 +1,6 @@
 use crate::{
     domain::workspace::Workspace,
-    secrets::{AsyncProviderKeyStore, AsyncProvisionerTokenStore},
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::state::reset_after_resource_cleanup,
 };
@@ -40,7 +40,7 @@ impl<S, W, R> WorkspaceResourceService<S, W, R> {
 
 impl<S, W, R> WorkspaceResourceService<S, W, R>
 where
-    S: AsyncProviderKeyStore + AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: WorkspaceResourceProviderResolver<S, W>,
 {
@@ -140,6 +140,7 @@ mod tests {
     use super::*;
     use crate::{
         domain::{
+            hugging_face_setup::HuggingFaceApiKey,
             placement::PlacementPlan,
             provider_setup::{GpuCloudProviderId, ProviderApiKey},
             provisioner::ResolvedProvisionerImageSnapshot,
@@ -154,7 +155,8 @@ mod tests {
             },
         },
         secrets::{
-            ProviderKeyStore, ProvisionerTokenStore, ProvisionerWorkerBearerToken, SecretStoreError,
+            HuggingFaceApiKeyStore, ProviderKeyStore, ProvisionerTokenStore,
+            ProvisionerWorkerBearerToken, SecretStoreError,
         },
         workspace_catalog::repository::WorkspaceCatalogRepository,
         workspace_resources::providers::{
@@ -344,6 +346,27 @@ mod tests {
         }
     }
 
+    impl HuggingFaceApiKeyStore for FakeSecretStore {
+        fn has_hugging_face_api_key_entry(&self) -> Result<bool, SecretStoreError> {
+            Ok(false)
+        }
+
+        fn read_hugging_face_api_key(&self) -> Result<Option<HuggingFaceApiKey>, SecretStoreError> {
+            Ok(None)
+        }
+
+        fn replace_hugging_face_api_key(
+            &self,
+            _api_key: &HuggingFaceApiKey,
+        ) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+
+        fn delete_hugging_face_api_key(&self) -> Result<(), SecretStoreError> {
+            Ok(())
+        }
+    }
+
     #[derive(Debug, Clone, Default)]
     struct FakeWorkspaceCatalog {
         updates: Arc<Mutex<Vec<Workspace>>>,
@@ -491,6 +514,7 @@ mod tests {
             name: "Preset".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 1,
+            requires_hugging_face_api_key: false,
             runtime_contract: RuntimeContractReference {
                 id: "runtime".to_string(),
                 version: "1.0.0".to_string(),

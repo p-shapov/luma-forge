@@ -15,6 +15,7 @@ TEST_BEARER_TOKEN = "test-token-0123456789abcdef012345"
 
 def sample_preset() -> dict[str, Any]:
     return {
+        "requires_hugging_face_api_key": False,
         "required_model_assets": [
             {
                 "id": "model",
@@ -85,6 +86,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
         max_request_bytes=overrides.get("max_request_bytes", config.max_request_bytes),
         download_timeout_seconds=overrides.get("download_timeout_seconds", config.download_timeout_seconds),
         workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
+        hugging_face_api_key=overrides.get("hugging_face_api_key", config.hugging_face_api_key),
     )
 
 

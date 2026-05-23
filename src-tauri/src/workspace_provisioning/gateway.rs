@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    domain::workflow::{ModelAsset, ModelAssetSource},
+    domain::workflow::{ModelAsset, ModelAssetSource, WorkflowPreset},
     secrets::ProvisionerWorkerBearerToken,
 };
 
@@ -132,11 +132,13 @@ pub struct ProvisionerWorkerStartRequest {
 }
 
 impl ProvisionerWorkerStartRequest {
-    pub fn from_model_assets(job_id: String, assets: &[ModelAsset]) -> Self {
+    pub fn from_workflow_preset(job_id: String, preset: &WorkflowPreset) -> Self {
         Self {
             job_id,
             workflow_preset: ProvisionerWorkerWorkflowPreset {
-                required_model_assets: assets
+                requires_hugging_face_api_key: preset.requires_hugging_face_api_key,
+                required_model_assets: preset
+                    .required_model_assets
                     .iter()
                     .map(ProvisionerWorkerModelAsset::from)
                     .collect(),
@@ -147,6 +149,7 @@ impl ProvisionerWorkerStartRequest {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProvisionerWorkerWorkflowPreset {
+    pub requires_hugging_face_api_key: bool,
     pub required_model_assets: Vec<ProvisionerWorkerModelAsset>,
 }
 

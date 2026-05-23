@@ -65,6 +65,7 @@ impl From<SecretStoreError> for WorkspaceSetupError {
             SecretStoreError::SecureKeyringUnavailable => Self::SecureKeyringUnavailable,
             SecretStoreError::InvalidStoredProviderApiKey => Self::StoredProviderApiKeyInvalid,
             SecretStoreError::InvalidStoredProvisionerWorkerToken => Self::SecureKeyringUnavailable,
+            SecretStoreError::InvalidStoredHuggingFaceApiKey => Self::SecureKeyringUnavailable,
         }
     }
 }

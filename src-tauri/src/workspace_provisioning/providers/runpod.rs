@@ -2,7 +2,7 @@ use std::{future::Future, pin::Pin};
 
 use crate::{
     domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceLifecycleState},
-    secrets::AsyncProvisionerTokenStore,
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProvisionerTokenStore},
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
@@ -24,7 +24,7 @@ pub(crate) struct RunPodWorkspaceProvisioningProvider;
 
 impl<S, W, R, Q> WorkspaceProvisioningProvider<S, W, R, Q> for RunPodWorkspaceProvisioningProvider
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -58,7 +58,7 @@ async fn sync<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -87,7 +87,7 @@ async fn sync_network_volume<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -125,7 +125,7 @@ async fn sync_provisioning_pod<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -144,6 +144,24 @@ where
         .as_ref()
         .is_some_and(|snapshot| snapshot.provider_resource_status == ProviderResourceStatus::Ready)
     {
+        if workspace
+            .placement_plan
+            .selected_workflow_preset()
+            .requires_hugging_face_api_key
+            && !context
+                .secrets
+                .has_hugging_face_api_key_entry()
+                .await
+                .map_err(WorkspaceProvisioningError::from)?
+        {
+            let mut workspace = workspace.clone();
+            failure::fail_workspace(
+                &mut workspace,
+                failure::hugging_face_api_key_setup_required(),
+            );
+            let workspace = context.update_workspace(&workspace).await?;
+            return Ok(Some(result(workspace)));
+        }
         context.resources.create_provisioning_pod(workspace).await?
     } else {
         None
@@ -180,7 +198,7 @@ async fn sync_environment<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -211,7 +229,7 @@ async fn finish_provisioning_pod<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -234,7 +252,7 @@ async fn sync_endpoint<S, W, R, Q>(
     workspace: &mut Workspace,
 ) -> SyncStepResult
 where
-    S: AsyncProvisionerTokenStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProvisionerTokenStore,
     W: WorkspaceCatalogRepository,
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
@@ -312,11 +330,14 @@ mod tests {
     use crate::workspace_provisioning::gateway::ProvisionerWorkerError;
     use crate::{
         domain::workspace::{
-            ProviderResourceStatus, WorkspaceLifecycleState, WorkspaceProvisioningStatus,
+            ProviderResourceStatus, WorkspaceLifecycleState, WorkspaceProvisioningFailureCode,
+            WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
+            WorkspaceProvisioningRecoveryAction, WorkspaceProvisioningStatus,
         },
         workspace_provisioning::test_support::{
-            endpoint, pod, provisioning_workspace, ready_provisioning_workspace, volume,
-            FakeSecretStore, TestHarness,
+            endpoint, pod, provisioning_workspace,
+            provisioning_workspace_requiring_hugging_face_api_key, ready_provisioning_workspace,
+            volume, FakeSecretStore, TestHarness,
         },
     };
 
@@ -363,6 +384,75 @@ mod tests {
         assert_eq!(harness.resources.calls(), vec!["create_provisioning_pod"]);
         assert!(harness.workers.status_calls().is_empty());
         assert!(result.workspace.active_provisioning_pod_snapshot.is_some());
+    }
+
+    #[tokio::test]
+    async fn sync_fails_before_provisioning_pod_create_when_hugging_face_key_is_missing() {
+        let workspace = provisioning_workspace_requiring_hugging_face_api_key();
+        let harness = TestHarness::new(workspace.clone());
+        let mut workspace = workspace;
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+
+        let result = super::sync(&harness.context(), &mut workspace)
+            .await
+            .expect("sync should persist missing key failure")
+            .expect("missing key should return failed workspace");
+
+        assert!(harness.resources.calls().is_empty());
+        assert_eq!(harness.secrets.has_hugging_face_key_call_count(), 1);
+        assert_eq!(harness.secrets.read_hugging_face_key_call_count(), 0);
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Failed
+        );
+        let failure = result
+            .workspace
+            .last_provisioning_failure
+            .expect("missing key failure should be persisted");
+        assert_eq!(
+            failure.code,
+            WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired
+        );
+        assert_eq!(
+            failure.phase,
+            WorkspaceProvisioningPhase::StartingProvisioningPod
+        );
+        assert_eq!(failure.source, WorkspaceProvisioningFailureSource::Native);
+        assert_eq!(
+            failure.recovery_action,
+            WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup
+        );
+        assert_eq!(result.progress.failure.expect("progress failure"), failure);
+    }
+
+    #[tokio::test]
+    async fn sync_allows_provisioning_pod_create_when_required_hugging_face_key_exists() {
+        let secrets =
+            FakeSecretStore::with_api_key("provider-secret").with_hugging_face_api_key("hf_secret");
+        let harness = TestHarness::with_secrets(
+            provisioning_workspace_requiring_hugging_face_api_key(),
+            secrets,
+        );
+        let mut workspace = provisioning_workspace_requiring_hugging_face_api_key();
+        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
+        let mut updated = workspace.clone();
+        updated.active_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Creating));
+        harness
+            .resources
+            .push_provisioning_pod_result(Ok(Some(updated)));
+
+        let result = super::sync(&harness.context(), &mut workspace)
+            .await
+            .expect("sync should succeed")
+            .expect("pod action should return result");
+
+        assert_eq!(harness.resources.calls(), vec!["create_provisioning_pod"]);
+        assert_eq!(harness.secrets.has_hugging_face_key_call_count(), 1);
+        assert_eq!(harness.secrets.read_hugging_face_key_call_count(), 0);
+        let serialized = serde_json::to_string(&result.workspace).expect("serialize workspace");
+        let progress = serde_json::to_string(&result.progress).expect("serialize progress");
+        assert!(!serialized.contains("hf_secret"));
+        assert!(!progress.contains("hf_secret"));
     }
 
     #[tokio::test]

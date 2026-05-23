@@ -1,6 +1,6 @@
 use crate::{
     domain::{placement::PlacementPlan, workspace::Workspace},
-    secrets::AsyncProviderKeyStore,
+    secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore},
     workspace_resources::{
         state::persistent_storage_volume_snapshot, CreateNetworkVolumeInput,
         DiscoverNetworkVolumesInput, WorkspaceResourceError, WorkspaceResourceOperationResult,
@@ -14,7 +14,7 @@ pub(crate) async fn create<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncProviderKeyStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
@@ -68,7 +68,7 @@ pub(crate) async fn observe<S, W, C>(
     workspace: &mut Workspace,
 ) -> WorkspaceResourceOperationResult
 where
-    S: AsyncProviderKeyStore,
+    S: AsyncHuggingFaceApiKeyStore + AsyncProviderKeyStore,
     W: crate::workspace_catalog::repository::WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {

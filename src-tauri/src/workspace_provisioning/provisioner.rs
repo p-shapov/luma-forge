@@ -99,12 +99,9 @@ impl WorkspaceProvisionerService {
                     .start(
                         &active_pod.provisioner_status_url,
                         &token,
-                        &ProvisionerWorkerStartRequest::from_model_assets(
+                        &ProvisionerWorkerStartRequest::from_workflow_preset(
                             workspace.id.clone(),
-                            &workspace
-                                .placement_plan
-                                .selected_workflow_preset()
-                                .required_model_assets,
+                            workspace.placement_plan.selected_workflow_preset(),
                         ),
                     )
                     .await
@@ -465,6 +462,7 @@ mod tests {
             name: "Preset".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 1,
+            requires_hugging_face_api_key: false,
             runtime_contract: RuntimeContractReference {
                 id: "runtime".to_string(),
                 version: "1.0.0".to_string(),
@@ -726,8 +724,9 @@ mod tests {
             request_json,
             serde_json::json!({
                 "job_id": "workspace-1",
-                "workflow_preset": {
-                    "required_model_assets": [
+                    "workflow_preset": {
+                        "requires_hugging_face_api_key": false,
+                        "required_model_assets": [
                         {
                             "id": "model-1",
                             "name": "Model One",

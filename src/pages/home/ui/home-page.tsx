@@ -1,5 +1,6 @@
 import type {
   GpuCloudProviderSetup,
+  HuggingFaceApiKeySetup,
   NativeCommandError,
   ProviderInventory,
   ProviderPlacementCapabilities,
@@ -87,6 +88,18 @@ const COMMAND_TOAST_COPY = {
   deleteGpuCloudProviderSetup: {
     loading: "Deleting provider setup...",
     success: "Provider setup deleted",
+  },
+  getHuggingFaceApiKeySetup: {
+    loading: "Refreshing Hugging Face setup...",
+    success: "Hugging Face setup refreshed",
+  },
+  setupHuggingFaceApiKey: {
+    loading: "Validating Hugging Face key...",
+    success: "Hugging Face setup completed",
+  },
+  deleteHuggingFaceApiKeySetup: {
+    loading: "Deleting Hugging Face setup...",
+    success: "Hugging Face setup deleted",
   },
   getWorkflowCatalog: {
     loading: "Loading workflow catalog...",
@@ -264,6 +277,8 @@ function provisioningRecoveryHint(recoveryAction: WorkspaceProvisioningFailure["
       return "Retry when the provider is available.";
     case "recover_provider_setup":
       return "Recover provider setup before retrying.";
+    case "configure_hugging_face_setup":
+      return "Configure Hugging Face setup before retrying.";
     case "reselect_placement":
       return "Reselect placement before retrying.";
     case "cleanup_workspace_resources":
@@ -291,6 +306,8 @@ function provisioningProgressValue(
 export function HomePage() {
   const [providerApiKey, setProviderApiKey] = useState("");
   const [providerSetup, setProviderSetup] = useState<GpuCloudProviderSetup | null>(null);
+  const [huggingFaceApiKey, setHuggingFaceApiKey] = useState("");
+  const [huggingFaceSetup, setHuggingFaceSetup] = useState<HuggingFaceApiKeySetup | null>(null);
   const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowCatalog | null>(null);
   const [providerInventory, setProviderInventory] = useState<ProviderInventory | null>(null);
   const [providerPlacementCapabilities, setProviderPlacementCapabilities]
@@ -556,6 +573,35 @@ export function HomePage() {
     );
   }
 
+  function refreshHuggingFaceSetup() {
+    void runCommand(
+      "getHuggingFaceApiKeySetup",
+      async () => commands.getHuggingFaceApiKeySetup(null),
+      ({ hugging_face_api_key_setup }) => setHuggingFaceSetup(hugging_face_api_key_setup),
+    );
+  }
+
+  function setupHuggingFaceApiKey() {
+    void runCommand(
+      "setupHuggingFaceApiKey",
+      async () => commands.setupHuggingFaceApiKey({
+        hugging_face_api_key: huggingFaceApiKey,
+      }),
+      ({ hugging_face_api_key_setup }) => {
+        setHuggingFaceSetup(hugging_face_api_key_setup);
+        setHuggingFaceApiKey("");
+      },
+    );
+  }
+
+  function deleteHuggingFaceSetup() {
+    void runCommand(
+      "deleteHuggingFaceApiKeySetup",
+      async () => commands.deleteHuggingFaceApiKeySetup(null),
+      ({ hugging_face_api_key_setup }) => setHuggingFaceSetup(hugging_face_api_key_setup),
+    );
+  }
+
   function fetchWorkflowCatalog() {
     void runCommand(
       "getWorkflowCatalog",
@@ -721,6 +767,72 @@ export function HomePage() {
                       Refresh
                     </Button>
                     <Button variant="destructive" disabled={pendingCommand !== null} onClick={deleteProviderSetup}>
+                      <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} data-icon="inline-start" />
+                      Delete
+                    </Button>
+                  </div>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Hugging Face setup</CardTitle>
+                <CardDescription>
+                  Validate, store, inspect, or delete the optional model asset key.
+                </CardDescription>
+                <CardAction>
+                  <Badge variant={huggingFaceSetup !== null ? "default" : "secondary"}>
+                    {huggingFaceSetup !== null ? "configured" : "not configured"}
+                  </Badge>
+                </CardAction>
+              </CardHeader>
+              <CardContent>
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel htmlFor="hugging-face-api-key">Hugging Face API key</FieldLabel>
+                    <Input
+                      id="hugging-face-api-key"
+                      type="password"
+                      autoComplete="off"
+                      value={huggingFaceApiKey}
+                      placeholder="Hugging Face API key"
+                      disabled={pendingCommand !== null}
+                      onChange={event => setHuggingFaceApiKey(event.target.value)}
+                    />
+                    <FieldDescription>
+                      Stored only in the native keyring and cleared after setup succeeds.
+                    </FieldDescription>
+                  </Field>
+                  {huggingFaceSetup !== null && (
+                    <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-sm md:grid-cols-3">
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">Token</p>
+                        <p className="break-all">{huggingFaceSetup.api_key_fingerprint}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">User</p>
+                        <p className="break-all">{huggingFaceSetup.user_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium uppercase text-muted-foreground">Email</p>
+                        <p className="break-all">{huggingFaceSetup.user_email ?? "Not provided"}</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      disabled={!huggingFaceApiKey.trim() || pendingCommand !== null}
+                      onClick={setupHuggingFaceApiKey}
+                    >
+                      <HugeiconsIcon icon={Key01Icon} strokeWidth={2} data-icon="inline-start" />
+                      Setup
+                    </Button>
+                    <Button variant="outline" disabled={pendingCommand !== null} onClick={refreshHuggingFaceSetup}>
+                      <HugeiconsIcon icon={ArrowReloadHorizontalIcon} strokeWidth={2} data-icon="inline-start" />
+                      Refresh
+                    </Button>
+                    <Button variant="destructive" disabled={pendingCommand !== null} onClick={deleteHuggingFaceSetup}>
                       <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} data-icon="inline-start" />
                       Delete
                     </Button>

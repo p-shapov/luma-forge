@@ -33,6 +33,13 @@ const ERROR_COPY = {
   provider_identity_response_invalid: { title: "Provider identity response invalid" },
   secure_keyring_unavailable: { title: "Secure keyring unavailable" },
   provider_setup_recovery_required: { title: "Provider setup recovery required" },
+  hugging_face_setup_not_found: { title: "Hugging Face setup not found" },
+  hugging_face_api_key_required: { title: "Hugging Face API key required" },
+  hugging_face_api_key_unauthorized: { title: "Hugging Face API key unauthorized" },
+  stored_hugging_face_api_key_invalid: { title: "Stored Hugging Face API key invalid" },
+  hugging_face_api_unavailable: { title: "Hugging Face API unavailable" },
+  hugging_face_rate_limited: { title: "Hugging Face rate limited" },
+  hugging_face_identity_response_invalid: { title: "Hugging Face identity response invalid" },
   workflow_catalog_unavailable: { title: "Workflow catalog unavailable" },
   workspace_catalog_unavailable: { title: "Workspace catalog unavailable" },
   workspace_catalog_storage_unavailable: { title: "Workspace catalog storage unavailable" },
@@ -56,6 +63,7 @@ const ERROR_COPY = {
   provider_orphaned_resources: { title: "Provider orphaned resources" },
   provider_operation_conflict: { title: "Provider operation conflict" },
   provider_operation_indeterminate: { title: "Provider operation indeterminate" },
+  hugging_face_api_key_setup_required: { title: "Hugging Face setup required" },
   cleanup_failed: { title: "Cleanup failed" },
   provisioner_worker_token_invalid: { title: "Provisioner worker token invalid" },
   provisioner_worker_unauthorized: { title: "Provisioner worker unauthorized" },
@@ -98,6 +106,13 @@ function recoveryHint(recoveryAction: string | null): string | null {
       return "Refresh provider setup state and retry the command.";
     case "enter_provider_api_key":
       return "Enter a valid provider API key and submit setup again.";
+    case "refresh_hugging_face_setup":
+      return "Refresh Hugging Face setup state and retry the command.";
+    case "enter_hugging_face_api_key":
+      return "Enter a valid Hugging Face API key and submit setup again.";
+    case "recover_hugging_face_setup":
+    case "configure_hugging_face_setup":
+      return "Configure Hugging Face setup before retrying.";
     case "recover_provider_setup":
       return "Delete and recreate provider setup if refresh does not recover it.";
     case "retry":

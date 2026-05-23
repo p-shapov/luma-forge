@@ -48,6 +48,7 @@ class ConfigTests(unittest.TestCase):
                 LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES="2048",
                 LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS="14.5",
                 LUMA_FORGE_WORKSPACE_MOUNT_PATH="/workspace/custom",
+                LUMA_FORGE_HUGGING_FACE_API_KEY="test-hugging-face-key",
             )
         )
 
@@ -56,6 +57,15 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.max_request_bytes, 2048)
         self.assertEqual(config.download_timeout_seconds, 14.5)
         self.assertEqual(config.workspace_mount_path, Path("/workspace/custom").resolve(strict=False))
+        self.assertEqual(config.hugging_face_api_key, "test-hugging-face-key")
+
+    def test_optional_hugging_face_api_key_absent_or_blank(self):
+        self.assertIsNone(WorkerConfig.from_env(valid_env()).hugging_face_api_key)
+        self.assertIsNone(
+            WorkerConfig.from_env(
+                valid_env(LUMA_FORGE_HUGGING_FACE_API_KEY="  ")
+            ).hugging_face_api_key
+        )
 
     def test_rejects_missing_bearer_token_without_leaking_value(self):
         with self.assertRaises(ConfigurationError) as context:

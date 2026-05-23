@@ -63,6 +63,9 @@ pub(super) fn provisioning_failure_code_value(
         WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate => {
             "provider_operation_indeterminate"
         }
+        WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired => {
+            "hugging_face_api_key_setup_required"
+        }
         WorkspaceProvisioningFailureCode::SecureKeyringUnavailable => "secure_keyring_unavailable",
         WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenMissing => {
             "provisioner_worker_token_missing"
@@ -139,6 +142,9 @@ pub(super) fn provisioning_recovery_action_value(
         WorkspaceProvisioningRecoveryAction::Retry => "retry",
         WorkspaceProvisioningRecoveryAction::RecoverProviderSetup => "recover_provider_setup",
         WorkspaceProvisioningRecoveryAction::ReselectPlacement => "reselect_placement",
+        WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup => {
+            "configure_hugging_face_setup"
+        }
         WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning => {
             "inspect_workspace_provisioning"
         }
@@ -219,6 +225,9 @@ pub(super) fn parse_provisioning_failure_code(
         }
         "provider_operation_indeterminate" => {
             Ok(WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate)
+        }
+        "hugging_face_api_key_setup_required" => {
+            Ok(WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired)
         }
         "secure_keyring_unavailable" => {
             Ok(WorkspaceProvisioningFailureCode::SecureKeyringUnavailable)
@@ -307,6 +316,9 @@ pub(super) fn parse_provisioning_recovery_action(
         "retry" => Ok(WorkspaceProvisioningRecoveryAction::Retry),
         "recover_provider_setup" => Ok(WorkspaceProvisioningRecoveryAction::RecoverProviderSetup),
         "reselect_placement" => Ok(WorkspaceProvisioningRecoveryAction::ReselectPlacement),
+        "configure_hugging_face_setup" => {
+            Ok(WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup)
+        }
         "inspect_workspace_provisioning" => {
             Ok(WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning)
         }

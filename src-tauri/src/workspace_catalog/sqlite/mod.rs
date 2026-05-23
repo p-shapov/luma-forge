@@ -356,6 +356,7 @@ mod test_fixtures {
             name: "ComfyUI Text to Image".to_string(),
             workflow_execution_type: WorkflowExecutionType::T2i,
             required_base_volume_size_bytes: 80 * 1024 * 1024 * 1024,
+            requires_hugging_face_api_key: false,
             runtime_contract: RuntimeContractReference {
                 id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
                 version: "1.0.0".to_string(),

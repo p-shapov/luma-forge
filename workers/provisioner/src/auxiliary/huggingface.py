@@ -26,6 +26,7 @@ class PublicFileDownloader:
         target: Path,
         *,
         timeout_seconds: float | None = None,
+        hugging_face_api_key: str | None = None,
     ) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         source = asset.download_source
@@ -35,6 +36,7 @@ class PublicFileDownloader:
                 target.parent,
                 self.hub_download,
                 timeout_seconds=timeout_seconds,
+                hugging_face_api_key=hugging_face_api_key,
             )
             self._place_downloaded_file(Path(cached_path), target)
         except WorkerError:
@@ -76,15 +78,16 @@ def _download_with_isolated_process(
     hub_download: HubDownload | None,
     *,
     timeout_seconds: float | None,
+    hugging_face_api_key: str | None,
 ) -> str:
     if timeout_seconds is None:
-        return _download_from_hub(source, local_dir, hub_download)
+        return _download_from_hub(source, local_dir, hub_download, hugging_face_api_key)
 
     context = get_context("spawn")
     result_queue = context.Queue()
     process = context.Process(
         target=_hub_download_process,
-        args=(source, str(local_dir), hub_download, result_queue),
+        args=(source, str(local_dir), hub_download, hugging_face_api_key, result_queue),
     )
     process.start()
 
@@ -109,7 +112,12 @@ def _download_with_isolated_process(
     raise AssetDownloadError("Hugging Face asset download failed.") from RuntimeError(message)
 
 
-def _download_from_hub(source: HuggingFaceSource, local_dir: Path, hub_download: HubDownload | None) -> str:
+def _download_from_hub(
+    source: HuggingFaceSource,
+    local_dir: Path,
+    hub_download: HubDownload | None,
+    hugging_face_api_key: str | None,
+) -> str:
     download = hub_download or _load_hub_download()
     return download(
         repo_id=source.repository_id,
@@ -117,7 +125,7 @@ def _download_from_hub(source: HuggingFaceSource, local_dir: Path, hub_download:
         revision=source.revision,
         repo_type="model",
         local_dir=str(local_dir),
-        token=False,
+        token=hugging_face_api_key or False,
     )
 
 
@@ -125,10 +133,11 @@ def _hub_download_process(
     source: HuggingFaceSource,
     local_dir: str,
     hub_download: HubDownload | None,
+    hugging_face_api_key: str | None,
     result_queue,
 ) -> None:
     try:
-        result_queue.put(("ok", _download_from_hub(source, Path(local_dir), hub_download)))
+        result_queue.put(("ok", _download_from_hub(source, Path(local_dir), hub_download, hugging_face_api_key)))
     except BaseException as error:
         response = getattr(error, "response", None)
         status_code = getattr(response, "status_code", None)

@@ -1,9 +1,13 @@
 use keyring::{Entry, Error as KeyringError};
 
-use crate::domain::provider_setup::{GpuCloudProviderId, ProviderApiKey};
+use crate::domain::{
+    hugging_face_setup::HuggingFaceApiKey,
+    provider_setup::{GpuCloudProviderId, ProviderApiKey},
+};
 
 use super::{
     store::{
+        hugging_face_key::HuggingFaceApiKeyStore,
         provider_key::ProviderKeyStore,
         provisioner_token::{ProvisionerTokenStore, ProvisionerWorkerBearerToken},
     },
@@ -12,11 +16,14 @@ use super::{
 
 const GPU_CLOUD_PROVIDER_KEYRING_SCOPE: &str = "gpu-cloud-provider";
 const PROVISIONER_WORKER_KEYRING_SCOPE: &str = "provisioner-worker";
+const HUGGING_FACE_KEYRING_SCOPE: &str = "hugging-face";
+const HUGGING_FACE_ACCOUNT: &str = "api-key";
 
 #[derive(Debug, Clone)]
 pub struct KeyringSecretStore {
     provider_service_name: String,
     provisioner_worker_service_name: String,
+    hugging_face_service_name: String,
 }
 
 impl KeyringSecretStore {
@@ -28,6 +35,10 @@ impl KeyringSecretStore {
             ),
             provisioner_worker_service_name: format!(
                 "{}.{PROVISIONER_WORKER_KEYRING_SCOPE}",
+                app_identifier.as_ref()
+            ),
+            hugging_face_service_name: format!(
+                "{}.{HUGGING_FACE_KEYRING_SCOPE}",
                 app_identifier.as_ref()
             ),
         }
@@ -47,6 +58,11 @@ impl KeyringSecretStore {
             &provisioner_worker_account(workspace_id),
         )
         .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
+    }
+
+    fn hugging_face_api_key_entry(&self) -> Result<Entry, SecretStoreError> {
+        Entry::new(&self.hugging_face_service_name, HUGGING_FACE_ACCOUNT)
+            .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
     }
 }
 
@@ -134,6 +150,41 @@ impl ProvisionerTokenStore for KeyringSecretStore {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
             Err(_) => Err(SecretStoreError::SecureKeyringUnavailable),
         }
+    }
+}
+
+impl HuggingFaceApiKeyStore for KeyringSecretStore {
+    fn has_hugging_face_api_key_entry(&self) -> Result<bool, SecretStoreError> {
+        match self.hugging_face_api_key_entry()?.get_password() {
+            Ok(_) => Ok(true),
+            Err(KeyringError::NoEntry) => Ok(false),
+            Err(_) => Err(SecretStoreError::SecureKeyringUnavailable),
+        }
+    }
+
+    fn read_hugging_face_api_key(&self) -> Result<Option<HuggingFaceApiKey>, SecretStoreError> {
+        match self.hugging_face_api_key_entry()?.get_password() {
+            Ok(api_key) => HuggingFaceApiKey::new(api_key)
+                .map(Some)
+                .map_err(|_| SecretStoreError::InvalidStoredHuggingFaceApiKey),
+            Err(KeyringError::NoEntry) => Ok(None),
+            Err(_) => Err(SecretStoreError::SecureKeyringUnavailable),
+        }
+    }
+
+    fn replace_hugging_face_api_key(
+        &self,
+        api_key: &HuggingFaceApiKey,
+    ) -> Result<(), SecretStoreError> {
+        self.hugging_face_api_key_entry()?
+            .set_password(api_key.expose_secret())
+            .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
+    }
+
+    fn delete_hugging_face_api_key(&self) -> Result<(), SecretStoreError> {
+        self.hugging_face_api_key_entry()?
+            .delete_credential()
+            .map_err(|_| SecretStoreError::SecureKeyringUnavailable)
     }
 }
 
@@ -281,6 +332,10 @@ mod tests {
         ProvisionerWorkerBearerToken::new(value.to_string()).expect("worker token should be valid")
     }
 
+    fn hugging_face_key(value: &str) -> HuggingFaceApiKey {
+        HuggingFaceApiKey::new(value.to_string()).expect("hugging face key should be valid")
+    }
+
     #[test]
     fn keyring_secret_store_reads_none_when_provider_key_is_missing() {
         with_keyring_store(|store, _builder| {
@@ -399,6 +454,51 @@ mod tests {
     }
 
     #[test]
+    fn keyring_secret_store_replaces_reads_and_deletes_hugging_face_key() {
+        with_keyring_store(|store, _builder| {
+            HuggingFaceApiKeyStore::replace_hugging_face_api_key(
+                &store,
+                &hugging_face_key("hf_secret"),
+            )
+            .expect("replace hugging face key should succeed");
+
+            assert_eq!(
+                HuggingFaceApiKeyStore::has_hugging_face_api_key_entry(&store),
+                Ok(true)
+            );
+            assert_eq!(
+                HuggingFaceApiKeyStore::read_hugging_face_api_key(&store)
+                    .expect("read hugging face key should succeed")
+                    .expect("hugging face key should exist")
+                    .expose_secret(),
+                "hf_secret"
+            );
+
+            HuggingFaceApiKeyStore::delete_hugging_face_api_key(&store)
+                .expect("delete hugging face key should succeed");
+            assert!(HuggingFaceApiKeyStore::read_hugging_face_api_key(&store)
+                .expect("read hugging face key should succeed")
+                .is_none());
+        });
+    }
+
+    #[test]
+    fn keyring_secret_store_reports_invalid_stored_hugging_face_key() {
+        with_keyring_store(|store, _builder| {
+            store
+                .hugging_face_api_key_entry()
+                .expect("hugging face key entry should be created")
+                .set_password(" \t")
+                .expect("test fixture should seed malformed hugging face key");
+
+            assert!(matches!(
+                HuggingFaceApiKeyStore::read_hugging_face_api_key(&store),
+                Err(SecretStoreError::InvalidStoredHuggingFaceApiKey)
+            ));
+        });
+    }
+
+    #[test]
     fn keyring_secret_store_maps_keyring_errors_to_unavailable() {
         with_keyring_store(|store, builder| {
             builder.set_next_error(
@@ -418,8 +518,10 @@ mod tests {
     fn keyring_secret_store_implements_category_specific_contracts() {
         fn assert_provider_key_store<T: ProviderKeyStore>() {}
         fn assert_provisioner_token_store<T: ProvisionerTokenStore>() {}
+        fn assert_hugging_face_key_store<T: HuggingFaceApiKeyStore>() {}
 
         assert_provider_key_store::<KeyringSecretStore>();
         assert_provisioner_token_store::<KeyringSecretStore>();
+        assert_hugging_face_key_store::<KeyringSecretStore>();
     }
 }

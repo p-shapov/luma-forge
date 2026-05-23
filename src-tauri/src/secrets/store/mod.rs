@@ -1,3 +1,4 @@
+pub mod hugging_face_key;
 pub mod provider_key;
 pub mod provisioner_token;
 

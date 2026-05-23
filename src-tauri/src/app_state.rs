@@ -5,7 +5,11 @@ use tokio::sync::OnceCell;
 
 use crate::{
     bundled_catalog::reader::BundledCatalogReader,
-    provider::runpod::RunPodHttpClientInitError,
+    hugging_face_setup::{HuggingFaceSetupError, HuggingFaceSetupService},
+    provider::{
+        huggingface::{HuggingFaceClient, HuggingFaceHttpClientInitError},
+        runpod::RunPodHttpClientInitError,
+    },
     provider_setup::{
         ProviderSetupCoordinator, ProviderSetupProviderRegistry, ProviderSetupService,
     },
@@ -26,6 +30,8 @@ use crate::{
 type ProductionSecretStore = BlockingSecretStore<KeyringSecretStore>;
 
 pub(crate) type ProductionProviderSetupService = ProviderSetupService<ProductionSecretStore>;
+pub(crate) type ProductionHuggingFaceSetupService =
+    HuggingFaceSetupService<ProductionSecretStore, HuggingFaceClient>;
 pub(crate) type WorkspaceSetupReadService =
     WorkspaceSetupService<BundledCatalogReader, ProductionSecretStore, UnavailableWorkspaceCatalog>;
 pub(crate) type WorkspaceSetupWriteService =
@@ -43,6 +49,7 @@ pub(crate) struct NativeAppState {
     workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator,
     catalogs: BundledCatalogReader,
     secrets: ProductionSecretStore,
+    hugging_face_identity: Result<HuggingFaceClient, HuggingFaceHttpClientInitError>,
     provider_setup_registry: Result<ProviderSetupProviderRegistry, RunPodHttpClientInitError>,
     workspace_setup_registry: Result<WorkspaceSetupProviderRegistry, RunPodHttpClientInitError>,
     workspace_resource_registry:
@@ -65,6 +72,17 @@ impl NativeAppState {
             self.provider_setup_registry
                 .clone()
                 .map_err(|_| crate::provider_setup::ProviderSetupError::ProviderApiUnavailable)?,
+        ))
+    }
+
+    pub(crate) fn hugging_face_setup_service(
+        &self,
+    ) -> Result<ProductionHuggingFaceSetupService, HuggingFaceSetupError> {
+        Ok(HuggingFaceSetupService::new(
+            self.secrets.clone(),
+            self.hugging_face_identity
+                .clone()
+                .map_err(|_| HuggingFaceSetupError::HuggingFaceApiUnavailable)?,
         ))
     }
 
@@ -139,6 +157,7 @@ impl NativeAppState {
         Self::from_initialized_parts(
             workspace_catalog_source,
             app_identifier,
+            HuggingFaceClient::try_new_default(),
             ProviderSetupProviderRegistry::try_new(),
             WorkspaceSetupProviderRegistry::try_new(),
             WorkspaceResourceProviderRegistry::try_new(),
@@ -149,6 +168,7 @@ impl NativeAppState {
     fn from_initialized_parts(
         workspace_catalog_source: WorkspaceCatalogSource,
         app_identifier: impl AsRef<str>,
+        hugging_face_identity: Result<HuggingFaceClient, HuggingFaceHttpClientInitError>,
         provider_setup_registry: Result<ProviderSetupProviderRegistry, RunPodHttpClientInitError>,
         workspace_setup_registry: Result<WorkspaceSetupProviderRegistry, RunPodHttpClientInitError>,
         workspace_resource_registry: Result<
@@ -169,6 +189,7 @@ impl NativeAppState {
             workspace_provisioning_coordinator: WorkspaceProvisioningCoordinator::default(),
             catalogs: BundledCatalogReader,
             secrets,
+            hugging_face_identity,
             provider_setup_registry,
             workspace_setup_registry,
             workspace_resource_registry,
@@ -200,6 +221,7 @@ impl WorkspaceCatalogSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::huggingface::HuggingFaceHttpClientInitError;
     use crate::provider::runpod::RunPodHttpClientInitError;
     use crate::workspace_provisioning::ProvisionerWorkerHttpGatewayInitError;
 
@@ -208,12 +230,17 @@ mod tests {
         let state = NativeAppState::from_initialized_parts(
             WorkspaceCatalogSource::Test(PathBuf::from("unused.sqlite")),
             "test.bundle",
+            Err(HuggingFaceHttpClientInitError),
             Err(RunPodHttpClientInitError),
             Err(RunPodHttpClientInitError),
             Err(RunPodHttpClientInitError),
             Err(ProvisionerWorkerHttpGatewayInitError),
         );
 
+        assert!(matches!(
+            state.hugging_face_setup_service(),
+            Err(HuggingFaceSetupError::HuggingFaceApiUnavailable)
+        ));
         assert!(matches!(
             state.provider_setup_service(),
             Err(crate::provider_setup::ProviderSetupError::ProviderApiUnavailable)
@@ -233,6 +260,7 @@ mod tests {
         let state = NativeAppState::from_initialized_parts(
             WorkspaceCatalogSource::Test(catalog_path),
             "test.bundle",
+            HuggingFaceClient::try_new_default(),
             ProviderSetupProviderRegistry::try_new(),
             WorkspaceSetupProviderRegistry::try_new(),
             Err(RunPodHttpClientInitError),

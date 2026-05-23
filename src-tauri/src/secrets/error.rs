@@ -8,4 +8,6 @@ pub enum SecretStoreError {
     InvalidStoredProviderApiKey,
     #[error("invalid stored provisioner worker token")]
     InvalidStoredProvisionerWorkerToken,
+    #[error("invalid stored hugging face api key")]
+    InvalidStoredHuggingFaceApiKey,
 }

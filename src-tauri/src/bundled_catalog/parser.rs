@@ -99,6 +99,7 @@ mod tests {
                     "name": "ComfyUI Text to Image Basic",
                     "workflow_execution_type": "t2i",
                     "required_base_volume_size_bytes": 85899345920,
+                    "requires_hugging_face_api_key": true,
                     "runtime_contract": {
                         "id": "comfyui-hidream-o1-dev-python312-cu121",
                         "version": "1.0.0"
@@ -225,6 +226,51 @@ mod tests {
     }
 
     #[test]
+    fn parse_workflow_catalog_requires_hugging_face_auth_flag() {
+        let runtime_catalog = valid_runtime_catalog();
+        let provisioner_catalog = valid_provisioner_catalog();
+        let err = parse_workflow_catalog(
+            r#"{
+                "workflow_presets": [
+                    {
+                        "id": "comfyui-hidream-o1-dev",
+                        "version": "1.0.0",
+                        "name": "ComfyUI Text to Image Basic",
+                        "workflow_execution_type": "t2i",
+                        "required_base_volume_size_bytes": 85899345920,
+                        "runtime_contract": {
+                            "id": "comfyui-hidream-o1-dev-python312-cu121",
+                            "version": "1.0.0"
+                        },
+                        "provisioner_contract": {
+                            "id": "luma-forge-provisioner",
+                            "version": "1.0.0"
+                        },
+                        "required_model_assets": [
+                            {
+                                "id": "hidream-o1-dev-checkpoint",
+                                "name": "HiDream O1 Dev",
+                                "download_source": {
+                                    "source_type": "huggingface",
+                                    "repository_id": "Comfy-Org/HiDream-O1-Image",
+                                    "file_path": "hidream_o1_image_dev_fp8_scaled.safetensors",
+                                    "revision": "462165984030d82259a11f4367a4eed129e94a7b"
+                                },
+                                "install_comfyui_relative_path": "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"
+                            }
+                        ]
+                    }
+                ]
+            }"#,
+            &runtime_catalog,
+            &provisioner_catalog,
+        )
+        .expect_err("missing hugging face auth flag should fail parsing");
+
+        assert_eq!(err, BundledCatalogError::ParseFailed);
+    }
+
+    #[test]
     fn parse_workflow_catalog_maps_invalid_catalog_to_validation_failed() {
         let runtime_catalog = valid_runtime_catalog();
         let provisioner_catalog = valid_provisioner_catalog();
@@ -240,6 +286,7 @@ mod tests {
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
+                            "requires_hugging_face_api_key": false,
                             "runtime_contract": {
                                 "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
@@ -263,6 +310,7 @@ mod tests {
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 0,
+                            "requires_hugging_face_api_key": false,
                             "runtime_contract": {
                                 "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
@@ -286,6 +334,7 @@ mod tests {
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
+                            "requires_hugging_face_api_key": false,
                             "runtime_contract": {
                                 "id": "missing-runtime-contract",
                                 "version": "1.0.0"
@@ -309,6 +358,7 @@ mod tests {
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
+                            "requires_hugging_face_api_key": false,
                             "runtime_contract": {
                                 "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"
@@ -332,6 +382,7 @@ mod tests {
                             "name": "ComfyUI Text to Image Basic",
                             "workflow_execution_type": "t2i",
                             "required_base_volume_size_bytes": 85899345920,
+                            "requires_hugging_face_api_key": false,
                             "runtime_contract": {
                                 "id": "comfyui-hidream-o1-dev-python312-cu121",
                                 "version": "1.0.0"

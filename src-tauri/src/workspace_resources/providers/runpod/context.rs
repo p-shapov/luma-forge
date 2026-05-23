@@ -142,6 +142,22 @@ where
         let api_key = self
             .provisioning_api_key(&input.gpu_cloud_provider_id)
             .await?;
+        let mut env = HashMap::from([
+            (
+                "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+                input.bearer_token.expose_secret().to_string(),
+            ),
+            (
+                "LUMA_FORGE_WORKSPACE_MOUNT_PATH".to_string(),
+                input.mount_path.clone(),
+            ),
+        ]);
+        if let Some(hugging_face_api_key) = input.hugging_face_api_key {
+            env.insert(
+                "LUMA_FORGE_HUGGING_FACE_API_KEY".to_string(),
+                hugging_face_api_key.expose_secret().to_string(),
+            );
+        }
         self.client
             .create_pod(
                 &api_key,
@@ -156,16 +172,7 @@ where
                     data_center_ids: vec![input.datacenter_id],
                     network_volume_id: input.network_volume_id,
                     volume_mount_path: input.mount_path.clone(),
-                    env: HashMap::from([
-                        (
-                            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-                            input.bearer_token.expose_secret().to_string(),
-                        ),
-                        (
-                            "LUMA_FORGE_WORKSPACE_MOUNT_PATH".to_string(),
-                            input.mount_path,
-                        ),
-                    ]),
+                    env,
                     ports: vec![format!("{RUNPOD_PROVISIONER_WORKER_HTTP_PORT}/http")],
                 },
             )

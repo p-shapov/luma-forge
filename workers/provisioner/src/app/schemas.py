@@ -28,6 +28,7 @@ class ModelAsset:
 
 @dataclass(frozen=True)
 class WorkflowPreset:
+    requires_hugging_face_api_key: bool
     required_model_assets: list[ModelAsset]
 
 
@@ -50,10 +51,14 @@ def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
     data = _object(payload, "workflow_preset")
     _require_keys(
         data,
-        {"required_model_assets"},
+        {"requires_hugging_face_api_key", "required_model_assets"},
         "workflow_preset",
     )
     return WorkflowPreset(
+        requires_hugging_face_api_key=_bool(
+            data.get("requires_hugging_face_api_key"),
+            "workflow_preset.requires_hugging_face_api_key",
+        ),
         required_model_assets=[
             _parse_model_asset(item, f"workflow_preset.required_model_assets[{index}]")
             for index, item in enumerate(
@@ -106,6 +111,12 @@ def _list(payload: Any, field: str) -> list[Any]:
     if not isinstance(payload, list):
         raise ValidationError(f"{field} must be an array")
     return payload
+
+
+def _bool(value: Any, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValidationError(f"{field} must be a boolean")
+    return value
 
 
 def _non_empty_string(value: Any, field: str) -> str:
