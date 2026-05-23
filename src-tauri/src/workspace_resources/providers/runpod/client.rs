@@ -93,16 +93,6 @@ pub(super) trait RunPodWorkspaceResourceClient: Send + Sync {
         >,
     >;
 
-    fn get_template<'a>(
-        &'a self,
-        api_key: &'a ProviderApiKey,
-        template_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<RunPodTemplateObservation, ProviderClientError>> + Send + 'a,
-        >,
-    >;
-
     fn find_templates_by_name<'a>(
         &'a self,
         api_key: &'a ProviderApiKey,
@@ -261,18 +251,6 @@ impl RunPodWorkspaceResourceClient for RunPodClient {
         >,
     > {
         Box::pin(async move { RunPodClient::create_template(self, api_key, request).await })
-    }
-
-    fn get_template<'a>(
-        &'a self,
-        api_key: &'a ProviderApiKey,
-        template_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<RunPodTemplateObservation, ProviderClientError>> + Send + 'a,
-        >,
-    > {
-        Box::pin(async move { RunPodClient::get_template(self, api_key, template_id).await })
     }
 
     fn find_templates_by_name<'a>(

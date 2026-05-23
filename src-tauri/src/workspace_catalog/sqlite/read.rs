@@ -8,8 +8,8 @@ use crate::{
         workflow::WorkflowPreset,
         workspace::validator as workspace_validator,
         workspace::{
-            PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProvisioningPodSnapshot,
-            RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot, Workspace,
+            PersistentStorageVolumeSnapshot, ProvisioningPodSnapshot,
+            ServerlessEndpointProviderMetadata, ServerlessEndpointSnapshot, Workspace,
             WorkspaceProvisioningFailure,
         },
     },
@@ -56,8 +56,6 @@ pub(super) async fn decode_workspace(
     let serverless_endpoint_snapshot = read_serverless_endpoint_snapshot(transaction, &id).await?;
     let last_provisioning_pod_snapshot =
         read_provisioning_pod_snapshot(transaction, &id, "last_provisioning_pod").await?;
-    let provider_provisioning_snapshot =
-        read_provider_provisioning_snapshot(transaction, &id).await?;
     let last_provisioning_failure = read_provisioning_failure(transaction, &id).await?;
 
     let workspace = Workspace {
@@ -72,7 +70,6 @@ pub(super) async fn decode_workspace(
         active_provisioning_pod_snapshot,
         serverless_endpoint_snapshot,
         last_provisioning_pod_snapshot,
-        provider_provisioning_snapshot,
         environment_prepared_at,
         last_provisioning_failure,
     };
@@ -213,7 +210,8 @@ async fn read_resource_snapshot(
             provider_resource_status,
             mount_path,
             provisioner_status_url,
-            endpoint_invoke_url
+            endpoint_invoke_url,
+            provider_metadata_json
         FROM workspace_resource_snapshots
         WHERE workspace_id = ? AND snapshot_role = ?
         "#,
@@ -314,49 +312,13 @@ async fn read_serverless_endpoint_snapshot(
             .try_get::<Option<String>, _>("endpoint_invoke_url")
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?
             .ok_or(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
+        provider_metadata: row
+            .try_get::<Option<String>, _>("provider_metadata_json")
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?
+            .map(|json| serde_json::from_str::<ServerlessEndpointProviderMetadata>(&json))
+            .transpose()
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?,
     }))
-}
-
-async fn read_provider_provisioning_snapshot(
-    transaction: &mut SqliteTransaction<'_>,
-    workspace_id: &str,
-) -> Result<Option<ProviderProvisioningSnapshot>, WorkspaceSetupError> {
-    let template = sqlx::query(
-        r#"
-        SELECT template_id, provider_resource_status, endpoint_worker_image_ref, mount_path
-        FROM workspace_runpod_endpoint_templates
-        WHERE workspace_id = ?
-        "#,
-    )
-    .bind(workspace_id)
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
-    .map(|row| {
-        Ok::<RunPodEndpointTemplateSnapshot, WorkspaceSetupError>(RunPodEndpointTemplateSnapshot {
-            template_id: row
-                .try_get("template_id")
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
-            provider_resource_status: parse_provider_resource_status(
-                row.try_get::<String, _>("provider_resource_status")
-                    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?
-                    .as_str(),
-            )?,
-            endpoint_worker_image_ref: row
-                .try_get("endpoint_worker_image_ref")
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
-            mount_path: row
-                .try_get("mount_path")
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
-        })
-    })
-    .transpose()?;
-
-    Ok(template.map(
-        |endpoint_template_snapshot| ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: Some(endpoint_template_snapshot),
-        },
-    ))
 }
 
 async fn read_provisioning_failure(

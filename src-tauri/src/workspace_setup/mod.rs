@@ -815,7 +815,6 @@ mod tests {
         assert_eq!(workspace.active_provisioning_pod_snapshot, None);
         assert_eq!(workspace.serverless_endpoint_snapshot, None);
         assert_eq!(workspace.last_provisioning_pod_snapshot, None);
-        assert_eq!(workspace.provider_provisioning_snapshot, None);
         assert_eq!(
             workspace.resolved_runtime_image,
             runtime_catalog()

@@ -2,24 +2,17 @@ use thiserror::Error;
 
 use crate::{
     domain::workspace::{
-        PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
-        ServerlessEndpointSnapshot, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
+        ProviderResourceStatus, Workspace, WorkspaceLifecycleState, WorkspaceProvisioningPhase,
         WorkspaceProvisioningProgress, WorkspaceProvisioningStatus,
     },
     secrets::SecretStoreError,
-    workspace_resources::{
-        NetworkVolumeObservation, ProvisioningPodObservation, ServerlessEndpointObservation,
-        WorkspaceResourceError,
-    },
+    workspace_resources::WorkspaceResourceError,
     workspace_setup::error::WorkspaceSetupError,
 };
 
-use super::{
-    gateway::{
-        ProvisionerWorkerError, ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus,
-        ProvisionerWorkerPhase, ProvisionerWorkerStatus,
-    },
-    readiness::has_ready_matching_endpoint_template,
+use super::gateway::{
+    ProvisionerWorkerError, ProvisionerWorkerHttpGatewayInitError, ProvisionerWorkerJobStatus,
+    ProvisionerWorkerPhase, ProvisionerWorkerStatus,
 };
 
 const PROGRESS_NOT_STARTED: u8 = 0;
@@ -63,6 +56,8 @@ pub enum WorkspaceProvisioningError {
     ProviderResponseInvalid,
     #[error("provider resource not found")]
     ProviderResourceNotFound,
+    #[error("provider orphaned resources")]
+    ProviderOrphanedResources,
     #[error("provider operation conflict")]
     ProviderOperationConflict,
     #[error("provider operation indeterminate")]
@@ -81,6 +76,8 @@ pub enum WorkspaceProvisioningError {
     ProvisionerWorkerResponseInvalid,
     #[error("provisioner worker failed")]
     ProvisionerWorkerFailed,
+    #[error("resource cleanup failed")]
+    CleanupFailed,
 }
 
 impl From<SecretStoreError> for WorkspaceProvisioningError {
@@ -121,6 +118,7 @@ impl From<WorkspaceResourceError> for WorkspaceProvisioningError {
             WorkspaceResourceError::ProviderRequestRejected => Self::ProviderRequestRejected,
             WorkspaceResourceError::ProviderResponseInvalid => Self::ProviderResponseInvalid,
             WorkspaceResourceError::ProviderResourceNotFound => Self::ProviderResourceNotFound,
+            WorkspaceResourceError::ProviderOrphanedResources => Self::ProviderOrphanedResources,
             WorkspaceResourceError::ProviderOperationConflict => Self::ProviderOperationConflict,
             WorkspaceResourceError::ProviderOperationIndeterminate => {
                 Self::ProviderOperationIndeterminate
@@ -129,6 +127,7 @@ impl From<WorkspaceResourceError> for WorkspaceProvisioningError {
             WorkspaceResourceError::ProvisionerWorkerTokenInvalid => {
                 Self::ProvisionerWorkerTokenInvalid
             }
+            WorkspaceResourceError::CleanupFailed => Self::CleanupFailed,
         }
     }
 }
@@ -246,7 +245,6 @@ fn progress_phase_for_provisioning_workspace(workspace: &Workspace) -> Workspace
     } else if workspace.environment_prepared_at.is_none() {
         WorkspaceProvisioningPhase::StartingProvisioningPod
     } else if workspace.active_provisioning_pod_snapshot.is_some()
-        || !has_ready_matching_endpoint_template(workspace)
         || !workspace
             .serverless_endpoint_snapshot
             .as_ref()
@@ -357,55 +355,12 @@ fn progress_percent_from_worker_status(
     }
 }
 
-pub(crate) fn persistent_storage_volume_snapshot(
-    workspace: &Workspace,
-    observation: NetworkVolumeObservation,
-) -> PersistentStorageVolumeSnapshot {
-    PersistentStorageVolumeSnapshot {
-        gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-        provider_resource_id: observation.provider_resource_id,
-        provider_resource_status: observation.provider_resource_status,
-        mount_path: workspace
-            .resolved_provisioner_image
-            .volume_mount_path
-            .clone(),
-    }
-}
-
-pub(crate) fn observed_provisioning_pod_snapshot(
-    workspace: &Workspace,
-    previous: &ProvisioningPodSnapshot,
-    observation: ProvisioningPodObservation,
-) -> ProvisioningPodSnapshot {
-    ProvisioningPodSnapshot {
-        gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-        provider_resource_id: observation.provider_resource_id,
-        provider_resource_status: observation.provider_resource_status,
-        provisioner_status_url: observation
-            .provisioner_status_url
-            .unwrap_or_else(|| previous.provisioner_status_url.clone()),
-    }
-}
-
-pub(crate) fn serverless_endpoint_snapshot(
-    workspace: &Workspace,
-    observation: ServerlessEndpointObservation,
-) -> ServerlessEndpointSnapshot {
-    ServerlessEndpointSnapshot {
-        gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
-        provider_resource_id: observation.provider_resource_id,
-        provider_resource_status: observation.provider_resource_status,
-        endpoint_invoke_url: observation.endpoint_invoke_url,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::workspace::ProviderResourceStatus;
     use crate::workspace_provisioning::test_support::{
-        endpoint, pod, provisioning_workspace, ready_provisioning_workspace, template, volume,
-        workspace,
+        endpoint, pod, provisioning_workspace, ready_provisioning_workspace, volume, workspace,
     };
 
     fn worker_status(
@@ -477,15 +432,6 @@ mod tests {
         assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
         assert_eq!(progress.percent, Some(90));
 
-        workspace.provider_provisioning_snapshot = Some(
-            crate::domain::workspace::ProviderProvisioningSnapshot::Runpod {
-                endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-            },
-        );
-        let progress = progress_for_workspace(&workspace);
-        assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
-        assert_eq!(progress.percent, Some(90));
-
         workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Creating));
         let progress = progress_for_workspace(&workspace);
         assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
@@ -520,11 +466,6 @@ mod tests {
 
         workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
         workspace.active_provisioning_pod_snapshot = None;
-        workspace.provider_provisioning_snapshot = Some(
-            crate::domain::workspace::ProviderProvisioningSnapshot::Runpod {
-                endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-            },
-        );
         workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Creating));
         let progress = progress_for_workspace(&workspace);
         assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
@@ -543,40 +484,6 @@ mod tests {
             WorkspaceProvisioningPhase::StartingProvisioningPod
         );
         assert_eq!(progress.percent, Some(10));
-    }
-
-    #[test]
-    fn progress_for_workspace_requires_ready_matching_endpoint_template_before_readiness() {
-        let mut workspace = provisioning_workspace();
-        workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
-        workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
-        workspace.active_provisioning_pod_snapshot = None;
-        workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Ready));
-
-        let progress = progress_for_workspace(&workspace);
-        assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
-        assert_eq!(progress.percent, Some(90));
-
-        workspace.provider_provisioning_snapshot = Some(
-            crate::domain::workspace::ProviderProvisioningSnapshot::Runpod {
-                endpoint_template_snapshot: Some(template(ProviderResourceStatus::Creating)),
-            },
-        );
-        let progress = progress_for_workspace(&workspace);
-        assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
-        assert_eq!(progress.percent, Some(90));
-
-        workspace.provider_provisioning_snapshot = Some(
-            crate::domain::workspace::ProviderProvisioningSnapshot::Runpod {
-                endpoint_template_snapshot: Some(crate::domain::workspace::RunPodEndpointTemplateSnapshot {
-                    endpoint_worker_image_ref: "ghcr.io/luma-forge/other@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".to_string(),
-                    ..template(ProviderResourceStatus::Ready)
-                }),
-            },
-        );
-        let progress = progress_for_workspace(&workspace);
-        assert_eq!(progress.phase, WorkspaceProvisioningPhase::CreatingEndpoint);
-        assert_eq!(progress.percent, Some(90));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::{
     domain::{
         placement::PlacementPlan,
         provider_setup::GpuCloudProviderId,
-        workspace::{ProviderProvisioningSnapshot, ProviderResourceStatus, Workspace},
+        workspace::{ProviderResourceStatus, Workspace},
     },
     workspace_setup::error::WorkspaceSetupError,
 };
@@ -23,7 +23,6 @@ pub(super) async fn persist_workspace_details(
     persist_runtime_image(transaction, workspace).await?;
     persist_provisioner_image(transaction, workspace).await?;
     persist_resource_snapshots(transaction, workspace).await?;
-    persist_provider_provisioning_snapshot(transaction, workspace).await?;
     persist_provisioning_failure(transaction, workspace).await?;
     Ok(())
 }
@@ -37,7 +36,6 @@ pub(super) async fn delete_workspace_details(
         "workspace_runtime_images",
         "workspace_provisioner_images",
         "workspace_resource_snapshots",
-        "workspace_runpod_endpoint_templates",
         "workspace_provisioning_failures",
     ] {
         let statement = format!("DELETE FROM {table} WHERE workspace_id = ?");
@@ -163,6 +161,7 @@ async fn persist_resource_snapshots(
             Some(snapshot.mount_path.as_str()),
             None,
             None,
+            None,
         )
         .await?;
     }
@@ -176,6 +175,7 @@ async fn persist_resource_snapshots(
             &snapshot.provider_resource_status,
             None,
             Some(snapshot.provisioner_status_url.as_str()),
+            None,
             None,
         )
         .await?;
@@ -191,10 +191,17 @@ async fn persist_resource_snapshots(
             None,
             Some(snapshot.provisioner_status_url.as_str()),
             None,
+            None,
         )
         .await?;
     }
     if let Some(snapshot) = &workspace.serverless_endpoint_snapshot {
+        let provider_metadata_json = snapshot
+            .provider_metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogCorrupt)?;
         insert_resource_snapshot(
             transaction,
             &workspace.id,
@@ -205,6 +212,7 @@ async fn persist_resource_snapshots(
             None,
             None,
             Some(snapshot.endpoint_invoke_url.as_str()),
+            provider_metadata_json.as_deref(),
         )
         .await?;
     }
@@ -222,6 +230,7 @@ async fn insert_resource_snapshot(
     mount_path: Option<&str>,
     provisioner_status_url: Option<&str>,
     endpoint_invoke_url: Option<&str>,
+    provider_metadata_json: Option<&str>,
 ) -> Result<(), WorkspaceSetupError> {
     sqlx::query(
         r#"
@@ -233,8 +242,9 @@ async fn insert_resource_snapshot(
             provider_resource_status,
             mount_path,
             provisioner_status_url,
-            endpoint_invoke_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            endpoint_invoke_url,
+            provider_metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(workspace_id)
@@ -245,41 +255,7 @@ async fn insert_resource_snapshot(
     .bind(mount_path)
     .bind(provisioner_status_url)
     .bind(endpoint_invoke_url)
-    .execute(&mut **transaction)
-    .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
-    Ok(())
-}
-
-async fn persist_provider_provisioning_snapshot(
-    transaction: &mut SqliteTransaction<'_>,
-    workspace: &Workspace,
-) -> Result<(), WorkspaceSetupError> {
-    let Some(ProviderProvisioningSnapshot::Runpod {
-        endpoint_template_snapshot: Some(snapshot),
-    }) = &workspace.provider_provisioning_snapshot
-    else {
-        return Ok(());
-    };
-
-    sqlx::query(
-        r#"
-        INSERT INTO workspace_runpod_endpoint_templates (
-            workspace_id,
-            template_id,
-            provider_resource_status,
-            endpoint_worker_image_ref,
-            mount_path
-        ) VALUES (?, ?, ?, ?, ?)
-        "#,
-    )
-    .bind(&workspace.id)
-    .bind(&snapshot.template_id)
-    .bind(provider_resource_status_value(
-        &snapshot.provider_resource_status,
-    ))
-    .bind(&snapshot.endpoint_worker_image_ref)
-    .bind(&snapshot.mount_path)
+    .bind(provider_metadata_json)
     .execute(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
@@ -437,20 +413,21 @@ mod tests {
         .expect("resource snapshot count");
         assert_eq!(resource_count, 3);
 
-        let template_status: String = sqlx::query(
+        let provider_metadata_json: String = sqlx::query(
             r#"
-            SELECT provider_resource_status
-            FROM workspace_runpod_endpoint_templates
-            WHERE workspace_id = ?
+            SELECT provider_metadata_json
+            FROM workspace_resource_snapshots
+            WHERE workspace_id = ? AND snapshot_role = ?
             "#,
         )
         .bind(&workspace.id)
+        .bind("serverless_endpoint")
         .fetch_one(&pool)
         .await
-        .expect("read endpoint template row")
-        .try_get("provider_resource_status")
-        .expect("template status");
-        assert_eq!(template_status, "ready");
+        .expect("read endpoint metadata row")
+        .try_get("provider_metadata_json")
+        .expect("provider metadata json");
+        assert!(provider_metadata_json.contains("template-id"));
     }
 
     #[tokio::test]
@@ -547,7 +524,6 @@ mod tests {
             "workspace_runpod_placements",
             "workspace_runtime_images",
             "workspace_resource_snapshots",
-            "workspace_runpod_endpoint_templates",
             "workspace_provisioning_failures",
         ] {
             let statement = format!("SELECT COUNT(*) AS count FROM {table} WHERE workspace_id = ?");

@@ -141,6 +141,7 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
             mount_path TEXT,
             provisioner_status_url TEXT,
             endpoint_invoke_url TEXT,
+            provider_metadata_json TEXT,
             PRIMARY KEY(workspace_id, snapshot_role),
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
         )
@@ -152,22 +153,6 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
 
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_workspace_resource_snapshots_role ON workspace_resource_snapshots(snapshot_role)",
-    )
-    .execute(&mut **transaction)
-    .await
-    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS workspace_runpod_endpoint_templates (
-            workspace_id TEXT PRIMARY KEY NOT NULL,
-            template_id TEXT NOT NULL,
-            provider_resource_status TEXT NOT NULL,
-            endpoint_worker_image_ref TEXT NOT NULL,
-            mount_path TEXT NOT NULL,
-            FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
-        )
-        "#,
     )
     .execute(&mut **transaction)
     .await
@@ -206,7 +191,6 @@ async fn has_existing_catalog_objects(
             'workspace_runtime_images',
             'workspace_provisioner_images',
             'workspace_resource_snapshots',
-            'workspace_runpod_endpoint_templates',
             'workspace_provisioning_failures'
         )
         "#,
@@ -274,7 +258,6 @@ async fn validate_current_schema(
                 'workspace_runtime_images',
                 'workspace_provisioner_images',
                 'workspace_resource_snapshots',
-                'workspace_runpod_endpoint_templates',
                 'workspace_provisioning_failures'
             )
         "#,
@@ -284,7 +267,33 @@ async fn validate_current_schema(
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?
     .try_get("count")
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
-    if normalized_table_count != 6 {
+    if normalized_table_count != 5 {
+        return Err(WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
+    }
+
+    let resource_snapshot_columns: i64 = sqlx::query(
+        r#"
+        SELECT COUNT(*) AS count
+        FROM pragma_table_info('workspace_resource_snapshots')
+        WHERE name IN (
+            'workspace_id',
+            'snapshot_role',
+            'gpu_cloud_provider_id',
+            'provider_resource_id',
+            'provider_resource_status',
+            'mount_path',
+            'provisioner_status_url',
+            'endpoint_invoke_url',
+            'provider_metadata_json'
+        )
+        "#,
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?
+    .try_get("count")
+    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
+    if resource_snapshot_columns != 9 {
         return Err(WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     }
 
@@ -421,8 +430,8 @@ mod tests {
                 AND name IN (
                     'workspace_runpod_placements',
                     'workspace_runtime_images',
+                    'workspace_provisioner_images',
                     'workspace_resource_snapshots',
-                    'workspace_runpod_endpoint_templates',
                     'workspace_provisioning_failures'
                 )
             "#,

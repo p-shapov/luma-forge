@@ -1,5 +1,5 @@
 use crate::{
-    domain::workspace::{ProviderProvisioningSnapshot, Workspace},
+    domain::workspace::{ServerlessEndpointProviderMetadata, Workspace},
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{WorkspaceResourceContext, WorkspaceResourceError},
@@ -83,18 +83,20 @@ where
     );
 
     match first_error {
-        Some(error) => Err(error),
+        Some(_error) => Err(WorkspaceResourceError::CleanupFailed),
         None => Ok(()),
     }
 }
 
 fn runpod_template_id(workspace: &Workspace) -> Option<String> {
-    match &workspace.provider_provisioning_snapshot {
-        Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: Some(snapshot),
-        }) => Some(snapshot.template_id.clone()),
-        _ => None,
-    }
+    workspace
+        .serverless_endpoint_snapshot
+        .as_ref()
+        .and_then(|snapshot| {
+            snapshot.provider_metadata.as_ref().map(
+                |ServerlessEndpointProviderMetadata::Runpod { template_id }| template_id.clone(),
+            )
+        })
 }
 
 fn tolerate_missing(
@@ -122,9 +124,7 @@ mod tests {
     use super::cleanup_known_resources_with_client;
     use crate::workspace_resources::providers::runpod::test_support::*;
     use crate::{
-        domain::workspace::{
-            ProviderProvisioningSnapshot, ProviderResourceStatus, RunPodEndpointTemplateSnapshot,
-        },
+        domain::workspace::{ProviderResourceStatus, ServerlessEndpointProviderMetadata},
         provider::ProviderClientError,
         secrets::SecretStoreError,
         workspace_resources::WorkspaceResourceError,
@@ -138,13 +138,12 @@ mod tests {
             Some(pod_snapshot(ProviderResourceStatus::Running));
         workspace.serverless_endpoint_snapshot =
             Some(endpoint_snapshot(ProviderResourceStatus::Ready));
-        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
-                template_id: "template-1".to_string(),
-                provider_resource_status: ProviderResourceStatus::Ready,
-                endpoint_worker_image_ref: "endpoint:latest".to_string(),
-                mount_path: "/workspace".to_string(),
-            }),
+        workspace
+            .serverless_endpoint_snapshot
+            .as_mut()
+            .expect("endpoint")
+            .provider_metadata = Some(ServerlessEndpointProviderMetadata::Runpod {
+            template_id: "template-1".to_string(),
         });
         workspace
     }
@@ -215,7 +214,7 @@ mod tests {
             .await
             .expect_err("first real provider error should be returned");
 
-        assert_eq!(error, WorkspaceResourceError::ProviderApiUnavailable);
+        assert_eq!(error, WorkspaceResourceError::CleanupFailed);
         assert_eq!(client.calls().len(), 4);
         assert_eq!(
             secrets.delete_token_calls(),
@@ -240,7 +239,7 @@ mod tests {
             .await
             .expect_err("token delete error should be returned");
 
-        assert_eq!(error, WorkspaceResourceError::SecureKeyringUnavailable);
+        assert_eq!(error, WorkspaceResourceError::CleanupFailed);
         assert_eq!(client.calls().len(), 4);
     }
 }

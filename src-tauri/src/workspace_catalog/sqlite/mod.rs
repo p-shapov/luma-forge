@@ -310,12 +310,11 @@ mod test_fixtures {
                 WorkflowPreset,
             },
             workspace::{
-                PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot,
-                ProviderResourceStatus, ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot,
-                ServerlessEndpointSnapshot, Workspace, WorkspaceLifecycleState,
-                WorkspaceProvisioningFailure, WorkspaceProvisioningFailureCode,
-                WorkspaceProvisioningFailureSource, WorkspaceProvisioningPhase,
-                WorkspaceProvisioningRecoveryAction,
+                PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
+                ServerlessEndpointProviderMetadata, ServerlessEndpointSnapshot, Workspace,
+                WorkspaceLifecycleState, WorkspaceProvisioningFailure,
+                WorkspaceProvisioningFailureCode, WorkspaceProvisioningFailureSource,
+                WorkspaceProvisioningPhase, WorkspaceProvisioningRecoveryAction,
             },
         },
         workspace_catalog::schema_bootstrap,
@@ -434,15 +433,9 @@ mod test_fixtures {
             provider_resource_id: "endpoint-id".to_string(),
             provider_resource_status: status,
             endpoint_invoke_url: "https://endpoint.example/run".to_string(),
-        }
-    }
-
-    fn template(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
-        RunPodEndpointTemplateSnapshot {
-            template_id: "template-id".to_string(),
-            provider_resource_status: status,
-            endpoint_worker_image_ref: runtime_snapshot().endpoint_image_ref,
-            mount_path: "/workspace".to_string(),
+            provider_metadata: Some(ServerlessEndpointProviderMetadata::Runpod {
+                template_id: "template-id".to_string(),
+            }),
         }
     }
 
@@ -467,9 +460,6 @@ mod test_fixtures {
         let mut workspace = draft_workspace("workspace-ready", "Ready", "preset-a");
         workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
         workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
-        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-        });
         workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Running));
         workspace.last_provisioning_pod_snapshot = Some(pod(ProviderResourceStatus::Terminated));
         workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());

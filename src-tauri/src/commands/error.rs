@@ -43,8 +43,10 @@ pub enum NativeCommandErrorCode {
     WorkspaceNameRequired,
     InvalidWorkspaceMetadata,
     ProviderResourceNotFound,
+    ProviderOrphanedResources,
     ProviderOperationConflict,
     ProviderOperationIndeterminate,
+    CleanupFailed,
     ProvisionerWorkerTokenInvalid,
     ProvisionerWorkerUnauthorized,
     ProvisionerWorkerUnavailable,
@@ -90,8 +92,10 @@ impl NativeCommandErrorCode {
             Self::WorkspaceNameRequired => "workspace_name_required",
             Self::InvalidWorkspaceMetadata => "invalid_workspace_metadata",
             Self::ProviderResourceNotFound => "provider_resource_not_found",
+            Self::ProviderOrphanedResources => "provider_orphaned_resources",
             Self::ProviderOperationConflict => "provider_operation_conflict",
             Self::ProviderOperationIndeterminate => "provider_operation_indeterminate",
+            Self::CleanupFailed => "cleanup_failed",
             Self::ProvisionerWorkerTokenInvalid => "provisioner_worker_token_invalid",
             Self::ProvisionerWorkerUnauthorized => "provisioner_worker_unauthorized",
             Self::ProvisionerWorkerUnavailable => "provisioner_worker_unavailable",
@@ -446,12 +450,16 @@ fn provisioning_error_code(error: &WorkspaceProvisioningError) -> NativeCommandE
         WorkspaceProvisioningError::ProviderResourceNotFound => {
             NativeCommandErrorCode::ProviderResourceNotFound
         }
+        WorkspaceProvisioningError::ProviderOrphanedResources => {
+            NativeCommandErrorCode::ProviderOrphanedResources
+        }
         WorkspaceProvisioningError::ProviderOperationConflict => {
             NativeCommandErrorCode::ProviderOperationConflict
         }
         WorkspaceProvisioningError::ProviderOperationIndeterminate => {
             NativeCommandErrorCode::ProviderOperationIndeterminate
         }
+        WorkspaceProvisioningError::CleanupFailed => NativeCommandErrorCode::CleanupFailed,
         WorkspaceProvisioningError::SecureKeyringUnavailable => {
             NativeCommandErrorCode::SecureKeyringUnavailable
         }
@@ -526,12 +534,16 @@ fn provisioning_error_message(error: &WorkspaceProvisioningError) -> &'static st
         WorkspaceProvisioningError::ProviderRequestRejected => "Provider request was rejected.",
         WorkspaceProvisioningError::ProviderResponseInvalid => "Provider response is invalid.",
         WorkspaceProvisioningError::ProviderResourceNotFound => "Provider resource was not found.",
+        WorkspaceProvisioningError::ProviderOrphanedResources => {
+            "Provider has workspace-owned resources that cannot be safely adopted."
+        }
         WorkspaceProvisioningError::ProviderOperationConflict => {
             "Provider operation is currently in conflict."
         }
         WorkspaceProvisioningError::ProviderOperationIndeterminate => {
             "Provider operation result is indeterminate."
         }
+        WorkspaceProvisioningError::CleanupFailed => "Workspace resource cleanup failed.",
         WorkspaceProvisioningError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
         WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid => {
             "Provisioner worker token is invalid."
@@ -572,6 +584,7 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         | WorkspaceProvisioningError::ProviderRateLimited
         | WorkspaceProvisioningError::ProviderOperationConflict
         | WorkspaceProvisioningError::ProviderOperationIndeterminate
+        | WorkspaceProvisioningError::CleanupFailed
         | WorkspaceProvisioningError::SecureKeyringUnavailable
         | WorkspaceProvisioningError::ProvisionerWorkerUnavailable
         | WorkspaceProvisioningError::ProvisionerWorkerConflict => Some("retry"),
@@ -584,6 +597,7 @@ fn provisioning_error_recovery_action(error: &WorkspaceProvisioningError) -> Opt
         WorkspaceProvisioningError::ProviderRequestRejected => Some("reselect_placement"),
         WorkspaceProvisioningError::ProviderResponseInvalid
         | WorkspaceProvisioningError::ProviderResourceNotFound
+        | WorkspaceProvisioningError::ProviderOrphanedResources
         | WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
         | WorkspaceProvisioningError::ProvisionerWorkerUnauthorized
         | WorkspaceProvisioningError::ProvisionerWorkerResponseInvalid

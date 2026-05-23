@@ -265,19 +265,6 @@ where
             .map_err(WorkspaceResourceError::from)
     }
 
-    pub(super) async fn get_endpoint_template(
-        &self,
-        provider_id: GpuCloudProviderId,
-        template_id: &str,
-    ) -> Result<EndpointTemplateObservation, WorkspaceResourceError> {
-        let api_key = self.provisioning_api_key(&provider_id).await?;
-        self.client
-            .get_template(&api_key, template_id)
-            .await
-            .map(runpod_template_observation)
-            .map_err(WorkspaceResourceError::from)
-    }
-
     pub(super) async fn delete_endpoint_template(
         &self,
         provider_id: GpuCloudProviderId,

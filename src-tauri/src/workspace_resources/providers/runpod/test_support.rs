@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     collections::VecDeque,
     future::Future,
@@ -17,7 +19,8 @@ use crate::{
         },
         workspace::{
             PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
-            ServerlessEndpointSnapshot, Workspace, WorkspaceCatalog, WorkspaceLifecycleState,
+            ServerlessEndpointProviderMetadata, ServerlessEndpointSnapshot, Workspace,
+            WorkspaceCatalog, WorkspaceLifecycleState,
         },
     },
     provider::{
@@ -383,19 +386,6 @@ impl RunPodWorkspaceResourceClient for FakeRunPodClient {
         })
     }
 
-    fn get_template<'a>(
-        &'a self,
-        _api_key: &'a ProviderApiKey,
-        template_id: &'a str,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = Result<RunPodTemplateObservation, ProviderClientError>> + Send + 'a,
-        >,
-    > {
-        self.record(RunPodCall::GetTemplate(template_id.to_string()));
-        Box::pin(async move { Self::next(&self.get_template_results, "fake get template results") })
-    }
-
     fn find_templates_by_name<'a>(
         &'a self,
         _api_key: &'a ProviderApiKey,
@@ -750,6 +740,9 @@ pub(super) fn endpoint_snapshot(status: ProviderResourceStatus) -> ServerlessEnd
         provider_resource_id: "endpoint-1".to_string(),
         provider_resource_status: status,
         endpoint_invoke_url: "https://endpoint/run".to_string(),
+        provider_metadata: Some(ServerlessEndpointProviderMetadata::Runpod {
+            template_id: "template-1".to_string(),
+        }),
     }
 }
 
