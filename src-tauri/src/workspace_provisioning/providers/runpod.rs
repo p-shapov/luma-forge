@@ -14,6 +14,7 @@ use crate::workspace_provisioning::{
     helpers::{
         progress_from_worker_status, result, result_with_progress, worker_readiness_progress,
     },
+    prerequisites::sync_hugging_face_api_key_setup,
     provisioner::WorkspaceProvisionerSyncOutcome,
     readiness::is_workspace_ready,
     WorkspaceProvisioningError,
@@ -63,6 +64,9 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
+    if let Some(result) = sync_hugging_face_api_key_setup(context, workspace).await? {
+        return Ok(Some(result));
+    }
     if let Some(result) = sync_network_volume(context, workspace).await? {
         return Ok(Some(result));
     }
@@ -144,24 +148,6 @@ where
         .as_ref()
         .is_some_and(|snapshot| snapshot.provider_resource_status == ProviderResourceStatus::Ready)
     {
-        if workspace
-            .placement_plan
-            .selected_workflow_preset()
-            .requires_hugging_face_api_key
-            && !context
-                .secrets
-                .has_hugging_face_api_key_entry()
-                .await
-                .map_err(WorkspaceProvisioningError::from)?
-        {
-            let mut workspace = workspace.clone();
-            failure::fail_workspace(
-                &mut workspace,
-                failure::hugging_face_api_key_setup_required(),
-            );
-            let workspace = context.update_workspace(&workspace).await?;
-            return Ok(Some(result(workspace)));
-        }
         context.resources.create_provisioning_pod(workspace).await?
     } else {
         None
@@ -362,6 +348,44 @@ mod tests {
             .workspace
             .persistent_storage_volume_snapshot
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn sync_fails_before_network_volume_create_when_hugging_face_key_is_missing() {
+        let workspace = provisioning_workspace_requiring_hugging_face_api_key();
+        let harness = TestHarness::new(workspace.clone());
+        let mut workspace = workspace;
+
+        let result = super::sync(&harness.context(), &mut workspace)
+            .await
+            .expect("sync should persist missing key failure")
+            .expect("missing key should return failed workspace");
+
+        assert!(harness.resources.calls().is_empty());
+        assert_eq!(harness.secrets.has_hugging_face_key_call_count(), 1);
+        assert_eq!(harness.secrets.read_hugging_face_key_call_count(), 0);
+        assert_eq!(
+            result.workspace.lifecycle_state,
+            WorkspaceLifecycleState::Failed
+        );
+        let failure = result
+            .workspace
+            .last_provisioning_failure
+            .expect("missing key failure should be persisted");
+        assert_eq!(
+            failure.code,
+            WorkspaceProvisioningFailureCode::HuggingFaceApiKeySetupRequired
+        );
+        assert_eq!(
+            failure.phase,
+            WorkspaceProvisioningPhase::StartingProvisioningPod
+        );
+        assert_eq!(failure.source, WorkspaceProvisioningFailureSource::Native);
+        assert_eq!(
+            failure.recovery_action,
+            WorkspaceProvisioningRecoveryAction::ConfigureHuggingFaceSetup
+        );
+        assert_eq!(result.progress.failure.expect("progress failure"), failure);
     }
 
     #[tokio::test]

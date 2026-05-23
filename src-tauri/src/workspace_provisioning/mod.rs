@@ -3,6 +3,7 @@ mod coordinator;
 pub(crate) mod failure;
 pub(crate) mod gateway;
 pub(crate) mod helpers;
+mod prerequisites;
 mod providers;
 mod provisioner;
 pub(crate) mod readiness;
