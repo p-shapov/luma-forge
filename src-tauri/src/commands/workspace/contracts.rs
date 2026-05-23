@@ -153,24 +153,14 @@ mod remote_types {
         pub provider_resource_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
         pub endpoint_invoke_url: String,
+        pub provider_metadata: Option<domain_workspace::ServerlessEndpointProviderMetadata>,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workspace::ProviderProvisioningSnapshot)]
+    #[specta(remote = domain_workspace::ServerlessEndpointProviderMetadata)]
     #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
-    pub(super) enum ProviderProvisioningSnapshot {
-        Runpod {
-            endpoint_template_snapshot: Option<domain_workspace::RunPodEndpointTemplateSnapshot>,
-        },
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-    #[specta(remote = domain_workspace::RunPodEndpointTemplateSnapshot)]
-    pub(super) struct RunPodEndpointTemplateSnapshot {
-        pub template_id: String,
-        pub provider_resource_status: domain_workspace::ProviderResourceStatus,
-        pub endpoint_worker_image_ref: String,
-        pub mount_path: String,
+    pub(super) enum ServerlessEndpointProviderMetadata {
+        Runpod { template_id: String },
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -188,7 +178,6 @@ mod remote_types {
         pub active_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,
         pub serverless_endpoint_snapshot: Option<domain_workspace::ServerlessEndpointSnapshot>,
         pub last_provisioning_pod_snapshot: Option<domain_workspace::ProvisioningPodSnapshot>,
-        pub provider_provisioning_snapshot: Option<domain_workspace::ProviderProvisioningSnapshot>,
         pub environment_prepared_at: Option<String>,
         pub last_provisioning_failure: Option<domain_workspace::WorkspaceProvisioningFailure>,
     }

@@ -177,6 +177,9 @@ where
         {
             Ok(updated_workspace) => {
                 workspace = updated_workspace;
+                workspace.lifecycle_state = WorkspaceLifecycleState::Draft;
+                workspace.last_provisioning_failure = None;
+                workspace = context.update_workspace(&workspace).await?;
             }
             Err(_) => {
                 fail_workspace(&mut workspace, failure::cancellation_cleanup_failed());
@@ -708,10 +711,7 @@ mod tests {
                 .await
                 .expect("sync should return failed workspace state");
 
-            assert_eq!(
-                resources.calls(),
-                vec!["network_volume", "provisioning_pod"]
-            );
+            assert_eq!(resources.calls(), vec!["observe_provisioning_pod"]);
             assert_eq!(
                 result.workspace.lifecycle_state,
                 WorkspaceLifecycleState::Failed
@@ -810,7 +810,7 @@ mod tests {
             .workspace
             .persistent_storage_volume_snapshot
             .is_none());
-        assert!(catalog.updates().is_empty());
+        assert_eq!(catalog.updates().len(), 1);
     }
 
     #[tokio::test]
@@ -831,7 +831,7 @@ mod tests {
             result.workspace.lifecycle_state,
             WorkspaceLifecycleState::Draft
         );
-        assert!(catalog.updates().is_empty());
+        assert_eq!(catalog.updates().len(), 1);
         assert!(resources.calls().is_empty());
     }
 

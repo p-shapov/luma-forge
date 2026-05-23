@@ -34,10 +34,14 @@ pub(crate) enum WorkspaceResourceError {
     ProviderResponseInvalid,
     #[error("provider resource not found")]
     ProviderResourceNotFound,
+    #[error("provider orphaned resources")]
+    ProviderOrphanedResources,
     #[error("provider operation conflict")]
     ProviderOperationConflict,
     #[error("provider operation indeterminate")]
     ProviderOperationIndeterminate,
+    #[error("resource cleanup failed")]
+    CleanupFailed,
     #[error("secure keyring unavailable")]
     SecureKeyringUnavailable,
     #[error("provisioner worker token invalid")]

@@ -9,9 +9,9 @@ use crate::domain::{
 };
 
 use super::{
-    PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
-    ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot, Workspace,
-    WorkspaceCatalog, WorkspaceLifecycleState,
+    PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
+    ServerlessEndpointProviderMetadata, ServerlessEndpointSnapshot, Workspace, WorkspaceCatalog,
+    WorkspaceLifecycleState,
 };
 
 pub fn validate_workspace_catalog(catalog: &WorkspaceCatalog) -> DomainValidationResult {
@@ -49,7 +49,6 @@ pub fn validate_workspace(workspace: &Workspace) -> DomainValidationResult {
             || workspace.active_provisioning_pod_snapshot.is_some()
             || workspace.serverless_endpoint_snapshot.is_some()
             || workspace.last_provisioning_pod_snapshot.is_some()
-            || workspace.provider_provisioning_snapshot.is_some()
             || workspace.environment_prepared_at.is_some()
             || workspace.last_provisioning_failure.is_some())
     {
@@ -80,15 +79,6 @@ pub fn validate_workspace(workspace: &Workspace) -> DomainValidationResult {
     if let Some(snapshot) = &workspace.last_provisioning_pod_snapshot {
         validate_provisioning_pod_snapshot(workspace.gpu_cloud_provider_id, snapshot)?;
     }
-    if let Some(snapshot) = &workspace.provider_provisioning_snapshot {
-        validate_provider_provisioning_snapshot(workspace.gpu_cloud_provider_id, snapshot)?;
-    }
-    if workspace.serverless_endpoint_snapshot.is_some()
-        && runpod_endpoint_template_snapshot(workspace).is_none()
-    {
-        return Err(DomainValidationError);
-    }
-
     Ok(())
 }
 
@@ -101,9 +91,6 @@ fn has_ready_provisioning_state(workspace: &Workspace) -> bool {
             .is_some_and(|snapshot| {
                 snapshot.provider_resource_status == ProviderResourceStatus::Ready
             })
-        && runpod_endpoint_template_snapshot(workspace).is_some_and(|snapshot| {
-            snapshot.provider_resource_status == ProviderResourceStatus::Ready
-        })
         && workspace
             .serverless_endpoint_snapshot
             .as_ref()
@@ -113,17 +100,6 @@ fn has_ready_provisioning_state(workspace: &Workspace) -> bool {
                     ProviderResourceStatus::Ready | ProviderResourceStatus::Running
                 )
             })
-}
-
-fn runpod_endpoint_template_snapshot(
-    workspace: &Workspace,
-) -> Option<&RunPodEndpointTemplateSnapshot> {
-    match &workspace.provider_provisioning_snapshot {
-        Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot,
-        }) => endpoint_template_snapshot.as_ref(),
-        None => None,
-    }
 }
 
 fn validate_persistent_storage_volume_snapshot(
@@ -165,37 +141,14 @@ fn validate_serverless_endpoint_snapshot(
         return Err(DomainValidationError);
     }
 
-    Ok(())
-}
-
-fn validate_provider_provisioning_snapshot(
-    provider_id: GpuCloudProviderId,
-    snapshot: &ProviderProvisioningSnapshot,
-) -> DomainValidationResult {
-    match (provider_id, snapshot) {
+    match (provider_id, &snapshot.provider_metadata) {
         (
             GpuCloudProviderId::Runpod,
-            ProviderProvisioningSnapshot::Runpod {
-                endpoint_template_snapshot,
-            },
-        ) => {
-            if let Some(template_snapshot) = endpoint_template_snapshot {
-                validate_runpod_endpoint_template_snapshot(template_snapshot)?;
-            }
+            Some(ServerlessEndpointProviderMetadata::Runpod { template_id }),
+        ) if !is_blank(template_id) => {}
+        (GpuCloudProviderId::Runpod, _) => {
+            return Err(DomainValidationError);
         }
-    }
-
-    Ok(())
-}
-
-fn validate_runpod_endpoint_template_snapshot(
-    snapshot: &RunPodEndpointTemplateSnapshot,
-) -> DomainValidationResult {
-    if is_blank(&snapshot.template_id)
-        || is_blank(&snapshot.endpoint_worker_image_ref)
-        || !is_safe_absolute_posix_path(&snapshot.mount_path)
-    {
-        return Err(DomainValidationError);
     }
 
     Ok(())
@@ -306,15 +259,9 @@ mod tests {
             provider_resource_id: "endpoint-id".to_string(),
             provider_resource_status: status,
             endpoint_invoke_url: "https://endpoint.example/run".to_string(),
-        }
-    }
-
-    fn template(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
-        RunPodEndpointTemplateSnapshot {
-            template_id: "template-id".to_string(),
-            provider_resource_status: status,
-            endpoint_worker_image_ref: runtime_snapshot().endpoint_image_ref,
-            mount_path: "/workspace".to_string(),
+            provider_metadata: Some(ServerlessEndpointProviderMetadata::Runpod {
+                template_id: "template-id".to_string(),
+            }),
         }
     }
 
@@ -331,9 +278,6 @@ mod tests {
         let mut workspace = draft_workspace();
         workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
         workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
-        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-        });
         workspace.serverless_endpoint_snapshot = Some(endpoint(endpoint_status));
         workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
         workspace
@@ -401,12 +345,6 @@ mod tests {
                 ..draft_workspace()
             },
             Workspace {
-                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
-                    endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-                }),
-                ..draft_workspace()
-            },
-            Workspace {
                 environment_prepared_at: Some("2026-05-18T00:00:00Z".to_string()),
                 ..draft_workspace()
             },
@@ -448,8 +386,9 @@ mod tests {
                 ..ready_workspace(ProviderResourceStatus::Ready)
             },
             Workspace {
-                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
-                    endpoint_template_snapshot: Some(template(ProviderResourceStatus::Creating)),
+                serverless_endpoint_snapshot: Some(ServerlessEndpointSnapshot {
+                    provider_metadata: None,
+                    ..endpoint(ProviderResourceStatus::Ready)
                 }),
                 ..ready_workspace(ProviderResourceStatus::Ready)
             },
@@ -472,9 +411,9 @@ mod tests {
     fn validate_workspace_rejects_endpoint_without_template_snapshot() {
         let mut workspace = draft_workspace();
         workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
-        workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Ready));
-        workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: None,
+        workspace.serverless_endpoint_snapshot = Some(ServerlessEndpointSnapshot {
+            provider_metadata: None,
+            ..endpoint(ProviderResourceStatus::Ready)
         });
 
         assert_eq!(validate_workspace(&workspace), Err(DomainValidationError));
@@ -513,18 +452,15 @@ mod tests {
                     endpoint_invoke_url: " ".to_string(),
                     ..endpoint(ProviderResourceStatus::Ready)
                 }),
-                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
-                    endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-                }),
                 ..draft_workspace()
             },
             Workspace {
                 lifecycle_state: WorkspaceLifecycleState::Provisioning,
-                provider_provisioning_snapshot: Some(ProviderProvisioningSnapshot::Runpod {
-                    endpoint_template_snapshot: Some(RunPodEndpointTemplateSnapshot {
-                        mount_path: "workspace".to_string(),
-                        ..template(ProviderResourceStatus::Ready)
+                serverless_endpoint_snapshot: Some(ServerlessEndpointSnapshot {
+                    provider_metadata: Some(ServerlessEndpointProviderMetadata::Runpod {
+                        template_id: " ".to_string(),
                     }),
+                    ..endpoint(ProviderResourceStatus::Ready)
                 }),
                 ..draft_workspace()
             },

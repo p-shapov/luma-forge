@@ -49,22 +49,14 @@ pub struct ServerlessEndpointSnapshot {
     pub provider_resource_id: String,
     pub provider_resource_status: ProviderResourceStatus,
     pub endpoint_invoke_url: String,
+    #[serde(default)]
+    pub provider_metadata: Option<ServerlessEndpointProviderMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "gpu_cloud_provider_id", rename_all = "snake_case")]
-pub enum ProviderProvisioningSnapshot {
-    Runpod {
-        endpoint_template_snapshot: Option<RunPodEndpointTemplateSnapshot>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RunPodEndpointTemplateSnapshot {
-    pub template_id: String,
-    pub provider_resource_status: ProviderResourceStatus,
-    pub endpoint_worker_image_ref: String,
-    pub mount_path: String,
+pub enum ServerlessEndpointProviderMetadata {
+    Runpod { template_id: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,8 +164,6 @@ pub struct Workspace {
     pub active_provisioning_pod_snapshot: Option<ProvisioningPodSnapshot>,
     pub serverless_endpoint_snapshot: Option<ServerlessEndpointSnapshot>,
     pub last_provisioning_pod_snapshot: Option<ProvisioningPodSnapshot>,
-    #[serde(default)]
-    pub provider_provisioning_snapshot: Option<ProviderProvisioningSnapshot>,
     pub environment_prepared_at: Option<String>,
     #[serde(default)]
     pub last_provisioning_failure: Option<WorkspaceProvisioningFailure>,
@@ -210,7 +200,6 @@ impl Workspace {
             active_provisioning_pod_snapshot: None,
             serverless_endpoint_snapshot: None,
             last_provisioning_pod_snapshot: None,
-            provider_provisioning_snapshot: None,
             environment_prepared_at: None,
             last_provisioning_failure: None,
         })

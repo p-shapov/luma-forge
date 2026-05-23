@@ -8,32 +8,50 @@ use crate::{
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
 
-use super::{WorkspaceResourceContext, WorkspaceResourceError, WorkspaceResourceSyncResult};
+use super::{WorkspaceResourceContext, WorkspaceResourceError, WorkspaceResourceOperationResult};
 
 pub(crate) trait WorkspaceResourceProvider<S, W>: Send + Sync {
-    fn sync_network_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
-    fn sync_provisioning_pod<'a>(
+    fn observe_network_volume<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
-    fn finish_provisioning_pod<'a>(
+    fn create_provisioning_pod<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
-    fn sync_serverless_endpoint<'a>(
+    fn observe_provisioning_pod<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
+
+    fn delete_provisioning_pod<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
+
+    fn observe_serverless_endpoint<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
     fn cleanup_known_resources<'a>(
         &'a self,

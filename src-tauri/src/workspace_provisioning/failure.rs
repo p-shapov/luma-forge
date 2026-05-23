@@ -39,17 +39,6 @@ pub(crate) fn provider_resource_failure(
     }
 }
 
-pub(crate) fn indeterminate_provider_operation(
-    phase: WorkspaceProvisioningPhase,
-) -> WorkspaceProvisioningFailure {
-    WorkspaceProvisioningFailure {
-        code: WorkspaceProvisioningFailureCode::ProviderOperationIndeterminate,
-        phase,
-        source: WorkspaceProvisioningFailureSource::Provider,
-        recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-    }
-}
-
 pub(crate) fn provisioning_error(
     phase: WorkspaceProvisioningPhase,
     error: &WorkspaceProvisioningError,
@@ -90,6 +79,11 @@ pub(crate) fn provisioning_error(
             WorkspaceProvisioningFailureSource::ProviderResource,
             WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
         ),
+        WorkspaceProvisioningError::ProviderOrphanedResources => (
+            WorkspaceProvisioningFailureCode::ProviderOrphanedResources,
+            WorkspaceProvisioningFailureSource::ProviderResource,
+            WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        ),
         WorkspaceProvisioningError::ProviderOperationConflict => (
             WorkspaceProvisioningFailureCode::ProviderOperationConflict,
             WorkspaceProvisioningFailureSource::Provider,
@@ -110,6 +104,11 @@ pub(crate) fn provisioning_error(
             WorkspaceProvisioningFailureSource::ProvisionerWorker,
             WorkspaceProvisioningRecoveryAction::Retry,
         ),
+        WorkspaceProvisioningError::CleanupFailed => (
+            WorkspaceProvisioningFailureCode::CancellationCleanupFailed,
+            WorkspaceProvisioningFailureSource::Native,
+            WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
+        ),
         WorkspaceProvisioningError::WorkspaceNotFound
         | WorkspaceProvisioningError::InvalidWorkspaceLifecycle
         | WorkspaceProvisioningError::WorkspaceCatalogUnavailable
@@ -129,28 +128,6 @@ pub(crate) fn provisioning_error(
         source,
         recovery_action,
     })
-}
-
-pub(crate) fn missing_provider_resource(
-    phase: WorkspaceProvisioningPhase,
-) -> WorkspaceProvisioningFailure {
-    WorkspaceProvisioningFailure {
-        code: WorkspaceProvisioningFailureCode::ProviderResourceMissing,
-        phase,
-        source: WorkspaceProvisioningFailureSource::ProviderResource,
-        recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-    }
-}
-
-pub(crate) fn orphaned_provider_resources(
-    phase: WorkspaceProvisioningPhase,
-) -> WorkspaceProvisioningFailure {
-    WorkspaceProvisioningFailure {
-        code: WorkspaceProvisioningFailureCode::ProviderOrphanedResources,
-        phase,
-        source: WorkspaceProvisioningFailureSource::ProviderResource,
-        recovery_action: WorkspaceProvisioningRecoveryAction::CleanupWorkspaceResources,
-    }
 }
 
 pub(crate) fn worker_failure(
@@ -232,17 +209,6 @@ pub(crate) fn worker_token_invalid(
 ) -> WorkspaceProvisioningFailure {
     WorkspaceProvisioningFailure {
         code: WorkspaceProvisioningFailureCode::ProvisionerWorkerTokenInvalid,
-        phase,
-        source: WorkspaceProvisioningFailureSource::Native,
-        recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,
-    }
-}
-
-pub(crate) fn readiness_validation_failed(
-    phase: WorkspaceProvisioningPhase,
-) -> WorkspaceProvisioningFailure {
-    WorkspaceProvisioningFailure {
-        code: WorkspaceProvisioningFailureCode::ReadinessValidationFailed,
         phase,
         source: WorkspaceProvisioningFailureSource::Native,
         recovery_action: WorkspaceProvisioningRecoveryAction::InspectWorkspaceProvisioning,

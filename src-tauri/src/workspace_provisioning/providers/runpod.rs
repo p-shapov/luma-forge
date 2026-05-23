@@ -1,7 +1,7 @@
 use std::{future::Future, pin::Pin};
 
 use crate::{
-    domain::workspace::{Workspace, WorkspaceLifecycleState},
+    domain::workspace::{ProviderResourceStatus, Workspace, WorkspaceLifecycleState},
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
 };
@@ -9,6 +9,7 @@ use crate::{
 use super::WorkspaceProvisioningProvider;
 use crate::workspace_provisioning::{
     context::{SyncStepResult, WorkspaceProvisioningContext, WorkspaceProvisioningResources},
+    failure,
     gateway::ProvisionerWorkerGateway,
     helpers::{
         progress_from_worker_status, result, result_with_progress, worker_readiness_progress,
@@ -91,11 +92,32 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    Ok(context
-        .resources
-        .sync_network_volume(workspace)
-        .await?
-        .map(result))
+    let updated = if workspace.persistent_storage_volume_snapshot.is_none() {
+        context.resources.create_network_volume(workspace).await?
+    } else if workspace
+        .persistent_storage_volume_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.provider_resource_status != ProviderResourceStatus::Ready)
+    {
+        context.resources.observe_network_volume(workspace).await?
+    } else {
+        None
+    };
+
+    if let Some(mut workspace) = updated {
+        let status = workspace
+            .persistent_storage_volume_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.provider_resource_status.clone());
+        fail_if_terminal_resource(
+            &mut workspace,
+            status,
+            crate::domain::workspace::WorkspaceProvisioningPhase::CreatingVolume,
+        );
+        return Ok(Some(result(workspace)));
+    }
+
+    Ok(None)
 }
 
 async fn sync_provisioning_pod<S, W, R, Q>(
@@ -108,11 +130,49 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    Ok(context
-        .resources
-        .sync_provisioning_pod(workspace)
-        .await?
-        .map(result))
+    if workspace.environment_prepared_at.is_some() {
+        return Ok(None);
+    }
+
+    let updated = if workspace.active_provisioning_pod_snapshot.is_some() {
+        context
+            .resources
+            .observe_provisioning_pod(workspace)
+            .await?
+    } else if workspace
+        .persistent_storage_volume_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.provider_resource_status == ProviderResourceStatus::Ready)
+    {
+        context.resources.create_provisioning_pod(workspace).await?
+    } else {
+        None
+    };
+
+    if let Some(mut workspace) = updated {
+        let status = workspace
+            .active_provisioning_pod_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.provider_resource_status.clone());
+        fail_if_terminal_resource(
+            &mut workspace,
+            status,
+            crate::domain::workspace::WorkspaceProvisioningPhase::StartingProvisioningPod,
+        );
+        return Ok(Some(result(workspace)));
+    }
+
+    if workspace
+        .active_provisioning_pod_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| {
+            snapshot.provider_resource_status != ProviderResourceStatus::Running
+        })
+    {
+        return Ok(Some(result(workspace.clone())));
+    }
+
+    Ok(None)
 }
 
 async fn sync_environment<S, W, R, Q>(
@@ -156,9 +216,15 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
+    if workspace.environment_prepared_at.is_none()
+        || workspace.active_provisioning_pod_snapshot.is_none()
+    {
+        return Ok(None);
+    }
+
     Ok(context
         .resources
-        .finish_provisioning_pod(workspace)
+        .delete_provisioning_pod(workspace)
         .await?
         .map(result))
 }
@@ -173,11 +239,42 @@ where
     R: ProvisionerWorkerGateway,
     Q: WorkspaceProvisioningResources,
 {
-    if let Some(workspace) = context
-        .resources
-        .sync_serverless_endpoint(workspace)
-        .await?
+    let updated = if workspace.environment_prepared_at.is_some()
+        && workspace.active_provisioning_pod_snapshot.is_none()
     {
+        if workspace.serverless_endpoint_snapshot.is_none() {
+            context
+                .resources
+                .create_serverless_endpoint(workspace)
+                .await?
+        } else if workspace
+            .serverless_endpoint_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                snapshot.provider_resource_status != ProviderResourceStatus::Ready
+            })
+        {
+            context
+                .resources
+                .observe_serverless_endpoint(workspace)
+                .await?
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(mut workspace) = updated {
+        let status = workspace
+            .serverless_endpoint_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.provider_resource_status.clone());
+        fail_if_terminal_resource(
+            &mut workspace,
+            status,
+            crate::domain::workspace::WorkspaceProvisioningPhase::CreatingEndpoint,
+        );
         return Ok(Some(result(workspace)));
     }
 
@@ -191,16 +288,34 @@ where
     Ok(None)
 }
 
+fn fail_if_terminal_resource(
+    workspace: &mut Workspace,
+    status: Option<ProviderResourceStatus>,
+    phase: crate::domain::workspace::WorkspaceProvisioningPhase,
+) {
+    let Some(status) = status else {
+        return;
+    };
+    if matches!(
+        status,
+        ProviderResourceStatus::Failed
+            | ProviderResourceStatus::Terminated
+            | ProviderResourceStatus::Unknown
+    ) {
+        let failure = failure::provider_resource_failure(phase, &status);
+        failure::fail_workspace(workspace, failure);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::workspace_provisioning::gateway::ProvisionerWorkerError;
     use crate::{
         domain::workspace::{
-            ProviderProvisioningSnapshot, ProviderResourceStatus, WorkspaceLifecycleState,
-            WorkspaceProvisioningStatus,
+            ProviderResourceStatus, WorkspaceLifecycleState, WorkspaceProvisioningStatus,
         },
         workspace_provisioning::test_support::{
-            endpoint, pod, provisioning_workspace, ready_provisioning_workspace, template, volume,
+            endpoint, pod, provisioning_workspace, ready_provisioning_workspace, volume,
             FakeSecretStore, TestHarness,
         },
     };
@@ -220,7 +335,7 @@ mod tests {
             .expect("sync should succeed")
             .expect("volume action should return result");
 
-        assert_eq!(harness.resources.calls(), vec!["network_volume"]);
+        assert_eq!(harness.resources.calls(), vec!["create_network_volume"]);
         assert!(harness.workers.status_calls().is_empty());
         assert!(result
             .workspace
@@ -245,10 +360,7 @@ mod tests {
             .expect("sync should succeed")
             .expect("pod action should return result");
 
-        assert_eq!(
-            harness.resources.calls(),
-            vec!["network_volume", "provisioning_pod"]
-        );
+        assert_eq!(harness.resources.calls(), vec!["create_provisioning_pod"]);
         assert!(harness.workers.status_calls().is_empty());
         assert!(result.workspace.active_provisioning_pod_snapshot.is_some());
     }
@@ -270,10 +382,7 @@ mod tests {
             .expect("sync should succeed")
             .expect("environment progress should return result");
 
-        assert_eq!(
-            harness.resources.calls(),
-            vec!["network_volume", "provisioning_pod"]
-        );
+        assert_eq!(harness.resources.calls(), vec!["observe_provisioning_pod"]);
         assert_eq!(
             harness.secrets.read_worker_token_calls(),
             vec!["workspace-1"]
@@ -306,10 +415,7 @@ mod tests {
             .expect("sync should succeed")
             .expect("finish action should return result");
 
-        assert_eq!(
-            harness.resources.calls(),
-            vec!["network_volume", "provisioning_pod", "finish_pod"]
-        );
+        assert_eq!(harness.resources.calls(), vec!["delete_provisioning_pod"]);
         assert!(harness.workers.status_calls().is_empty());
         assert!(result.workspace.active_provisioning_pod_snapshot.is_none());
     }
@@ -322,9 +428,6 @@ mod tests {
         workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
         let mut updated = provisioning_workspace();
         updated.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
-        updated.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-            endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-        });
         updated.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
         updated.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Creating));
         harness.resources.push_endpoint_result(Ok(Some(updated)));
@@ -334,15 +437,7 @@ mod tests {
             .expect("sync should succeed")
             .expect("endpoint action should return result");
 
-        assert_eq!(
-            harness.resources.calls(),
-            vec![
-                "network_volume",
-                "provisioning_pod",
-                "finish_pod",
-                "endpoint"
-            ]
-        );
+        assert_eq!(harness.resources.calls(), vec!["create_endpoint"]);
         assert!(result.workspace.serverless_endpoint_snapshot.is_some());
     }
 
@@ -356,7 +451,7 @@ mod tests {
             .expect("endpoint sync should succeed")
             .expect("ready transition should return result");
 
-        assert_eq!(harness.resources.calls(), vec!["endpoint"]);
+        assert!(harness.resources.calls().is_empty());
         assert_eq!(harness.catalog.updates().len(), 1);
         assert_eq!(
             result.workspace.lifecycle_state,

@@ -103,7 +103,7 @@ export type NativeCommandError = {
 	recovery_action: string | null,
 };
 
-export type NativeCommandErrorCode = "provider_setup_incomplete" | "provider_setup_not_found" | "provider_setup_already_exists" | "provider_api_key_required" | "provider_api_key_unauthorized" | "stored_provider_api_key_invalid" | "provider_api_unavailable" | "provider_rate_limited" | "provider_request_rejected" | "provider_response_invalid" | "provider_inventory_invalid" | "provider_identity_response_invalid" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "workspace_catalog_storage_unavailable" | "workspace_catalog_migration_failed" | "workspace_catalog_query_failed" | "workspace_catalog_corrupt" | "workspace_catalog_schema_mismatch" | "placement_provider_mismatch" | "placement_datacenter_required" | "placement_gpu_required" | "workflow_preset_stale" | "storage_size_below_preset_minimum" | "endpoint_keep_alive_out_of_range" | "workspace_already_exists" | "workspace_not_found" | "invalid_workspace_lifecycle" | "invalid_workspace_id" | "workspace_name_required" | "invalid_workspace_metadata" | "provider_resource_not_found" | "provider_operation_conflict" | "provider_operation_indeterminate" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed";
+export type NativeCommandErrorCode = "provider_setup_incomplete" | "provider_setup_not_found" | "provider_setup_already_exists" | "provider_api_key_required" | "provider_api_key_unauthorized" | "stored_provider_api_key_invalid" | "provider_api_unavailable" | "provider_rate_limited" | "provider_request_rejected" | "provider_response_invalid" | "provider_inventory_invalid" | "provider_identity_response_invalid" | "secure_keyring_unavailable" | "provider_setup_recovery_required" | "workflow_catalog_unavailable" | "workspace_catalog_unavailable" | "workspace_catalog_storage_unavailable" | "workspace_catalog_migration_failed" | "workspace_catalog_query_failed" | "workspace_catalog_corrupt" | "workspace_catalog_schema_mismatch" | "placement_provider_mismatch" | "placement_datacenter_required" | "placement_gpu_required" | "workflow_preset_stale" | "storage_size_below_preset_minimum" | "endpoint_keep_alive_out_of_range" | "workspace_already_exists" | "workspace_not_found" | "invalid_workspace_lifecycle" | "invalid_workspace_id" | "workspace_name_required" | "invalid_workspace_metadata" | "provider_resource_not_found" | "provider_orphaned_resources" | "provider_operation_conflict" | "provider_operation_indeterminate" | "cleanup_failed" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed";
 
 export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
@@ -124,8 +124,6 @@ export type ProviderInventory = {
 export type ProviderPlacementCapabilities = {
 	endpoint_keep_alive: EndpointKeepAliveCapability,
 };
-
-export type ProviderProvisioningSnapshot = { gpu_cloud_provider_id: "runpod"; endpoint_template_snapshot: RunPodEndpointTemplateSnapshot | null };
 
 export type ProviderResourceStatus = "creating" | "running" | "ready" | "terminated" | "failed" | "unknown";
 
@@ -154,23 +152,19 @@ export type ResolvedRuntimeImageSnapshot = {
 	endpoint_image_ref: string,
 };
 
-export type RunPodEndpointTemplateSnapshot = {
-	template_id: string,
-	provider_resource_status: ProviderResourceStatus,
-	endpoint_worker_image_ref: string,
-	mount_path: string,
-};
-
 export type RuntimeContractReference = {
 	id: string,
 	version: string,
 };
+
+export type ServerlessEndpointProviderMetadata = { gpu_cloud_provider_id: "runpod"; template_id: string };
 
 export type ServerlessEndpointSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	provider_resource_id: string,
 	provider_resource_status: ProviderResourceStatus,
 	endpoint_invoke_url: string,
+	provider_metadata: ServerlessEndpointProviderMetadata | null,
 };
 
 export type SetupGpuCloudProviderRequest = {
@@ -211,7 +205,6 @@ export type Workspace = {
 	active_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
 	serverless_endpoint_snapshot: ServerlessEndpointSnapshot | null,
 	last_provisioning_pod_snapshot: ProvisioningPodSnapshot | null,
-	provider_provisioning_snapshot: ProviderProvisioningSnapshot | null,
 	environment_prepared_at: string | null,
 	last_provisioning_failure: WorkspaceProvisioningFailure | null,
 };

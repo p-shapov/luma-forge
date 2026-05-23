@@ -5,7 +5,7 @@ use crate::{
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
-        WorkspaceResourceError, WorkspaceResourceService, WorkspaceResourceSyncResult,
+        WorkspaceResourceError, WorkspaceResourceOperationResult, WorkspaceResourceService,
     },
 };
 
@@ -20,25 +20,40 @@ pub(crate) type SyncStepResult =
     Result<Option<WorkspaceProvisioningResult>, WorkspaceProvisioningError>;
 
 pub(crate) trait WorkspaceProvisioningResources: Send + Sync {
-    fn sync_network_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
-    fn sync_provisioning_pod<'a>(
+    fn observe_network_volume<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
-    fn finish_provisioning_pod<'a>(
+    fn create_provisioning_pod<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
-    fn sync_serverless_endpoint<'a>(
+    fn observe_provisioning_pod<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
+
+    fn delete_provisioning_pod<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
+
+    fn observe_serverless_endpoint<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>>;
 
     fn cleanup_known_resources<'a>(
         &'a self,
@@ -51,39 +66,66 @@ where
     S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
-    fn sync_network_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(
-            async move { WorkspaceResourceService::sync_network_volume(self, workspace).await },
+            async move { WorkspaceResourceService::create_network_volume(self, workspace).await },
         )
     }
 
-    fn sync_provisioning_pod<'a>(
+    fn observe_network_volume<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(
-            async move { WorkspaceResourceService::sync_provisioning_pod(self, workspace).await },
+            async move { WorkspaceResourceService::observe_network_volume(self, workspace).await },
         )
     }
 
-    fn finish_provisioning_pod<'a>(
+    fn create_provisioning_pod<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(
-            async move { WorkspaceResourceService::finish_provisioning_pod(self, workspace).await },
+            async move { WorkspaceResourceService::create_provisioning_pod(self, workspace).await },
         )
     }
 
-    fn sync_serverless_endpoint<'a>(
+    fn observe_provisioning_pod<'a>(
         &'a self,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
-            WorkspaceResourceService::sync_serverless_endpoint(self, workspace).await
+            WorkspaceResourceService::observe_provisioning_pod(self, workspace).await
+        })
+    }
+
+    fn delete_provisioning_pod<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(
+            async move { WorkspaceResourceService::delete_provisioning_pod(self, workspace).await },
+        )
+    }
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            WorkspaceResourceService::create_serverless_endpoint(self, workspace).await
+        })
+    }
+
+    fn observe_serverless_endpoint<'a>(
+        &'a self,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            WorkspaceResourceService::observe_serverless_endpoint(self, workspace).await
         })
     }
 

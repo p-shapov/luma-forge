@@ -16,14 +16,14 @@ use crate::{
             WorkflowPreset,
         },
         workspace::{
-            PersistentStorageVolumeSnapshot, ProviderProvisioningSnapshot, ProviderResourceStatus,
-            ProvisioningPodSnapshot, RunPodEndpointTemplateSnapshot, ServerlessEndpointSnapshot,
-            Workspace, WorkspaceCatalog, WorkspaceLifecycleState,
+            PersistentStorageVolumeSnapshot, ProviderResourceStatus, ProvisioningPodSnapshot,
+            ServerlessEndpointProviderMetadata, ServerlessEndpointSnapshot, Workspace,
+            WorkspaceCatalog, WorkspaceLifecycleState,
         },
     },
     secrets::{ProvisionerWorkerBearerToken, SecretStore, SecretStoreError},
     workspace_catalog::repository::WorkspaceCatalogRepository,
-    workspace_resources::{WorkspaceResourceError, WorkspaceResourceSyncResult},
+    workspace_resources::{WorkspaceResourceError, WorkspaceResourceOperationResult},
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -329,10 +329,10 @@ impl WorkspaceCatalogRepository for FakeWorkspaceCatalog {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct FakeWorkspaceResources {
     calls: Arc<Mutex<Vec<&'static str>>>,
-    network_volume_results: Arc<Mutex<VecDeque<WorkspaceResourceSyncResult>>>,
-    provisioning_pod_results: Arc<Mutex<VecDeque<WorkspaceResourceSyncResult>>>,
-    finish_pod_results: Arc<Mutex<VecDeque<WorkspaceResourceSyncResult>>>,
-    endpoint_results: Arc<Mutex<VecDeque<WorkspaceResourceSyncResult>>>,
+    network_volume_results: Arc<Mutex<VecDeque<WorkspaceResourceOperationResult>>>,
+    provisioning_pod_results: Arc<Mutex<VecDeque<WorkspaceResourceOperationResult>>>,
+    finish_pod_results: Arc<Mutex<VecDeque<WorkspaceResourceOperationResult>>>,
+    endpoint_results: Arc<Mutex<VecDeque<WorkspaceResourceOperationResult>>>,
     cleanup_results: Arc<Mutex<VecDeque<Result<Workspace, WorkspaceResourceError>>>>,
 }
 
@@ -341,28 +341,28 @@ impl FakeWorkspaceResources {
         self.calls.lock().expect("fake resource calls").clone()
     }
 
-    pub(crate) fn push_network_volume_result(&self, result: WorkspaceResourceSyncResult) {
+    pub(crate) fn push_network_volume_result(&self, result: WorkspaceResourceOperationResult) {
         self.network_volume_results
             .lock()
             .expect("fake volume results")
             .push_back(result);
     }
 
-    pub(crate) fn push_provisioning_pod_result(&self, result: WorkspaceResourceSyncResult) {
+    pub(crate) fn push_provisioning_pod_result(&self, result: WorkspaceResourceOperationResult) {
         self.provisioning_pod_results
             .lock()
             .expect("fake pod results")
             .push_back(result);
     }
 
-    pub(crate) fn push_finish_pod_result(&self, result: WorkspaceResourceSyncResult) {
+    pub(crate) fn push_finish_pod_result(&self, result: WorkspaceResourceOperationResult) {
         self.finish_pod_results
             .lock()
             .expect("fake finish results")
             .push_back(result);
     }
 
-    pub(crate) fn push_endpoint_result(&self, result: WorkspaceResourceSyncResult) {
+    pub(crate) fn push_endpoint_result(&self, result: WorkspaceResourceOperationResult) {
         self.endpoint_results
             .lock()
             .expect("fake endpoint results")
@@ -377,8 +377,8 @@ impl FakeWorkspaceResources {
     }
 
     fn next_sync(
-        queue: &Arc<Mutex<VecDeque<WorkspaceResourceSyncResult>>>,
-    ) -> WorkspaceResourceSyncResult {
+        queue: &Arc<Mutex<VecDeque<WorkspaceResourceOperationResult>>>,
+    ) -> WorkspaceResourceOperationResult {
         queue
             .lock()
             .expect("fake sync results")
@@ -388,54 +388,93 @@ impl FakeWorkspaceResources {
 }
 
 impl WorkspaceProvisioningResources for FakeWorkspaceResources {
-    fn sync_network_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
                 .lock()
                 .expect("fake resource calls")
-                .push("network_volume");
+                .push("create_network_volume");
             Self::next_sync(&self.network_volume_results)
         })
     }
 
-    fn sync_provisioning_pod<'a>(
+    fn observe_network_volume<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
                 .lock()
                 .expect("fake resource calls")
-                .push("provisioning_pod");
+                .push("observe_network_volume");
+            Self::next_sync(&self.network_volume_results)
+        })
+    }
+
+    fn create_provisioning_pod<'a>(
+        &'a self,
+        _workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .expect("fake resource calls")
+                .push("create_provisioning_pod");
             Self::next_sync(&self.provisioning_pod_results)
         })
     }
 
-    fn finish_provisioning_pod<'a>(
+    fn observe_provisioning_pod<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
                 .lock()
                 .expect("fake resource calls")
-                .push("finish_pod");
+                .push("observe_provisioning_pod");
+            Self::next_sync(&self.provisioning_pod_results)
+        })
+    }
+
+    fn delete_provisioning_pod<'a>(
+        &'a self,
+        _workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .expect("fake resource calls")
+                .push("delete_provisioning_pod");
             Self::next_sync(&self.finish_pod_results)
         })
     }
 
-    fn sync_serverless_endpoint<'a>(
+    fn create_serverless_endpoint<'a>(
         &'a self,
         _workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
             self.calls
                 .lock()
                 .expect("fake resource calls")
-                .push("endpoint");
+                .push("create_endpoint");
+            Self::next_sync(&self.endpoint_results)
+        })
+    }
+
+    fn observe_serverless_endpoint<'a>(
+        &'a self,
+        _workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            self.calls
+                .lock()
+                .expect("fake resource calls")
+                .push("observe_endpoint");
             Self::next_sync(&self.endpoint_results)
         })
     }
@@ -642,24 +681,15 @@ pub(crate) fn endpoint(status: ProviderResourceStatus) -> ServerlessEndpointSnap
         provider_resource_id: "endpoint-1".to_string(),
         provider_resource_status: status,
         endpoint_invoke_url: "https://endpoint.example/run".to_string(),
-    }
-}
-
-pub(crate) fn template(status: ProviderResourceStatus) -> RunPodEndpointTemplateSnapshot {
-    RunPodEndpointTemplateSnapshot {
-        template_id: "template-1".to_string(),
-        provider_resource_status: status,
-        endpoint_worker_image_ref: "endpoint:latest".to_string(),
-        mount_path: "/workspace".to_string(),
+        provider_metadata: Some(ServerlessEndpointProviderMetadata::Runpod {
+            template_id: "template-1".to_string(),
+        }),
     }
 }
 
 pub(crate) fn ready_provisioning_workspace() -> Workspace {
     let mut workspace = provisioning_workspace();
     workspace.persistent_storage_volume_snapshot = Some(volume(ProviderResourceStatus::Ready));
-    workspace.provider_provisioning_snapshot = Some(ProviderProvisioningSnapshot::Runpod {
-        endpoint_template_snapshot: Some(template(ProviderResourceStatus::Ready)),
-    });
     workspace.serverless_endpoint_snapshot = Some(endpoint(ProviderResourceStatus::Ready));
     workspace.environment_prepared_at = Some("2026-05-18T00:00:00Z".to_string());
     workspace

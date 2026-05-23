@@ -9,7 +9,8 @@ use super::{
     WorkspaceResourceProviderResolver,
 };
 
-pub(crate) type WorkspaceResourceSyncResult = Result<Option<Workspace>, WorkspaceResourceError>;
+pub(crate) type WorkspaceResourceOperationResult =
+    Result<Option<Workspace>, WorkspaceResourceError>;
 
 #[derive(Debug, Clone)]
 pub(crate) struct WorkspaceResourceService<S, W, R = WorkspaceResourceProviderRegistry> {
@@ -42,47 +43,80 @@ where
     W: WorkspaceCatalogRepository,
     R: WorkspaceResourceProviderResolver<S, W>,
 {
-    pub(crate) async fn sync_network_volume(
+    pub(crate) async fn create_network_volume(
         &self,
         workspace: &mut Workspace,
-    ) -> WorkspaceResourceSyncResult {
+    ) -> WorkspaceResourceOperationResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .sync_network_volume(&context, workspace)
+            .create_network_volume(&context, workspace)
             .await
     }
 
-    pub(crate) async fn sync_provisioning_pod(
+    pub(crate) async fn observe_network_volume(
         &self,
         workspace: &mut Workspace,
-    ) -> WorkspaceResourceSyncResult {
+    ) -> WorkspaceResourceOperationResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .sync_provisioning_pod(&context, workspace)
+            .observe_network_volume(&context, workspace)
             .await
     }
 
-    pub(crate) async fn finish_provisioning_pod(
+    pub(crate) async fn create_provisioning_pod(
         &self,
         workspace: &mut Workspace,
-    ) -> WorkspaceResourceSyncResult {
+    ) -> WorkspaceResourceOperationResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .finish_provisioning_pod(&context, workspace)
+            .create_provisioning_pod(&context, workspace)
             .await
     }
 
-    pub(crate) async fn sync_serverless_endpoint(
+    pub(crate) async fn observe_provisioning_pod(
         &self,
         workspace: &mut Workspace,
-    ) -> WorkspaceResourceSyncResult {
+    ) -> WorkspaceResourceOperationResult {
         let context = self.context();
         self.provider_registry
             .for_provider(&workspace.gpu_cloud_provider_id)
-            .sync_serverless_endpoint(&context, workspace)
+            .observe_provisioning_pod(&context, workspace)
+            .await
+    }
+
+    pub(crate) async fn delete_provisioning_pod(
+        &self,
+        workspace: &mut Workspace,
+    ) -> WorkspaceResourceOperationResult {
+        let context = self.context();
+        self.provider_registry
+            .for_provider(&workspace.gpu_cloud_provider_id)
+            .delete_provisioning_pod(&context, workspace)
+            .await
+    }
+
+    pub(crate) async fn create_serverless_endpoint(
+        &self,
+        workspace: &mut Workspace,
+    ) -> WorkspaceResourceOperationResult {
+        let context = self.context();
+        self.provider_registry
+            .for_provider(&workspace.gpu_cloud_provider_id)
+            .create_serverless_endpoint(&context, workspace)
+            .await
+    }
+
+    pub(crate) async fn observe_serverless_endpoint(
+        &self,
+        workspace: &mut Workspace,
+    ) -> WorkspaceResourceOperationResult {
+        let context = self.context();
+        self.provider_registry
+            .for_provider(&workspace.gpu_cloud_provider_id)
+            .observe_serverless_endpoint(&context, workspace)
             .await
     }
 
@@ -133,10 +167,13 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum ResourceCall {
-        SyncNetworkVolume,
-        SyncProvisioningPod,
-        FinishProvisioningPod,
-        SyncServerlessEndpoint,
+        CreateNetworkVolume,
+        ObserveNetworkVolume,
+        CreateProvisioningPod,
+        ObserveProvisioningPod,
+        DeleteProvisioningPod,
+        CreateServerlessEndpoint,
+        ObserveServerlessEndpoint,
         CleanupKnownResources,
     }
 
@@ -156,39 +193,66 @@ mod tests {
     }
 
     impl WorkspaceResourceProvider<FakeSecretStore, FakeWorkspaceCatalog> for FakeResourceProvider {
-        fn sync_network_volume<'a>(
+        fn create_network_volume<'a>(
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-            self.record(ResourceCall::SyncNetworkVolume);
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::CreateNetworkVolume);
             Box::pin(async { Ok(None) })
         }
 
-        fn sync_provisioning_pod<'a>(
+        fn observe_network_volume<'a>(
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-            self.record(ResourceCall::SyncProvisioningPod);
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::ObserveNetworkVolume);
             Box::pin(async { Ok(None) })
         }
 
-        fn finish_provisioning_pod<'a>(
+        fn create_provisioning_pod<'a>(
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-            self.record(ResourceCall::FinishProvisioningPod);
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::CreateProvisioningPod);
             Box::pin(async { Ok(None) })
         }
 
-        fn sync_serverless_endpoint<'a>(
+        fn observe_provisioning_pod<'a>(
             &'a self,
             _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
             _workspace: &'a mut Workspace,
-        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-            self.record(ResourceCall::SyncServerlessEndpoint);
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::ObserveProvisioningPod);
+            Box::pin(async { Ok(None) })
+        }
+
+        fn delete_provisioning_pod<'a>(
+            &'a self,
+            _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
+            _workspace: &'a mut Workspace,
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::DeleteProvisioningPod);
+            Box::pin(async { Ok(None) })
+        }
+
+        fn create_serverless_endpoint<'a>(
+            &'a self,
+            _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
+            _workspace: &'a mut Workspace,
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::CreateServerlessEndpoint);
+            Box::pin(async { Ok(None) })
+        }
+
+        fn observe_serverless_endpoint<'a>(
+            &'a self,
+            _context: &'a WorkspaceResourceContext<'_, FakeSecretStore, FakeWorkspaceCatalog>,
+            _workspace: &'a mut Workspace,
+        ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+            self.record(ResourceCall::ObserveServerlessEndpoint);
             Box::pin(async { Ok(None) })
         }
 
@@ -332,35 +396,50 @@ mod tests {
         let mut workspace = workspace();
 
         service
-            .sync_network_volume(&mut workspace)
+            .create_network_volume(&mut workspace)
             .await
-            .expect("network volume sync should delegate");
+            .expect("network volume create should delegate");
         service
-            .sync_provisioning_pod(&mut workspace)
+            .observe_network_volume(&mut workspace)
             .await
-            .expect("provisioning pod sync should delegate");
+            .expect("network volume observe should delegate");
         service
-            .finish_provisioning_pod(&mut workspace)
+            .create_provisioning_pod(&mut workspace)
             .await
-            .expect("finish pod should delegate");
+            .expect("provisioning pod create should delegate");
         service
-            .sync_serverless_endpoint(&mut workspace)
+            .observe_provisioning_pod(&mut workspace)
             .await
-            .expect("endpoint sync should delegate");
+            .expect("provisioning pod observe should delegate");
+        service
+            .delete_provisioning_pod(&mut workspace)
+            .await
+            .expect("provisioning pod delete should delegate");
+        service
+            .create_serverless_endpoint(&mut workspace)
+            .await
+            .expect("endpoint create should delegate");
+        service
+            .observe_serverless_endpoint(&mut workspace)
+            .await
+            .expect("endpoint observe should delegate");
 
         assert_eq!(
             provider.calls(),
             vec![
-                ResourceCall::SyncNetworkVolume,
-                ResourceCall::SyncProvisioningPod,
-                ResourceCall::FinishProvisioningPod,
-                ResourceCall::SyncServerlessEndpoint,
+                ResourceCall::CreateNetworkVolume,
+                ResourceCall::ObserveNetworkVolume,
+                ResourceCall::CreateProvisioningPod,
+                ResourceCall::ObserveProvisioningPod,
+                ResourceCall::DeleteProvisioningPod,
+                ResourceCall::CreateServerlessEndpoint,
+                ResourceCall::ObserveServerlessEndpoint,
             ]
         );
     }
 
     #[tokio::test]
-    async fn cleanup_delegates_then_resets_and_persists_workspace() {
+    async fn cleanup_delegates_then_clears_resource_snapshots_and_persists_workspace() {
         let provider = FakeResourceProvider::default();
         let catalog = FakeWorkspaceCatalog::default();
         let service = WorkspaceResourceService::with_provider_registry(
@@ -385,7 +464,7 @@ mod tests {
             .expect("cleanup should delegate and persist reset workspace");
 
         assert_eq!(provider.calls(), vec![ResourceCall::CleanupKnownResources]);
-        assert_eq!(updated.lifecycle_state, WorkspaceLifecycleState::Draft);
+        assert_eq!(updated.lifecycle_state, WorkspaceLifecycleState::Failed);
         assert!(updated.persistent_storage_volume_snapshot.is_none());
         assert_eq!(catalog.updates(), vec![updated]);
     }

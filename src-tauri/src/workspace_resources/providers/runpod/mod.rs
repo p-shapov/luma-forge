@@ -6,7 +6,7 @@ use crate::{
     secrets::AsyncSecretStore,
     workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{
-        WorkspaceResourceContext, WorkspaceResourceError, WorkspaceResourceSyncResult,
+        WorkspaceResourceContext, WorkspaceResourceError, WorkspaceResourceOperationResult,
     },
 };
 
@@ -48,43 +48,73 @@ where
     S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
 {
-    fn sync_network_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
-        Box::pin(
-            async move { sync_network_volume_with_client(&self.client, context, workspace).await },
-        )
-    }
-
-    fn sync_provisioning_pod<'a>(
-        &'a self,
-        context: &'a WorkspaceResourceContext<'_, S, W>,
-        workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
-            sync_provisioning_pod_with_client(&self.client, context, workspace).await
+            create_network_volume_with_client(&self.client, context, workspace).await
         })
     }
 
-    fn finish_provisioning_pod<'a>(
+    fn observe_network_volume<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
-            finish_provisioning_pod_with_client(&self.client, context, workspace).await
+            observe_network_volume_with_client(&self.client, context, workspace).await
         })
     }
 
-    fn sync_serverless_endpoint<'a>(
+    fn create_provisioning_pod<'a>(
         &'a self,
         context: &'a WorkspaceResourceContext<'_, S, W>,
         workspace: &'a mut Workspace,
-    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceSyncResult> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
         Box::pin(async move {
-            sync_serverless_endpoint_with_client(&self.client, context, workspace).await
+            create_provisioning_pod_with_client(&self.client, context, workspace).await
+        })
+    }
+
+    fn observe_provisioning_pod<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            observe_provisioning_pod_with_client(&self.client, context, workspace).await
+        })
+    }
+
+    fn delete_provisioning_pod<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            delete_provisioning_pod_with_client(&self.client, context, workspace).await
+        })
+    }
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            create_serverless_endpoint_with_client(&self.client, context, workspace).await
+        })
+    }
+
+    fn observe_serverless_endpoint<'a>(
+        &'a self,
+        context: &'a WorkspaceResourceContext<'_, S, W>,
+        workspace: &'a mut Workspace,
+    ) -> Pin<Box<dyn Future<Output = WorkspaceResourceOperationResult> + Send + 'a>> {
+        Box::pin(async move {
+            observe_serverless_endpoint_with_client(&self.client, context, workspace).await
         })
     }
 
@@ -99,58 +129,100 @@ where
     }
 }
 
-async fn sync_network_volume_with_client<S, W, C>(
+async fn create_network_volume_with_client<S, W, C>(
     client: &C,
     context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
-) -> WorkspaceResourceSyncResult
+) -> WorkspaceResourceOperationResult
 where
     S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
     let context = RunPodWorkspaceResourceContext::new(context, client);
-    network_volume::sync(&context, workspace).await
+    network_volume::create(&context, workspace).await
 }
 
-async fn sync_provisioning_pod_with_client<S, W, C>(
+async fn observe_network_volume_with_client<S, W, C>(
     client: &C,
     context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
-) -> WorkspaceResourceSyncResult
+) -> WorkspaceResourceOperationResult
 where
     S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
     let context = RunPodWorkspaceResourceContext::new(context, client);
-    provisioning_pod::sync(&context, workspace).await
+    network_volume::observe(&context, workspace).await
 }
 
-async fn finish_provisioning_pod_with_client<S, W, C>(
+async fn create_provisioning_pod_with_client<S, W, C>(
     client: &C,
     context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
-) -> WorkspaceResourceSyncResult
+) -> WorkspaceResourceOperationResult
 where
     S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
     let context = RunPodWorkspaceResourceContext::new(context, client);
-    provisioning_pod::finish(&context, workspace).await
+    provisioning_pod::create(&context, workspace).await
 }
 
-async fn sync_serverless_endpoint_with_client<S, W, C>(
+async fn observe_provisioning_pod_with_client<S, W, C>(
     client: &C,
     context: &WorkspaceResourceContext<'_, S, W>,
     workspace: &mut Workspace,
-) -> WorkspaceResourceSyncResult
+) -> WorkspaceResourceOperationResult
 where
     S: AsyncSecretStore,
     W: WorkspaceCatalogRepository,
     C: RunPodWorkspaceResourceClient,
 {
     let context = RunPodWorkspaceResourceContext::new(context, client);
-    serverless_endpoint::sync(&context, workspace).await
+    provisioning_pod::observe(&context, workspace).await
+}
+
+async fn delete_provisioning_pod_with_client<S, W, C>(
+    client: &C,
+    context: &WorkspaceResourceContext<'_, S, W>,
+    workspace: &mut Workspace,
+) -> WorkspaceResourceOperationResult
+where
+    S: AsyncSecretStore,
+    W: WorkspaceCatalogRepository,
+    C: RunPodWorkspaceResourceClient,
+{
+    let context = RunPodWorkspaceResourceContext::new(context, client);
+    provisioning_pod::delete(&context, workspace).await
+}
+
+async fn create_serverless_endpoint_with_client<S, W, C>(
+    client: &C,
+    context: &WorkspaceResourceContext<'_, S, W>,
+    workspace: &mut Workspace,
+) -> WorkspaceResourceOperationResult
+where
+    S: AsyncSecretStore,
+    W: WorkspaceCatalogRepository,
+    C: RunPodWorkspaceResourceClient,
+{
+    let context = RunPodWorkspaceResourceContext::new(context, client);
+    serverless_endpoint::create(&context, workspace).await
+}
+
+async fn observe_serverless_endpoint_with_client<S, W, C>(
+    client: &C,
+    context: &WorkspaceResourceContext<'_, S, W>,
+    workspace: &mut Workspace,
+) -> WorkspaceResourceOperationResult
+where
+    S: AsyncSecretStore,
+    W: WorkspaceCatalogRepository,
+    C: RunPodWorkspaceResourceClient,
+{
+    let context = RunPodWorkspaceResourceContext::new(context, client);
+    serverless_endpoint::observe(&context, workspace).await
 }

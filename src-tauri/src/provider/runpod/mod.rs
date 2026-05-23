@@ -322,23 +322,6 @@ impl RunPodClient {
             .and_then(template_from_response)
     }
 
-    pub async fn get_template(
-        &self,
-        api_key: &ProviderApiKey,
-        template_id: &str,
-    ) -> Result<RunPodTemplateObservation, ProviderClientError> {
-        let response = self
-            .http
-            .get(format!("{}/templates/{template_id}", self.rest_endpoint))
-            .bearer_auth(api_key.expose_secret())
-            .send()
-            .await
-            .map_err(|_| ProviderClientError::ApiUnavailable)?;
-        parse_rest_response::<RunPodTemplateResponse>(response)
-            .await
-            .and_then(template_from_response)
-    }
-
     pub async fn find_templates_by_name(
         &self,
         api_key: &ProviderApiKey,
