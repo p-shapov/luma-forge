@@ -1,11 +1,12 @@
 import unittest
 
 from runpod_endpoint_worker.handler import create_handler
+from runpod_endpoint_worker.schemas import GenerationImage
 from helpers import WorkerFixture
 
 
 class RunPodHandlerTests(unittest.TestCase):
-    def test_invalid_input_does_not_return_stub_success(self):
+    def test_invalid_input_returns_safe_error(self):
         with WorkerFixture() as fixture:
             handler = create_handler(fixture.service)
             payload = handler({"input": {"execution_type": "i2i", "prompt": "a lamp"}})
@@ -13,14 +14,34 @@ class RunPodHandlerTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], "unsupported_execution_type")
 
-    def test_successful_generation_returns_stub_response(self):
-        with WorkerFixture() as fixture:
+    def test_successful_generation_returns_implemented_response(self):
+        class SucceedingExecutor:
+            def generate(self, request):
+                return [
+                    GenerationImage(
+                        filename="ComfyUI_00001_.png",
+                        mime_type="image/png",
+                        data_base64="aW1hZ2U=",
+                    )
+                ]
+
+        with WorkerFixture(executor=SucceedingExecutor()) as fixture:
             handler = create_handler(fixture.service)
             payload = handler({"input": {"execution_type": "t2i", "prompt": "a lamp"}})
 
         self.assertEqual(payload["status"], "succeeded")
-        self.assertFalse(payload["generation"]["implemented"])
+        self.assertTrue(payload["generation"]["implemented"])
         self.assertEqual(payload["generation"]["execution_type"], "t2i")
+        self.assertEqual(
+            payload["generation"]["images"],
+            [
+                {
+                    "filename": "ComfyUI_00001_.png",
+                    "mime_type": "image/png",
+                    "data_base64": "aW1hZ2U=",
+                }
+            ],
+        )
 
     def test_runtime_error_is_reported_safely(self):
         class FailingService:

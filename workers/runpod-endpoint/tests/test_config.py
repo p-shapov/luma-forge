@@ -25,3 +25,27 @@ class EndpointConfigTests(TestCase):
             config = EndpointConfig.from_env()
 
         self.assertEqual(config.workspace_mount_path, Path("/endpoint-workspace"))
+
+    def test_reads_comfy_runtime_configuration(self):
+        with patch.dict(
+            os.environ,
+            {
+                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFY_CLI_PATH": "/runtime/bin/comfy",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH": "/runtime/ComfyUI",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH": "/runtime/workflows/workflow.json",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST": "0.0.0.0",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT": "8199",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS": "12",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS": "34",
+            },
+            clear=True,
+        ):
+            config = EndpointConfig.from_env()
+
+        self.assertEqual(config.comfy_cli_path, Path("/runtime/bin/comfy"))
+        self.assertEqual(config.comfyui_path, Path("/runtime/ComfyUI"))
+        self.assertEqual(config.workflow_path, Path("/runtime/workflows/workflow.json"))
+        self.assertEqual(config.comfyui_host, "0.0.0.0")
+        self.assertEqual(config.comfyui_port, 8199)
+        self.assertEqual(config.comfyui_startup_timeout_seconds, 12)
+        self.assertEqual(config.execution_timeout_seconds, 34)

@@ -14,6 +14,18 @@ class UnsupportedExecutionTypeError(ValidationError):
     code = "unsupported_execution_type"
 
 
+class WorkflowValidationError(EndpointWorkerError):
+    code = "workflow_validation_failed"
+
+
+class ComfyStartupError(EndpointWorkerError):
+    code = "generation_startup_failed"
+
+
+class ComfyExecutionError(EndpointWorkerError):
+    code = "generation_execution_failed"
+
+
 class UnexpectedRuntimeError(EndpointWorkerError):
     code = "runtime_failed"
 

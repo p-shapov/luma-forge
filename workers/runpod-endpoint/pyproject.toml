@@ -16,7 +16,7 @@ dev = []
 default_workspace_mount_path = "/workspace"
 default_comfyui_host = "127.0.0.1"
 default_comfyui_port = 8188
-default_workflow_relative_path = "workflows/t2i.json"
+default_workflow_relative_path = "workflows/workflow.json"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -6,13 +6,13 @@ from runpod_endpoint_worker.service import GenerationService
 
 
 class WorkerFixture:
-    def __init__(self, *, config: EndpointConfig | None = None):
+    def __init__(self, *, config: EndpointConfig | None = None, executor=None):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workspace = Path(self.tempdir.name)
         self.config = config or EndpointConfig(
             workspace_mount_path=self.workspace,
         )
-        self.service = GenerationService(config=self.config)
+        self.service = GenerationService(config=self.config, executor=executor)
 
     def close(self):
         self.tempdir.cleanup()
