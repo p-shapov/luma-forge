@@ -30,6 +30,20 @@ Successful responses are UI-safe:
 }
 ```
 
+Failed responses include UI-safe diagnostic metadata:
+
+```json
+{
+  "status": "failed",
+  "error": {
+    "code": "comfyui_workflow_failed",
+    "message": "ComfyUI workflow execution failed. Process exited with status 1."
+  }
+}
+```
+
+Stable diagnostic codes include `invalid_request`, `unsupported_execution_type`, `workflow_validation_failed`, `comfyui_launch_failed`, `comfyui_startup_timeout`, `comfyui_workflow_failed`, `comfyui_workflow_timeout`, `comfyui_output_parse_failed`, `comfyui_no_outputs`, `comfyui_output_fetch_failed`, `response_too_large`, and `runtime_failed`. Error messages identify the failed stage and may include non-raw process metadata such as an exit status or timeout duration, but never raw stdout, raw stderr, command output, stack traces, credentials, authorization headers, environment dumps, or generated image data.
+
 The worker does not require a provisioner-written runtime manifest. Provisioning remains responsible for prepared workspace directories and model assets only; the endpoint image owns the ComfyUI checkout, Comfy CLI installation, and baked workflow file under `/opt/luma-forge/runtime`.
 
 ## Configuration

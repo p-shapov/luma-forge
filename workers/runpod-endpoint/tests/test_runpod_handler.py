@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 
+from runpod_endpoint_worker.errors import ComfyWorkflowError
 from runpod_endpoint_worker.handler import create_handler
 from runpod_endpoint_worker.schemas import GenerationImage
 from helpers import WorkerFixture
@@ -13,6 +15,7 @@ class RunPodHandlerTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], "unsupported_execution_type")
+        self.assertIn("message", payload["error"])
 
     def test_successful_generation_returns_implemented_response(self):
         class SucceedingExecutor:
@@ -54,6 +57,40 @@ class RunPodHandlerTests(unittest.TestCase):
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], "runtime_failed")
         self.assertEqual(payload["error"]["message"], "Endpoint worker runtime failed.")
+
+    def test_endpoint_worker_error_includes_safe_message(self):
+        class FailingService:
+            def generate_from_payload(self, payload):
+                raise ComfyWorkflowError("ComfyUI workflow execution failed. Missing model file.")
+
+        handler = create_handler(FailingService())
+        payload = handler({"input": {"execution_type": "t2i", "prompt": "a lamp"}})
+
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "comfyui_workflow_failed")
+        self.assertEqual(payload["error"]["message"], "ComfyUI workflow execution failed. Missing model file.")
+
+    def test_endpoint_worker_error_log_uses_safe_message(self):
+        class FailingService:
+            def generate_from_payload(self, payload):
+                raise ComfyWorkflowError("ComfyUI workflow execution failed. password leaked")
+
+        handler = create_handler(FailingService())
+        with patch("runpod_endpoint_worker.logging.LOGGER.warning") as warning:
+            payload = handler({"input": {"execution_type": "t2i", "prompt": "a lamp"}})
+
+        self.assertEqual(payload["status"], "failed")
+        self.assertEqual(payload["error"]["code"], "comfyui_workflow_failed")
+        self.assertEqual(payload["error"]["message"], "Endpoint worker request failed.")
+        self.assertEqual(
+            warning.call_args.args,
+            (
+                "%s: %s: %s",
+                "Endpoint worker request failed",
+                "comfyui_workflow_failed",
+                "Endpoint worker request failed.",
+            ),
+        )
 
     def test_importing_handler_does_not_start_generation(self):
         with WorkerFixture() as fixture:

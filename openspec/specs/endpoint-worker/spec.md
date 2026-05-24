@@ -44,6 +44,27 @@ The RunPod Endpoint Worker SHALL execute the bundled HiDream O1 Dev ComfyUI UI w
 - **AND** it SHALL return base64 image data and UI-safe image metadata in the generation response
 - **AND** it MUST NOT return raw command output, stack traces, provider API keys, worker bearer tokens, or credential-bearing filesystem details
 
+### Requirement: Report endpoint generation failures with diagnostic error metadata
+The RunPod Endpoint Worker SHALL return structured UI-safe diagnostic error metadata for worker-handled failed generation requests.
+
+#### Scenario: Failed endpoint response includes stable error metadata
+- **WHEN** the Endpoint Worker handles a generation request and fails before returning a successful generation response
+- **THEN** the failed response SHALL include `status` set to `failed`
+- **AND** the failed response SHALL include `error.code` with a stable endpoint worker error classifier
+- **AND** the failed response SHALL include `error.message` with a UI-safe diagnostic message
+- **AND** the failed response MUST NOT include raw command output, stack traces, provider API keys, worker bearer tokens, authorization headers, environment dumps, credential-bearing filesystem details, or generated image data
+
+#### Scenario: ComfyUI subprocess failure message uses non-raw metadata
+- **WHEN** ComfyUI startup or workflow execution fails with subprocess failure metadata available to the worker
+- **THEN** the failed response `error.message` SHALL include a bounded diagnostic message that identifies the failed stage
+- **AND** the failed response `error.code` SHALL identify the ComfyUI failure stage
+- **AND** the failed response MAY include non-raw process metadata such as exit status or timeout duration
+- **AND** the failed response MUST NOT expose secrets, raw stdout, raw stderr, raw command output, stack traces, environment dumps, command invocations, or generated image data
+
+#### Scenario: Endpoint worker maps known failure stages to stable codes
+- **WHEN** request validation, workflow validation, ComfyUI launch, ComfyUI startup timeout, workflow execution, workflow timeout, output parsing, missing outputs, output fetching, response-size validation, or unexpected runtime handling fails
+- **THEN** the failed response SHALL use the most specific stable endpoint worker error code available for that failure stage
+
 ### Requirement: Configure endpoint workspace mount path from Native provisioning
 The RunPod Endpoint Worker SHALL support the Native-provided workspace mount path when its template is created.
 

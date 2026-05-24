@@ -17,8 +17,17 @@ class ErrorTests(unittest.TestCase):
 
         self.assertEqual(payload["message"], "prompt is too large")
 
+    def test_safe_error_payload_truncates_long_messages(self):
+        payload = safe_error_payload(ValidationError("x" * 700))
+
+        self.assertEqual(len(payload["message"]), 600)
+        self.assertTrue(payload["message"].endswith("..."))
+
     def test_safe_log_message_redacts_generated_image_data(self):
         self.assertEqual(_safe_log_message("base64 image data here"), "redacted")
+
+    def test_safe_log_message_uses_payload_secret_markers(self):
+        self.assertEqual(_safe_log_message("password leaked"), "redacted")
 
 
 if __name__ == "__main__":
