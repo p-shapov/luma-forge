@@ -19,7 +19,7 @@ The repository SHALL provide separate worker image deployment workflows that dep
 - **AND** the runtime deployment workflow SHALL build the endpoint image compatible with the selected runtime contract id/version
 - **AND** the endpoint image build SHALL install the selected contract's required endpoint Python and system dependencies
 - **AND** the endpoint image SHALL include the bundled workflow derived from the selected contract's `runtime.workflow_preset_id`
-- **AND** the endpoint image MAY install contract-declared image-baked runtime dependencies such as ComfyUI revision, PyTorch index URL, PyTorch package list, and a bundled workflow file even while request handling remains stubbed
+- **AND** the endpoint image SHALL install contract-declared image-baked runtime dependencies such as ComfyUI revision, PyTorch index URL, PyTorch package list, Comfy CLI, and a bundled workflow file for request-time ComfyUI execution
 - **AND** the runtime deployment workflow MUST NOT forward contract-owned base requirement files, runtime platform metadata, or ComfyUI repository URLs as Docker build inputs
 - **AND** the runtime deployment workflow SHALL publish the endpoint image to GitHub Container Registry only after worker validation and endpoint image build validation succeed
 
@@ -100,14 +100,15 @@ The worker Docker build SHALL construct a generic Provisioner Worker image that 
 - **AND** the Provisioner Worker image MUST NOT include or depend on a workflow-runtime-specific ComfyUI runtime contract
 - **AND** the Provisioner Worker build MUST NOT depend on endpoint runtime Docker stages or runtime contract build arguments
 
-### Requirement: Build stubbed Endpoint Worker image
-The worker Docker build SHALL construct an Endpoint Worker image that contains the worker application runtime, selected bundled workflow, and contract-declared dependencies while request handling remains stubbed.
+### Requirement: Build Endpoint Worker image
+The worker Docker build SHALL construct an Endpoint Worker image that contains the worker application runtime, selected bundled workflow, Comfy CLI, and contract-declared dependencies needed for request-time ComfyUI execution.
 
 #### Scenario: Endpoint image is built
 - **WHEN** the Endpoint Worker image is built for a selected runtime contract
 - **THEN** the Docker build SHALL install the worker Python runtime, worker application dependencies, and contract-declared endpoint runtime dependencies
+- **AND** the Docker build SHALL install `comfy-cli==1.10.3`
 - **AND** the Docker build SHALL copy the bundled workflow derived from the selected contract's `runtime.workflow_preset_id` into a fixed image-local workflow path
 - **AND** the image build validation SHALL prove the fixed image-local workflow file exists
-- **AND** the image build validation SHALL NOT require live ComfyUI startup, workflow submission, model resolution, or image output collection
-- **AND** the built image SHALL preserve the RunPod-compatible handler entrypoint used by the stubbed Endpoint Worker
-
+- **AND** the image build validation SHALL prove ComfyUI and Comfy CLI are present in the image
+- **AND** the image build validation SHALL NOT require live GPU workflow execution or image output collection
+- **AND** the built image SHALL preserve the RunPod-compatible handler entrypoint used by the Endpoint Worker

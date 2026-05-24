@@ -102,7 +102,7 @@ runtime:
     def test_endpoint_dockerfile_installs_pinned_comfy_cli_for_runtime_builder(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
-        self.assertIn("comfy-cli==1.7.3", dockerfile)
+        self.assertIn("comfy-cli==1.10.3", dockerfile)
 
     def test_endpoint_dockerfile_uses_comfy_cli_for_comfyui_runtime_install(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
@@ -123,6 +123,7 @@ runtime:
 
         self.assertIn("test -f /opt/luma-forge/runtime/ComfyUI/main.py", dockerfile)
         self.assertIn("test -x /opt/luma-forge/runtime/.venv/bin/python", dockerfile)
+        self.assertIn("test -x /opt/luma-forge/runtime/.venv/bin/comfy", dockerfile)
         self.assertIn("test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/base-runtime/pip-freeze.txt", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/base-runtime/install-report.json", dockerfile)

@@ -1,36 +1,48 @@
 # Endpoint Worker Specification
 
 ## Purpose
-Define the RunPod Endpoint Worker package, container, and temporary stubbed generation boundary.
+Define the RunPod Endpoint Worker package, container, and workflow-specific ComfyUI generation boundary.
+
 ## Requirements
+
 ### Requirement: Package RunPod Endpoint Worker runtime
-The repository SHALL provide a RunPod-specific Endpoint Worker package and container image boundary with a temporary stubbed generation handler.
+The repository SHALL provide a RunPod-specific Endpoint Worker package and container image boundary that initializes a RunPod-compatible handler and executes the selected image-baked runtime at request time.
 
 #### Scenario: Endpoint worker container starts
 - **WHEN** the RunPod Endpoint Worker container starts in a RunPod Serverless worker environment
 - **THEN** the RunPod Endpoint Worker SHALL initialize a RunPod-compatible serverless handler
-- **AND** the RunPod Endpoint Worker SHALL wait for RunPod job invocations before returning the stubbed generation response
+- **AND** the RunPod Endpoint Worker SHALL wait for RunPod job invocations before executing generation
 - **AND** it MUST NOT require a prepared runtime manifest during container startup
 
 #### Scenario: Endpoint worker does not provision environment
 - **WHEN** the RunPod Endpoint Worker handles startup or generation
 - **THEN** it MUST NOT clone ComfyUI repositories, download model assets, install dependencies, install runtime extensions, create virtual environments, modify the image-baked runtime, or run pip
-- **AND** it SHALL rely only on the image-baked worker package and stub configuration needed to respond to RunPod jobs
+- **AND** it SHALL rely on the image-baked worker package, ComfyUI runtime, Comfy CLI installation, baked workflow file, and mounted workspace model assets
 - **AND** it MUST NOT rely on provisioner-written Python path, ComfyUI root, image runtime root, model asset path list, output directory path, or prepared timestamp fields
 
-### Requirement: Stub generation while preserving worker contract
-The RunPod Endpoint Worker SHALL preserve the RunPod handler and response contract without executing ComfyUI generation in this change.
+### Requirement: Execute bundled HiDream workflow through Comfy CLI
+The RunPod Endpoint Worker SHALL execute the bundled HiDream O1 Dev ComfyUI UI workflow through Comfy CLI when it receives a valid text-to-image generation request.
 
-#### Scenario: Stubbed generation request is accepted
-- **WHEN** a valid generation request is accepted
-- **THEN** the RunPod Endpoint Worker SHALL return a deterministic UI-safe stub response that clearly represents generation as not implemented
-- **AND** it MUST NOT start ComfyUI, contact a ComfyUI HTTP endpoint, submit a workflow, poll execution status, collect image outputs, or inspect model/output paths
-- **AND** the response MUST NOT include raw command output, filesystem secrets, provider API keys, or credential-bearing details
+#### Scenario: Valid generation request executes ComfyUI
+- **WHEN** the Endpoint Worker receives a valid `t2i` request with a non-empty prompt
+- **THEN** it SHALL start ComfyUI if the worker process does not already have a ready local ComfyUI server
+- **AND** it SHALL create a temporary copy of the baked UI workflow
+- **AND** it SHALL patch the HiDream `User Prompt` node id `171` with the request prompt
+- **AND** it SHALL patch the HiDream `Switch to Image Edit` node id `154` to `false`
+- **AND** it SHALL patch the HiDream `Enable Prompt Refine?` node id `177` to `false`
+- **AND** it SHALL run the patched UI workflow with Comfy CLI against the local ComfyUI server
+- **AND** it SHALL return a succeeded response with `generation.implemented` set to `true`
 
-#### Scenario: Runtime inputs are not prevalidated by stub
-- **WHEN** the stubbed Endpoint Worker receives a request with workflow, model, output, or workspace path inputs
-- **THEN** it MUST NOT treat those paths as authoritative prepared-runtime evidence
-- **AND** it MUST NOT read a prepared runtime manifest, prevalidate model files, prevalidate output directories, or validate image-local ComfyUI paths
+#### Scenario: Baked workflow shape changes unexpectedly
+- **WHEN** the baked workflow does not contain the expected HiDream node ids, node types, or node titles needed by the smoke execution path
+- **THEN** the Endpoint Worker SHALL fail the request safely
+- **AND** it MUST NOT submit a partially patched or unknown workflow to ComfyUI
+
+#### Scenario: Generated output is returned
+- **WHEN** ComfyUI completes the workflow with image output metadata
+- **THEN** the Endpoint Worker SHALL fetch the generated image through the local ComfyUI output URL
+- **AND** it SHALL return base64 image data and UI-safe image metadata in the generation response
+- **AND** it MUST NOT return raw command output, stack traces, provider API keys, worker bearer tokens, or credential-bearing filesystem details
 
 ### Requirement: Configure endpoint workspace mount path from Native provisioning
 The RunPod Endpoint Worker SHALL support the Native-provided workspace mount path when its template is created.
@@ -53,9 +65,3 @@ The Endpoint Worker image built for a workflow-specific runtime contract SHALL i
 - **THEN** the image SHALL contain the workflow derived from `bundled/workflows/comfyui-hidream-o1-dev.json`
 - **AND** the workflow SHALL be copied to a fixed image-local path selected by the endpoint runtime implementation
 - **AND** the image build validation SHALL prove the fixed workflow file exists
-
-#### Scenario: Endpoint worker remains stubbed
-- **WHEN** the Endpoint Worker receives a generation request while request handling remains stubbed
-- **THEN** it SHALL continue returning the deterministic stubbed response
-- **AND** it MUST NOT start ComfyUI, submit the baked workflow, validate model files, or collect outputs
-

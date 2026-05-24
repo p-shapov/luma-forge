@@ -25,7 +25,8 @@ RUN apt-get update \
 RUN mkdir -p /opt/luma-forge/runtime \
     && python -m venv --copies /opt/luma-forge/runtime/.venv \
     && /opt/luma-forge/runtime/.venv/bin/python -m pip install --no-cache-dir --upgrade pip \
-    && /opt/luma-forge/runtime/.venv/bin/python -m pip install --no-cache-dir comfy-cli==1.7.3
+    && /opt/luma-forge/runtime/.venv/bin/python -m pip install --no-cache-dir comfy-cli==1.10.3 \
+    && /opt/luma-forge/runtime/.venv/bin/comfy --version
 
 RUN test "$LUMA_FORGE_RUNTIME_PYTHON_VERSION" = "3.12" \
     && /opt/luma-forge/runtime/.venv/bin/python -c 'import json, os, subprocess; packages = json.loads(os.environ["LUMA_FORGE_PYTORCH_PACKAGES_JSON"]); subprocess.check_call(["/opt/luma-forge/runtime/.venv/bin/python", "-m", "pip", "install", "--no-cache-dir", "--index-url", os.environ["LUMA_FORGE_PYTORCH_INDEX_URL"], *packages])'
@@ -42,6 +43,7 @@ RUN export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv \
         --skip-torch-or-directml \
     && test -f /opt/luma-forge/runtime/ComfyUI/main.py \
     && test -x /opt/luma-forge/runtime/.venv/bin/python \
+    && test -x /opt/luma-forge/runtime/.venv/bin/comfy \
     && test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager
 
 RUN mkdir -p /opt/luma-forge/runtime/base-runtime \

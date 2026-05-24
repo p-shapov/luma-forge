@@ -1,21 +1,23 @@
 # Prepared Runtime Environment Specification
 
 ## Purpose
-Define the minimal prepared workspace and endpoint runtime expectations while generation is stubbed.
+Define the minimal prepared workspace and endpoint runtime expectations for image-baked ComfyUI execution.
 
 ## Requirements
-### Requirement: Validate endpoint runtime environment
-The Endpoint Worker SHALL keep runtime validation limited to the temporary stub boundary until real generation is reintroduced.
 
-#### Scenario: Stub runtime environment is valid
-- **WHEN** the Endpoint Worker handles a generation request
-- **THEN** the Endpoint Worker SHALL return the configured stub response through the RunPod handler boundary
-- **AND** it MUST NOT require or read a prepared runtime manifest
-- **AND** it MUST NOT prevalidate configured workflow files, required model files, output directories, fixed Python interpreters, or fixed ComfyUI entrypoints
+### Requirement: Execute image-baked runtime without provisioning-time setup
+The Endpoint Worker SHALL execute the image-baked ComfyUI runtime and the selected baked workflow at request time without requiring provisioning to install, repair, or describe endpoint runtime files.
 
-#### Scenario: Stub does not repair runtime environment
-- **WHEN** the Endpoint Worker handles startup or a generation request
-- **THEN** it MUST NOT run pip, clone repositories, create virtual environments, copy base runtime files, download model assets, start ComfyUI, or read a manifest to repair the environment
+#### Scenario: Endpoint request executes prepared image runtime
+- **WHEN** the Endpoint Worker handles a valid generation request
+- **THEN** it SHALL use the endpoint image's ComfyUI checkout, Python environment, Comfy CLI installation, and baked workflow file
+- **AND** it SHALL use the mounted workspace for provisioned model assets
+- **AND** it MUST NOT require a provisioner-written runtime manifest
+
+#### Scenario: Provisioner remains model-asset focused
+- **WHEN** Workspace Provisioning prepares a workspace for the selected endpoint runtime
+- **THEN** provisioning SHALL remain limited to workspace directories, model asset download or verification, and declared model asset validation
+- **AND** provisioning MUST NOT clone ComfyUI, install endpoint Python dependencies, install Comfy CLI, run pip for endpoint dependencies, patch workflows, start ComfyUI, or validate generated outputs
 
 ### Requirement: Use image-baked base runtime with workspace assets
 The prepared workspace SHALL contain workspace-specific assets and workflow files only when those files are needed by the selected endpoint runtime; it SHALL NOT require provisioner-written runtime metadata.
@@ -25,11 +27,3 @@ The prepared workspace SHALL contain workspace-specific assets and workflow file
 - **THEN** the mounted workspace SHALL contain required model asset files and any workspace directories needed for provisioning
 - **AND** the mounted workspace MUST NOT require a workspace-local virtual environment, ComfyUI checkout, runtime extension checkout directory, dependency overlay, or `.luma-forge/runtime-manifest.json` to represent the deterministic runtime
 - **AND** the mounted workspace MUST NOT contain provisioner-written endpoint Python, ComfyUI root, image runtime root, model asset path list, or prepared timestamp metadata as an endpoint contract
-
-### Requirement: Defer ComfyUI execution to a future runtime implementation
-The Endpoint Worker SHALL NOT execute ComfyUI while the endpoint runtime is stubbed.
-
-#### Scenario: Stubbed endpoint receives generation request
-- **WHEN** the Endpoint Worker receives a valid generation request
-- **THEN** it SHALL return the stubbed response without executing ComfyUI
-- **AND** it MUST NOT install dependencies, run pip, mutate the image-baked Python environment, validate workflow/model/output paths, or read a provisioner-written manifest
