@@ -12,7 +12,7 @@ FROM worker-base AS runtime-builder
 ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12
 ARG LUMA_FORGE_COMFYUI_REVISION=8e53f001a492cc818768a308362adbd3d75a1c43
 ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
-ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.5.1","torchvision==0.20.1","torchaudio==2.5.1"]
+ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=[\"torch==2.5.1\",\"torchvision==0.20.1\",\"torchaudio==2.5.1\"]
 ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json
 
 WORKDIR /runtime-build
@@ -50,6 +50,9 @@ RUN mkdir -p /opt/luma-forge/runtime/base-runtime \
     && test -s /opt/luma-forge/runtime/workflows/workflow.json
 
 FROM worker-base
+
+ENV VIRTUAL_ENV=/opt/luma-forge/runtime/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
 
 WORKDIR /app
 COPY --from=runtime-builder /opt/luma-forge/runtime /opt/luma-forge/runtime

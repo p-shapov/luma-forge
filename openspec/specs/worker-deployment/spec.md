@@ -66,6 +66,7 @@ Each worker deployment workflow SHALL complete package validation and Docker ima
 - **AND** it SHALL run runtime contract tests
 - **AND** it SHALL run the Docker build for the endpoint image using the endpoint build definition
 - **AND** the endpoint image build validation SHALL prove required endpoint dependencies are installed without requiring real ComfyUI execution
+- **AND** the endpoint image build validation SHALL prove the final endpoint image can resolve Comfy CLI as plain `comfy` from the runtime process environment
 - **AND** it SHALL continue to registry publication only after validation succeeds for the endpoint image
 
 #### Scenario: Worker validation fails
@@ -107,8 +108,10 @@ The worker Docker build SHALL construct an Endpoint Worker image that contains t
 - **WHEN** the Endpoint Worker image is built for a selected runtime contract
 - **THEN** the Docker build SHALL install the worker Python runtime, worker application dependencies, and contract-declared endpoint runtime dependencies
 - **AND** the Docker build SHALL install `comfy-cli==1.10.3`
+- **AND** the Docker build SHALL expose the image-baked runtime virtual environment executable directory on `PATH` in the final endpoint image
 - **AND** the Docker build SHALL copy the bundled workflow derived from the selected contract's `contract.id` into a fixed image-local workflow path
 - **AND** the image build validation SHALL prove the fixed image-local workflow file exists
 - **AND** the image build validation SHALL prove ComfyUI and Comfy CLI are present in the image
+- **AND** the image build validation SHALL prove plain `comfy` resolves to the image-baked runtime Comfy CLI executable in the final endpoint image
 - **AND** the image build validation SHALL NOT require live GPU workflow execution or image output collection
 - **AND** the built image SHALL preserve the RunPod-compatible handler entrypoint used by the Endpoint Worker

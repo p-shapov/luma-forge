@@ -17,6 +17,8 @@ class ContainerSmokeTests(unittest.TestCase):
                 [
                     "docker",
                     "build",
+                    "--platform",
+                    "linux/amd64",
                     "-t",
                     image,
                     "-f",
@@ -30,6 +32,8 @@ class ContainerSmokeTests(unittest.TestCase):
             [
                 "docker",
                 "run",
+                "--platform",
+                "linux/amd64",
                 "--rm",
                 image,
                 "sh",
@@ -39,6 +43,7 @@ class ContainerSmokeTests(unittest.TestCase):
                     " && command -v git"
                     " && test -x /opt/luma-forge/runtime/.venv/bin/python"
                     " && test -x /opt/luma-forge/runtime/.venv/bin/comfy"
+                    " && test \"$(command -v comfy)\" = /opt/luma-forge/runtime/.venv/bin/comfy"
                     " && /opt/luma-forge/runtime/.venv/bin/comfy --version"
                     " && test -f /opt/luma-forge/runtime/base-runtime/pip-freeze.txt"
                     " && test -f /opt/luma-forge/runtime/base-runtime/install-report.json"

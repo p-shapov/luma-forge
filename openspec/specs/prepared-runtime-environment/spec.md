@@ -11,6 +11,7 @@ The Endpoint Worker SHALL execute the image-baked ComfyUI runtime and the select
 #### Scenario: Endpoint request executes prepared image runtime
 - **WHEN** the Endpoint Worker handles a valid generation request
 - **THEN** it SHALL use the endpoint image's ComfyUI checkout, Python environment, Comfy CLI installation, and baked workflow file
+- **AND** the endpoint image runtime environment SHALL allow Comfy CLI background launch child processes to resolve `comfy` by executable name
 - **AND** it SHALL use the mounted workspace for provisioned model assets
 - **AND** it MUST NOT require a provisioner-written runtime manifest
 
