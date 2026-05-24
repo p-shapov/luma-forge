@@ -76,6 +76,7 @@ The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` s
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `300` | Time allowed for lazy ComfyUI startup readiness. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS` | `900` | Time allowed for `comfy run --json`. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES` | `9000000` | Maximum allowed JSON response metadata size. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_ARTIFACT_BYTES` | `512000000` | Maximum generated artifact bytes buffered and persisted per request. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS` | `4000` | Maximum accepted prompt length. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_SUPPORTED_EXECUTION_TYPES` | `t2i` | Comma-separated execution types accepted by the endpoint boundary. |
 

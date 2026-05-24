@@ -4,6 +4,7 @@ import hashlib
 import json
 import mimetypes
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -175,12 +176,19 @@ class ComfyExecutor:
         if not outputs:
             raise ComfyNoOutputsError("ComfyUI completed without image outputs.")
 
-        fetched_images = [self._fetch_image(output, request, index) for index, output in enumerate(outputs, start=1)]
+        fetched_images = []
+        total_artifact_bytes = 0
+        for index, output in enumerate(outputs, start=1):
+            fetched = self._fetch_image(output, request, index)
+            total_artifact_bytes += len(fetched.body)
+            if total_artifact_bytes > self.config.max_artifact_bytes:
+                raise ResponseTooLargeError("Generated image artifacts exceed the artifact size limit.")
+            fetched_images.append(fetched)
+
         images = [fetched.image for fetched in fetched_images]
         if sum(_image_metadata_size(image) for image in images) > self.config.max_response_bytes:
             raise ResponseTooLargeError("Generated image response metadata exceeds the response size limit.")
-        for fetched in fetched_images:
-            self._persist_image(fetched)
+        self._persist_images(request.job_id, fetched_images)
         return images
 
     def _run_workflow(self, workflow_path: Path) -> list[ComfyImageOutput]:
@@ -250,19 +258,32 @@ class ComfyExecutor:
             body=body,
         )
 
+    def _persist_images(self, job_id: str, fetched_images: list[FetchedImage]) -> None:
+        job_directory = self.config.workspace_mount_path / _artifact_job_directory(job_id)
+        if job_directory.exists():
+            shutil.rmtree(job_directory)
+        try:
+            for fetched in fetched_images:
+                self._persist_image(fetched)
+        except OSError as error:
+            if job_directory.exists():
+                shutil.rmtree(job_directory, ignore_errors=True)
+            raise ComfyOutputFetchError("ComfyUI generated output could not be persisted.") from error
+
     def _persist_image(self, fetched: FetchedImage) -> None:
         target = self.config.workspace_mount_path / fetched.image.relative_path
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(fetched.body)
-        except OSError as error:
-            raise ComfyOutputFetchError("ComfyUI generated output could not be persisted.") from error
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(fetched.body)
 
 
 def _artifact_relative_path(job_id: str, filename: str, index: int) -> Path:
-    safe_job_id = _safe_path_segment(job_id) or "local"
     safe_filename = _safe_path_segment(Path(filename).name) or f"output-{index}.bin"
-    return Path("luma-forge") / "outputs" / "jobs" / safe_job_id / f"{index:04d}" / safe_filename
+    return _artifact_job_directory(job_id) / f"{index:04d}" / safe_filename
+
+
+def _artifact_job_directory(job_id: str) -> Path:
+    safe_job_id = _safe_path_segment(job_id) or "local"
+    return Path("luma-forge") / "outputs" / "jobs" / safe_job_id
 
 
 def _safe_path_segment(value: str) -> str:
@@ -270,7 +291,7 @@ def _safe_path_segment(value: str) -> str:
 
 
 def _image_metadata_size(image: GenerationImage) -> int:
-    return len(json.dumps(image.to_payload(), separators=(",", ":")))
+    return len(json.dumps(image.to_payload(), separators=(",", ":")).encode("utf-8"))
 
 
 def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
