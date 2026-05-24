@@ -38,6 +38,10 @@
         {
           "version": "1.0.8",
           "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c3d141ccc676b22a724b6d14035b3f15ed65741a60e1e4f85485dca54ce77851"
+        },
+        {
+          "version": "1.0.9",
+          "endpoint_image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:eacb936bd610bda78e4168b13f268e21a0c1d88602627d9ca51444e1d679f8a1"
         }
       ]
     }
