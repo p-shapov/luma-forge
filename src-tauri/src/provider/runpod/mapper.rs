@@ -173,7 +173,6 @@ pub(super) fn template_from_response(
     Ok(RunPodTemplateObservation {
         id: non_empty(payload.id)?,
         image_name: non_empty(payload.image_name)?,
-        volume_mount_path: non_empty(payload.volume_mount_path)?,
         status: resource_status_or_ready(payload.status.as_deref()),
     })
 }

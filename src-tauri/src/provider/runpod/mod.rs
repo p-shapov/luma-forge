@@ -501,7 +501,6 @@ fn template_from_discovery_response(
     Ok(RunPodTemplateObservation {
         id: required_non_empty(payload.id)?,
         image_name: payload.image_name.unwrap_or_default(),
-        volume_mount_path: payload.volume_mount_path.unwrap_or_default(),
         status: ProviderResourceStatus::Unknown,
     })
 }

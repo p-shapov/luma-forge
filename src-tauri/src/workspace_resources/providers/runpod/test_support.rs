@@ -856,12 +856,10 @@ pub(super) fn runpod_template(
     id: &str,
     status: ProviderResourceStatus,
     image_name: &str,
-    mount_path: &str,
 ) -> RunPodTemplateObservation {
     RunPodTemplateObservation {
         id: id.to_string(),
         image_name: image_name.to_string(),
-        volume_mount_path: mount_path.to_string(),
         status,
     }
 }

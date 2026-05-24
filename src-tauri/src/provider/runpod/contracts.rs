@@ -152,7 +152,6 @@ pub(super) struct RunPodTemplateResponse {
     pub name: Option<String>,
     pub image_name: Option<String>,
     pub is_serverless: Option<bool>,
-    pub volume_mount_path: Option<String>,
     pub status: Option<String>,
 }
 
@@ -160,7 +159,6 @@ pub(super) struct RunPodTemplateResponse {
 pub struct RunPodTemplateObservation {
     pub id: String,
     pub image_name: String,
-    pub volume_mount_path: String,
     pub status: ProviderResourceStatus,
 }
 

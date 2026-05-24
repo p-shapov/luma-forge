@@ -142,7 +142,7 @@ where
         .await?;
     if let Some(template) = discovered_templates
         .into_iter()
-        .find(|template| endpoint_template_matches_workspace(template, workspace))
+        .find(|template| endpoint_template_matches_workspace_image(template, workspace))
     {
         return Ok(Some(template));
     }
@@ -169,14 +169,14 @@ where
             }
             return discovered_templates
                 .into_iter()
-                .find(|template| endpoint_template_matches_workspace(template, workspace))
+                .find(|template| endpoint_template_matches_workspace_image(template, workspace))
                 .map(Some)
                 .ok_or(WorkspaceResourceError::ProviderOrphanedResources);
         }
         Err(error) => return Err(error),
     };
 
-    if endpoint_template_matches_workspace(&observation, workspace) {
+    if endpoint_template_matches_workspace_image(&observation, workspace) {
         Ok(Some(observation))
     } else if matches!(
         observation.provider_resource_status,
@@ -188,13 +188,12 @@ where
     }
 }
 
-fn endpoint_template_matches_workspace(
+fn endpoint_template_matches_workspace_image(
     template: &EndpointTemplateObservation,
     workspace: &Workspace,
 ) -> bool {
     template.provider_resource_status == ProviderResourceStatus::Ready
         && template.endpoint_worker_image_ref == workspace.resolved_runtime_image.endpoint_image_ref
-        && template.mount_path == RUNPOD_SERVERLESS_NETWORK_VOLUME_MOUNT_PATH
         && workspace.persistent_storage_volume_snapshot.is_some()
 }
 
@@ -217,7 +216,6 @@ mod tests {
             "template-1",
             ProviderResourceStatus::Ready,
             "endpoint:latest",
-            "/runpod-volume",
         )]));
         client.push_discover_endpoints(Ok(Vec::new()));
         client.push_create_endpoint(Ok(runpod_endpoint(
@@ -249,17 +247,11 @@ mod tests {
         let mut workspace = workspace();
         workspace.persistent_storage_volume_snapshot =
             Some(volume_snapshot(ProviderResourceStatus::Ready));
-        client.push_discover_templates(Ok(vec![runpod_template(
-            "old-template",
-            ProviderResourceStatus::Ready,
-            "endpoint:latest",
-            "/workspace",
-        )]));
+        client.push_discover_templates(Ok(Vec::new()));
         client.push_create_template(Ok(runpod_template(
             "template-1",
             ProviderResourceStatus::Ready,
             "endpoint:latest",
-            "/runpod-volume",
         )));
         client.push_discover_endpoints(Ok(Vec::new()));
         client.push_create_endpoint(Ok(runpod_endpoint(
@@ -281,6 +273,39 @@ mod tests {
             Some(&"/runpod-volume".to_string())
         );
 
+        let RunPodCall::CreateEndpoint(request) = &calls[3] else {
+            panic!("expected create endpoint call");
+        };
+        assert_eq!(request.template_id, "template-1");
+    }
+
+    #[tokio::test]
+    async fn create_accepts_created_template_when_runpod_echoes_default_mount_path() {
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_templates(Ok(Vec::new()));
+        client.push_create_template(Ok(runpod_template(
+            "template-1",
+            ProviderResourceStatus::Ready,
+            "endpoint:latest",
+        )));
+        client.push_discover_endpoints(Ok(Vec::new()));
+        client.push_create_endpoint(Ok(runpod_endpoint(
+            "endpoint-1",
+            ProviderResourceStatus::Ready,
+        )));
+
+        create(&runpod_context, &mut workspace)
+            .await
+            .expect("serverless endpoint create should succeed");
+
+        let calls = client.calls();
         let RunPodCall::CreateEndpoint(request) = &calls[3] else {
             panic!("expected create endpoint call");
         };

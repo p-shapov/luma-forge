@@ -69,7 +69,6 @@ pub(crate) struct CreateEndpointTemplateInput {
 pub(crate) struct EndpointTemplateObservation {
     pub(crate) template_id: String,
     pub(crate) endpoint_worker_image_ref: String,
-    pub(crate) mount_path: String,
     pub(crate) provider_resource_status: ProviderResourceStatus,
 }
 
