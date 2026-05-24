@@ -1,8 +1,7 @@
 contract:
-  id: comfyui-hidream-o1-dev-python312-cu121
+  id: comfyui-hidream-o1-dev
   version: 1.0.0
 runtime:
-  workflow_preset_id: comfyui-hidream-o1-dev
   python_version: "3.12"
   comfyui_revision: 8e53f001a492cc818768a308362adbd3d75a1c43
   pytorch:

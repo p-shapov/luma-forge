@@ -82,7 +82,7 @@ The RunPod Endpoint Worker SHALL support the Native-provided workspace mount pat
 The Endpoint Worker image built for a workflow-specific runtime contract SHALL include the selected bundled UI workflow at a fixed image-local path owned by the endpoint runtime implementation.
 
 #### Scenario: Workflow-specific endpoint image is built
-- **WHEN** the Endpoint Worker image is built for runtime contract id `comfyui-hidream-o1-dev-python312-cu121`
+- **WHEN** the Endpoint Worker image is built for runtime contract id `comfyui-hidream-o1-dev`
 - **THEN** the image SHALL contain the workflow derived from `bundled/workflows/comfyui-hidream-o1-dev.json`
 - **AND** the workflow SHALL be copied to a fixed image-local path selected by the endpoint runtime implementation
 - **AND** the image build validation SHALL prove the fixed workflow file exists

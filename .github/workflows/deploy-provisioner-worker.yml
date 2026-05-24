@@ -126,7 +126,7 @@ jobs:
             bundled/workflow-catalog.json
           branch: provisioner-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
           title: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
-          commit-message: "chore(workers): promote provisioner image"
+          commit-message: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           body: |
             Promotes the validated provisioner image into the Provisioner Catalog and points Workflow Presets at it.
 

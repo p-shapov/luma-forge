@@ -113,7 +113,7 @@ mod tests {
     fn valid_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
             contracts: vec![RuntimeContract {
-                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev".to_string(),
                 revisions: vec![valid_revision("1.0.0")],
             }],
         }
@@ -137,18 +137,18 @@ mod tests {
             RuntimeCatalog {
                 contracts: vec![
                     RuntimeContract {
-                        id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                        id: "comfyui-hidream-o1-dev".to_string(),
                         revisions: vec![valid_revision("1.0.0")],
                     },
                     RuntimeContract {
-                        id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                        id: "comfyui-hidream-o1-dev".to_string(),
                         revisions: vec![valid_revision("1.0.1")],
                     },
                 ],
             },
             RuntimeCatalog {
                 contracts: vec![RuntimeContract {
-                    id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                    id: "comfyui-hidream-o1-dev".to_string(),
                     revisions: vec![],
                 }],
             },
@@ -185,7 +185,7 @@ mod tests {
         for revision in invalid_revisions {
             let catalog = RuntimeCatalog {
                 contracts: vec![RuntimeContract {
-                    id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                    id: "comfyui-hidream-o1-dev".to_string(),
                     revisions: vec![revision],
                 }],
             };
@@ -202,19 +202,11 @@ mod tests {
         let catalog = valid_catalog();
 
         assert_eq!(
-            validate_runtime_contract_reference(
-                "comfyui-hidream-o1-dev-python312-cu121",
-                "1.0.0",
-                &catalog
-            ),
+            validate_runtime_contract_reference("comfyui-hidream-o1-dev", "1.0.0", &catalog),
             Ok(())
         );
         assert_eq!(
-            validate_runtime_contract_reference(
-                "comfyui-hidream-o1-dev-python312-cu121",
-                "2.0.0",
-                &catalog
-            ),
+            validate_runtime_contract_reference("comfyui-hidream-o1-dev", "2.0.0", &catalog),
             Err(DomainValidationError)
         );
         assert_eq!(
@@ -226,7 +218,7 @@ mod tests {
     #[test]
     fn validate_resolved_runtime_snapshot_reuses_runtime_shape_rules() {
         let snapshot = valid_catalog()
-            .resolve("comfyui-hidream-o1-dev-python312-cu121", "1.0.0")
+            .resolve("comfyui-hidream-o1-dev", "1.0.0")
             .expect("valid runtime should resolve");
 
         assert_eq!(validate_resolved_runtime_snapshot(&snapshot), Ok(()));

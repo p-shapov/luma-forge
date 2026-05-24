@@ -11,8 +11,8 @@ on:
         required: true
         type: choice
         options:
-          - workers/promote-runtime-contract/comfyui-hidream-o1-dev-python312-cu121.yaml
-        default: workers/promote-runtime-contract/comfyui-hidream-o1-dev-python312-cu121.yaml
+          - workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml
+        default: workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml
 
 permissions:
   contents: write
@@ -43,7 +43,7 @@ jobs:
       - name: Resolve contract metadata
         id: contract
         env:
-          CONTRACT: ${{ inputs.contract || 'workers/promote-runtime-contract/comfyui-hidream-o1-dev-python312-cu121.yaml' }}
+          CONTRACT: ${{ inputs.contract || 'workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml' }}
         run: |
           python workers/promote-runtime-contract/release_tool.py resolve \
             --contract "$CONTRACT" \
@@ -110,6 +110,7 @@ jobs:
           python workers/promote-runtime-contract/release_tool.py promote-runtime-image \
             --contract "${{ steps.contract.outputs.contract }}" \
             --catalog bundled/runtime-catalog.json \
+            --workflow-catalog bundled/workflow-catalog.json \
             --contract-version "${{ steps.contract.outputs.contract_version }}" \
             --image-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
@@ -121,7 +122,12 @@ jobs:
             exit 1
           fi
 
-          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/runtime-catalog\.json' || true)"
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/workflow-catalog.json'; then
+            echo "::error::Catalog promotion did not modify bundled/workflow-catalog.json"
+            exit 1
+          fi
+
+          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(runtime|workflow)-catalog\.json' || true)"
           if [ -n "$unexpected_paths" ]; then
             echo "::error::Catalog promotion produced unexpected changed paths:"
             printf '%s\n' "$unexpected_paths"
@@ -133,9 +139,10 @@ jobs:
         with:
           add-paths: |
             bundled/runtime-catalog.json
+            bundled/workflow-catalog.json
           branch: runtime-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
           title: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
-          commit-message: "chore(workers): promote runtime image"
+          commit-message: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           body: |
-            Promotes the validated endpoint runtime image into the Runtime Catalog. Workflow Preset rollout remains a separate reviewed catalog change.
+            Promotes the validated endpoint runtime image into the Runtime Catalog and points the matching Workflow Preset at it.
           labels: runtime-catalog

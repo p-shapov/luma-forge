@@ -67,7 +67,7 @@ class ApiTests(unittest.TestCase):
             "workflow_execution_type": "t2i",
             "required_base_volume_size_bytes": 1,
             "runtime_contract": {
-                "id": "comfyui-hidream-o1-dev-python312-cu121",
+                "id": "comfyui-hidream-o1-dev",
                 "version": "1.0.0",
             },
             "provisioner_contract": {

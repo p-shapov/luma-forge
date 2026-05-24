@@ -10,7 +10,7 @@ RunPod Endpoint Worker deployment is driven by [`promote-runtime-contract/`](./p
 ## Release Triggers
 
 - Push a provisioner release tag matching `provisioner-worker-v*`, or run `Deploy Provisioner Worker` manually, to publish the generic provisioner image.
-- Push a runtime contract release tag matching `runtime-contract-v*`, or run `Deploy Runtime Contract` manually and select one contract, for example `workers/promote-runtime-contract/comfyui-hidream-o1-dev-python312-cu121.yaml`.
+- Push a runtime contract release tag matching `runtime-contract-v*`, or run `Deploy Runtime Contract` manually and select one contract, for example `workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml`.
 
 Manual runtime contract releases publish a workflow-specific endpoint image, then automatically propose Runtime Catalog promotion under the selected runtime contract id. The workflow resolves the next Runtime Catalog patch version from `bundled/runtime-catalog.json`, for example `1.0.0` to `1.0.1`, before endpoint worker validation, image builds, or publication. If the contract declares a higher SemVer version than the next patch, the workflow uses the contract version instead.
 
@@ -33,7 +33,7 @@ Do not store registry credentials, provider API keys, or worker bearer tokens in
 
 The provisioner workflow validates only the provisioner package and builds the generic provisioner image without runtime contract build arguments.
 
-The runtime contract workflow validates runtime contract tooling and the endpoint package, then builds the endpoint image with the selected contract dependencies and bundled workflow file. Runtime contract YAML declares `runtime.workflow_preset_id`; release tooling derives `bundled/workflows/{workflow_preset_id}.json`, and the Docker build copies that source workflow to `/opt/luma-forge/runtime/workflows/workflow.json`. It does not require live ComfyUI execution.
+The runtime contract workflow validates runtime contract tooling and the endpoint package, then builds the endpoint image with the selected contract dependencies and bundled workflow file. The runtime contract id matches the Workflow Preset id; release tooling derives `bundled/workflows/{contract.id}.json`, and the Docker build copies that source workflow to `/opt/luma-forge/runtime/workflows/workflow.json`. It does not require live ComfyUI execution.
 
 ## Catalog Promotion
 
@@ -41,9 +41,9 @@ Publishing an image does not make new Workspaces select it. Selection changes on
 
 After publishing a validated provisioner image, the workflow opens a reviewed Provisioner Catalog promotion PR that appends the selected provisioner contract id/version revision in `bundled/provisioner-catalog.json` with a digest-pinned provisioner image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that provisioner contract id point at the new revision. Provisioner Catalog promotion preserves required revision metadata such as `volume_mount_path`.
 
-After publishing a validated endpoint image, the workflow opens a reviewed Runtime Catalog promotion PR that appends the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with a digest-pinned endpoint image ref. Runtime image promotion does not update `bundled/workflow-catalog.json`; moving a Workflow Preset to a new exact runtime revision is a separate reviewed catalog change.
+After publishing a validated endpoint image, the workflow opens a reviewed Runtime Catalog promotion PR that appends the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with a digest-pinned endpoint image ref. The same PR updates `bundled/workflow-catalog.json` so the Workflow Preset whose id matches the runtime contract id points at the new revision.
 
-Catalog promotion PRs are path-guarded. Provisioner PRs may change only `bundled/provisioner-catalog.json` and `bundled/workflow-catalog.json`; runtime PRs may change only `bundled/runtime-catalog.json`.
+Catalog promotion PRs are path-guarded. Provisioner PRs may change only `bundled/provisioner-catalog.json` and `bundled/workflow-catalog.json`; runtime PRs may change only `bundled/runtime-catalog.json` and `bundled/workflow-catalog.json`.
 
 Workflow Presets remain exact-pinned to runtime contract id/version pairs. The HiDream O1 Dev preset uses a 120 GiB base volume requirement to cover the Dev checkpoint, Gemma text encoder, outputs, and operational workspace headroom.
 

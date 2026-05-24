@@ -358,7 +358,7 @@ mod test_fixtures {
             required_base_volume_size_bytes: 80 * 1024 * 1024 * 1024,
             requires_hugging_face_api_key: false,
             runtime_contract: RuntimeContractReference {
-                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev".to_string(),
                 version: "1.0.0".to_string(),
             },
             provisioner_contract: ProvisionerContractReference {
@@ -381,7 +381,7 @@ mod test_fixtures {
 
     fn runtime_snapshot() -> ResolvedRuntimeImageSnapshot {
         ResolvedRuntimeImageSnapshot {
-            contract_id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+            contract_id: "comfyui-hidream-o1-dev".to_string(),
             contract_version: "1.0.0".to_string(),
             endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
         }
