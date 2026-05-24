@@ -9,19 +9,30 @@ from runpod_endpoint_worker.errors import UnsupportedExecutionTypeError, Validat
 class GenerationRequest:
     execution_type: str
     prompt: str
+    job_id: str = "local"
 
 
 @dataclass(frozen=True)
 class GenerationImage:
     filename: str
     mime_type: str
-    data_base64: str
+    byte_size: int
+    sha256: str
+    artifact_uri: str
+    storage_type: str
+    relative_path: str
 
-    def to_payload(self) -> dict[str, str]:
+    def to_payload(self) -> dict[str, Any]:
         return {
             "filename": self.filename,
             "mime_type": self.mime_type,
-            "data_base64": self.data_base64,
+            "byte_size": self.byte_size,
+            "sha256": self.sha256,
+            "artifact_uri": self.artifact_uri,
+            "storage": {
+                "type": self.storage_type,
+                "relative_path": self.relative_path,
+            },
         }
 
 
@@ -41,7 +52,7 @@ class GenerationResponse:
         }
 
 
-def parse_generation_request(payload: Any, config: EndpointConfig) -> GenerationRequest:
+def parse_generation_request(payload: Any, config: EndpointConfig, *, job_id: str = "local") -> GenerationRequest:
     data = _object(payload, "input")
     execution_type = _non_empty_string(data.get("execution_type"), "execution_type")
     if execution_type not in config.supported_execution_types:
@@ -51,7 +62,7 @@ def parse_generation_request(payload: Any, config: EndpointConfig) -> Generation
     if len(prompt) > config.max_prompt_chars:
         raise ValidationError("prompt is too large")
 
-    return GenerationRequest(execution_type=execution_type, prompt=prompt)
+    return GenerationRequest(execution_type=execution_type, prompt=prompt, job_id=job_id)
 
 
 def _object(payload: Any, field: str) -> dict[str, Any]:

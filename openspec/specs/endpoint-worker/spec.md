@@ -41,8 +41,9 @@ The RunPod Endpoint Worker SHALL execute the bundled HiDream O1 Dev ComfyUI UI w
 #### Scenario: Generated output is returned
 - **WHEN** ComfyUI completes the workflow with image output metadata
 - **THEN** the Endpoint Worker SHALL fetch the generated image through the local ComfyUI output URL
-- **AND** it SHALL return base64 image data and UI-safe image metadata in the generation response
-- **AND** it MUST NOT return raw command output, stack traces, provider API keys, worker bearer tokens, or credential-bearing filesystem details
+- **AND** it SHALL write the generated image bytes under a job-scoped path in the configured RunPod network volume mount
+- **AND** it SHALL return a `runpod_volume` artifact reference, internal artifact URI, byte size, checksum, and UI-safe image metadata in the generation response
+- **AND** it MUST NOT return generated image bytes, raw command output, stack traces, provider API keys, worker bearer tokens, absolute filesystem paths, or credential-bearing filesystem details
 
 ### Requirement: Report endpoint generation failures with diagnostic error metadata
 The RunPod Endpoint Worker SHALL return structured UI-safe diagnostic failure metadata for worker-handled failed generation requests using a RunPod-hosted-output-compatible `failure` object.

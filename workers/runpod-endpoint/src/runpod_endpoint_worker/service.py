@@ -15,7 +15,7 @@ class GenerationService:
     def from_config(cls, config: EndpointConfig) -> "GenerationService":
         return cls(config=config, executor=ComfyExecutor.from_config(config))
 
-    def generate_from_payload(self, payload: Any) -> GenerationResponse:
-        request = parse_generation_request(payload, self.config)
+    def generate_from_payload(self, payload: Any, *, job_id: str = "local") -> GenerationResponse:
+        request = parse_generation_request(payload, self.config, job_id=job_id)
         executor = self.executor or ComfyExecutor.from_config(self.config)
         return GenerationResponse(execution_type=request.execution_type, images=executor.generate(request))

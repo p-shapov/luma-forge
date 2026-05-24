@@ -11,7 +11,7 @@ def create_handler(service: GenerationService):
     def handler(job: dict[str, Any]) -> dict[str, Any]:
         started = time.perf_counter()
         try:
-            response = service.generate_from_payload(job.get("input"))
+            response = service.generate_from_payload(job.get("input"), job_id=_job_id(job) or "local")
             return response.to_payload()
         except EndpointWorkerError as error:
             failure = safe_failure_payload(error)

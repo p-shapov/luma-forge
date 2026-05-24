@@ -1,5 +1,6 @@
-import base64
+import hashlib
 import json
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -24,9 +25,10 @@ from runpod_endpoint_worker.schemas import GenerationRequest
 
 
 class FakeHttpClient:
-    def __init__(self, *, ready_after=1, image_body=b"image-bytes", fail_fetch=False):
+    def __init__(self, *, ready_after=1, image_body=b"image-bytes", image_bodies=None, fail_fetch=False):
         self.ready_after = ready_after
         self.image_body = image_body
+        self.image_bodies = list(image_bodies or [])
         self.fail_fetch = fail_fetch
         self.readiness_calls = 0
         self.urls = []
@@ -42,6 +44,8 @@ class FakeHttpClient:
         self.urls.append(url)
         if self.fail_fetch:
             raise OSError("not found")
+        if self.image_bodies:
+            return self.image_bodies.pop(0)
         return self.image_body
 
 
@@ -345,7 +349,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "comfyui_no_outputs")
 
-    def test_executor_runs_patched_workflow_and_returns_base64_images(self):
+    def test_executor_runs_patched_workflow_and_returns_artifact_images(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)
             workspace = _write_required_models(directory)
@@ -379,7 +383,8 @@ class ComfyExecutionTests(unittest.TestCase):
                         stderr="",
                     )
 
-                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+                    artifact_body = (workspace / images[0].relative_path).read_bytes()
 
         ready.assert_called_once()
         command = run.call_args.args[0]
@@ -391,9 +396,63 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertIn(str(config.execution_timeout_seconds), command)
         self.assertNotIn("--address", command)
         self.assertIn("--wait", command)
-        self.assertEqual(images[0].data_base64, base64.b64encode(b"png").decode("ascii"))
         self.assertEqual(images[0].mime_type, "image/png")
         self.assertEqual(images[0].filename, "ComfyUI_00001_.png")
+        self.assertEqual(images[0].byte_size, 3)
+        self.assertEqual(images[0].sha256, hashlib.sha256(b"png").hexdigest())
+        self.assertEqual(images[0].artifact_uri, "runpod-volume://luma-forge/outputs/jobs/job-123/0001/ComfyUI_00001_.png")
+        self.assertEqual(images[0].relative_path, "luma-forge/outputs/jobs/job-123/0001/ComfyUI_00001_.png")
+        self.assertEqual(artifact_body, b"png")
+
+    def test_executor_keeps_colliding_output_filenames_in_distinct_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = _write_valid_workflow(directory)
+            workspace = _write_required_models(directory)
+            client = FakeHttpClient(image_bodies=[b"first", b"second"])
+            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
+            runtime = ComfyRuntime(config=config, http_client=client)
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
+
+            with patch.object(runtime, "ensure_ready"):
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout="\n".join(
+                            [
+                                json.dumps(
+                                    {
+                                        "event": "completed",
+                                        "outputs": [
+                                            {
+                                                "category": "images",
+                                                "filename": "foo-2.png",
+                                                "subfolder": "",
+                                                "type": "output",
+                                            },
+                                            {
+                                                "category": "images",
+                                                "filename": "foo.png",
+                                                "subfolder": "",
+                                                "type": "output",
+                                            },
+                                        ],
+                                    }
+                                ),
+                            ]
+                        ),
+                        stderr="",
+                    )
+
+                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+                    first_body = (workspace / images[0].relative_path).read_bytes()
+                    second_body = (workspace / images[1].relative_path).read_bytes()
+
+        self.assertNotEqual(images[0].relative_path, images[1].relative_path)
+        self.assertEqual(first_body, b"first")
+        self.assertEqual(second_body, b"second")
+        self.assertEqual(images[0].sha256, hashlib.sha256(b"first").hexdigest())
+        self.assertEqual(images[1].sha256, hashlib.sha256(b"second").hexdigest())
 
     def test_executor_fails_before_comfy_when_required_models_are_missing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -459,7 +518,7 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertTrue(any(url.startswith("http://127.0.0.1:") for url in client.urls))
         self.assertFalse(any(url.startswith("http://0.0.0.0:") for url in client.urls))
 
-    def test_executor_rejects_inline_response_that_exceeds_configured_limit(self):
+    def test_executor_rejects_artifact_metadata_response_that_exceeds_configured_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             config = _endpoint_config_with_required_models(directory, max_response_bytes=3)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
@@ -491,6 +550,204 @@ class ComfyExecutionTests(unittest.TestCase):
                             stderr="",
                         )
                         executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+            artifact_output_exists = (config.workspace_mount_path / "luma-forge/outputs").exists()
+
+        self.assertFalse(artifact_output_exists)
+
+    def test_executor_counts_metadata_response_size_as_utf8_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory, max_response_bytes=362)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ResponseTooLargeError):
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.return_value = subprocess.CompletedProcess(
+                            args=[],
+                            returncode=0,
+                            stdout="\n".join(
+                                [
+                                    json.dumps(
+                                        {
+                                            "event": "completed",
+                                            "outputs": [
+                                                {
+                                                    "category": "images",
+                                                    "filename": "изображение.png",
+                                                    "subfolder": "",
+                                                    "type": "output",
+                                                }
+                                            ],
+                                        }
+                                    ),
+                                ]
+                            ),
+                            stderr="",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+    def test_executor_rejects_artifact_bytes_that_exceed_configured_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory, max_artifact_bytes=5)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"abcdef"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ResponseTooLargeError):
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.return_value = subprocess.CompletedProcess(
+                            args=[],
+                            returncode=0,
+                            stdout=_completed_process_stdout(),
+                            stderr="",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertFalse((config.workspace_mount_path / "luma-forge/outputs").exists())
+
+    def test_executor_artifact_write_failure_uses_output_fetch_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyOutputFetchError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
+                            run.return_value = subprocess.CompletedProcess(
+                                args=[],
+                                returncode=0,
+                                stdout="\n".join(
+                                    [
+                                        json.dumps(
+                                            {
+                                                "event": "completed",
+                                                "outputs": [
+                                                    {
+                                                        "category": "images",
+                                                        "filename": "ComfyUI_00001_.png",
+                                                        "subfolder": "",
+                                                        "type": "output",
+                                                    }
+                                                ],
+                                            }
+                                        ),
+                                    ]
+                                ),
+                                stderr="",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
+        self.assertEqual(context.exception.stage, "output_fetch")
+
+    def test_executor_rolls_back_written_artifacts_when_later_write_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_bodies=[b"first", b"second"]))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            original_write_bytes = Path.write_bytes
+
+            def fail_second_write(path, body):
+                if path.name == "second.png":
+                    raise OSError("disk full")
+                return original_write_bytes(path, body)
+
+            with self.assertRaises(ComfyOutputFetchError):
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        with patch("pathlib.Path.write_bytes", autospec=True, side_effect=fail_second_write):
+                            run.return_value = subprocess.CompletedProcess(
+                                args=[],
+                                returncode=0,
+                                stdout="\n".join(
+                                    [
+                                        json.dumps(
+                                            {
+                                                "event": "completed",
+                                                "outputs": [
+                                                    {
+                                                        "category": "images",
+                                                        "filename": "first.png",
+                                                        "subfolder": "",
+                                                        "type": "output",
+                                                    },
+                                                    {
+                                                        "category": "images",
+                                                        "filename": "second.png",
+                                                        "subfolder": "",
+                                                        "type": "output",
+                                                    },
+                                                ],
+                                            }
+                                        ),
+                                    ]
+                                ),
+                                stderr="",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+
+            job_dir_exists = (config.workspace_mount_path / "luma-forge/outputs/jobs/job-123").exists()
+
+        self.assertFalse(job_dir_exists)
+
+    def test_executor_clears_existing_job_artifacts_before_persisting_retry_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            stale = config.workspace_mount_path / "luma-forge/outputs/jobs/job-123/0002/stale.png"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"stale")
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"fresh"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with patch.object(runtime, "ensure_ready"):
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout=_completed_process_stdout(),
+                        stderr="",
+                    )
+                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+
+            stale_exists = stale.exists()
+            fresh_body = (config.workspace_mount_path / images[0].relative_path).read_bytes()
+
+        self.assertFalse(stale_exists)
+        self.assertEqual(fresh_body, b"fresh")
+
+    def test_executor_cleanup_failure_uses_output_fetch_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            job_directory = config.workspace_mount_path / "luma-forge/outputs/jobs/job-123"
+            stale = job_directory / "0002/stale.png"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"stale")
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"fresh"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            original_rmtree = shutil.rmtree
+
+            def fail_cleanup(path, *args, **kwargs):
+                if Path(path) == job_directory and not kwargs.get("ignore_errors", False):
+                    raise OSError("permission denied")
+                return original_rmtree(path, *args, **kwargs)
+
+            with self.assertRaises(ComfyOutputFetchError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        with patch("shutil.rmtree", side_effect=fail_cleanup):
+                            run.return_value = subprocess.CompletedProcess(
+                                args=[],
+                                returncode=0,
+                                stdout=_completed_process_stdout(),
+                                stderr="",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+
+        self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
+        self.assertEqual(context.exception.stage, "output_fetch")
 
     def test_executor_workflow_failure_keeps_stable_message_and_includes_diagnostic_excerpt(self):
         with tempfile.TemporaryDirectory() as directory:
