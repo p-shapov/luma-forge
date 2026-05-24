@@ -735,7 +735,7 @@
         "Node name for S&R": "PrimitiveBoolean"
       },
       "widgets_values": [
-        true
+        false
       ]
     },
     {
