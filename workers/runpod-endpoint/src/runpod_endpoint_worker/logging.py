@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from runpod_endpoint_worker.errors import EndpointWorkerError, safe_error_message
 
@@ -21,6 +22,26 @@ def log_safe_error(message: str, error: Exception) -> None:
         LOGGER.warning("%s: %s: %s", message, error.code, safe_error_message(error.message))
         return
     LOGGER.warning("%s: %s", message, _safe_log_message(str(error)))
+
+
+def log_failure_context(
+    message: str,
+    *,
+    job_id: str | None,
+    failure: dict[str, Any],
+    elapsed_ms: int,
+) -> None:
+    LOGGER.warning(
+        "%s job_id=%s code=%s stage=%s retryable=%s elapsed_ms=%d message=%s metadata=%s",
+        message,
+        job_id or "unknown",
+        failure["code"],
+        failure["stage"],
+        failure["retryable"],
+        elapsed_ms,
+        failure["message"],
+        failure.get("metadata", {}),
+    )
 
 
 def _safe_log_message(message: str) -> str:

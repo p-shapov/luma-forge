@@ -1,13 +1,17 @@
 class EndpointWorkerError(Exception):
     code = "runpod_endpoint_worker_error"
+    stage = "runtime"
+    retryable = False
 
-    def __init__(self, message: str):
+    def __init__(self, message: str, metadata: dict[str, object] | None = None):
         super().__init__(message)
         self.message = message
+        self.metadata = safe_failure_metadata(metadata or {})
 
 
 class ValidationError(EndpointWorkerError):
     code = "invalid_request"
+    stage = "request_validation"
 
 
 class UnsupportedExecutionTypeError(ValidationError):
@@ -16,14 +20,19 @@ class UnsupportedExecutionTypeError(ValidationError):
 
 class WorkflowValidationError(EndpointWorkerError):
     code = "workflow_validation_failed"
+    stage = "workflow_validation"
 
 
 class ComfyStartupError(EndpointWorkerError):
     code = "comfyui_startup_failed"
+    stage = "comfyui_startup"
+    retryable = True
 
 
 class ComfyLaunchError(ComfyStartupError):
     code = "comfyui_launch_failed"
+    stage = "comfyui_launch"
+    retryable = False
 
 
 class ComfyStartupTimeoutError(ComfyStartupError):
@@ -32,6 +41,7 @@ class ComfyStartupTimeoutError(ComfyStartupError):
 
 class ComfyExecutionError(EndpointWorkerError):
     code = "comfyui_execution_failed"
+    stage = "workflow_execution"
 
 
 class ComfyWorkflowError(ComfyExecutionError):
@@ -40,33 +50,56 @@ class ComfyWorkflowError(ComfyExecutionError):
 
 class ComfyWorkflowTimeoutError(ComfyExecutionError):
     code = "comfyui_workflow_timeout"
+    retryable = True
 
 
 class ComfyOutputParseError(ComfyExecutionError):
     code = "comfyui_output_parse_failed"
+    stage = "output_parse"
 
 
 class ComfyNoOutputsError(ComfyExecutionError):
     code = "comfyui_no_outputs"
+    stage = "output_parse"
 
 
 class ComfyOutputFetchError(ComfyExecutionError):
     code = "comfyui_output_fetch_failed"
+    stage = "output_fetch"
+    retryable = True
 
 
 class ResponseTooLargeError(ComfyExecutionError):
     code = "response_too_large"
+    stage = "response_size"
 
 
 class UnexpectedRuntimeError(EndpointWorkerError):
     code = "runtime_failed"
+    retryable = True
 
 
-def safe_error_payload(error: EndpointWorkerError) -> dict[str, str]:
-    return {
+def safe_failure_payload(error: EndpointWorkerError) -> dict[str, object]:
+    payload: dict[str, object] = {
         "code": error.code,
         "message": safe_error_message(error.message),
+        "stage": error.stage,
+        "retryable": error.retryable,
     }
+    if error.metadata:
+        payload["metadata"] = error.metadata
+    return payload
+
+
+def safe_failure_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    safe: dict[str, object] = {}
+    for key in ("exit_status", "timeout_seconds"):
+        value = metadata.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int | float | str):
+            safe[key] = value
+    return safe
 
 
 def safe_error_message(message: str) -> str:
