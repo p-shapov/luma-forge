@@ -72,7 +72,17 @@ jobs:
 
       - name: Publish provisioner image
         run: |
-          docker push "${{ steps.image.outputs.provisioner_tag }}"
+          for attempt in 1 2 3; do
+            if docker push "${{ steps.image.outputs.provisioner_tag }}"; then
+              exit 0
+            fi
+
+            if [ "$attempt" = "3" ]; then
+              exit 1
+            fi
+
+            sleep "$((attempt * 30))"
+          done
 
       - name: Resolve pushed image digest
         id: digest
