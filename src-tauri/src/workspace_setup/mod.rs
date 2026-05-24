@@ -590,7 +590,6 @@ mod tests {
                     provisioner_worker_image_ref: format!(
                         "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_B}"
                     ),
-                    volume_mount_path: "/workspace".to_string(),
                 }],
             }],
         }

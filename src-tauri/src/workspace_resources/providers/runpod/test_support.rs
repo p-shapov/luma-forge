@@ -765,7 +765,6 @@ pub(super) fn workspace() -> Workspace {
         contract_id: "provisioner".to_string(),
         contract_version: "1.0.0".to_string(),
         provisioner_worker_image_ref: "provisioner:latest".to_string(),
-        volume_mount_path: "/workspace".to_string(),
     };
     let mut workspace = Workspace::new_draft(
         GpuCloudProviderId::Runpod,
@@ -807,7 +806,6 @@ pub(super) fn volume_snapshot(status: ProviderResourceStatus) -> PersistentStora
         gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
         provider_resource_id: "volume-1".to_string(),
         provider_resource_status: status,
-        mount_path: "/workspace".to_string(),
     }
 }
 

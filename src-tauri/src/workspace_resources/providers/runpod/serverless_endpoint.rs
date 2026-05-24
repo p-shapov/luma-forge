@@ -15,6 +15,8 @@ use crate::{
 
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
 
+const RUNPOD_SERVERLESS_NETWORK_VOLUME_MOUNT_PATH: &str = "/runpod-volume";
+
 pub(crate) async fn create<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,
@@ -150,10 +152,7 @@ where
             gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
             workspace_id: workspace.id.clone(),
             endpoint_worker_image_ref: workspace.resolved_runtime_image.endpoint_image_ref.clone(),
-            mount_path: workspace
-                .resolved_provisioner_image
-                .volume_mount_path
-                .clone(),
+            mount_path: RUNPOD_SERVERLESS_NETWORK_VOLUME_MOUNT_PATH.to_string(),
         })
         .await
     {
@@ -195,13 +194,8 @@ fn endpoint_template_matches_workspace(
 ) -> bool {
     template.provider_resource_status == ProviderResourceStatus::Ready
         && template.endpoint_worker_image_ref == workspace.resolved_runtime_image.endpoint_image_ref
-        && template.mount_path == workspace.resolved_provisioner_image.volume_mount_path
-        && workspace
-            .persistent_storage_volume_snapshot
-            .as_ref()
-            .is_some_and(|volume| {
-                volume.mount_path == workspace.resolved_provisioner_image.volume_mount_path
-            })
+        && template.mount_path == RUNPOD_SERVERLESS_NETWORK_VOLUME_MOUNT_PATH
+        && workspace.persistent_storage_volume_snapshot.is_some()
 }
 
 #[cfg(test)]
@@ -223,7 +217,7 @@ mod tests {
             "template-1",
             ProviderResourceStatus::Ready,
             "endpoint:latest",
-            "/workspace",
+            "/runpod-volume",
         )]));
         client.push_discover_endpoints(Ok(Vec::new()));
         client.push_create_endpoint(Ok(runpod_endpoint(
@@ -242,6 +236,54 @@ mod tests {
         assert_eq!(request.gpu_type_ids, vec!["gpu-1".to_string()]);
         assert_eq!(request.data_center_ids, vec!["dc-1".to_string()]);
         assert_eq!(request.network_volume_id, "volume-1");
+        assert_eq!(request.template_id, "template-1");
+    }
+
+    #[tokio::test]
+    async fn create_uses_runpod_serverless_network_volume_mount_path_for_template() {
+        let secrets = FakeSecretStore::default();
+        let catalog = FakeWorkspaceCatalog::default();
+        let client = FakeRunPodClient::default();
+        let base_context = context(&secrets, &catalog);
+        let runpod_context = RunPodWorkspaceResourceContext::new(&base_context, &client);
+        let mut workspace = workspace();
+        workspace.persistent_storage_volume_snapshot =
+            Some(volume_snapshot(ProviderResourceStatus::Ready));
+        client.push_discover_templates(Ok(vec![runpod_template(
+            "old-template",
+            ProviderResourceStatus::Ready,
+            "endpoint:latest",
+            "/workspace",
+        )]));
+        client.push_create_template(Ok(runpod_template(
+            "template-1",
+            ProviderResourceStatus::Ready,
+            "endpoint:latest",
+            "/runpod-volume",
+        )));
+        client.push_discover_endpoints(Ok(Vec::new()));
+        client.push_create_endpoint(Ok(runpod_endpoint(
+            "endpoint-1",
+            ProviderResourceStatus::Ready,
+        )));
+
+        create(&runpod_context, &mut workspace)
+            .await
+            .expect("serverless endpoint create should succeed");
+
+        let calls = client.calls();
+        let RunPodCall::CreateTemplate(request) = &calls[1] else {
+            panic!("expected create template call");
+        };
+        assert_eq!(request.volume_mount_path, "/runpod-volume");
+        assert_eq!(
+            request.env.get("LUMA_FORGE_WORKSPACE_MOUNT_PATH"),
+            Some(&"/runpod-volume".to_string())
+        );
+
+        let RunPodCall::CreateEndpoint(request) = &calls[3] else {
+            panic!("expected create endpoint call");
+        };
         assert_eq!(request.template_id, "template-1");
     }
 }

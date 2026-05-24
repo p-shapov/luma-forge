@@ -25,17 +25,6 @@ pub(crate) fn is_safe_slug(value: &str) -> bool {
         })
 }
 
-pub(crate) fn is_safe_absolute_posix_path(value: &str) -> bool {
-    let value = value.trim();
-    if value == "/" || !value.starts_with('/') || value.contains('\\') {
-        return false;
-    }
-
-    value[1..]
-        .split('/')
-        .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,30 +70,6 @@ mod tests {
             "preset.1",
         ] {
             assert!(!is_safe_slug(value), "{value} should be rejected");
-        }
-    }
-
-    #[test]
-    fn absolute_posix_paths_must_be_normalized_non_root_paths() {
-        for path in ["/workspace", "/workspace/models"] {
-            assert!(
-                is_safe_absolute_posix_path(path),
-                "{path} should be accepted"
-            );
-        }
-
-        for path in [
-            "",
-            "/",
-            "workspace",
-            "/workspace/../x",
-            "/workspace//x",
-            "\\workspace",
-        ] {
-            assert!(
-                !is_safe_absolute_posix_path(path),
-                "{path} should be rejected"
-            );
         }
     }
 }

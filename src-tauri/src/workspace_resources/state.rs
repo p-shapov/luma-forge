@@ -24,10 +24,6 @@ pub(crate) fn persistent_storage_volume_snapshot(
         gpu_cloud_provider_id: workspace.gpu_cloud_provider_id,
         provider_resource_id: observation.provider_resource_id,
         provider_resource_status: observation.provider_resource_status,
-        mount_path: workspace
-            .resolved_provisioner_image
-            .volume_mount_path
-            .clone(),
     }
 }
 
@@ -132,7 +128,6 @@ mod tests {
             contract_id: "provisioner".to_string(),
             contract_version: "1.0.0".to_string(),
             provisioner_worker_image_ref: "provisioner:latest".to_string(),
-            volume_mount_path: "/workspace".to_string(),
         };
         let mut workspace = Workspace::new_draft(
             GpuCloudProviderId::Runpod,
@@ -147,7 +142,6 @@ mod tests {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             provider_resource_id: "volume-1".to_string(),
             provider_resource_status: ProviderResourceStatus::Ready,
-            mount_path: "/workspace".to_string(),
         });
         workspace.serverless_endpoint_snapshot = Some(ServerlessEndpointSnapshot {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,

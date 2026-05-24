@@ -5,7 +5,7 @@ use crate::domain::{
     provider_setup::GpuCloudProviderId,
     provisioner::validator as provisioner_validator,
     runtime::validator as runtime_validator,
-    validation::{is_blank, is_safe_absolute_posix_path},
+    validation::is_blank,
 };
 
 use super::{
@@ -106,10 +106,7 @@ fn validate_persistent_storage_volume_snapshot(
     provider_id: GpuCloudProviderId,
     snapshot: &PersistentStorageVolumeSnapshot,
 ) -> DomainValidationResult {
-    if snapshot.gpu_cloud_provider_id != provider_id
-        || is_blank(&snapshot.provider_resource_id)
-        || !is_safe_absolute_posix_path(&snapshot.mount_path)
-    {
+    if snapshot.gpu_cloud_provider_id != provider_id || is_blank(&snapshot.provider_resource_id) {
         return Err(DomainValidationError);
     }
 
@@ -220,7 +217,6 @@ mod tests {
             provisioner_worker_image_ref: format!(
                 "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
             ),
-            volume_mount_path: "/workspace".to_string(),
         }
     }
 
@@ -241,7 +237,6 @@ mod tests {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             provider_resource_id: "volume-id".to_string(),
             provider_resource_status: status,
-            mount_path: "/workspace".to_string(),
         }
     }
 
@@ -313,7 +308,7 @@ mod tests {
             },
             Workspace {
                 resolved_provisioner_image: ResolvedProvisionerImageSnapshot {
-                    volume_mount_path: "workspace".to_string(),
+                    contract_version: "1.0".to_string(),
                     ..provisioner_snapshot()
                 },
                 ..draft_workspace()
@@ -427,14 +422,6 @@ mod tests {
                 lifecycle_state: WorkspaceLifecycleState::Provisioning,
                 persistent_storage_volume_snapshot: Some(PersistentStorageVolumeSnapshot {
                     provider_resource_id: " ".to_string(),
-                    ..volume(ProviderResourceStatus::Ready)
-                }),
-                ..draft_workspace()
-            },
-            Workspace {
-                lifecycle_state: WorkspaceLifecycleState::Provisioning,
-                persistent_storage_volume_snapshot: Some(PersistentStorageVolumeSnapshot {
-                    mount_path: "../workspace".to_string(),
                     ..volume(ProviderResourceStatus::Ready)
                 }),
                 ..draft_workspace()

@@ -75,8 +75,7 @@ mod tests {
                         "revisions": [
                             {{
                                 "version": "1.0.0",
-                                "provisioner_worker_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_C}",
-                                "volume_mount_path": "/workspace"
+                                "provisioner_worker_image_ref": "ghcr.io/example/provisioner@sha256:{DIGEST_C}"
                             }}
                         ]
                     }}
@@ -175,7 +174,6 @@ mod tests {
             panic!("expected one provisioner revision");
         };
         assert_eq!(revision.version, "1.0.0");
-        assert_eq!(revision.volume_mount_path, "/workspace");
         assert!(revision
             .provisioner_worker_image_ref
             .ends_with(&format!("@sha256:{DIGEST_C}")));

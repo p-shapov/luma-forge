@@ -53,7 +53,7 @@ RunPod Workspace Provisioning SHALL create the temporary Provisioning Pod with t
 - **WHEN** RunPod provider-specific provisioning creates a CPU Provisioning Pod
 - **THEN** the RunPod pod create request SHALL use the Workspace Placement Plan's selected data center
 - **AND** the request SHALL attach the Workspace network volume
-- **AND** the request SHALL use the Workspace's resolved provisioner mount path for the pod volume mount path
+- **AND** the request SHALL use `/workspace` for the pod volume mount path
 
 #### Scenario: RunPod Serverless Endpoint keeps selected GPU placement
 - **WHEN** RunPod provider-specific provisioning creates the Serverless Endpoint after environment preparation

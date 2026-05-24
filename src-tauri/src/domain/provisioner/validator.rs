@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use crate::domain::{
-    error::{DomainValidationError, DomainValidationResult},
-    validation::is_safe_absolute_posix_path,
-};
+use crate::domain::error::{DomainValidationError, DomainValidationResult};
 
 use super::{ProvisionerCatalog, ResolvedProvisionerImageSnapshot};
 
@@ -26,7 +23,6 @@ pub fn validate_provisioner_catalog(catalog: &ProvisionerCatalog) -> DomainValid
             if !is_semver(&revision.version)
                 || !versions.insert(revision.version.as_str())
                 || !is_immutable_image_ref(&revision.provisioner_worker_image_ref)
-                || !is_safe_absolute_posix_path(&revision.volume_mount_path)
             {
                 return Err(DomainValidationError);
             }
@@ -57,7 +53,6 @@ pub fn validate_resolved_provisioner_snapshot(
     if !is_contract_id(&snapshot.contract_id)
         || !is_semver(&snapshot.contract_version)
         || !is_immutable_image_ref(&snapshot.provisioner_worker_image_ref)
-        || !is_safe_absolute_posix_path(&snapshot.volume_mount_path)
     {
         return Err(DomainValidationError);
     }
@@ -114,7 +109,6 @@ mod tests {
         ProvisionerContractRevision {
             version: version.to_string(),
             provisioner_worker_image_ref: image_ref("provisioner", DIGEST_C),
-            volume_mount_path: "/workspace".to_string(),
         }
     }
 
@@ -188,10 +182,6 @@ mod tests {
                 ),
                 ..valid_revision("1.0.0")
             },
-            ProvisionerContractRevision {
-                volume_mount_path: "../workspace".to_string(),
-                ..valid_revision("1.0.0")
-            },
         ];
 
         for revision in invalid_revisions {
@@ -236,7 +226,7 @@ mod tests {
         assert_eq!(validate_resolved_provisioner_snapshot(&snapshot), Ok(()));
 
         let invalid_snapshot = ResolvedProvisionerImageSnapshot {
-            volume_mount_path: "workspace".to_string(),
+            contract_version: "1.0".to_string(),
             ..snapshot
         };
 

@@ -59,31 +59,33 @@ Workspace Provisioning SHALL treat endpoint Python, PyTorch, ComfyUI, runtime ex
 - **AND** Workspace Provisioning MUST NOT require the Provisioning Pod to use GPU compute
 
 ### Requirement: Use resolved provisioner image snapshot
-Workspace Provisioning SHALL use the Workspace's persisted resolved provisioner image snapshot as the authoritative source for Provisioner Worker image and workspace volume mount path.
+Workspace Provisioning SHALL use the Workspace's persisted resolved provisioner image snapshot as the authoritative source for the Provisioner Worker image.
 
 #### Scenario: Provisioning creates provider resources
 - **WHEN** Workspace Provisioning creates or reconciles provider resources for a Workspace
 - **THEN** the Native Layer SHALL use `resolved_provisioner_image.provisioner_worker_image_ref` as the Provisioner Worker image ref
-- **AND** the Native Layer SHALL use `resolved_provisioner_image.volume_mount_path` as the workspace volume mount path
-- **AND** the Native Layer MUST NOT use NativeAppState constants or unversioned app-level provisioning defaults for those values
+- **AND** the Native Layer SHALL use the RunPod provider mount path constants for provider mount configuration
+- **AND** the Native Layer MUST NOT read workspace volume mount paths from catalog revisions or resolved image snapshots
 
 #### Scenario: Existing provider resources are checked for compatibility
 - **WHEN** Workspace Provisioning observes a provider resource whose image ref or mount path is relevant to readiness or reconciliation
-- **THEN** the Native Layer SHALL compare the observed provider resource data against the Workspace's persisted resolved runtime and provisioner snapshots
+- **THEN** the Native Layer SHALL compare observed image refs against the Workspace's persisted resolved runtime and provisioner snapshots
+- **AND** the Native Layer SHALL compare observed mount paths against the RunPod provider mount path constants
 - **AND** the Native Layer SHALL treat mismatched provider resource metadata as not satisfying the Workspace's desired provisioning state
 
-### Requirement: Pass resolved mount path to worker containers
-Workspace Provisioning SHALL pass the resolved workspace volume mount path to worker containers as both provider mount configuration and worker process environment configuration.
+### Requirement: Pass fixed RunPod mount paths to worker containers
+Workspace Provisioning SHALL pass fixed RunPod workspace volume mount paths to worker containers as both provider mount configuration and worker process environment configuration.
 
 #### Scenario: Provisioner Worker pod is created
 - **WHEN** the Native Layer creates a Provisioner Worker pod
-- **THEN** the RunPod pod volume mount path SHALL equal `resolved_provisioner_image.volume_mount_path`
-- **AND** the pod environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with the same value
+- **THEN** the RunPod pod volume mount path SHALL equal `/workspace`
+- **AND** the pod environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with `/workspace`
 
 #### Scenario: Endpoint Worker template is created
 - **WHEN** the Native Layer creates an Endpoint Worker template
-- **THEN** the RunPod template volume mount path SHALL equal `resolved_provisioner_image.volume_mount_path`
-- **AND** the template environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with the same value
+- **THEN** the RunPod template volume mount path SHALL equal `/runpod-volume`
+- **AND** the template environment SHALL include `LUMA_FORGE_WORKSPACE_MOUNT_PATH` with `/runpod-volume`
+- **AND** Workspace snapshots SHALL NOT persist a workspace volume mount path
 
 ### Requirement: Own resource operation sequencing
 Workspace Provisioning SHALL own the provisioning state machine and decide which explicit Workspace Resources operation is safe to run for each sync iteration.
@@ -162,4 +164,3 @@ Workspace Provisioning SHALL detect when a selected Workflow Preset requires a H
 - **WHEN** Workspace Provisioning is about to create a Provisioner Pod for a Workspace whose selected Workflow Preset has `requires_hugging_face_api_key` set to `false`
 - **THEN** Workspace Provisioning SHALL NOT require Hugging Face setup
 - **AND** public Hugging Face asset downloads SHALL remain eligible to proceed without a configured Hugging Face API key
-

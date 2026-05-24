@@ -76,8 +76,8 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
         self.assertEqual("1.0.1", version)
 
-    def test_promote_provisioner_image_appends_revision_and_preserves_metadata(self):
-        catalog = _provisioner_catalog(volume_mount_path="/workspace")
+    def test_promote_provisioner_image_appends_revision(self):
+        catalog = _provisioner_catalog()
 
         updated = release_tool.promote_provisioner_image(
             catalog=catalog,
@@ -90,7 +90,6 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         self.assertEqual("1.0.0", revisions[0]["version"])
         self.assertEqual("1.0.1", revisions[1]["version"])
         self.assertEqual(_image_ref("4"), revisions[1]["provisioner_worker_image_ref"])
-        self.assertEqual("/workspace", revisions[1]["volume_mount_path"])
 
     def test_promote_provisioner_image_rejects_duplicate_explicit_revision(self):
         catalog = _provisioner_catalog()
@@ -111,17 +110,6 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
                 catalog=catalog,
                 contract_id="luma-forge-provisioner",
                 image_ref="ghcr.io/luma-forge/provisioner-worker:latest",
-            )
-
-    def test_promote_provisioner_image_rejects_missing_required_metadata(self):
-        catalog = _provisioner_catalog()
-        del catalog["contracts"][0]["revisions"][0]["volume_mount_path"]
-
-        with self.assertRaisesRegex(release_tool.ReleaseToolError, "volume_mount_path"):
-            release_tool.promote_provisioner_image(
-                catalog=catalog,
-                contract_id="luma-forge-provisioner",
-                image_ref=_image_ref("4"),
             )
 
     def test_promote_provisioner_image_updates_workflow_catalog(self):
@@ -190,7 +178,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
                 contract_id="luma-forge-provisioner",
             )
 
-def _provisioner_catalog(*, volume_mount_path="/workspace"):
+def _provisioner_catalog():
     return {
         "contracts": [
             {
@@ -199,7 +187,6 @@ def _provisioner_catalog(*, volume_mount_path="/workspace"):
                     {
                         "version": "1.0.0",
                         "provisioner_worker_image_ref": _image_ref("2"),
-                        "volume_mount_path": volume_mount_path,
                     }
                 ],
             }

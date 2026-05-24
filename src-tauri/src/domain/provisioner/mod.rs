@@ -17,7 +17,6 @@ pub struct ProvisionerContract {
 pub struct ProvisionerContractRevision {
     pub version: String,
     pub provisioner_worker_image_ref: String,
-    pub volume_mount_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +30,6 @@ pub struct ResolvedProvisionerImageSnapshot {
     pub contract_id: String,
     pub contract_version: String,
     pub provisioner_worker_image_ref: String,
-    pub volume_mount_path: String,
 }
 
 impl ProvisionerCatalog {
@@ -53,7 +51,6 @@ impl ProvisionerCatalog {
             contract_id: contract.id.clone(),
             contract_version: revision.version.clone(),
             provisioner_worker_image_ref: revision.provisioner_worker_image_ref.clone(),
-            volume_mount_path: revision.volume_mount_path.clone(),
         })
     }
 }

@@ -9,6 +9,8 @@ use crate::{
 
 use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
 
+pub(crate) const RUNPOD_POD_NETWORK_VOLUME_MOUNT_PATH: &str = "/workspace";
+
 pub(crate) async fn create<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
     workspace: &mut Workspace,

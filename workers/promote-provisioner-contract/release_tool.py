@@ -75,7 +75,6 @@ def promote_provisioner_image(
 
     latest_revision = max(revisions, key=lambda revision: _parse_semver(_provisioner_revision_version(revision)))
     _string_value(latest_revision, "provisioner_worker_image_ref")
-    _string_value(latest_revision, "volume_mount_path")
     new_revision = dict(latest_revision)
     new_revision["version"] = resolved_contract_version
     new_revision["provisioner_worker_image_ref"] = image_ref

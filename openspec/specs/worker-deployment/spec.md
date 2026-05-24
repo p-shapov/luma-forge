@@ -46,7 +46,7 @@ The repository SHALL provide separate worker image deployment workflows that dep
 - **WHEN** a provisioner deployment workflow publishes a validated Provisioner Worker image
 - **THEN** it SHALL promote the published image into the bundled Provisioner Catalog by appending a new revision for the provisioner contract id using the next patch version from the current Provisioner Catalog
 - **AND** the new revision SHALL contain the published immutable Provisioner Worker image ref
-- **AND** the new revision SHALL preserve the provisioner revision metadata needed by Workspace Setup, including the workspace volume mount path
+- **AND** the new revision SHALL preserve the provisioner revision metadata needed by Workspace Setup
 - **AND** it SHALL update Workflow Presets using that provisioner contract id to reference the new revision version
 - **AND** it SHALL open a reviewed repository change for `bundled/provisioner-catalog.json` and `bundled/workflow-catalog.json`
 - **AND** it MUST NOT silently push provisioner catalog changes directly to the main branch

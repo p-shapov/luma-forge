@@ -10,7 +10,7 @@ The Native Layer SHALL expose a command that returns the bundled Workflow Catalo
 - **WHEN** the Client requests the Workflow Catalog
 - **THEN** the Native Layer SHALL return a Workflow Catalog containing selectable Workflow Presets
 - **AND** every returned Workflow Preset SHALL include a required runtime contract reference instead of direct Endpoint Worker image refs or ComfyUI Git source fields
-- **AND** every returned Workflow Preset SHALL include a required provisioner contract reference instead of direct Provisioner Worker image refs, volume mount paths, or unversioned provisioning defaults
+- **AND** every returned Workflow Preset SHALL include a required provisioner contract reference instead of direct Provisioner Worker image refs or unversioned provisioning defaults
 - **AND** every returned Workflow Preset SHALL include a `requires_hugging_face_api_key` flag
 - **AND** every returned model asset SHALL include Hugging Face download metadata with repository id, file path, revision, and explicit ComfyUI-relative install path
 - **AND** every returned model asset MUST NOT include raw Hugging Face API keys, credential-bearing URLs, provider secrets, worker bearer tokens, or runtime-provisioned asset metadata
@@ -29,12 +29,12 @@ Workspace Setup SHALL resolve and snapshot the selected Workflow Preset's provis
 - **THEN** the Native Layer SHALL resolve the Workflow Preset's runtime contract through the bundled Runtime Catalog
 - **AND** the Native Layer SHALL resolve the Workflow Preset's provisioner contract through the bundled Provisioner Catalog
 - **AND** the created Workspace SHALL include both `resolved_runtime_image` and `resolved_provisioner_image`
-- **AND** `resolved_provisioner_image` SHALL include the provisioner contract id, provisioner contract version, immutable Provisioner Worker image ref, and workspace volume mount path
+- **AND** `resolved_provisioner_image` SHALL include the provisioner contract id, provisioner contract version, and immutable Provisioner Worker image ref
 
 #### Scenario: Provisioner Catalog data is unavailable during Workspace creation
 - **WHEN** the Client creates a Workspace and the selected Workflow Preset's provisioner contract cannot be resolved
 - **THEN** the Native Layer SHALL reject Workspace creation with a UI-safe catalog error before persisting the Workspace
-- **AND** the Native Layer MUST NOT create a Workspace using a hard-coded Provisioner Worker image ref or hard-coded volume mount path
+- **AND** the Native Layer MUST NOT create a Workspace using a hard-coded Provisioner Worker image ref
 
 ### Requirement: Provide bundled HiDream O1 Dev Workflow Preset
 The bundled Workflow Catalog SHALL expose `comfyui-hidream-o1-dev` as the supported text-to-image Workflow Preset instead of the prior SDXL preset.
@@ -67,4 +67,3 @@ Bundled Workflow Presets SHALL declare whether the workflow requires a configure
 - **WHEN** a bundled Workflow Preset includes a Hugging Face model asset that can be downloaded without authentication
 - **THEN** the Workflow Preset SHALL set `requires_hugging_face_api_key` to `false`
 - **AND** Workspace Setup MUST NOT require Hugging Face setup solely because public Hugging Face assets exist
-

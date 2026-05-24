@@ -14,7 +14,10 @@ use crate::{
     },
 };
 
-use super::{RunPodWorkspaceResourceClient, RunPodWorkspaceResourceContext};
+use super::{
+    network_volume::RUNPOD_POD_NETWORK_VOLUME_MOUNT_PATH, RunPodWorkspaceResourceClient,
+    RunPodWorkspaceResourceContext,
+};
 
 pub(crate) async fn create<S, W, C>(
     context: &RunPodWorkspaceResourceContext<'_, S, W, C>,
@@ -75,7 +78,7 @@ where
             provisioner_worker_image_ref: provisioner_image.provisioner_worker_image_ref.clone(),
             datacenter_id: selected_datacenter_id.clone(),
             network_volume_id,
-            mount_path: provisioner_image.volume_mount_path.clone(),
+            mount_path: RUNPOD_POD_NETWORK_VOLUME_MOUNT_PATH.to_string(),
             bearer_token: token,
             hugging_face_api_key,
         })

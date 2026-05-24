@@ -498,7 +498,6 @@ mod tests {
             contract_id: "provisioner".to_string(),
             contract_version: "1.0.0".to_string(),
             provisioner_worker_image_ref: "provisioner:latest".to_string(),
-            volume_mount_path: "/workspace".to_string(),
         };
         let mut workspace = Workspace::new_draft(
             GpuCloudProviderId::Runpod,
