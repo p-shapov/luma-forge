@@ -10,14 +10,24 @@ from unittest.mock import patch
 
 from runpod_endpoint_worker.comfy import ComfyExecutor, ComfyRuntime, parse_comfy_run_events
 from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import ComfyExecutionError, ComfyStartupError
+from runpod_endpoint_worker.errors import (
+    ComfyLaunchError,
+    ComfyNoOutputsError,
+    ComfyOutputFetchError,
+    ComfyOutputParseError,
+    ComfyStartupError,
+    ComfyWorkflowError,
+    ComfyWorkflowTimeoutError,
+    ResponseTooLargeError,
+)
 from runpod_endpoint_worker.schemas import GenerationRequest
 
 
 class FakeHttpClient:
-    def __init__(self, *, ready_after=1, image_body=b"image-bytes"):
+    def __init__(self, *, ready_after=1, image_body=b"image-bytes", fail_fetch=False):
         self.ready_after = ready_after
         self.image_body = image_body
+        self.fail_fetch = fail_fetch
         self.readiness_calls = 0
         self.urls = []
 
@@ -30,7 +40,47 @@ class FakeHttpClient:
 
     def get_bytes(self, url, timeout):
         self.urls.append(url)
+        if self.fail_fetch:
+            raise OSError("not found")
         return self.image_body
+
+
+def _write_valid_workflow(directory: str) -> Path:
+    workflow = Path(directory) / "workflow.json"
+    workflow.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
+                    {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
+                    {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
+                    {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return workflow
+
+
+def _completed_process_stdout() -> str:
+    return "\n".join(
+        [
+            json.dumps(
+                {
+                    "event": "completed",
+                    "outputs": [
+                        {
+                            "category": "images",
+                            "filename": "ComfyUI_00001_.png",
+                            "subfolder": "",
+                            "type": "output",
+                        }
+                    ],
+                }
+            ),
+        ]
+    )
 
 
 class ComfyExecutionTests(unittest.TestCase):
@@ -108,6 +158,22 @@ class ComfyExecutionTests(unittest.TestCase):
             with patch("subprocess.run"):
                 runtime.ensure_ready()
 
+    def test_runtime_launch_failure_does_not_include_comfy_stderr(self):
+        runtime = ComfyRuntime(config=EndpointConfig(), http_client=FakeHttpClient(ready_after=1000))
+
+        with self.assertRaises(ComfyLaunchError) as context:
+            with patch("subprocess.run") as run:
+                run.side_effect = subprocess.CalledProcessError(
+                    returncode=1,
+                    cmd=["comfy", "launch"],
+                    stderr="CUDA driver unavailable",
+                )
+                runtime.ensure_ready()
+
+        self.assertEqual(context.exception.code, "comfyui_launch_failed")
+        self.assertEqual(context.exception.message, "ComfyUI failed to launch. Process exited with status 1.")
+        self.assertNotIn("CUDA driver unavailable", context.exception.message)
+
     def test_parse_completed_events_extracts_image_outputs(self):
         events = "\n".join(
             [
@@ -180,29 +246,22 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertEqual(outputs[0].filename, "ComfyUI_00001_.png")
 
     def test_parse_rejects_malformed_events(self):
-        with self.assertRaises(ComfyExecutionError):
+        with self.assertRaises(ComfyOutputParseError):
             parse_comfy_run_events("{not-json}\n")
 
     def test_parse_rejects_missing_completion(self):
-        with self.assertRaises(ComfyExecutionError):
+        with self.assertRaises(ComfyWorkflowError):
             parse_comfy_run_events(json.dumps({"type": "executed", "data": {"output": {"images": []}}}))
+
+    def test_parse_rejects_missing_outputs_with_specific_code(self):
+        with self.assertRaises(ComfyNoOutputsError) as context:
+            parse_comfy_run_events(json.dumps({"event": "completed", "outputs": []}))
+
+        self.assertEqual(context.exception.code, "comfyui_no_outputs")
 
     def test_executor_runs_patched_workflow_and_returns_base64_images(self):
         with tempfile.TemporaryDirectory() as directory:
-            workflow = Path(directory) / "workflow.json"
-            workflow.write_text(
-                json.dumps(
-                    {
-                        "nodes": [
-                            {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
-                            {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
-                            {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
-                            {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
+            workflow = _write_valid_workflow(directory)
             config = EndpointConfig(workflow_path=workflow)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
@@ -251,20 +310,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_normalizes_wildcard_host_for_local_http_fetches(self):
         with tempfile.TemporaryDirectory() as directory:
-            workflow = Path(directory) / "workflow.json"
-            workflow.write_text(
-                json.dumps(
-                    {
-                        "nodes": [
-                            {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
-                            {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
-                            {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
-                            {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
+            workflow = _write_valid_workflow(directory)
             client = FakeHttpClient(image_body=b"png")
             config = EndpointConfig(workflow_path=workflow, comfyui_host="0.0.0.0")
             runtime = ComfyRuntime(config=config, http_client=client)
@@ -302,25 +348,12 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_rejects_inline_response_that_exceeds_configured_limit(self):
         with tempfile.TemporaryDirectory() as directory:
-            workflow = Path(directory) / "workflow.json"
-            workflow.write_text(
-                json.dumps(
-                    {
-                        "nodes": [
-                            {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
-                            {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
-                            {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
-                            {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
+            workflow = _write_valid_workflow(directory)
             config = EndpointConfig(workflow_path=workflow, max_response_bytes=3)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
-            with self.assertRaises(ComfyExecutionError):
+            with self.assertRaises(ResponseTooLargeError):
                 with patch.object(runtime, "ensure_ready"):
                     with patch("subprocess.run") as run:
                         run.return_value = subprocess.CompletedProcess(
@@ -346,6 +379,62 @@ class ComfyExecutionTests(unittest.TestCase):
                             stderr="",
                         )
                         executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+    def test_executor_workflow_failure_does_not_include_comfy_stderr(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyWorkflowError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.side_effect = subprocess.CalledProcessError(
+                            returncode=1,
+                            cmd=["comfy", "run"],
+                            stderr="Prompt outputs failed validation",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(context.exception.code, "comfyui_workflow_failed")
+        self.assertEqual(context.exception.message, "ComfyUI workflow execution failed. Process exited with status 1.")
+        self.assertNotIn("Prompt outputs failed validation", context.exception.message)
+
+    def test_executor_workflow_timeout_uses_specific_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyWorkflowTimeoutError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.side_effect = subprocess.TimeoutExpired(cmd=["comfy", "run"], timeout=1, stderr="workflow stalled")
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(context.exception.code, "comfyui_workflow_timeout")
+        self.assertEqual(context.exception.message, "ComfyUI workflow execution timed out. Timed out after 1 seconds.")
+        self.assertNotIn("workflow stalled", context.exception.message)
+
+    def test_executor_output_fetch_failure_uses_specific_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            client = FakeHttpClient(fail_fetch=True)
+            runtime = ComfyRuntime(config=config, http_client=client)
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
+
+            with self.assertRaises(ComfyOutputFetchError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.return_value = subprocess.CompletedProcess(
+                            args=[],
+                            returncode=0,
+                            stdout=_completed_process_stdout(),
+                            stderr="",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
 
 
 if __name__ == "__main__":

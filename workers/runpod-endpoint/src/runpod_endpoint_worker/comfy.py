@@ -14,7 +14,16 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import ComfyExecutionError, ComfyStartupError
+from runpod_endpoint_worker.errors import (
+    ComfyLaunchError,
+    ComfyNoOutputsError,
+    ComfyOutputFetchError,
+    ComfyOutputParseError,
+    ComfyStartupTimeoutError,
+    ComfyWorkflowError,
+    ComfyWorkflowTimeoutError,
+    ResponseTooLargeError,
+)
 from runpod_endpoint_worker.schemas import GenerationImage, GenerationRequest
 from runpod_endpoint_worker.workflow import write_patched_workflow
 
@@ -65,7 +74,7 @@ class ComfyRuntime:
                     return
                 time.sleep(self.config.comfy_ui_ready_poll_seconds)
 
-            raise ComfyStartupError("ComfyUI did not become ready before the startup timeout.")
+            raise ComfyStartupTimeoutError("ComfyUI did not become ready before the startup timeout.")
 
     def _launch(self) -> None:
         extra_model_paths_config = _write_extra_model_paths_config(self.config)
@@ -92,8 +101,10 @@ class ComfyRuntime:
                 text=True,
                 timeout=self.config.comfyui_startup_timeout_seconds,
             )
+        except subprocess.TimeoutExpired as error:
+            raise ComfyStartupTimeoutError(_process_failure_message("ComfyUI startup timed out.", error)) from error
         except (OSError, subprocess.SubprocessError) as error:
-            raise ComfyStartupError("ComfyUI failed to start.") from error
+            raise ComfyLaunchError(_process_failure_message("ComfyUI failed to launch.", error)) from error
 
     def _is_ready(self) -> bool:
         try:
@@ -126,11 +137,11 @@ class ComfyExecutor:
             outputs = self._run_workflow(patched_workflow)
 
         if not outputs:
-            raise ComfyExecutionError("ComfyUI completed without image outputs.")
+            raise ComfyNoOutputsError("ComfyUI completed without image outputs.")
 
         images = [self._fetch_image(output) for output in outputs]
         if sum(len(image.data_base64) for image in images) > self.config.max_response_bytes:
-            raise ComfyExecutionError("Generated image response exceeds the inline response size limit.")
+            raise ResponseTooLargeError("Generated image response exceeds the inline response size limit.")
         return images
 
     def _run_workflow(self, workflow_path: Path) -> list[ComfyImageOutput]:
@@ -159,8 +170,10 @@ class ComfyExecutor:
                 text=True,
                 timeout=self.config.execution_timeout_seconds,
             )
+        except subprocess.TimeoutExpired as error:
+            raise ComfyWorkflowTimeoutError(_process_failure_message("ComfyUI workflow execution timed out.", error)) from error
         except (OSError, subprocess.SubprocessError) as error:
-            raise ComfyExecutionError("ComfyUI workflow execution failed.") from error
+            raise ComfyWorkflowError(_process_failure_message("ComfyUI workflow execution failed.", error)) from error
         return parse_comfy_run_events(completed.stdout)
 
     def _fetch_image(self, output: ComfyImageOutput) -> GenerationImage:
@@ -171,7 +184,10 @@ class ComfyExecutor:
                 "type": output.output_type,
             }
         )
-        body = self.http_client.get_bytes(_url(self.config, f"/view?{query}"), timeout=30)
+        try:
+            body = self.http_client.get_bytes(_url(self.config, f"/view?{query}"), timeout=30)
+        except Exception as error:
+            raise ComfyOutputFetchError("ComfyUI generated output could not be fetched.") from error
         return GenerationImage(
             filename=output.filename,
             mime_type=mimetypes.guess_type(output.filename)[0] or "application/octet-stream",
@@ -189,9 +205,9 @@ def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
         try:
             event = json.loads(line)
         except json.JSONDecodeError as error:
-            raise ComfyExecutionError("Comfy CLI emitted a malformed JSON event.") from error
+            raise ComfyOutputParseError("Comfy CLI emitted a malformed JSON event.") from error
         if not isinstance(event, dict):
-            raise ComfyExecutionError("Comfy CLI emitted an unexpected JSON event.")
+            raise ComfyOutputParseError("Comfy CLI emitted an unexpected JSON event.")
 
         event_type = event.get("event") or event.get("type")
         if event_type in {"execution_success", "completed", "success"}:
@@ -201,10 +217,10 @@ def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
             node_outputs.extend(_event_images(event))
 
     if not completed:
-        raise ComfyExecutionError("Comfy CLI did not report workflow completion.")
+        raise ComfyWorkflowError("Comfy CLI did not report workflow completion.")
     outputs = terminal_outputs or node_outputs
     if not outputs:
-        raise ComfyExecutionError("ComfyUI completed without image outputs.")
+        raise ComfyNoOutputsError("ComfyUI completed without image outputs.")
     return outputs
 
 
@@ -256,6 +272,16 @@ def _url(config: EndpointConfig, path: str) -> str:
 
 def _connect_host(host: str) -> str:
     return "127.0.0.1" if host == "0.0.0.0" else host
+
+
+def _process_failure_message(prefix: str, error: BaseException) -> str:
+    if isinstance(error, subprocess.TimeoutExpired):
+        if error.timeout is None:
+            return f"{prefix} Timed out."
+        return f"{prefix} Timed out after {error.timeout:g} seconds."
+    if isinstance(error, subprocess.CalledProcessError):
+        return f"{prefix} Process exited with status {error.returncode}."
+    return prefix
 
 
 def _write_extra_model_paths_config(config: EndpointConfig) -> Path:
