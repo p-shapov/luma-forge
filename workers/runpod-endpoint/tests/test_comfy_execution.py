@@ -1,4 +1,4 @@
-import base64
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -345,7 +345,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "comfyui_no_outputs")
 
-    def test_executor_runs_patched_workflow_and_returns_base64_images(self):
+    def test_executor_runs_patched_workflow_and_returns_artifact_images(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)
             workspace = _write_required_models(directory)
@@ -379,7 +379,8 @@ class ComfyExecutionTests(unittest.TestCase):
                         stderr="",
                     )
 
-                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+                    artifact_body = (workspace / images[0].relative_path).read_bytes()
 
         ready.assert_called_once()
         command = run.call_args.args[0]
@@ -391,9 +392,13 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertIn(str(config.execution_timeout_seconds), command)
         self.assertNotIn("--address", command)
         self.assertIn("--wait", command)
-        self.assertEqual(images[0].data_base64, base64.b64encode(b"png").decode("ascii"))
         self.assertEqual(images[0].mime_type, "image/png")
         self.assertEqual(images[0].filename, "ComfyUI_00001_.png")
+        self.assertEqual(images[0].byte_size, 3)
+        self.assertEqual(images[0].sha256, hashlib.sha256(b"png").hexdigest())
+        self.assertEqual(images[0].artifact_uri, "runpod-volume://luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png")
+        self.assertEqual(images[0].relative_path, "luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png")
+        self.assertEqual(artifact_body, b"png")
 
     def test_executor_fails_before_comfy_when_required_models_are_missing(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -459,7 +464,7 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertTrue(any(url.startswith("http://127.0.0.1:") for url in client.urls))
         self.assertFalse(any(url.startswith("http://0.0.0.0:") for url in client.urls))
 
-    def test_executor_rejects_inline_response_that_exceeds_configured_limit(self):
+    def test_executor_rejects_artifact_metadata_response_that_exceeds_configured_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             config = _endpoint_config_with_required_models(directory, max_response_bytes=3)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))

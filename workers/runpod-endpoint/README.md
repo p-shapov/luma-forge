@@ -9,7 +9,7 @@ The RunPod Endpoint Worker is the runtime container used behind RunPod Serverles
 }
 ```
 
-On the first valid request in a warm worker process, the handler starts ComfyUI lazily with `comfy launch --background`, waits for the local server to become ready, then reuses that server for later jobs. For each job it writes a temporary workflow copy, patches HiDream node `171` (`User Prompt`) with the request prompt, sets node `154` (`Switch to Image Edit`) to `false`, sets node `177` (`Enable Prompt Refine?`) to `false`, runs the patched workflow with `comfy run --json`, fetches local ComfyUI image outputs, and returns base64 image data.
+On the first valid request in a warm worker process, the handler starts ComfyUI lazily with `comfy launch --background`, waits for the local server to become ready, then reuses that server for later jobs. For each job it writes a temporary workflow copy, patches HiDream node `171` (`User Prompt`) with the request prompt, sets node `154` (`Switch to Image Edit`) to `false`, sets node `177` (`Enable Prompt Refine?`) to `false`, runs the patched workflow with `comfy run --json`, fetches local ComfyUI image outputs, writes them under the configured network volume mount, and returns artifact references.
 
 Successful responses are UI-safe:
 
@@ -23,7 +23,13 @@ Successful responses are UI-safe:
       {
         "filename": "ComfyUI_00001_.png",
         "mime_type": "image/png",
-        "data_base64": "..."
+        "byte_size": 1234567,
+        "sha256": "...",
+        "artifact_uri": "runpod-volume://luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png",
+        "storage": {
+          "type": "runpod_volume",
+          "relative_path": "luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png"
+        }
       }
     ]
   }
@@ -69,6 +75,7 @@ The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` s
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | Local ComfyUI port. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `300` | Time allowed for lazy ComfyUI startup readiness. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS` | `900` | Time allowed for `comfy run --json`. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES` | `9000000` | Maximum allowed JSON response metadata size. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS` | `4000` | Maximum accepted prompt length. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_SUPPORTED_EXECUTION_TYPES` | `t2i` | Comma-separated execution types accepted by the endpoint boundary. |
 
@@ -92,7 +99,7 @@ LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python3 -m unittest tests.test_c
 
 ## Manual Invocation
 
-After publishing and provisioning a workspace that uses this runtime image, invoke the RunPod serverless endpoint with an input payload shaped like the `t2i` example above. The response should have `status: "succeeded"`, `generation.implemented: true`, and at least one base64 image entry.
+After publishing and provisioning a workspace that uses this runtime image, invoke the RunPod serverless endpoint with an input payload shaped like the `t2i` example above. The response should have `status: "succeeded"`, `generation.implemented: true`, and at least one `runpod_volume` image artifact entry.
 
 ## Deployment
 

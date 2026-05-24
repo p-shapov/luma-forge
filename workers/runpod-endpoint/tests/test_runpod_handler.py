@@ -27,13 +27,17 @@ class RunPodHandlerTests(unittest.TestCase):
                     GenerationImage(
                         filename="ComfyUI_00001_.png",
                         mime_type="image/png",
-                        data_base64="aW1hZ2U=",
+                        byte_size=5,
+                        sha256="sha256",
+                        artifact_uri="runpod-volume://luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png",
+                        storage_type="runpod_volume",
+                        relative_path="luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png",
                     )
                 ]
 
         with WorkerFixture(executor=SucceedingExecutor()) as fixture:
             handler = create_handler(fixture.service)
-            payload = handler({"input": {"execution_type": "t2i", "prompt": "a lamp"}})
+            payload = handler({"id": "job-123", "input": {"execution_type": "t2i", "prompt": "a lamp"}})
 
         self.assertEqual(payload["status"], "succeeded")
         self.assertTrue(payload["generation"]["implemented"])
@@ -44,14 +48,20 @@ class RunPodHandlerTests(unittest.TestCase):
                 {
                     "filename": "ComfyUI_00001_.png",
                     "mime_type": "image/png",
-                    "data_base64": "aW1hZ2U=",
+                    "byte_size": 5,
+                    "sha256": "sha256",
+                    "artifact_uri": "runpod-volume://luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png",
+                    "storage": {
+                        "type": "runpod_volume",
+                        "relative_path": "luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png",
+                    },
                 }
             ],
         )
 
     def test_runtime_error_is_reported_safely(self):
         class FailingService:
-            def generate_from_payload(self, payload):
+            def generate_from_payload(self, payload, **kwargs):
                 raise RuntimeError("secret token failed")
 
         handler = create_handler(FailingService())
@@ -66,7 +76,7 @@ class RunPodHandlerTests(unittest.TestCase):
 
     def test_endpoint_worker_error_includes_safe_message(self):
         class FailingService:
-            def generate_from_payload(self, payload):
+            def generate_from_payload(self, payload, **kwargs):
                 raise ComfyWorkflowError("ComfyUI workflow execution failed. Missing model file.")
 
         handler = create_handler(FailingService())
@@ -80,7 +90,7 @@ class RunPodHandlerTests(unittest.TestCase):
 
     def test_endpoint_worker_error_log_uses_safe_context(self):
         class FailingService:
-            def generate_from_payload(self, payload):
+            def generate_from_payload(self, payload, **kwargs):
                 raise ComfyWorkflowError("ComfyUI workflow execution failed. password leaked")
 
         handler = create_handler(FailingService())
@@ -100,7 +110,7 @@ class RunPodHandlerTests(unittest.TestCase):
 
     def test_failure_survives_runpod_sdk_output_normalization(self):
         class FailingService:
-            def generate_from_payload(self, payload):
+            def generate_from_payload(self, payload, **kwargs):
                 raise ComfyWorkflowError("ComfyUI workflow execution failed. Missing model file.")
 
         handler = create_handler(FailingService())
@@ -116,7 +126,7 @@ class RunPodHandlerTests(unittest.TestCase):
 
     def test_unexpected_runtime_error_logs_sanitized_original_exception(self):
         class FailingService:
-            def generate_from_payload(self, payload):
+            def generate_from_payload(self, payload, **kwargs):
                 raise RuntimeError("secret token failed")
 
         handler = create_handler(FailingService())

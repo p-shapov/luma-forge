@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import base64
+import hashlib
 import json
 import mimetypes
 import re
@@ -169,9 +169,9 @@ class ComfyExecutor:
         if not outputs:
             raise ComfyNoOutputsError("ComfyUI completed without image outputs.")
 
-        images = [self._fetch_image(output) for output in outputs]
-        if sum(len(image.data_base64) for image in images) > self.config.max_response_bytes:
-            raise ResponseTooLargeError("Generated image response exceeds the inline response size limit.")
+        images = [self._fetch_image(output, request, index) for index, output in enumerate(outputs, start=1)]
+        if sum(_image_metadata_size(image) for image in images) > self.config.max_response_bytes:
+            raise ResponseTooLargeError("Generated image response metadata exceeds the response size limit.")
         return images
 
     def _run_workflow(self, workflow_path: Path) -> list[ComfyImageOutput]:
@@ -214,7 +214,7 @@ class ComfyExecutor:
             ) from error
         return parse_comfy_run_events(completed.stdout)
 
-    def _fetch_image(self, output: ComfyImageOutput) -> GenerationImage:
+    def _fetch_image(self, output: ComfyImageOutput, request: GenerationRequest, index: int) -> GenerationImage:
         query = urlencode(
             {
                 "filename": output.filename,
@@ -226,11 +226,37 @@ class ComfyExecutor:
             body = self.http_client.get_bytes(_url(self.config, f"/view?{query}"), timeout=30)
         except Exception as error:
             raise ComfyOutputFetchError("ComfyUI generated output could not be fetched.") from error
+        relative_path = _artifact_relative_path(request.job_id, output.filename, index)
+        target = self.config.workspace_mount_path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        relative_path_text = relative_path.as_posix()
         return GenerationImage(
             filename=output.filename,
             mime_type=mimetypes.guess_type(output.filename)[0] or "application/octet-stream",
-            data_base64=base64.b64encode(body).decode("ascii"),
+            byte_size=len(body),
+            sha256=hashlib.sha256(body).hexdigest(),
+            artifact_uri=f"runpod-volume://{relative_path_text}",
+            storage_type="runpod_volume",
+            relative_path=relative_path_text,
         )
+
+
+def _artifact_relative_path(job_id: str, filename: str, index: int) -> Path:
+    safe_job_id = _safe_path_segment(job_id) or "local"
+    safe_filename = _safe_path_segment(Path(filename).name) or f"output-{index}.bin"
+    if index > 1:
+        path = Path(safe_filename)
+        safe_filename = f"{path.stem}-{index}{path.suffix}"
+    return Path("luma-forge") / "outputs" / "jobs" / safe_job_id / safe_filename
+
+
+def _safe_path_segment(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", value).strip("._-")
+
+
+def _image_metadata_size(image: GenerationImage) -> int:
+    return len(json.dumps(image.to_payload(), separators=(",", ":")))
 
 
 def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
