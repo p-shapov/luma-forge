@@ -86,7 +86,7 @@ async fn read_provisioner_image(
 ) -> Result<ResolvedProvisionerImageSnapshot, WorkspaceSetupError> {
     let row = sqlx::query(
         r#"
-        SELECT contract_id, contract_version, provisioner_worker_image_ref, volume_mount_path
+        SELECT contract_id, contract_version, provisioner_worker_image_ref
         FROM workspace_provisioner_images
         WHERE workspace_id = ?
         "#,
@@ -105,9 +105,6 @@ async fn read_provisioner_image(
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
         provisioner_worker_image_ref: row
             .try_get("provisioner_worker_image_ref")
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
-        volume_mount_path: row
-            .try_get("volume_mount_path")
             .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
     })
 }
@@ -208,7 +205,6 @@ async fn read_resource_snapshot(
             gpu_cloud_provider_id,
             provider_resource_id,
             provider_resource_status,
-            mount_path,
             provisioner_status_url,
             endpoint_invoke_url,
             provider_metadata_json
@@ -247,10 +243,6 @@ async fn read_persistent_storage_volume_snapshot(
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?
                 .as_str(),
         )?,
-        mount_path: row
-            .try_get::<Option<String>, _>("mount_path")
-            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?
-            .ok_or(WorkspaceSetupError::WorkspaceCatalogSchemaMismatch)?,
     }))
 }
 

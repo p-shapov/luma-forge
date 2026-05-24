@@ -39,7 +39,7 @@ The runtime contract workflow validates runtime contract tooling and the endpoin
 
 Publishing an image does not make new Workspaces select it. Selection changes only after the corresponding catalog promotion PR is reviewed, merged, and bundled into the app.
 
-After publishing a validated provisioner image, the workflow opens a reviewed Provisioner Catalog promotion PR that appends the selected provisioner contract id/version revision in `bundled/provisioner-catalog.json` with a digest-pinned provisioner image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that provisioner contract id point at the new revision. Provisioner Catalog promotion preserves required revision metadata such as `volume_mount_path`.
+After publishing a validated provisioner image, the workflow opens a reviewed Provisioner Catalog promotion PR that appends the selected provisioner contract id/version revision in `bundled/provisioner-catalog.json` with a digest-pinned provisioner image ref. The same PR updates `bundled/workflow-catalog.json` so Workflow Presets using that provisioner contract id point at the new revision.
 
 After publishing a validated endpoint image, the workflow opens a reviewed Runtime Catalog promotion PR that appends the selected runtime contract id/version revision in `bundled/runtime-catalog.json` with a digest-pinned endpoint image ref. The same PR updates `bundled/workflow-catalog.json` so the Workflow Preset whose id matches the runtime contract id points at the new revision.
 

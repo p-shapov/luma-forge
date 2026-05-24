@@ -58,9 +58,8 @@ async fn persist_provisioner_image(
             workspace_id,
             contract_id,
             contract_version,
-            provisioner_worker_image_ref,
-            volume_mount_path
-        ) VALUES (?, ?, ?, ?, ?)
+            provisioner_worker_image_ref
+        ) VALUES (?, ?, ?, ?)
         "#,
     )
     .bind(&workspace.id)
@@ -71,7 +70,6 @@ async fn persist_provisioner_image(
             .resolved_provisioner_image
             .provisioner_worker_image_ref,
     )
-    .bind(&workspace.resolved_provisioner_image.volume_mount_path)
     .execute(&mut **transaction)
     .await
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
@@ -158,7 +156,6 @@ async fn persist_resource_snapshots(
             &snapshot.gpu_cloud_provider_id,
             &snapshot.provider_resource_id,
             &snapshot.provider_resource_status,
-            Some(snapshot.mount_path.as_str()),
             None,
             None,
             None,
@@ -173,7 +170,6 @@ async fn persist_resource_snapshots(
             &snapshot.gpu_cloud_provider_id,
             &snapshot.provider_resource_id,
             &snapshot.provider_resource_status,
-            None,
             Some(snapshot.provisioner_status_url.as_str()),
             None,
             None,
@@ -188,7 +184,6 @@ async fn persist_resource_snapshots(
             &snapshot.gpu_cloud_provider_id,
             &snapshot.provider_resource_id,
             &snapshot.provider_resource_status,
-            None,
             Some(snapshot.provisioner_status_url.as_str()),
             None,
             None,
@@ -210,7 +205,6 @@ async fn persist_resource_snapshots(
             &snapshot.provider_resource_id,
             &snapshot.provider_resource_status,
             None,
-            None,
             Some(snapshot.endpoint_invoke_url.as_str()),
             provider_metadata_json.as_deref(),
         )
@@ -227,7 +221,6 @@ async fn insert_resource_snapshot(
     gpu_cloud_provider_id: &GpuCloudProviderId,
     provider_resource_id: &str,
     provider_resource_status: &ProviderResourceStatus,
-    mount_path: Option<&str>,
     provisioner_status_url: Option<&str>,
     endpoint_invoke_url: Option<&str>,
     provider_metadata_json: Option<&str>,
@@ -240,11 +233,10 @@ async fn insert_resource_snapshot(
             gpu_cloud_provider_id,
             provider_resource_id,
             provider_resource_status,
-            mount_path,
             provisioner_status_url,
             endpoint_invoke_url,
             provider_metadata_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(workspace_id)
@@ -252,7 +244,6 @@ async fn insert_resource_snapshot(
     .bind(gpu_cloud_provider_id_value(gpu_cloud_provider_id))
     .bind(provider_resource_id)
     .bind(provider_resource_status_value(provider_resource_status))
-    .bind(mount_path)
     .bind(provisioner_status_url)
     .bind(endpoint_invoke_url)
     .bind(provider_metadata_json)

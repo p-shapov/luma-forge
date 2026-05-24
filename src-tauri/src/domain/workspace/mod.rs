@@ -32,7 +32,6 @@ pub struct PersistentStorageVolumeSnapshot {
     pub gpu_cloud_provider_id: GpuCloudProviderId,
     pub provider_resource_id: String,
     pub provider_resource_status: ProviderResourceStatus,
-    pub mount_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -57,7 +57,6 @@ mod remote_types {
         pub contract_id: String,
         pub contract_version: String,
         pub provisioner_worker_image_ref: String,
-        pub volume_mount_path: String,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -135,7 +134,6 @@ mod remote_types {
         pub gpu_cloud_provider_id: domain_provider_setup::GpuCloudProviderId,
         pub provider_resource_id: String,
         pub provider_resource_status: domain_workspace::ProviderResourceStatus,
-        pub mount_path: String,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]

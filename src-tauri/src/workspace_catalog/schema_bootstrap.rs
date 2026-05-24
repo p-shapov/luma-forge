@@ -121,7 +121,6 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
             contract_id TEXT NOT NULL,
             contract_version TEXT NOT NULL,
             provisioner_worker_image_ref TEXT NOT NULL,
-            volume_mount_path TEXT NOT NULL,
             FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
         )
         "#,
@@ -138,7 +137,6 @@ async fn create_schema(transaction: &mut SqliteTransaction<'_>) -> Result<(), Wo
             gpu_cloud_provider_id TEXT NOT NULL,
             provider_resource_id TEXT NOT NULL,
             provider_resource_status TEXT NOT NULL,
-            mount_path TEXT,
             provisioner_status_url TEXT,
             endpoint_invoke_url TEXT,
             provider_metadata_json TEXT,
@@ -281,7 +279,6 @@ async fn validate_current_schema(
             'gpu_cloud_provider_id',
             'provider_resource_id',
             'provider_resource_status',
-            'mount_path',
             'provisioner_status_url',
             'endpoint_invoke_url',
             'provider_metadata_json'
@@ -293,7 +290,7 @@ async fn validate_current_schema(
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?
     .try_get("count")
     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogMigrationFailed)?;
-    if resource_snapshot_columns != 9 {
+    if resource_snapshot_columns != 8 {
         return Err(WorkspaceSetupError::WorkspaceCatalogMigrationFailed);
     }
 

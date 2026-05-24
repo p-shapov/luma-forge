@@ -123,8 +123,9 @@ The RunPod Endpoint Worker SHALL support the Native-provided workspace mount pat
 - **AND** it MUST NOT assume `/workspace` when a valid Native-provided mount path is present
 
 #### Scenario: Endpoint Worker template is mounted at the configured path
-- **WHEN** the Native Layer creates an Endpoint Worker template with a resolved workspace volume mount path
-- **THEN** the Endpoint Worker container SHALL receive the same value through `LUMA_FORGE_WORKSPACE_MOUNT_PATH`
+- **WHEN** the Native Layer creates an Endpoint Worker template
+- **THEN** the Endpoint Worker container SHALL receive `/runpod-volume` through `LUMA_FORGE_WORKSPACE_MOUNT_PATH`
+- **AND** the RunPod template volume mount path SHALL be `/runpod-volume`
 - **AND** the RunPod template volume mount path SHALL match the worker environment value
 
 ### Requirement: Include selected workflow in workflow-specific endpoint image

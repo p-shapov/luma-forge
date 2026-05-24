@@ -130,7 +130,6 @@ export type PersistentStorageVolumeSnapshot = {
 	gpu_cloud_provider_id: GpuCloudProviderId,
 	provider_resource_id: string,
 	provider_resource_status: ProviderResourceStatus,
-	mount_path: string,
 };
 
 export type PlacementPlan = { gpu_cloud_provider_id: "runpod"; selected_datacenter_id: string; selected_gpu_id: string; persistent_storage_volume_size_bytes: number; endpoint_keep_alive_seconds: number; selected_workflow_preset: WorkflowPreset };
@@ -164,7 +163,6 @@ export type ResolvedProvisionerImageSnapshot = {
 	contract_id: string,
 	contract_version: string,
 	provisioner_worker_image_ref: string,
-	volume_mount_path: string,
 };
 
 export type ResolvedRuntimeImageSnapshot = {

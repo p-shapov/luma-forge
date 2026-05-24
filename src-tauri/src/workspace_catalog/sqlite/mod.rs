@@ -394,7 +394,6 @@ mod test_fixtures {
             provisioner_worker_image_ref: format!(
                 "ghcr.io/luma-forge/provisioner@sha256:{DIGEST_C}"
             ),
-            volume_mount_path: "/workspace".to_string(),
         }
     }
 
@@ -415,7 +414,6 @@ mod test_fixtures {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             provider_resource_id: "volume-id".to_string(),
             provider_resource_status: status,
-            mount_path: "/workspace".to_string(),
         }
     }
 
