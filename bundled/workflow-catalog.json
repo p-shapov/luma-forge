@@ -9,7 +9,7 @@
       "requires_hugging_face_api_key": true,
       "runtime_contract": {
         "id": "comfyui-hidream-o1-dev",
-        "version": "1.0.7"
+        "version": "1.0.8"
       },
       "provisioner_contract": {
         "id": "luma-forge-provisioner",
