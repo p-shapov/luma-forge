@@ -30,9 +30,9 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
         self.assertEqual("bundled/workflows/comfyui-hidream-o1-dev.json", outputs["bundled_workflow_path"])
-        self.assertEqual("https://download.pytorch.org/whl/cu130", outputs["pytorch_index_url"])
+        self.assertEqual("https://download.pytorch.org/whl/cu126", outputs["pytorch_index_url"])
         self.assertEqual(
-            ["torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0"],
+            ["torch==2.9.1", "torchvision==0.24.1", "torchaudio==2.9.1"],
             json.loads(outputs["pytorch_packages_json"]),
         )
         self.assertEqual("ea62dc11c9a10dae52186fdcc3da033eb46018a1", outputs["comfyui_revision"])
@@ -49,9 +49,9 @@ runtime:
   python_version: "3.12"
   comfyui_revision: ea62dc11c9a10dae52186fdcc3da033eb46018a1
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu130
+    index_url: https://download.pytorch.org/whl/cu126
     packages:
-      - torch==2.11.0
+      - torch==2.9.1
 """.strip(),
                 encoding="utf-8",
             )
@@ -75,9 +75,9 @@ runtime:
   python_version: "3.12"
   comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu130
+    index_url: https://download.pytorch.org/whl/cu126
     packages:
-      - torch==2.11.0
+      - torch==2.9.1
 """.strip(),
                 encoding="utf-8",
             )
@@ -102,9 +102,9 @@ runtime:
   python_version: "3.12"
   comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu130
+    index_url: https://download.pytorch.org/whl/cu126
     packages:
-      - torch==2.11.0
+      - torch==2.9.1
 """.strip(),
                 encoding="utf-8",
             )
@@ -131,9 +131,9 @@ runtime:
 
         self.assertIsNotNone(match)
         raw_value = match.group(1)
-        self.assertIn('\\"torch==2.11.0\\"', raw_value)
+        self.assertIn('\\"torch==2.9.1\\"', raw_value)
         self.assertEqual(
-            ["torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0"],
+            ["torch==2.9.1", "torchvision==0.24.1", "torchaudio==2.9.1"],
             json.loads(raw_value.replace('\\"', '"')),
         )
 

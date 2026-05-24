@@ -52,7 +52,7 @@ The failed response keeps structured diagnostics in `failure` because the RunPod
 
 The worker does not require a provisioner-written runtime manifest. Provisioning remains responsible for prepared workspace directories and model assets only; the endpoint image owns the ComfyUI checkout, Comfy CLI installation, and baked workflow file under `/opt/luma-forge/runtime`.
 
-The runtime image pins ComfyUI to `ea62dc11c9a10dae52186fdcc3da033eb46018a1` and installs PyTorch `2.11.0` CUDA `13.0` wheels (`torch`, `torchvision`, and `torchaudio`) before installing ComfyUI requirements.
+The runtime image pins ComfyUI to `ea62dc11c9a10dae52186fdcc3da033eb46018a1` and installs PyTorch `2.9.1` CUDA `12.6` wheels (`torch`, `torchvision`, and `torchaudio`) before installing ComfyUI requirements.
 
 The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` so Comfy CLI background launches can resolve the image-baked `comfy` executable by name.
 
