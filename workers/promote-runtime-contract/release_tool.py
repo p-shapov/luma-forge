@@ -109,6 +109,26 @@ def promote_runtime_image(
     return catalog
 
 
+def update_runtime_workflow_catalog(
+    *,
+    catalog: dict[str, Any],
+    contract_id: str,
+    contract_version: str,
+) -> dict[str, Any]:
+    workflow_presets = _list_value(catalog, "workflow_presets")
+    for preset in workflow_presets:
+        if not isinstance(preset, dict):
+            raise ReleaseToolError("workflow catalog contains a malformed preset entry")
+        if preset.get("id") != contract_id:
+            continue
+        runtime_contract = _dict_value(preset, "runtime_contract")
+        if runtime_contract.get("id") != contract_id:
+            raise ReleaseToolError(f"workflow preset {contract_id} does not reference runtime contract: {contract_id}")
+        runtime_contract["version"] = contract_version
+        return catalog
+    raise ReleaseToolError(f"workflow catalog does not contain preset: {contract_id}")
+
+
 def contract_outputs(
     contract: dict[str, Any],
     contract_path: Path,
@@ -134,11 +154,11 @@ def contract_outputs(
 
 
 def resolve_bundled_workflow_path(contract: dict[str, Any], contract_path: Path) -> Path:
-    workflow_preset_id = _string_value(contract["runtime"], "workflow_preset_id")
-    if not _is_safe_identifier(workflow_preset_id):
-        raise ReleaseToolError("invalid workflow preset id")
+    contract_id = _string_value(contract["contract"], "id")
+    if not _is_safe_identifier(contract_id):
+        raise ReleaseToolError("invalid contract id")
     repository_root = contract_path.resolve().parents[2]
-    workflow_path = repository_root / "bundled" / "workflows" / f"{workflow_preset_id}.json"
+    workflow_path = repository_root / "bundled" / "workflows" / f"{contract_id}.json"
     if not workflow_path.is_file():
         raise ReleaseToolError(f"bundled workflow file does not exist: {workflow_path}")
     return workflow_path.relative_to(repository_root)
@@ -311,9 +331,6 @@ def _validate_contract(value: dict[str, Any], contract_path: Path) -> None:
         raise ReleaseToolError("invalid contract id")
     _parse_semver(contract_version)
 
-    workflow_preset_id = _string_value(runtime, "workflow_preset_id")
-    if not _is_safe_identifier(workflow_preset_id):
-        raise ReleaseToolError("invalid workflow preset id")
     resolve_bundled_workflow_path(value, contract_path)
 
     _string_value(runtime, "python_version")
@@ -409,7 +426,17 @@ def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
         image_ref=args.image_ref,
         contract_version=contract_version,
     )
+    updated_workflow_catalog = None
+    if args.workflow_catalog:
+        workflow_catalog_path = Path(args.workflow_catalog)
+        updated_workflow_catalog = update_runtime_workflow_catalog(
+            catalog=_load_json(workflow_catalog_path),
+            contract_id=contract["contract"]["id"],
+            contract_version=contract_version,
+        )
     _write_json(catalog_path, updated)
+    if args.workflow_catalog and updated_workflow_catalog is not None:
+        _write_json(Path(args.workflow_catalog), updated_workflow_catalog)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -435,6 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_runtime.add_argument("--catalog", required=True)
     promote_runtime.add_argument("--image-ref", required=True)
     promote_runtime.add_argument("--contract-version")
+    promote_runtime.add_argument("--workflow-catalog")
     promote_runtime.set_defaults(func=_cmd_promote_runtime_image)
 
     return parser

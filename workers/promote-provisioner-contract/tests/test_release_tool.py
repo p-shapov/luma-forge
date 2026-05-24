@@ -59,6 +59,10 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             "branch: provisioner-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
             pr_section,
         )
+        self.assertIn(
+            'commit-message: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"',
+            pr_section,
+        )
         self.assertIn("Published image: `${{ steps.digest.outputs.provisioner_ref }}`", pr_section)
         self.assertIn("Catalog version: `${{ steps.contract.outputs.contract_version }}`", pr_section)
 
@@ -209,7 +213,7 @@ def _workflow_catalog():
             {
                 "id": "preset",
                 "runtime_contract": {
-                    "id": "comfyui-hidream-o1-dev-python312-cu121",
+                    "id": "comfyui-hidream-o1-dev",
                     "version": "1.0.0",
                 },
                 "provisioner_contract": {

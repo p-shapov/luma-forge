@@ -43,7 +43,7 @@ The bundled Workflow Catalog SHALL expose `comfyui-hidream-o1-dev` as the suppor
 - **WHEN** the Client requests the Workflow Catalog
 - **THEN** the Native Layer SHALL return a Workflow Preset with id `comfyui-hidream-o1-dev`
 - **AND** the preset SHALL have workflow execution type `t2i`
-- **AND** the preset SHALL reference runtime contract id `comfyui-hidream-o1-dev-python312-cu121`
+- **AND** the preset SHALL reference runtime contract id `comfyui-hidream-o1-dev`
 - **AND** the preset SHALL reference an exact runtime contract version that exists in the bundled Runtime Catalog
 - **AND** the preset SHALL reference an exact provisioner contract version that exists in the bundled Provisioner Catalog
 

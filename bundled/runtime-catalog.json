@@ -1,7 +1,7 @@
 {
   "contracts": [
     {
-      "id": "comfyui-hidream-o1-dev-python312-cu121",
+      "id": "comfyui-hidream-o1-dev",
       "revisions": [
         {
           "version": "1.0.0",

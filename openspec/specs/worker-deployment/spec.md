@@ -18,7 +18,7 @@ The repository SHALL provide separate worker image deployment workflows that dep
 - **THEN** the runtime deployment workflow SHALL validate the RunPod Endpoint Worker package and runtime contract tooling
 - **AND** the runtime deployment workflow SHALL build the endpoint image compatible with the selected runtime contract id/version
 - **AND** the endpoint image build SHALL install the selected contract's required endpoint Python and system dependencies
-- **AND** the endpoint image SHALL include the bundled workflow derived from the selected contract's `runtime.workflow_preset_id`
+- **AND** the endpoint image SHALL include the bundled workflow derived from the selected contract's `contract.id`
 - **AND** the endpoint image SHALL install contract-declared image-baked runtime dependencies such as ComfyUI revision, PyTorch index URL, PyTorch package list, Comfy CLI, and a bundled workflow file for request-time ComfyUI execution
 - **AND** the runtime deployment workflow MUST NOT forward contract-owned base requirement files, runtime platform metadata, or ComfyUI repository URLs as Docker build inputs
 - **AND** the runtime deployment workflow SHALL publish the endpoint image to GitHub Container Registry only after worker validation and endpoint image build validation succeed
@@ -38,8 +38,8 @@ The repository SHALL provide separate worker image deployment workflows that dep
 - **WHEN** a runtime deployment workflow publishes a validated endpoint image for a runtime contract
 - **THEN** it SHALL promote the published image into the bundled Runtime Catalog by appending a new revision for the selected contract id using the next patch version from the current Runtime Catalog, unless the selected runtime contract declares a higher SemVer version
 - **AND** the new revision SHALL contain the published immutable Endpoint Worker image ref
-- **AND** it SHALL open a reviewed repository change for `bundled/runtime-catalog.json`
-- **AND** it MUST NOT update `bundled/workflow-catalog.json`
+- **AND** it SHALL update the Workflow Preset whose id matches the runtime contract id to reference the new revision version
+- **AND** it SHALL open a reviewed repository change for `bundled/runtime-catalog.json` and `bundled/workflow-catalog.json`
 - **AND** it MUST NOT silently push runtime catalog changes directly to the main branch
 
 #### Scenario: Provisioner image promotion is proposed
@@ -107,7 +107,7 @@ The worker Docker build SHALL construct an Endpoint Worker image that contains t
 - **WHEN** the Endpoint Worker image is built for a selected runtime contract
 - **THEN** the Docker build SHALL install the worker Python runtime, worker application dependencies, and contract-declared endpoint runtime dependencies
 - **AND** the Docker build SHALL install `comfy-cli==1.10.3`
-- **AND** the Docker build SHALL copy the bundled workflow derived from the selected contract's `runtime.workflow_preset_id` into a fixed image-local workflow path
+- **AND** the Docker build SHALL copy the bundled workflow derived from the selected contract's `contract.id` into a fixed image-local workflow path
 - **AND** the image build validation SHALL prove the fixed image-local workflow file exists
 - **AND** the image build validation SHALL prove ComfyUI and Comfy CLI are present in the image
 - **AND** the image build validation SHALL NOT require live GPU workflow execution or image output collection

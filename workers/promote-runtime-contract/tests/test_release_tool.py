@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-runtime-contract/release_tool.py"
-CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-hidream-o1-dev-python312-cu121.yaml"
+CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 CATALOG_PATH = ROOT / "bundled/runtime-catalog.json"
 WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runtime-contract.yml"
@@ -25,7 +25,7 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
         outputs = release_tool.contract_outputs(contract, CONTRACT_PATH)
 
         self.assertEqual(str(CONTRACT_PATH), outputs["contract"])
-        self.assertEqual("comfyui-hidream-o1-dev-python312-cu121", outputs["contract_id"])
+        self.assertEqual("comfyui-hidream-o1-dev", outputs["contract_id"])
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
         self.assertEqual("bundled/workflows/comfyui-hidream-o1-dev.json", outputs["bundled_workflow_path"])
@@ -42,10 +42,9 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
             contract_path.write_text(
                 """
 contract:
-  id: missing-workflow-python312-cu121
+  id: missing-workflow
   version: 1.0.0
 runtime:
-  workflow_preset_id: missing-workflow
   python_version: "3.12"
   comfyui_revision: 8e53f001a492cc818768a308362adbd3d75a1c43
   pytorch:
@@ -72,7 +71,6 @@ contract:
   id: Invalid
   version: 1.0.0
 runtime:
-  workflow_preset_id: comfyui-hidream-o1-dev
   python_version: "3.12"
   comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
   pytorch:
@@ -88,6 +86,33 @@ runtime:
             )
 
             with self.assertRaisesRegex(release_tool.ReleaseToolError, "invalid contract id|pattern mismatch|does not match"):
+                release_tool.load_contract(contract_path)
+
+    def test_contract_schema_rejects_legacy_workflow_preset_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            contract_path = Path(directory) / "legacy.yaml"
+            contract_path.write_text(
+                """
+contract:
+  id: comfyui-hidream-o1-dev
+  version: 1.0.0
+runtime:
+  workflow_preset_id: comfyui-hidream-o1-dev
+  python_version: "3.12"
+  comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
+  pytorch:
+    index_url: https://download.pytorch.org/whl/cu121
+    packages:
+      - torch==2.5.1
+""".strip(),
+                encoding="utf-8",
+            )
+            (Path(directory) / "schema.json").write_text(
+                (ROOT / "workers/promote-runtime-contract/schema.json").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "unsupported property|Additional properties"):
                 release_tool.load_contract(contract_path)
 
     def test_endpoint_dockerfile_keeps_contract_build_inputs(self):
@@ -147,6 +172,7 @@ runtime:
         self.assertIn("workers/promote-runtime-contract/release_tool.py promote-runtime-image", promotion_section)
         self.assertIn("--image-ref \"${{ steps.digest.outputs.endpoint_ref }}\"", promotion_section)
         self.assertIn("--contract-version \"${{ steps.contract.outputs.contract_version }}\"", promotion_section)
+        self.assertIn("--workflow-catalog bundled/workflow-catalog.json", promotion_section)
 
     def test_workflow_restricts_runtime_catalog_promotion_pr_to_catalog_files(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -157,17 +183,24 @@ runtime:
         pr_section = workflow.split("Open Runtime Catalog promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("grep -Evx 'bundled/runtime-catalog\\.json'", verify_section)
+        self.assertIn("Catalog promotion did not modify bundled/runtime-catalog.json", verify_section)
+        self.assertIn("Catalog promotion did not modify bundled/workflow-catalog.json", verify_section)
+        self.assertIn("grep -Evx 'bundled/(runtime|workflow)-catalog\\.json'", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
         self.assertIn("bundled/runtime-catalog.json", pr_section)
+        self.assertIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote runtime image", pr_section)
+        self.assertIn(
+            'commit-message: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"',
+            pr_section,
+        )
 
     def test_find_contract_matches_contract_id(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         catalog = _catalog_with_contract(contract, image_ref=_image_ref("2"))
 
-        contract = release_tool.find_contract(catalog, "comfyui-hidream-o1-dev-python312-cu121")
+        contract = release_tool.find_contract(catalog, "comfyui-hidream-o1-dev")
 
         self.assertIsNotNone(contract)
         assert contract is not None
@@ -189,7 +222,7 @@ runtime:
         self.assertEqual(
             [
                 {
-                    "id": "comfyui-hidream-o1-dev-python312-cu121",
+                    "id": "comfyui-hidream-o1-dev",
                     "revisions": [
                         {
                             "version": "1.0.0",
@@ -240,6 +273,37 @@ runtime:
                 image_ref="ghcr.io/luma-forge/test:latest",
             )
 
+    def test_update_runtime_workflow_catalog_updates_matching_preset(self):
+        workflow_catalog = _workflow_catalog()
+
+        updated = release_tool.update_runtime_workflow_catalog(
+            catalog=workflow_catalog,
+            contract_id="comfyui-hidream-o1-dev",
+            contract_version="1.0.1",
+        )
+
+        self.assertEqual("1.0.1", updated["workflow_presets"][0]["runtime_contract"]["version"])
+        self.assertEqual("9.9.9", updated["workflow_presets"][1]["runtime_contract"]["version"])
+
+    def test_update_runtime_workflow_catalog_rejects_missing_matching_preset(self):
+        with self.assertRaisesRegex(release_tool.ReleaseToolError, "workflow catalog does not contain preset"):
+            release_tool.update_runtime_workflow_catalog(
+                catalog={"workflow_presets": []},
+                contract_id="comfyui-hidream-o1-dev",
+                contract_version="1.0.1",
+            )
+
+    def test_update_runtime_workflow_catalog_rejects_mismatched_runtime_contract_id(self):
+        workflow_catalog = _workflow_catalog()
+        workflow_catalog["workflow_presets"][0]["runtime_contract"]["id"] = "other-runtime"
+
+        with self.assertRaisesRegex(release_tool.ReleaseToolError, "does not reference runtime contract"):
+            release_tool.update_runtime_workflow_catalog(
+                catalog=workflow_catalog,
+                contract_id="comfyui-hidream-o1-dev",
+                contract_version="1.0.1",
+            )
+
     def test_next_contract_version_uses_contract_major_bump(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         contract["contract"]["version"] = "2.0.0"
@@ -248,14 +312,16 @@ runtime:
 
         self.assertEqual("2.0.0", release_tool.next_contract_version(contract=contract, catalog=catalog))
 
-    def test_cli_promote_runtime_image_appends_runtime_catalog_revision_only(self):
+    def test_cli_promote_runtime_image_appends_runtime_catalog_revision_and_updates_workflow_catalog(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
             catalog_path = Path(directory) / "runtime-catalog.json"
+            workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(
                 json.dumps(_catalog_with_contract(contract, image_ref=_image_ref("2"))),
                 encoding="utf-8",
             )
+            workflow_path.write_text(json.dumps(_workflow_catalog()), encoding="utf-8")
 
             exit_code = release_tool.main(
                 [
@@ -264,6 +330,8 @@ runtime:
                     str(CONTRACT_PATH),
                     "--catalog",
                     str(catalog_path),
+                    "--workflow-catalog",
+                    str(workflow_path),
                     "--contract-version",
                     "1.0.1",
                     "--image-ref",
@@ -273,7 +341,9 @@ runtime:
 
             self.assertEqual(0, exit_code)
             updated_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            updated_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
+            self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["runtime_contract"]["version"])
 
     def test_cli_writes_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -330,6 +400,27 @@ def _catalog_with_contract(contract, *, image_ref):
                 ],
             }
         ],
+    }
+
+
+def _workflow_catalog():
+    return {
+        "workflow_presets": [
+            {
+                "id": "comfyui-hidream-o1-dev",
+                "runtime_contract": {
+                    "id": "comfyui-hidream-o1-dev",
+                    "version": "1.0.0",
+                },
+            },
+            {
+                "id": "other-preset",
+                "runtime_contract": {
+                    "id": "comfyui-hidream-o1-dev",
+                    "version": "9.9.9",
+                },
+            },
+        ]
     }
 
 

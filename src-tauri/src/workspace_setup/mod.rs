@@ -572,7 +572,7 @@ mod tests {
     fn runtime_catalog() -> RuntimeCatalog {
         RuntimeCatalog {
             contracts: vec![RuntimeContract {
-                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev".to_string(),
                 revisions: vec![RuntimeContractRevision {
                     version: "1.0.0".to_string(),
                     endpoint_image_ref: format!("ghcr.io/luma-forge/endpoint@sha256:{DIGEST_B}"),
@@ -605,7 +605,7 @@ mod tests {
             required_base_volume_size_bytes: REQUIRED_VOLUME_SIZE,
             requires_hugging_face_api_key: false,
             runtime_contract: RuntimeContractReference {
-                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev".to_string(),
                 version: "1.0.0".to_string(),
             },
             provisioner_contract: ProvisionerContractReference {
@@ -672,7 +672,7 @@ mod tests {
             format!("Workspace {id}"),
             placement_plan(),
             runtime_catalog()
-                .resolve("comfyui-hidream-o1-dev-python312-cu121", "1.0.0")
+                .resolve("comfyui-hidream-o1-dev", "1.0.0")
                 .expect("runtime should resolve"),
             provisioner_catalog()
                 .resolve("luma-forge-provisioner", "1.0.0")
@@ -779,7 +779,7 @@ mod tests {
         assert_eq!(
             workspace.resolved_runtime_image,
             runtime_catalog()
-                .resolve("comfyui-hidream-o1-dev-python312-cu121", "1.0.0")
+                .resolve("comfyui-hidream-o1-dev", "1.0.0")
                 .expect("runtime should resolve")
         );
         assert_eq!(
@@ -984,7 +984,7 @@ mod tests {
     async fn create_workspace_rejects_stale_runtime_contract_before_persistence() {
         let stale_preset = WorkflowPreset {
             runtime_contract: RuntimeContractReference {
-                id: "comfyui-hidream-o1-dev-python312-cu121".to_string(),
+                id: "comfyui-hidream-o1-dev".to_string(),
                 version: "2.0.0".to_string(),
             },
             ..workflow_preset()

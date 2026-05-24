@@ -48,7 +48,7 @@ mod tests {
             r#"{{
                 "contracts": [
                     {{
-                        "id": "comfyui-hidream-o1-dev-python312-cu121",
+                        "id": "comfyui-hidream-o1-dev",
                         "revisions": [
                             {{
                                 "version": "1.0.0",
@@ -101,7 +101,7 @@ mod tests {
                     "required_base_volume_size_bytes": 85899345920,
                     "requires_hugging_face_api_key": true,
                     "runtime_contract": {
-                        "id": "comfyui-hidream-o1-dev-python312-cu121",
+                        "id": "comfyui-hidream-o1-dev",
                         "version": "1.0.0"
                     },
                     "provisioner_contract": {
@@ -134,7 +134,7 @@ mod tests {
         let [contract] = catalog.contracts.as_slice() else {
             panic!("expected one runtime contract");
         };
-        assert_eq!(contract.id, "comfyui-hidream-o1-dev-python312-cu121");
+        assert_eq!(contract.id, "comfyui-hidream-o1-dev");
 
         let [revision] = contract.revisions.as_slice() else {
             panic!("expected one runtime revision");
@@ -239,7 +239,7 @@ mod tests {
                         "workflow_execution_type": "t2i",
                         "required_base_volume_size_bytes": 85899345920,
                         "runtime_contract": {
-                            "id": "comfyui-hidream-o1-dev-python312-cu121",
+                            "id": "comfyui-hidream-o1-dev",
                             "version": "1.0.0"
                         },
                         "provisioner_contract": {
@@ -288,7 +288,7 @@ mod tests {
                             "required_base_volume_size_bytes": 85899345920,
                             "requires_hugging_face_api_key": false,
                             "runtime_contract": {
-                                "id": "comfyui-hidream-o1-dev-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -312,7 +312,7 @@ mod tests {
                             "required_base_volume_size_bytes": 0,
                             "requires_hugging_face_api_key": false,
                             "runtime_contract": {
-                                "id": "comfyui-hidream-o1-dev-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -360,7 +360,7 @@ mod tests {
                             "required_base_volume_size_bytes": 85899345920,
                             "requires_hugging_face_api_key": false,
                             "runtime_contract": {
-                                "id": "comfyui-hidream-o1-dev-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
@@ -384,7 +384,7 @@ mod tests {
                             "required_base_volume_size_bytes": 85899345920,
                             "requires_hugging_face_api_key": false,
                             "runtime_contract": {
-                                "id": "comfyui-hidream-o1-dev-python312-cu121",
+                                "id": "comfyui-hidream-o1-dev",
                                 "version": "1.0.0"
                             },
                             "provisioner_contract": {
