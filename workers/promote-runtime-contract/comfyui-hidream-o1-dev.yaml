@@ -3,10 +3,10 @@ contract:
   version: 1.0.0
 runtime:
   python_version: "3.12"
-  comfyui_revision: 8e53f001a492cc818768a308362adbd3d75a1c43
+  comfyui_revision: ea62dc11c9a10dae52186fdcc3da033eb46018a1
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu121
+    index_url: https://download.pytorch.org/whl/cu130
     packages:
-      - torch==2.5.1
-      - torchvision==0.20.1
-      - torchaudio==2.5.1
+      - torch==2.11.0
+      - torchvision==0.26.0
+      - torchaudio==2.11.0

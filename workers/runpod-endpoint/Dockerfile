@@ -10,9 +10,9 @@ RUN apt-get update \
 FROM worker-base AS runtime-builder
 
 ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12
-ARG LUMA_FORGE_COMFYUI_REVISION=8e53f001a492cc818768a308362adbd3d75a1c43
-ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu121
-ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=[\"torch==2.5.1\",\"torchvision==0.20.1\",\"torchaudio==2.5.1\"]
+ARG LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1
+ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
+ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=[\"torch==2.11.0\",\"torchvision==0.26.0\",\"torchaudio==2.11.0\"]
 ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json
 
 WORKDIR /runtime-build
@@ -31,7 +31,7 @@ RUN export VIRTUAL_ENV=/opt/luma-forge/runtime/.venv \
     && export PATH="${VIRTUAL_ENV}/bin:${PATH}" \
     && comfy --skip-prompt tracking disable \
     && comfy --skip-prompt --workspace /opt/luma-forge/runtime/ComfyUI install \
-        --url https://github.com/comfyanonymous/ComfyUI.git \
+        --url https://github.com/Comfy-Org/ComfyUI.git \
         --version nightly \
         --commit "$LUMA_FORGE_COMFYUI_REVISION" \
         --nvidia \

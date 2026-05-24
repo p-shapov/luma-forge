@@ -30,12 +30,12 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
         self.assertEqual("bundled/workflows/comfyui-hidream-o1-dev.json", outputs["bundled_workflow_path"])
-        self.assertEqual("https://download.pytorch.org/whl/cu121", outputs["pytorch_index_url"])
+        self.assertEqual("https://download.pytorch.org/whl/cu130", outputs["pytorch_index_url"])
         self.assertEqual(
-            ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"],
+            ["torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0"],
             json.loads(outputs["pytorch_packages_json"]),
         )
-        self.assertEqual("8e53f001a492cc818768a308362adbd3d75a1c43", outputs["comfyui_revision"])
+        self.assertEqual("ea62dc11c9a10dae52186fdcc3da033eb46018a1", outputs["comfyui_revision"])
 
     def test_contract_rejects_missing_bundled_workflow_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -47,11 +47,11 @@ contract:
   version: 1.0.0
 runtime:
   python_version: "3.12"
-  comfyui_revision: 8e53f001a492cc818768a308362adbd3d75a1c43
+  comfyui_revision: ea62dc11c9a10dae52186fdcc3da033eb46018a1
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu121
+    index_url: https://download.pytorch.org/whl/cu130
     packages:
-      - torch==2.5.1
+      - torch==2.11.0
 """.strip(),
                 encoding="utf-8",
             )
@@ -75,9 +75,9 @@ runtime:
   python_version: "3.12"
   comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu121
+    index_url: https://download.pytorch.org/whl/cu130
     packages:
-      - torch==2.5.1
+      - torch==2.11.0
 """.strip(),
                 encoding="utf-8",
             )
@@ -102,9 +102,9 @@ runtime:
   python_version: "3.12"
   comfyui_revision: aa9d2fc713664e9ffe37763f4c9240c0c3eda667
   pytorch:
-    index_url: https://download.pytorch.org/whl/cu121
+    index_url: https://download.pytorch.org/whl/cu130
     packages:
-      - torch==2.5.1
+      - torch==2.11.0
 """.strip(),
                 encoding="utf-8",
             )
@@ -131,9 +131,9 @@ runtime:
 
         self.assertIsNotNone(match)
         raw_value = match.group(1)
-        self.assertIn('\\"torch==2.5.1\\"', raw_value)
+        self.assertIn('\\"torch==2.11.0\\"', raw_value)
         self.assertEqual(
-            ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"],
+            ["torch==2.11.0", "torchvision==0.26.0", "torchaudio==2.11.0"],
             json.loads(raw_value.replace('\\"', '"')),
         )
 
@@ -155,7 +155,7 @@ runtime:
         self.assertIn("export PATH=\"${VIRTUAL_ENV}/bin:${PATH}\"", dockerfile)
         self.assertIn("comfy --skip-prompt tracking disable", dockerfile)
         self.assertIn("comfy --skip-prompt --workspace /opt/luma-forge/runtime/ComfyUI install", dockerfile)
-        self.assertIn("--url https://github.com/comfyanonymous/ComfyUI.git", dockerfile)
+        self.assertIn("--url https://github.com/Comfy-Org/ComfyUI.git", dockerfile)
         self.assertIn("--version nightly", dockerfile)
         self.assertIn("--commit \"$LUMA_FORGE_COMFYUI_REVISION\"", dockerfile)
         self.assertIn("--nvidia", dockerfile)
