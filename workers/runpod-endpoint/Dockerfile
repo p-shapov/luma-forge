@@ -4,7 +4,7 @@ ENV PYTHONUNBUFFERED=1 \
     LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 FROM worker-base AS runtime-builder
@@ -17,10 +17,6 @@ ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.js
 
 WORKDIR /runtime-build
 COPY ${LUMA_FORGE_BUNDLED_WORKFLOW_PATH} ./workflow.json
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /opt/luma-forge/runtime \
     && python -m venv --copies /opt/luma-forge/runtime/.venv \

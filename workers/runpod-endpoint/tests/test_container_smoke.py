@@ -36,6 +36,7 @@ class ContainerSmokeTests(unittest.TestCase):
                 "-c",
                 (
                     "test -f /opt/luma-forge/runtime/ComfyUI/main.py"
+                    " && command -v git"
                     " && test -x /opt/luma-forge/runtime/.venv/bin/python"
                     " && test -x /opt/luma-forge/runtime/.venv/bin/comfy"
                     " && /opt/luma-forge/runtime/.venv/bin/comfy --version"

@@ -129,6 +129,12 @@ runtime:
 
         self.assertIn("comfy-cli==1.10.3", dockerfile)
 
+    def test_endpoint_dockerfile_keeps_git_available_in_runtime_image(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
+        worker_base_section = dockerfile.split("FROM worker-base AS runtime-builder", maxsplit=1)[0]
+
+        self.assertIn("ca-certificates git", worker_base_section)
+
     def test_endpoint_dockerfile_uses_comfy_cli_for_comfyui_runtime_install(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
