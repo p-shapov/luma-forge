@@ -24,9 +24,10 @@ from runpod_endpoint_worker.schemas import GenerationRequest
 
 
 class FakeHttpClient:
-    def __init__(self, *, ready_after=1, image_body=b"image-bytes", fail_fetch=False):
+    def __init__(self, *, ready_after=1, image_body=b"image-bytes", image_bodies=None, fail_fetch=False):
         self.ready_after = ready_after
         self.image_body = image_body
+        self.image_bodies = list(image_bodies or [])
         self.fail_fetch = fail_fetch
         self.readiness_calls = 0
         self.urls = []
@@ -42,6 +43,8 @@ class FakeHttpClient:
         self.urls.append(url)
         if self.fail_fetch:
             raise OSError("not found")
+        if self.image_bodies:
+            return self.image_bodies.pop(0)
         return self.image_body
 
 
@@ -396,9 +399,59 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertEqual(images[0].filename, "ComfyUI_00001_.png")
         self.assertEqual(images[0].byte_size, 3)
         self.assertEqual(images[0].sha256, hashlib.sha256(b"png").hexdigest())
-        self.assertEqual(images[0].artifact_uri, "runpod-volume://luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png")
-        self.assertEqual(images[0].relative_path, "luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png")
+        self.assertEqual(images[0].artifact_uri, "runpod-volume://luma-forge/outputs/jobs/job-123/0001/ComfyUI_00001_.png")
+        self.assertEqual(images[0].relative_path, "luma-forge/outputs/jobs/job-123/0001/ComfyUI_00001_.png")
         self.assertEqual(artifact_body, b"png")
+
+    def test_executor_keeps_colliding_output_filenames_in_distinct_artifact_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = _write_valid_workflow(directory)
+            workspace = _write_required_models(directory)
+            client = FakeHttpClient(image_bodies=[b"first", b"second"])
+            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
+            runtime = ComfyRuntime(config=config, http_client=client)
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
+
+            with patch.object(runtime, "ensure_ready"):
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout="\n".join(
+                            [
+                                json.dumps(
+                                    {
+                                        "event": "completed",
+                                        "outputs": [
+                                            {
+                                                "category": "images",
+                                                "filename": "foo-2.png",
+                                                "subfolder": "",
+                                                "type": "output",
+                                            },
+                                            {
+                                                "category": "images",
+                                                "filename": "foo.png",
+                                                "subfolder": "",
+                                                "type": "output",
+                                            },
+                                        ],
+                                    }
+                                ),
+                            ]
+                        ),
+                        stderr="",
+                    )
+
+                    images = executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+                    first_body = (workspace / images[0].relative_path).read_bytes()
+                    second_body = (workspace / images[1].relative_path).read_bytes()
+
+        self.assertNotEqual(images[0].relative_path, images[1].relative_path)
+        self.assertEqual(first_body, b"first")
+        self.assertEqual(second_body, b"second")
+        self.assertEqual(images[0].sha256, hashlib.sha256(b"first").hexdigest())
+        self.assertEqual(images[1].sha256, hashlib.sha256(b"second").hexdigest())
 
     def test_executor_fails_before_comfy_when_required_models_are_missing(self):
         with tempfile.TemporaryDirectory() as directory:

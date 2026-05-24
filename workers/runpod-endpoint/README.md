@@ -25,10 +25,10 @@ Successful responses are UI-safe:
         "mime_type": "image/png",
         "byte_size": 1234567,
         "sha256": "...",
-        "artifact_uri": "runpod-volume://luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png",
+        "artifact_uri": "runpod-volume://luma-forge/outputs/jobs/job-123/0001/ComfyUI_00001_.png",
         "storage": {
           "type": "runpod_volume",
-          "relative_path": "luma-forge/outputs/jobs/job-123/ComfyUI_00001_.png"
+          "relative_path": "luma-forge/outputs/jobs/job-123/0001/ComfyUI_00001_.png"
         }
       }
     ]

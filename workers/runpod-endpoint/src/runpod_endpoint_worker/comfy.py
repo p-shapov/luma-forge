@@ -245,10 +245,7 @@ class ComfyExecutor:
 def _artifact_relative_path(job_id: str, filename: str, index: int) -> Path:
     safe_job_id = _safe_path_segment(job_id) or "local"
     safe_filename = _safe_path_segment(Path(filename).name) or f"output-{index}.bin"
-    if index > 1:
-        path = Path(safe_filename)
-        safe_filename = f"{path.stem}-{index}{path.suffix}"
-    return Path("luma-forge") / "outputs" / "jobs" / safe_job_id / safe_filename
+    return Path("luma-forge") / "outputs" / "jobs" / safe_job_id / f"{index:04d}" / safe_filename
 
 
 def _safe_path_segment(value: str) -> str:
