@@ -196,10 +196,52 @@ class ComfyExecutionTests(unittest.TestCase):
 
         excerpt = context.exception.metadata["diagnostic_excerpt"]
         self.assertEqual(len(excerpt), 600)
-        self.assertTrue(excerpt.startswith("ImportError: "))
-        self.assertTrue(excerpt.endswith("..."))
+        self.assertTrue(excerpt.startswith("..."))
         self.assertNotIn("\n", excerpt)
         self.assertNotIn("stderr", context.exception.metadata)
+
+    def test_runtime_launch_failure_preserves_error_log_tail_in_diagnostic_excerpt(self):
+        runtime = ComfyRuntime(config=EndpointConfig(), http_client=FakeHttpClient(ready_after=1000))
+        output = " ".join(
+            [
+                "Traceback wrapper frame" * 40,
+                "Error log during ComfyUI execution",
+                "ImportError: libGL.so.1: cannot open shared object file",
+            ]
+        )
+
+        with self.assertRaises(ComfyLaunchError) as context:
+            with patch("subprocess.run") as run:
+                run.side_effect = subprocess.CalledProcessError(
+                    returncode=1,
+                    cmd=["comfy", "launch"],
+                    stderr=output,
+                )
+                runtime.ensure_ready()
+
+        excerpt = context.exception.metadata["diagnostic_excerpt"]
+        self.assertIn("Error log during ComfyUI execution", excerpt)
+        self.assertIn("ImportError: libGL.so.1: cannot open shared object file", excerpt)
+        self.assertNotIn("Traceback wrapper frameTraceback wrapper frame", excerpt)
+
+    def test_runtime_launch_failure_logs_full_subprocess_output(self):
+        runtime = ComfyRuntime(config=EndpointConfig(), http_client=FakeHttpClient(ready_after=1000))
+
+        with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+            with self.assertRaises(ComfyLaunchError):
+                with patch("subprocess.run") as run:
+                    run.side_effect = subprocess.CalledProcessError(
+                        returncode=1,
+                        cmd=["comfy", "launch"],
+                        stderr="full comfy launch stderr",
+                        output="full comfy launch stdout",
+                    )
+                    runtime.ensure_ready()
+
+        joined = "\n".join(logs.output)
+        self.assertIn("ComfyUI launch subprocess failed", joined)
+        self.assertIn("full comfy launch stderr", joined)
+        self.assertIn("full comfy launch stdout", joined)
 
     def test_parse_completed_events_extracts_image_outputs(self):
         events = "\n".join(
@@ -458,6 +500,250 @@ class ComfyExecutionTests(unittest.TestCase):
                 "diagnostic_excerpt": "ImportError: libGL.so.1: cannot open shared object file",
             },
         )
+
+    def test_executor_workflow_failure_extracts_comfy_json_error_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            failed_event = {
+                "event": "failed",
+                "error": {
+                    "kind": "execution_error",
+                    "message": "Missing model file",
+                    "node_id": "42",
+                    "class_type": "CheckpointLoaderSimple",
+                    "exception_type": "FileNotFoundError",
+                    "traceback": "raw traceback must stay out of metadata",
+                },
+            }
+
+            with self.assertRaises(ComfyWorkflowError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.side_effect = subprocess.CalledProcessError(
+                            returncode=1,
+                            cmd=["comfy", "run"],
+                            output=json.dumps(failed_event),
+                            stderr="",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(
+            context.exception.metadata,
+            {
+                "exit_status": 1,
+                "diagnostic_excerpt": "execution_error: Missing model file",
+                "comfy_error_kind": "execution_error",
+                "comfy_error_message": "Missing model file",
+                "comfy_node_id": "42",
+                "comfy_class_type": "CheckpointLoaderSimple",
+                "comfy_exception_type": "FileNotFoundError",
+            },
+        )
+        self.assertNotIn("traceback", context.exception.metadata)
+
+    def test_executor_workflow_failure_redacts_secret_markers_from_subprocess_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr="Bearer token abc failed",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("subprocess_output=redacted", joined)
+        self.assertNotIn("abc", joined)
+
+    def test_executor_workflow_failure_redacts_token_patterns_from_subprocess_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr="download failed for hf_abcdefghijklmnopqrstuvwxyz1234567890",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("download failed for <redacted:hf>", joined)
+        self.assertNotIn("hf_abcdefghijklmnopqrstuvwxyz1234567890", joined)
+
+    def test_executor_workflow_failure_redacts_prefixed_api_key_variables_from_subprocess_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr="OPENAI_API_KEY=sk-live-value RUNPOD_API_KEY=runpod-live-value",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("OPENAI_API_KEY=<redacted:value>", joined)
+        self.assertIn("RUNPOD_API_KEY=<redacted:value>", joined)
+        self.assertNotIn("sk-live-value", joined)
+        self.assertNotIn("runpod-live-value", joined)
+
+    def test_executor_workflow_failure_redacts_marker_secrets_after_pattern_scrubbing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr=(
+                                    "download failed for hf_abcdefghijklmnopqrstuvwxyz1234567890 "
+                                    "Bearer abc"
+                                ),
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("subprocess_output=redacted", joined)
+        self.assertNotIn("abc", joined)
+        self.assertNotIn("hf_abcdefghijklmnopqrstuvwxyz1234567890", joined)
+
+    def test_executor_workflow_failure_redacts_command_invocations_from_subprocess_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr="Command: comfy --workspace /opt/luma-forge/runtime/ComfyUI launch",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("subprocess_output=redacted", joined)
+        self.assertNotIn("--workspace", joined)
+
+    def test_executor_workflow_failure_redacts_environment_dumps_from_subprocess_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr="PATH=/usr/bin\nPYTHONPATH=/opt/luma-forge/runtime\nHOME=/root",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("subprocess_output=redacted", joined)
+        self.assertNotIn("PYTHONPATH=/opt/luma-forge/runtime", joined)
+
+    def test_executor_workflow_failure_redacts_signed_urls_from_subprocess_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            signed_url = (
+                "https://bucket.example/model.safetensors"
+                "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=abc"
+                "&X-Amz-Signature=deadbeef&Expires=999"
+            )
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr=f"download failed: {signed_url}",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("download failed: https://bucket.example/model.safetensors?<redacted:signed-query>", joined)
+        self.assertNotIn("deadbeef", joined)
+        self.assertNotIn("X-Amz-Credential=abc", joined)
+
+    def test_executor_workflow_failure_logs_full_subprocess_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                output="full comfy run stdout",
+                                stderr="full comfy run stderr",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        joined = "\n".join(logs.output)
+        self.assertIn("ComfyUI workflow subprocess failed", joined)
+        self.assertIn("full comfy run stderr", joined)
+        self.assertIn("full comfy run stdout", joined)
+
+    def test_executor_workflow_failure_logs_long_non_secret_subprocess_output_without_truncating(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            long_output = "x" * 700
+
+            with self.assertLogs("runpod_endpoint_worker", level="WARNING") as logs:
+                with self.assertRaises(ComfyWorkflowError):
+                    with patch.object(runtime, "ensure_ready"):
+                        with patch("subprocess.run") as run:
+                            run.side_effect = subprocess.CalledProcessError(
+                                returncode=1,
+                                cmd=["comfy", "run"],
+                                stderr=long_output,
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertIn(long_output, "\n".join(logs.output))
 
     def test_executor_workflow_timeout_uses_specific_code(self):
         with tempfile.TemporaryDirectory() as directory:

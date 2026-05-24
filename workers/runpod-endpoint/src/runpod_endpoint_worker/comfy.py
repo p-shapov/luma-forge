@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
 import subprocess
 import tempfile
 import threading
@@ -23,13 +24,28 @@ from runpod_endpoint_worker.errors import (
     ComfyWorkflowError,
     ComfyWorkflowTimeoutError,
     ResponseTooLargeError,
+    safe_error_message,
 )
+from runpod_endpoint_worker.logging import LOGGER
 from runpod_endpoint_worker.schemas import GenerationImage, GenerationRequest
 from runpod_endpoint_worker.workflow import write_patched_workflow
 
 
 _COMFY_STARTUP_LOCK = threading.Lock()
 _DIAGNOSTIC_EXCERPT_MAX_CHARS = 600
+_SIGNED_URL_PATTERN = re.compile(
+    r"(https?://[^\s?]+)\?[^\s]*(?:X-Amz-Signature|Signature=|AWSAccessKeyId|X-Amz-Credential|Expires=)[^\s]*"
+)
+_URL_USERINFO_PATTERN = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@")
+_AUTH_HEADER_PATTERN = re.compile(r"(?i)(authorization\s*:\s*)[^\r\n]+")
+_KEY_VALUE_SECRET_PATTERN = re.compile(
+    r"(?i)\b([A-Z0-9_-]*(?:api[_-]?key|access[_-]?key|secret|password|credential))\b\s*[:=]\s*[^\s,;]+"
+)
+_HUGGING_FACE_TOKEN_PATTERN = re.compile(r"\bhf_[A-Za-z0-9_=-]{20,}\b")
+_COMMAND_INVOCATION_PATTERN = re.compile(r"(?im)^\s*(?:command|cmd|argv|args)\s*[:=]\s*\S+")
+_ENVIRONMENT_DUMP_PATTERN = re.compile(
+    r"(?m)(?:^|\n)\s*[A-Za-z_][A-Za-z0-9_]*=[^\n]*(?:\n\s*[A-Za-z_][A-Za-z0-9_]*=[^\n]*)+"
+)
 
 
 @dataclass(frozen=True)
@@ -103,11 +119,13 @@ class ComfyRuntime:
                 timeout=self.config.comfyui_startup_timeout_seconds,
             )
         except subprocess.TimeoutExpired as error:
+            _log_process_output("ComfyUI launch subprocess timed out", error)
             raise ComfyStartupTimeoutError(
                 _process_failure_message("ComfyUI startup timed out.", error),
                 metadata=_process_failure_metadata(error),
             ) from error
         except (OSError, subprocess.SubprocessError) as error:
+            _log_process_output("ComfyUI launch subprocess failed", error)
             raise ComfyLaunchError(
                 _process_failure_message("ComfyUI failed to launch.", error),
                 metadata=_process_failure_metadata(error),
@@ -178,11 +196,13 @@ class ComfyExecutor:
                 timeout=self.config.execution_timeout_seconds,
             )
         except subprocess.TimeoutExpired as error:
+            _log_process_output("ComfyUI workflow subprocess timed out", error)
             raise ComfyWorkflowTimeoutError(
                 _process_failure_message("ComfyUI workflow execution timed out.", error),
                 metadata=_process_failure_metadata(error),
             ) from error
         except (OSError, subprocess.SubprocessError) as error:
+            _log_process_output("ComfyUI workflow subprocess failed", error)
             raise ComfyWorkflowError(
                 _process_failure_message("ComfyUI workflow execution failed.", error),
                 metadata=_process_failure_metadata(error),
@@ -306,6 +326,7 @@ def _process_failure_metadata(error: BaseException) -> dict[str, object]:
     diagnostic_excerpt = _diagnostic_excerpt(error)
     if diagnostic_excerpt:
         metadata["diagnostic_excerpt"] = diagnostic_excerpt
+    metadata.update(_comfy_json_error_metadata(error))
     return metadata
 
 
@@ -313,8 +334,19 @@ def _diagnostic_excerpt(error: BaseException) -> str | None:
     output = " ".join(_process_output(error).split())
     if output == "":
         return None
+    comfy_error = _comfy_json_error_payload(error)
+    if comfy_error is not None:
+        summary = _comfy_json_error_summary(comfy_error)
+        if summary:
+            return summary
     if len(output) > _DIAGNOSTIC_EXCERPT_MAX_CHARS:
-        return f"{output[: _DIAGNOSTIC_EXCERPT_MAX_CHARS - 3]}..."
+        marker = "Error log during ComfyUI execution"
+        marker_index = output.find(marker)
+        if marker_index >= 0:
+            output = output[marker_index:]
+            if len(output) <= _DIAGNOSTIC_EXCERPT_MAX_CHARS:
+                return output
+        return f"...{output[-(_DIAGNOSTIC_EXCERPT_MAX_CHARS - 3):]}"
     return output
 
 
@@ -326,6 +358,88 @@ def _process_output(error: BaseException) -> str:
         elif isinstance(value, str):
             parts.append(value)
     return "\n".join(parts)
+
+
+def _comfy_json_error_metadata(error: BaseException) -> dict[str, object]:
+    error_payload = _comfy_json_error_payload(error)
+    if error_payload is None:
+        return {}
+    metadata: dict[str, object] = {}
+    _copy_str_metadata(error_payload, metadata, "kind", "comfy_error_kind")
+    _copy_str_metadata(error_payload, metadata, "message", "comfy_error_message")
+    _copy_str_metadata(error_payload, metadata, "node_id", "comfy_node_id")
+    _copy_str_metadata(error_payload, metadata, "class_type", "comfy_class_type")
+    _copy_str_metadata(error_payload, metadata, "exception_type", "comfy_exception_type")
+    status_code = error_payload.get("status_code")
+    if isinstance(status_code, int) and not isinstance(status_code, bool):
+        metadata["comfy_status_code"] = status_code
+    return metadata
+
+
+def _comfy_json_error_payload(error: BaseException) -> dict[str, Any] | None:
+    output = getattr(error, "output", None)
+    if isinstance(output, bytes):
+        stdout = output.decode("utf-8", errors="replace")
+    elif isinstance(output, str):
+        stdout = output
+    else:
+        return None
+
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("event") != "failed":
+            continue
+        error_payload = event.get("error")
+        if not isinstance(error_payload, dict):
+            continue
+        return error_payload
+    return None
+
+
+def _comfy_json_error_summary(error_payload: dict[str, Any]) -> str | None:
+    kind = error_payload.get("kind")
+    message = error_payload.get("message")
+    if isinstance(kind, str) and kind.strip() != "" and isinstance(message, str) and message.strip() != "":
+        return f"{kind}: {message}"
+    if isinstance(message, str) and message.strip() != "":
+        return message
+    if isinstance(kind, str) and kind.strip() != "":
+        return kind
+    return None
+
+
+def _copy_str_metadata(source: dict[str, Any], target: dict[str, object], source_key: str, target_key: str) -> None:
+    value = source.get(source_key)
+    if isinstance(value, str) and value.strip() != "":
+        target[target_key] = value
+
+
+def _log_process_output(message: str, error: BaseException) -> None:
+    output = _process_output(error)
+    if output:
+        LOGGER.warning("%s subprocess_output=%s", message, _safe_process_log_output(output))
+
+
+def _safe_process_log_output(output: str) -> str:
+    scrubbed = _scrub_process_output(output)
+    if _contains_disallowed_log_shape(scrubbed) or safe_error_message(scrubbed) == "Endpoint worker request failed.":
+        return "redacted"
+    return scrubbed
+
+
+def _scrub_process_output(output: str) -> str:
+    scrubbed = _SIGNED_URL_PATTERN.sub(r"\1?<redacted:signed-query>", output)
+    scrubbed = _URL_USERINFO_PATTERN.sub(r"\1<redacted:userinfo>@", scrubbed)
+    scrubbed = _AUTH_HEADER_PATTERN.sub(r"\1<redacted:authorization>", scrubbed)
+    scrubbed = _KEY_VALUE_SECRET_PATTERN.sub(r"\1=<redacted:value>", scrubbed)
+    return _HUGGING_FACE_TOKEN_PATTERN.sub("<redacted:hf>", scrubbed)
+
+
+def _contains_disallowed_log_shape(output: str) -> bool:
+    return _COMMAND_INVOCATION_PATTERN.search(output) is not None or _ENVIRONMENT_DUMP_PATTERN.search(output) is not None
 
 
 def _write_extra_model_paths_config(config: EndpointConfig) -> Path:

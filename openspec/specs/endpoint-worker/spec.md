@@ -60,6 +60,8 @@ The RunPod Endpoint Worker SHALL return structured UI-safe diagnostic error meta
 - **AND** the failed response `error.code` SHALL identify the ComfyUI failure stage
 - **AND** the failed response MAY include non-raw process metadata such as exit status or timeout duration
 - **AND** the failed response MUST NOT expose secrets, raw stdout, raw stderr, raw command output, stack traces, environment dumps, command invocations, or generated image data
+- **AND** the worker log MAY include full-length captured subprocess output after credential-pattern scrubbing for operator diagnostics
+- **AND** the worker log MUST NOT include unredacted provider API keys, worker bearer tokens, authorization headers, signed URL secrets, Hugging Face tokens, command invocations, or environment dumps
 
 #### Scenario: Endpoint worker maps known failure stages to stable codes
 - **WHEN** request validation, workflow validation, ComfyUI launch, ComfyUI startup timeout, workflow execution, workflow timeout, output parsing, missing outputs, output fetching, response-size validation, or unexpected runtime handling fails
