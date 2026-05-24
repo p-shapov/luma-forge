@@ -3,7 +3,7 @@ from typing import Any
 
 from runpod_endpoint_worker.config import EndpointConfig
 from runpod_endpoint_worker.errors import EndpointWorkerError, UnexpectedRuntimeError, safe_failure_payload
-from runpod_endpoint_worker.logging import configure_logging, log_failure_context
+from runpod_endpoint_worker.logging import configure_logging, log_failure_context, log_unexpected_exception_context
 from runpod_endpoint_worker.service import GenerationService
 
 
@@ -24,8 +24,14 @@ def create_handler(service: GenerationService):
             return {
                 "status": "failed",
                 "failure": failure,
+                "error": _runpod_error_signal(failure),
             }
         except Exception as error:
+            log_unexpected_exception_context(
+                "Unexpected endpoint worker exception",
+                job_id=_job_id(job),
+                error=error,
+            )
             wrapped = UnexpectedRuntimeError("Endpoint worker runtime failed.")
             failure = safe_failure_payload(wrapped)
             log_failure_context(
@@ -37,6 +43,7 @@ def create_handler(service: GenerationService):
             return {
                 "status": "failed",
                 "failure": failure,
+                "error": _runpod_error_signal(failure),
             }
 
     return handler
@@ -49,6 +56,10 @@ def _job_id(job: dict[str, Any]) -> str | None:
 
 def _elapsed_ms(started: float) -> int:
     return max(0, int((time.perf_counter() - started) * 1000))
+
+
+def _runpod_error_signal(failure: dict[str, Any]) -> str:
+    return f"{failure['code']}: {failure['message']}"
 
 
 def build_default_handler():

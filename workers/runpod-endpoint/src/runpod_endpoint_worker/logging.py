@@ -44,6 +44,16 @@ def log_failure_context(
     )
 
 
+def log_unexpected_exception_context(message: str, *, job_id: str | None, error: Exception) -> None:
+    LOGGER.warning(
+        "%s job_id=%s exception_type=%s exception_message=%s",
+        message,
+        job_id or "unknown",
+        type(error).__name__,
+        _safe_log_message(str(error)),
+    )
+
+
 def _safe_log_message(message: str) -> str:
     sanitized = safe_error_message(message)
     if sanitized == "Endpoint worker request failed.":

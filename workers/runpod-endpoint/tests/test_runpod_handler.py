@@ -11,10 +11,10 @@ class RunPodHandlerTests(unittest.TestCase):
     def test_invalid_input_returns_safe_error(self):
         with WorkerFixture() as fixture:
             handler = create_handler(fixture.service)
-            payload = handler({"input": {"execution_type": "i2i", "prompt": "a lamp"}})
+        payload = handler({"input": {"execution_type": "i2i", "prompt": "a lamp"}})
 
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertEqual(payload["error"], "unsupported_execution_type: Execution type is not supported.")
         self.assertEqual(payload["failure"]["code"], "unsupported_execution_type")
         self.assertEqual(payload["failure"]["stage"], "request_validation")
         self.assertFalse(payload["failure"]["retryable"])
@@ -58,7 +58,7 @@ class RunPodHandlerTests(unittest.TestCase):
         payload = handler({"input": {"execution_type": "t2i", "prompt": "a lamp"}})
 
         self.assertEqual(payload["status"], "failed")
-        self.assertNotIn("error", payload)
+        self.assertEqual(payload["error"], "runtime_failed: Endpoint worker runtime failed.")
         self.assertEqual(payload["failure"]["code"], "runtime_failed")
         self.assertEqual(payload["failure"]["message"], "Endpoint worker runtime failed.")
         self.assertEqual(payload["failure"]["stage"], "runtime")
@@ -107,12 +107,26 @@ class RunPodHandlerTests(unittest.TestCase):
         payload = handler({"input": {"execution_type": "t2i", "prompt": "a lamp"}})
         normalized = _runpod_sdk_normalize(payload)
 
+        self.assertEqual(normalized["error"], "comfyui_workflow_failed: ComfyUI workflow execution failed. Missing model file.")
         self.assertEqual(normalized["output"]["status"], "failed")
         self.assertEqual(normalized["output"]["failure"]["code"], "comfyui_workflow_failed")
         self.assertEqual(normalized["output"]["failure"]["message"], "ComfyUI workflow execution failed. Missing model file.")
         self.assertEqual(normalized["output"]["failure"]["stage"], "workflow_execution")
         self.assertFalse(normalized["output"]["failure"]["retryable"])
-        self.assertNotIn("error", normalized)
+
+    def test_unexpected_runtime_error_logs_sanitized_original_exception(self):
+        class FailingService:
+            def generate_from_payload(self, payload):
+                raise RuntimeError("secret token failed")
+
+        handler = create_handler(FailingService())
+        with patch("runpod_endpoint_worker.logging.LOGGER.warning") as warning:
+            handler({"id": "job-123", "input": {"execution_type": "t2i", "prompt": "a lamp"}})
+
+        self.assertEqual(warning.call_args_list[0].args[1], "Unexpected endpoint worker exception")
+        self.assertEqual(warning.call_args_list[0].args[2], "job-123")
+        self.assertEqual(warning.call_args_list[0].args[3], "RuntimeError")
+        self.assertEqual(warning.call_args_list[0].args[4], "redacted")
 
     def test_importing_handler_does_not_start_generation(self):
         with WorkerFixture() as fixture:
