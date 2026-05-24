@@ -158,7 +158,7 @@ class ComfyExecutionTests(unittest.TestCase):
             with patch("subprocess.run"):
                 runtime.ensure_ready()
 
-    def test_runtime_launch_failure_does_not_include_comfy_stderr(self):
+    def test_runtime_launch_failure_keeps_stable_message_and_includes_diagnostic_excerpt(self):
         runtime = ComfyRuntime(config=EndpointConfig(), http_client=FakeHttpClient(ready_after=1000))
 
         with self.assertRaises(ComfyLaunchError) as context:
@@ -173,8 +173,33 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertEqual(context.exception.code, "comfyui_launch_failed")
         self.assertEqual(context.exception.stage, "comfyui_launch")
         self.assertEqual(context.exception.message, "ComfyUI failed to launch. Process exited with status 1.")
-        self.assertEqual(context.exception.metadata, {"exit_status": 1})
+        self.assertEqual(
+            context.exception.metadata,
+            {
+                "exit_status": 1,
+                "diagnostic_excerpt": "CUDA driver unavailable",
+            },
+        )
         self.assertNotIn("CUDA driver unavailable", context.exception.message)
+
+    def test_runtime_launch_failure_normalizes_and_truncates_diagnostic_excerpt(self):
+        runtime = ComfyRuntime(config=EndpointConfig(), http_client=FakeHttpClient(ready_after=1000))
+
+        with self.assertRaises(ComfyLaunchError) as context:
+            with patch("subprocess.run") as run:
+                run.side_effect = subprocess.CalledProcessError(
+                    returncode=1,
+                    cmd=["comfy", "launch"],
+                    stderr=f"ImportError:\n{'x' * 700}",
+                )
+                runtime.ensure_ready()
+
+        excerpt = context.exception.metadata["diagnostic_excerpt"]
+        self.assertEqual(len(excerpt), 600)
+        self.assertTrue(excerpt.startswith("ImportError: "))
+        self.assertTrue(excerpt.endswith("..."))
+        self.assertNotIn("\n", excerpt)
+        self.assertNotIn("stderr", context.exception.metadata)
 
     def test_parse_completed_events_extracts_image_outputs(self):
         events = "\n".join(
@@ -382,7 +407,7 @@ class ComfyExecutionTests(unittest.TestCase):
                         )
                         executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
 
-    def test_executor_workflow_failure_does_not_include_comfy_stderr(self):
+    def test_executor_workflow_failure_keeps_stable_message_and_includes_diagnostic_excerpt(self):
         with tempfile.TemporaryDirectory() as directory:
             config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
@@ -400,8 +425,39 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "comfyui_workflow_failed")
         self.assertEqual(context.exception.message, "ComfyUI workflow execution failed. Process exited with status 1.")
-        self.assertEqual(context.exception.metadata, {"exit_status": 1})
+        self.assertEqual(
+            context.exception.metadata,
+            {
+                "exit_status": 1,
+                "diagnostic_excerpt": "Prompt outputs failed validation",
+            },
+        )
         self.assertNotIn("Prompt outputs failed validation", context.exception.message)
+
+    def test_executor_workflow_failure_includes_generic_diagnostic_excerpt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyWorkflowError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.side_effect = subprocess.CalledProcessError(
+                            returncode=1,
+                            cmd=["comfy", "run"],
+                            stderr="ImportError: libGL.so.1: cannot open shared object file",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(context.exception.code, "comfyui_workflow_failed")
+        self.assertEqual(
+            context.exception.metadata,
+            {
+                "exit_status": 1,
+                "diagnostic_excerpt": "ImportError: libGL.so.1: cannot open shared object file",
+            },
+        )
 
     def test_executor_workflow_timeout_uses_specific_code(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -417,7 +473,13 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "comfyui_workflow_timeout")
         self.assertEqual(context.exception.message, "ComfyUI workflow execution timed out. Timed out after 1 seconds.")
-        self.assertEqual(context.exception.metadata, {"timeout_seconds": 1})
+        self.assertEqual(
+            context.exception.metadata,
+            {
+                "timeout_seconds": 1,
+                "diagnostic_excerpt": "workflow stalled",
+            },
+        )
         self.assertNotIn("workflow stalled", context.exception.message)
 
     def test_executor_output_fetch_failure_uses_specific_code(self):

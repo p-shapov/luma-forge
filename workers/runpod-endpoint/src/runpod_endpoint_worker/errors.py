@@ -93,7 +93,7 @@ def safe_failure_payload(error: EndpointWorkerError) -> dict[str, object]:
 
 def safe_failure_metadata(metadata: dict[str, object]) -> dict[str, object]:
     safe: dict[str, object] = {}
-    for key in ("exit_status", "timeout_seconds"):
+    for key in ("exit_status", "timeout_seconds", "diagnostic_excerpt"):
         value = metadata.get(key)
         if isinstance(value, bool):
             continue

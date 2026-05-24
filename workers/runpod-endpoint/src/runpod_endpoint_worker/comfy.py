@@ -29,6 +29,7 @@ from runpod_endpoint_worker.workflow import write_patched_workflow
 
 
 _COMFY_STARTUP_LOCK = threading.Lock()
+_DIAGNOSTIC_EXCERPT_MAX_CHARS = 600
 
 
 @dataclass(frozen=True)
@@ -297,11 +298,34 @@ def _process_failure_message(prefix: str, error: BaseException) -> str:
 
 
 def _process_failure_metadata(error: BaseException) -> dict[str, object]:
+    metadata: dict[str, object] = {}
     if isinstance(error, subprocess.TimeoutExpired) and error.timeout is not None:
-        return {"timeout_seconds": error.timeout}
+        metadata["timeout_seconds"] = error.timeout
     if isinstance(error, subprocess.CalledProcessError):
-        return {"exit_status": error.returncode}
-    return {}
+        metadata["exit_status"] = error.returncode
+    diagnostic_excerpt = _diagnostic_excerpt(error)
+    if diagnostic_excerpt:
+        metadata["diagnostic_excerpt"] = diagnostic_excerpt
+    return metadata
+
+
+def _diagnostic_excerpt(error: BaseException) -> str | None:
+    output = " ".join(_process_output(error).split())
+    if output == "":
+        return None
+    if len(output) > _DIAGNOSTIC_EXCERPT_MAX_CHARS:
+        return f"{output[: _DIAGNOSTIC_EXCERPT_MAX_CHARS - 3]}..."
+    return output
+
+
+def _process_output(error: BaseException) -> str:
+    parts: list[str] = []
+    for value in (getattr(error, "stderr", None), getattr(error, "stdout", None)):
+        if isinstance(value, bytes):
+            parts.append(value.decode("utf-8", errors="replace"))
+        elif isinstance(value, str):
+            parts.append(value)
+    return "\n".join(parts)
 
 
 def _write_extra_model_paths_config(config: EndpointConfig) -> Path:
