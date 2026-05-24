@@ -260,9 +260,9 @@ class ComfyExecutor:
 
     def _persist_images(self, job_id: str, fetched_images: list[FetchedImage]) -> None:
         job_directory = self.config.workspace_mount_path / _artifact_job_directory(job_id)
-        if job_directory.exists():
-            shutil.rmtree(job_directory)
         try:
+            if job_directory.exists():
+                shutil.rmtree(job_directory)
             for fetched in fetched_images:
                 self._persist_image(fetched)
         except OSError as error:

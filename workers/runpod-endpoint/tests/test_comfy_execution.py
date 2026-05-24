@@ -1,5 +1,6 @@
 import hashlib
 import json
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -716,6 +717,37 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertFalse(stale_exists)
         self.assertEqual(fresh_body, b"fresh")
+
+    def test_executor_cleanup_failure_uses_output_fetch_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            job_directory = config.workspace_mount_path / "luma-forge/outputs/jobs/job-123"
+            stale = job_directory / "0002/stale.png"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"stale")
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"fresh"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            original_rmtree = shutil.rmtree
+
+            def fail_cleanup(path, *args, **kwargs):
+                if Path(path) == job_directory and not kwargs.get("ignore_errors", False):
+                    raise OSError("permission denied")
+                return original_rmtree(path, *args, **kwargs)
+
+            with self.assertRaises(ComfyOutputFetchError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        with patch("shutil.rmtree", side_effect=fail_cleanup):
+                            run.return_value = subprocess.CompletedProcess(
+                                args=[],
+                                returncode=0,
+                                stdout=_completed_process_stdout(),
+                                stderr="",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt", job_id="job-123"))
+
+        self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
+        self.assertEqual(context.exception.stage, "output_fetch")
 
     def test_executor_workflow_failure_keeps_stable_message_and_includes_diagnostic_excerpt(self):
         with tempfile.TemporaryDirectory() as directory:
