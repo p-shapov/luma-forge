@@ -103,12 +103,16 @@ def safe_failure_metadata(metadata: dict[str, object]) -> dict[str, object]:
         "comfy_class_type",
         "comfy_exception_type",
         "comfy_status_code",
+        "comfy_node_errors",
+        "missing_model_paths",
     ):
         value = metadata.get(key)
         if isinstance(value, bool):
             continue
         if isinstance(value, int | float | str):
             safe[key] = safe_error_message(value) if isinstance(value, str) else value
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            safe[key] = [safe_error_message(item) for item in value]
     return safe
 
 

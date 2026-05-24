@@ -33,6 +33,10 @@ from runpod_endpoint_worker.workflow import write_patched_workflow
 
 _COMFY_STARTUP_LOCK = threading.Lock()
 _DIAGNOSTIC_EXCERPT_MAX_CHARS = 600
+_REQUIRED_MODEL_PATHS = (
+    Path("models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"),
+    Path("models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
+)
 _SIGNED_URL_PATTERN = re.compile(
     r"(https?://[^\s?]+)\?[^\s]*(?:X-Amz-Signature|Signature=|AWSAccessKeyId|X-Amz-Credential|Expires=)[^\s]*"
 )
@@ -155,6 +159,7 @@ class ComfyExecutor:
         )
 
     def generate(self, request: GenerationRequest) -> list[GenerationImage]:
+        _validate_required_models(self.config)
         self.runtime.ensure_ready()
         with tempfile.TemporaryDirectory(prefix="luma-forge-workflow-") as directory:
             patched_workflow = Path(directory) / "workflow.json"
@@ -370,6 +375,9 @@ def _comfy_json_error_metadata(error: BaseException) -> dict[str, object]:
     _copy_str_metadata(error_payload, metadata, "node_id", "comfy_node_id")
     _copy_str_metadata(error_payload, metadata, "class_type", "comfy_class_type")
     _copy_str_metadata(error_payload, metadata, "exception_type", "comfy_exception_type")
+    node_errors = _comfy_node_error_summaries(error_payload)
+    if node_errors:
+        metadata["comfy_node_errors"] = node_errors
     status_code = error_payload.get("status_code")
     if isinstance(status_code, int) and not isinstance(status_code, bool):
         metadata["comfy_status_code"] = status_code
@@ -415,6 +423,46 @@ def _copy_str_metadata(source: dict[str, Any], target: dict[str, object], source
     value = source.get(source_key)
     if isinstance(value, str) and value.strip() != "":
         target[target_key] = value
+
+
+def _comfy_node_error_summaries(error_payload: dict[str, Any]) -> list[str]:
+    node_errors = error_payload.get("node_errors")
+    if not isinstance(node_errors, list):
+        return []
+
+    summaries: list[str] = []
+    for node_error in node_errors:
+        if not isinstance(node_error, dict):
+            continue
+        node_id = node_error.get("node_id")
+        class_type = node_error.get("class_type")
+        errors = node_error.get("errors")
+        if not isinstance(node_id, str) or not isinstance(class_type, str) or not isinstance(errors, list):
+            continue
+        for error in errors:
+            if not isinstance(error, dict):
+                continue
+            error_type = error.get("type")
+            details = error.get("details")
+            if isinstance(error_type, str) and isinstance(details, str):
+                summaries.append(f"{node_id} {class_type} {error_type}: {details}")
+    return summaries
+
+
+def _validate_required_models(config: EndpointConfig) -> None:
+    missing = [
+        str(config.workspace_mount_path / path)
+        for path in _REQUIRED_MODEL_PATHS
+        if not (config.workspace_mount_path / path).is_file()
+    ]
+    if missing:
+        raise ComfyWorkflowError(
+            "ComfyUI workflow execution failed. Required model file is missing.",
+            metadata={
+                "diagnostic_excerpt": "Required model file is missing.",
+                "missing_model_paths": missing,
+            },
+        )
 
 
 def _log_process_output(message: str, error: BaseException) -> None:

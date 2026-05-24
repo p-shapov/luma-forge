@@ -63,6 +63,23 @@ def _write_valid_workflow(directory: str) -> Path:
     return workflow
 
 
+def _write_required_models(directory: str) -> Path:
+    workspace = Path(directory) / "workspace"
+    (workspace / "models/checkpoints").mkdir(parents=True)
+    (workspace / "models/text_encoders").mkdir(parents=True)
+    (workspace / "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors").write_bytes(b"checkpoint")
+    (workspace / "models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors").write_bytes(b"text encoder")
+    return workspace
+
+
+def _endpoint_config_with_required_models(directory: str, **kwargs) -> EndpointConfig:
+    return EndpointConfig(
+        workflow_path=_write_valid_workflow(directory),
+        workspace_mount_path=_write_required_models(directory),
+        **kwargs,
+    )
+
+
 def _completed_process_stdout() -> str:
     return "\n".join(
         [
@@ -331,7 +348,8 @@ class ComfyExecutionTests(unittest.TestCase):
     def test_executor_runs_patched_workflow_and_returns_base64_images(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)
-            config = EndpointConfig(workflow_path=workflow)
+            workspace = _write_required_models(directory)
+            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -377,11 +395,37 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertEqual(images[0].mime_type, "image/png")
         self.assertEqual(images[0].filename, "ComfyUI_00001_.png")
 
+    def test_executor_fails_before_comfy_when_required_models_are_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = _write_valid_workflow(directory)
+            workspace = Path(directory) / "workspace"
+            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyWorkflowError) as context:
+                with patch.object(runtime, "ensure_ready") as ready:
+                    with patch("subprocess.run") as run:
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        ready.assert_not_called()
+        run.assert_not_called()
+        self.assertEqual(context.exception.code, "comfyui_workflow_failed")
+        self.assertEqual(context.exception.metadata["diagnostic_excerpt"], "Required model file is missing.")
+        self.assertEqual(
+            context.exception.metadata["missing_model_paths"],
+            [
+                str(workspace / "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"),
+                str(workspace / "models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
+            ],
+        )
+
     def test_executor_normalizes_wildcard_host_for_local_http_fetches(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)
+            workspace = _write_required_models(directory)
             client = FakeHttpClient(image_body=b"png")
-            config = EndpointConfig(workflow_path=workflow, comfyui_host="0.0.0.0")
+            config = EndpointConfig(workflow_path=workflow, comfyui_host="0.0.0.0", workspace_mount_path=workspace)
             runtime = ComfyRuntime(config=config, http_client=client)
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
 
@@ -417,8 +461,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_rejects_inline_response_that_exceeds_configured_limit(self):
         with tempfile.TemporaryDirectory() as directory:
-            workflow = _write_valid_workflow(directory)
-            config = EndpointConfig(workflow_path=workflow, max_response_bytes=3)
+            config = _endpoint_config_with_required_models(directory, max_response_bytes=3)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -451,7 +494,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_keeps_stable_message_and_includes_diagnostic_excerpt(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -478,7 +521,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_includes_generic_diagnostic_excerpt(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -503,7 +546,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_extracts_comfy_json_error_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
             failed_event = {
@@ -543,9 +586,63 @@ class ComfyExecutionTests(unittest.TestCase):
         )
         self.assertNotIn("traceback", context.exception.metadata)
 
+    def test_executor_workflow_failure_extracts_comfy_node_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+            failed_event = {
+                "event": "failed",
+                "error": {
+                    "kind": "validation_error",
+                    "message": "Value not in list",
+                    "node_errors": [
+                        {
+                            "node_id": "175:167",
+                            "class_type": "CLIPLoader",
+                            "errors": [
+                                {
+                                    "type": "value_not_in_list",
+                                    "details": "clip_name: 'gemma4_e4b_it_fp8_scaled.safetensors' not in []",
+                                }
+                            ],
+                        },
+                        {
+                            "node_id": "6",
+                            "class_type": "CheckpointLoaderSimple",
+                            "errors": [
+                                {
+                                    "type": "value_not_in_list",
+                                    "details": "ckpt_name: 'hidream_o1_image_dev_fp8_scaled.safetensors' not in []",
+                                }
+                            ],
+                        },
+                    ],
+                },
+            }
+
+            with self.assertRaises(ComfyWorkflowError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.side_effect = subprocess.CalledProcessError(
+                            returncode=1,
+                            cmd=["comfy", "run"],
+                            output=json.dumps(failed_event),
+                            stderr="",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(
+            context.exception.metadata["comfy_node_errors"],
+            [
+                "175:167 CLIPLoader value_not_in_list: clip_name: 'gemma4_e4b_it_fp8_scaled.safetensors' not in []",
+                "6 CheckpointLoaderSimple value_not_in_list: ckpt_name: 'hidream_o1_image_dev_fp8_scaled.safetensors' not in []",
+            ],
+        )
+
     def test_executor_workflow_failure_redacts_secret_markers_from_subprocess_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -566,7 +663,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_redacts_token_patterns_from_subprocess_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -587,7 +684,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_redacts_prefixed_api_key_variables_from_subprocess_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -610,7 +707,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_redacts_marker_secrets_after_pattern_scrubbing(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -635,7 +732,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_redacts_command_invocations_from_subprocess_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -656,7 +753,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_redacts_environment_dumps_from_subprocess_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -677,7 +774,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_redacts_signed_urls_from_subprocess_log(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
             signed_url = (
@@ -704,7 +801,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_logs_full_subprocess_output(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -727,7 +824,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_failure_logs_long_non_secret_subprocess_output_without_truncating(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
             long_output = "x" * 700
@@ -747,7 +844,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_workflow_timeout_uses_specific_code(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -770,7 +867,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
     def test_executor_output_fetch_failure_uses_specific_code(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(workflow_path=_write_valid_workflow(directory))
+            config = _endpoint_config_with_required_models(directory)
             client = FakeHttpClient(fail_fetch=True)
             runtime = ComfyRuntime(config=config, http_client=client)
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
