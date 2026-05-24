@@ -52,6 +52,8 @@ The failed response keeps structured diagnostics in `failure` because the RunPod
 
 The worker does not require a provisioner-written runtime manifest. Provisioning remains responsible for prepared workspace directories and model assets only; the endpoint image owns the ComfyUI checkout, Comfy CLI installation, and baked workflow file under `/opt/luma-forge/runtime`.
 
+The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` so Comfy CLI background launches can resolve the image-baked `comfy` executable by name.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -94,4 +96,4 @@ After publishing and provisioning a workspace that uses this runtime image, invo
 
 RunPod Endpoint Worker images are released through runtime contract deployments. See [Worker Deployment](../DEPLOYMENT.md) for shared release policy, registry conventions, catalog PR ownership, and rollback.
 
-Published runtime images are digest-pinned in the Runtime Catalog. Existing deployed Workspaces keep their persisted endpoint image snapshot; new failed-response contract changes require publishing a new endpoint image and promoting a new Runtime Catalog revision before newly created Workspaces use them.
+Published runtime images are digest-pinned in the Runtime Catalog. Existing deployed Workspaces keep their persisted endpoint image snapshot; endpoint runtime image changes require publishing a new endpoint image and promoting a new Runtime Catalog revision before newly created Workspaces use them.

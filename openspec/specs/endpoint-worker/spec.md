@@ -45,27 +45,74 @@ The RunPod Endpoint Worker SHALL execute the bundled HiDream O1 Dev ComfyUI UI w
 - **AND** it MUST NOT return raw command output, stack traces, provider API keys, worker bearer tokens, or credential-bearing filesystem details
 
 ### Requirement: Report endpoint generation failures with diagnostic error metadata
-The RunPod Endpoint Worker SHALL return structured UI-safe diagnostic error metadata for worker-handled failed generation requests.
+The RunPod Endpoint Worker SHALL return structured UI-safe diagnostic failure metadata for worker-handled failed generation requests using a RunPod-hosted-output-compatible `failure` object.
 
-#### Scenario: Failed endpoint response includes stable error metadata
+#### Scenario: Failed endpoint response includes stable failure metadata
 - **WHEN** the Endpoint Worker handles a generation request and fails before returning a successful generation response
 - **THEN** the failed response SHALL include `status` set to `failed`
-- **AND** the failed response SHALL include `error.code` with a stable endpoint worker error classifier
-- **AND** the failed response SHALL include `error.message` with a UI-safe diagnostic message
+- **AND** the failed response SHALL include `failure.code` with a stable endpoint worker error classifier
+- **AND** the failed response SHALL include `failure.message` with a UI-safe diagnostic message
+- **AND** the failed response SHALL include `failure.stage` with a stable endpoint worker failure stage
+- **AND** the failed response SHALL include `failure.retryable` with a worker-owned boolean retry classification
+- **AND** the failed response MAY include `failure.metadata` containing only bounded non-secret primitive diagnostic values
+- **AND** subprocess failures MAY include `failure.metadata.diagnostic_excerpt` containing normalized and truncated subprocess output for diagnostics
+- **AND** Comfy CLI JSON failures MAY include bounded structured hints such as failure kind, status code, node id, class type, exception type, and error message in `failure.metadata`
+- **AND** the failed response SHALL include a top-level `error` string containing only a UI-safe platform failure signal so RunPod marks the hosted job failed
+- **AND** callers SHALL use `failure` rather than top-level `error` for structured worker-owned diagnostics because RunPod reserves and removes top-level `error` during hosted handler result normalization
 - **AND** the failed response MUST NOT include raw command output, stack traces, provider API keys, worker bearer tokens, authorization headers, environment dumps, credential-bearing filesystem details, or generated image data
 
 #### Scenario: ComfyUI subprocess failure message uses non-raw metadata
 - **WHEN** ComfyUI startup or workflow execution fails with subprocess failure metadata available to the worker
-- **THEN** the failed response `error.message` SHALL include a bounded diagnostic message that identifies the failed stage
-- **AND** the failed response `error.code` SHALL identify the ComfyUI failure stage
-- **AND** the failed response MAY include non-raw process metadata such as exit status or timeout duration
+- **THEN** the failed response `failure.message` SHALL include a bounded diagnostic message that identifies the failed stage
+- **AND** the failed response `failure.code` SHALL identify the ComfyUI failure stage
+- **AND** the failed response `failure.stage` SHALL identify the ComfyUI failure stage
+- **AND** the failed response MAY include non-raw process metadata such as exit status or timeout duration in `failure.metadata`
+- **AND** the failed response MAY include normalized and truncated subprocess output in `failure.metadata.diagnostic_excerpt`
+- **AND** the diagnostic excerpt SHALL prefer Comfy CLI error-log content or the end of the captured subprocess output when the full output exceeds the response metadata limit
 - **AND** the failed response MUST NOT expose secrets, raw stdout, raw stderr, raw command output, stack traces, environment dumps, command invocations, or generated image data
-- **AND** the worker log MAY include full-length captured subprocess output after credential-pattern scrubbing for operator diagnostics
-- **AND** the worker log MUST NOT include unredacted provider API keys, worker bearer tokens, authorization headers, signed URL secrets, Hugging Face tokens, command invocations, or environment dumps
 
 #### Scenario: Endpoint worker maps known failure stages to stable codes
 - **WHEN** request validation, workflow validation, ComfyUI launch, ComfyUI startup timeout, workflow execution, workflow timeout, output parsing, missing outputs, output fetching, response-size validation, or unexpected runtime handling fails
 - **THEN** the failed response SHALL use the most specific stable endpoint worker error code available for that failure stage
+
+#### Scenario: RunPod hosted output preserves failed endpoint diagnostics
+- **WHEN** the RunPod Python serverless SDK normalizes a worker-handled failed generation response
+- **THEN** the hosted job output SHALL preserve `output.status` set to `failed`
+- **AND** the hosted job output SHALL preserve `output.failure.code`
+- **AND** the hosted job output SHALL preserve `output.failure.message`
+- **AND** the hosted job output SHALL preserve `output.failure.stage`
+- **AND** the hosted job output SHALL preserve `output.failure.retryable`
+- **AND** the hosted job result SHALL include a top-level platform failure signal derived from the worker's safe top-level `error` string
+
+### Requirement: Log endpoint generation failures with structured safe context
+The RunPod Endpoint Worker SHALL log structured UI-safe context for worker-handled failed generation requests so endpoint failures can be correlated with RunPod jobs without exposing secrets in the hosted response.
+
+#### Scenario: Worker-handled failure is logged with safe correlation context
+- **WHEN** the Endpoint Worker handles a generation request and returns a failed response with `failure` metadata
+- **THEN** the worker log SHALL include the RunPod job id when available
+- **AND** the worker log SHALL include the failure code
+- **AND** the worker log SHALL include the failure stage
+- **AND** the worker log SHALL include the UI-safe failure message
+- **AND** the worker log SHALL include elapsed execution time for the handled request
+- **AND** the worker log MAY include the same bounded non-secret primitive metadata returned in `failure.metadata`
+
+#### Scenario: Unexpected Python exception logs sanitized original context
+- **WHEN** the Endpoint Worker catches an unexpected Python exception before returning a failed response
+- **THEN** the worker log SHALL include the original exception type
+- **AND** the worker log SHALL include a sanitized original exception message
+- **AND** the failed response SHALL continue to use `failure.code` set to `runtime_failed`
+- **AND** the failed response MUST NOT expose the original exception message when it contains secret markers
+
+#### Scenario: Endpoint failure logs remain secret-safe
+- **WHEN** the Endpoint Worker logs failed generation context
+- **THEN** structured handler failure logs MUST NOT include provider API keys, worker bearer tokens, authorization headers, raw stdout, raw stderr, raw command output, stack traces, environment dumps, command invocations, credential-bearing filesystem details, generated image data, or base64 image data
+
+#### Scenario: Subprocess failure logs include operator diagnostics
+- **WHEN** Comfy CLI launch or workflow execution fails in a subprocess
+- **THEN** the worker log MAY include full-length captured subprocess stdout and stderr for operator debugging after credential-pattern scrubbing
+- **AND** known credential and token patterns in captured subprocess output SHALL be redacted
+- **AND** the worker log MUST NOT include unredacted provider API keys, worker bearer tokens, authorization headers, signed URL secrets, Hugging Face tokens, command invocations, or environment dumps
+- **AND** the hosted failed response SHALL continue to expose only bounded structured failure metadata
 
 ### Requirement: Configure endpoint workspace mount path from Native provisioning
 The RunPod Endpoint Worker SHALL support the Native-provided workspace mount path when its template is created.

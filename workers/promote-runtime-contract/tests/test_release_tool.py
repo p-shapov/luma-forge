@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -124,6 +125,18 @@ runtime:
             dockerfile,
         )
 
+    def test_endpoint_dockerfile_default_pytorch_packages_arg_is_valid_json(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
+        match = re.search(r"^ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=(.+)$", dockerfile, re.MULTILINE)
+
+        self.assertIsNotNone(match)
+        raw_value = match.group(1)
+        self.assertIn('\\"torch==2.5.1\\"', raw_value)
+        self.assertEqual(
+            ["torch==2.5.1", "torchvision==0.20.1", "torchaudio==2.5.1"],
+            json.loads(raw_value.replace('\\"', '"')),
+        )
+
     def test_endpoint_dockerfile_installs_pinned_comfy_cli_for_runtime_builder(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
 
@@ -148,6 +161,13 @@ runtime:
         self.assertIn("--nvidia", dockerfile)
         self.assertIn("--skip-manager", dockerfile)
         self.assertIn("--skip-torch-or-directml", dockerfile)
+
+    def test_endpoint_dockerfile_persists_runtime_venv_on_final_image_path(self):
+        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
+        final_image_section = dockerfile.rsplit("FROM worker-base", maxsplit=1)[1]
+
+        self.assertIn("VIRTUAL_ENV=/opt/luma-forge/runtime/.venv", final_image_section)
+        self.assertIn("PATH=\"${VIRTUAL_ENV}/bin:${PATH}\"", final_image_section)
 
     def test_endpoint_dockerfile_keeps_runtime_layout_validation_checks(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
