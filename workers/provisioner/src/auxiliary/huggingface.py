@@ -3,7 +3,11 @@ from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty
+from shutil import copyfileobj
 from time import monotonic
+from urllib.error import HTTPError
+from urllib.parse import urlparse
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from app.errors import (
     AssetAuthRequiredError,
@@ -13,12 +17,16 @@ from app.errors import (
 )
 from app.schemas import HuggingFaceSource, ModelAsset
 
-HubDownload = Callable[..., str]
+CHUNK_SIZE = 1024 * 1024
+
+HubUrl = Callable[..., str]
+UrlOpen = Callable[..., object]
 
 
 @dataclass(frozen=True)
 class PublicFileDownloader:
-    hub_download: HubDownload | None = None
+    hub_url: HubUrl | None = None
+    open_url: UrlOpen | None = None
 
     def download(
         self,
@@ -31,14 +39,14 @@ class PublicFileDownloader:
         target.parent.mkdir(parents=True, exist_ok=True)
         source = asset.download_source
         try:
-            cached_path = _download_with_isolated_process(
+            _download_with_isolated_process(
                 source,
-                target.parent,
-                self.hub_download,
+                target,
+                self.hub_url,
+                self.open_url,
                 timeout_seconds=timeout_seconds,
                 hugging_face_api_key=hugging_face_api_key,
             )
-            self._place_downloaded_file(Path(cached_path), target)
         except WorkerError:
             raise
         except Exception as error:
@@ -46,48 +54,40 @@ class PublicFileDownloader:
                 raise AssetAuthRequiredError("Hugging Face asset requires authentication.") from error
             raise AssetDownloadError("Hugging Face asset download failed.") from error
 
-    def _place_downloaded_file(self, downloaded_path: Path, target: Path) -> None:
-        if downloaded_path.resolve(strict=False) == target.resolve(strict=False):
-            return
 
-        temporary = target.with_suffix(target.suffix + ".part")
-        try:
-            with downloaded_path.open("rb") as source, temporary.open("wb") as output:
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    output.write(chunk)
-            temporary.replace(target)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
-
-
-def _load_hub_download() -> HubDownload:
+def _load_hub_url() -> HubUrl:
     try:
-        from huggingface_hub import hf_hub_download
+        from huggingface_hub import hf_hub_url
     except ImportError as error:
         raise AssetDownloadError("Hugging Face Hub client is unavailable.") from error
-    return hf_hub_download
+    return hf_hub_url
 
 
 def _download_with_isolated_process(
     source: HuggingFaceSource,
-    local_dir: Path,
-    hub_download: HubDownload | None,
+    target: Path,
+    hub_url: HubUrl | None,
+    open_url: UrlOpen | None,
     *,
     timeout_seconds: float | None,
     hugging_face_api_key: str | None,
-) -> str:
+) -> None:
     if timeout_seconds is None:
-        return _download_from_hub(source, local_dir, hub_download, hugging_face_api_key)
+        _download_to_target(source, target, hub_url, open_url, hugging_face_api_key)
+        return
 
     context = get_context("spawn")
     result_queue = context.Queue()
     process = context.Process(
-        target=_hub_download_process,
-        args=(source, str(local_dir), hub_download, hugging_face_api_key, result_queue),
+        target=_download_process,
+        args=(
+            source,
+            str(target),
+            hub_url,
+            open_url,
+            hugging_face_api_key,
+            result_queue,
+        ),
     )
     process.start()
 
@@ -95,6 +95,9 @@ def _download_with_isolated_process(
     while process.is_alive():
         if monotonic() >= deadline:
             _terminate_process(process)
+            temporary = target.with_suffix(target.suffix + ".part")
+            if temporary.exists():
+                temporary.unlink()
             raise StepTimeoutError("Hugging Face asset download timed out.")
         process.join(timeout=0.1)
 
@@ -104,7 +107,7 @@ def _download_with_isolated_process(
         raise AssetDownloadError("Hugging Face asset download failed.") from error
 
     if status == "ok":
-        return payload[0]
+        return
 
     error_class, status_code, message = payload
     if error_class == "GatedRepoError" or status_code in (401, 403):
@@ -112,35 +115,73 @@ def _download_with_isolated_process(
     raise AssetDownloadError("Hugging Face asset download failed.") from RuntimeError(message)
 
 
-def _download_from_hub(
+def _download_to_target(
     source: HuggingFaceSource,
-    local_dir: Path,
-    hub_download: HubDownload | None,
+    target: Path,
+    hub_url: HubUrl | None,
+    open_url: UrlOpen | None,
     hugging_face_api_key: str | None,
-) -> str:
-    download = hub_download or _load_hub_download()
-    return download(
+) -> None:
+    temporary = target.with_suffix(target.suffix + ".part")
+    url = _resolve_hub_url(source, hub_url)
+    headers = {}
+    if hugging_face_api_key:
+        headers["Authorization"] = f"Bearer {hugging_face_api_key}"
+
+    try:
+        with (open_url or _open_request)(Request(url, headers=headers)) as response:
+            with temporary.open("wb") as output:
+                copyfileobj(response, output, CHUNK_SIZE)
+        temporary.replace(target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _resolve_hub_url(source: HuggingFaceSource, hub_url: HubUrl | None) -> str:
+    resolve_url = hub_url or _load_hub_url()
+    return resolve_url(
         repo_id=source.repository_id,
         filename=source.file_path,
         revision=source.revision,
         repo_type="model",
-        local_dir=str(local_dir),
-        token=hugging_face_api_key or False,
     )
 
 
-def _hub_download_process(
+def _open_request(request: Request):
+    return build_opener(_AuthorizationStrippingRedirectHandler()).open(request)
+
+
+class _AuthorizationStrippingRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and _host(req.full_url) != _host(newurl):
+            redirected.remove_header("Authorization")
+        return redirected
+
+
+def _host(url: str) -> str:
+    return urlparse(url).netloc.lower()
+
+
+def _download_process(
     source: HuggingFaceSource,
-    local_dir: str,
-    hub_download: HubDownload | None,
+    target: str,
+    hub_url: HubUrl | None,
+    open_url: UrlOpen | None,
     hugging_face_api_key: str | None,
     result_queue,
 ) -> None:
     try:
-        result_queue.put(("ok", _download_from_hub(source, Path(local_dir), hub_download, hugging_face_api_key)))
+        _download_to_target(source, Path(target), hub_url, open_url, hugging_face_api_key)
+        result_queue.put(("ok",))
     except BaseException as error:
         response = getattr(error, "response", None)
-        status_code = getattr(response, "status_code", None)
+        status_code = getattr(response, "status_code", None) or getattr(
+            error,
+            "code",
+            None,
+        )
         result_queue.put(("error", error.__class__.__name__, status_code, str(error)))
 
 
@@ -155,6 +196,8 @@ def _terminate_process(process) -> None:
 def _is_huggingface_auth_error(error: Exception) -> bool:
     if error.__class__.__name__ == "GatedRepoError":
         return True
+    if isinstance(error, HTTPError):
+        return error.code in (401, 403)
     response = getattr(error, "response", None)
     status_code = getattr(response, "status_code", None)
     return status_code in (401, 403)
