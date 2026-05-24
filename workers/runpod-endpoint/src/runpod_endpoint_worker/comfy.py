@@ -59,6 +59,12 @@ class ComfyImageOutput:
     output_type: str
 
 
+@dataclass(frozen=True)
+class FetchedImage:
+    image: GenerationImage
+    body: bytes
+
+
 class HttpClient:
     def get_json(self, url: str, timeout: float) -> Any:
         request = Request(url, method="GET")
@@ -169,9 +175,12 @@ class ComfyExecutor:
         if not outputs:
             raise ComfyNoOutputsError("ComfyUI completed without image outputs.")
 
-        images = [self._fetch_image(output, request, index) for index, output in enumerate(outputs, start=1)]
+        fetched_images = [self._fetch_image(output, request, index) for index, output in enumerate(outputs, start=1)]
+        images = [fetched.image for fetched in fetched_images]
         if sum(_image_metadata_size(image) for image in images) > self.config.max_response_bytes:
             raise ResponseTooLargeError("Generated image response metadata exceeds the response size limit.")
+        for fetched in fetched_images:
+            self._persist_image(fetched)
         return images
 
     def _run_workflow(self, workflow_path: Path) -> list[ComfyImageOutput]:
@@ -214,7 +223,7 @@ class ComfyExecutor:
             ) from error
         return parse_comfy_run_events(completed.stdout)
 
-    def _fetch_image(self, output: ComfyImageOutput, request: GenerationRequest, index: int) -> GenerationImage:
+    def _fetch_image(self, output: ComfyImageOutput, request: GenerationRequest, index: int) -> FetchedImage:
         query = urlencode(
             {
                 "filename": output.filename,
@@ -227,19 +236,27 @@ class ComfyExecutor:
         except Exception as error:
             raise ComfyOutputFetchError("ComfyUI generated output could not be fetched.") from error
         relative_path = _artifact_relative_path(request.job_id, output.filename, index)
-        target = self.config.workspace_mount_path / relative_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(body)
         relative_path_text = relative_path.as_posix()
-        return GenerationImage(
-            filename=output.filename,
-            mime_type=mimetypes.guess_type(output.filename)[0] or "application/octet-stream",
-            byte_size=len(body),
-            sha256=hashlib.sha256(body).hexdigest(),
-            artifact_uri=f"runpod-volume://{relative_path_text}",
-            storage_type="runpod_volume",
-            relative_path=relative_path_text,
+        return FetchedImage(
+            image=GenerationImage(
+                filename=output.filename,
+                mime_type=mimetypes.guess_type(output.filename)[0] or "application/octet-stream",
+                byte_size=len(body),
+                sha256=hashlib.sha256(body).hexdigest(),
+                artifact_uri=f"runpod-volume://{relative_path_text}",
+                storage_type="runpod_volume",
+                relative_path=relative_path_text,
+            ),
+            body=body,
         )
+
+    def _persist_image(self, fetched: FetchedImage) -> None:
+        target = self.config.workspace_mount_path / fetched.image.relative_path
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(fetched.body)
+        except OSError as error:
+            raise ComfyOutputFetchError("ComfyUI generated output could not be persisted.") from error
 
 
 def _artifact_relative_path(job_id: str, filename: str, index: int) -> Path:

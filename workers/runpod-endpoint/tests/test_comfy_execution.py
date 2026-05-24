@@ -549,6 +549,46 @@ class ComfyExecutionTests(unittest.TestCase):
                             stderr="",
                         )
                         executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+            artifact_output_exists = (config.workspace_mount_path / "luma-forge/outputs").exists()
+
+        self.assertFalse(artifact_output_exists)
+
+    def test_executor_artifact_write_failure_uses_output_fetch_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = _endpoint_config_with_required_models(directory)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyOutputFetchError) as context:
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        with patch("pathlib.Path.write_bytes", side_effect=OSError("disk full")):
+                            run.return_value = subprocess.CompletedProcess(
+                                args=[],
+                                returncode=0,
+                                stdout="\n".join(
+                                    [
+                                        json.dumps(
+                                            {
+                                                "event": "completed",
+                                                "outputs": [
+                                                    {
+                                                        "category": "images",
+                                                        "filename": "ComfyUI_00001_.png",
+                                                        "subfolder": "",
+                                                        "type": "output",
+                                                    }
+                                                ],
+                                            }
+                                        ),
+                                    ]
+                                ),
+                                stderr="",
+                            )
+                            executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
+        self.assertEqual(context.exception.stage, "output_fetch")
 
     def test_executor_workflow_failure_keeps_stable_message_and_includes_diagnostic_excerpt(self):
         with tempfile.TemporaryDirectory() as directory:
