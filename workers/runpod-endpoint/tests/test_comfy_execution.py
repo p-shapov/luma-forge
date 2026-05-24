@@ -171,7 +171,9 @@ class ComfyExecutionTests(unittest.TestCase):
                 runtime.ensure_ready()
 
         self.assertEqual(context.exception.code, "comfyui_launch_failed")
+        self.assertEqual(context.exception.stage, "comfyui_launch")
         self.assertEqual(context.exception.message, "ComfyUI failed to launch. Process exited with status 1.")
+        self.assertEqual(context.exception.metadata, {"exit_status": 1})
         self.assertNotIn("CUDA driver unavailable", context.exception.message)
 
     def test_parse_completed_events_extracts_image_outputs(self):
@@ -398,6 +400,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "comfyui_workflow_failed")
         self.assertEqual(context.exception.message, "ComfyUI workflow execution failed. Process exited with status 1.")
+        self.assertEqual(context.exception.metadata, {"exit_status": 1})
         self.assertNotIn("Prompt outputs failed validation", context.exception.message)
 
     def test_executor_workflow_timeout_uses_specific_code(self):
@@ -414,6 +417,7 @@ class ComfyExecutionTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "comfyui_workflow_timeout")
         self.assertEqual(context.exception.message, "ComfyUI workflow execution timed out. Timed out after 1 seconds.")
+        self.assertEqual(context.exception.metadata, {"timeout_seconds": 1})
         self.assertNotIn("workflow stalled", context.exception.message)
 
     def test_executor_output_fetch_failure_uses_specific_code(self):

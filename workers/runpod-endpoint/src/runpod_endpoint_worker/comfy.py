@@ -102,9 +102,15 @@ class ComfyRuntime:
                 timeout=self.config.comfyui_startup_timeout_seconds,
             )
         except subprocess.TimeoutExpired as error:
-            raise ComfyStartupTimeoutError(_process_failure_message("ComfyUI startup timed out.", error)) from error
+            raise ComfyStartupTimeoutError(
+                _process_failure_message("ComfyUI startup timed out.", error),
+                metadata=_process_failure_metadata(error),
+            ) from error
         except (OSError, subprocess.SubprocessError) as error:
-            raise ComfyLaunchError(_process_failure_message("ComfyUI failed to launch.", error)) from error
+            raise ComfyLaunchError(
+                _process_failure_message("ComfyUI failed to launch.", error),
+                metadata=_process_failure_metadata(error),
+            ) from error
 
     def _is_ready(self) -> bool:
         try:
@@ -171,9 +177,15 @@ class ComfyExecutor:
                 timeout=self.config.execution_timeout_seconds,
             )
         except subprocess.TimeoutExpired as error:
-            raise ComfyWorkflowTimeoutError(_process_failure_message("ComfyUI workflow execution timed out.", error)) from error
+            raise ComfyWorkflowTimeoutError(
+                _process_failure_message("ComfyUI workflow execution timed out.", error),
+                metadata=_process_failure_metadata(error),
+            ) from error
         except (OSError, subprocess.SubprocessError) as error:
-            raise ComfyWorkflowError(_process_failure_message("ComfyUI workflow execution failed.", error)) from error
+            raise ComfyWorkflowError(
+                _process_failure_message("ComfyUI workflow execution failed.", error),
+                metadata=_process_failure_metadata(error),
+            ) from error
         return parse_comfy_run_events(completed.stdout)
 
     def _fetch_image(self, output: ComfyImageOutput) -> GenerationImage:
@@ -282,6 +294,14 @@ def _process_failure_message(prefix: str, error: BaseException) -> str:
     if isinstance(error, subprocess.CalledProcessError):
         return f"{prefix} Process exited with status {error.returncode}."
     return prefix
+
+
+def _process_failure_metadata(error: BaseException) -> dict[str, object]:
+    if isinstance(error, subprocess.TimeoutExpired) and error.timeout is not None:
+        return {"timeout_seconds": error.timeout}
+    if isinstance(error, subprocess.CalledProcessError):
+        return {"exit_status": error.returncode}
+    return {}
 
 
 def _write_extra_model_paths_config(config: EndpointConfig) -> Path:
