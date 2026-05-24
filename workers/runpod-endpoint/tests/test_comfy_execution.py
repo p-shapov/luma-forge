@@ -77,7 +77,31 @@ class ComfyExecutionTests(unittest.TestCase):
     def test_parse_completed_events_extracts_image_outputs(self):
         events = "\n".join(
             [
-                json.dumps({"type": "progress", "value": 1}),
+                json.dumps({"event": "node_progress", "value": 1}),
+                json.dumps(
+                    {
+                        "event": "node_executed",
+                        "outputs": [
+                            {
+                                "category": "images",
+                                "filename": "ComfyUI_00001_.png",
+                                "subfolder": "",
+                                "type": "output",
+                            }
+                        ],
+                    }
+                ),
+                json.dumps({"event": "completed"}),
+            ]
+        )
+
+        outputs = parse_comfy_run_events(events)
+
+        self.assertEqual(outputs[0].filename, "ComfyUI_00001_.png")
+
+    def test_parse_accepts_legacy_websocket_shaped_events(self):
+        events = "\n".join(
+            [
                 json.dumps(
                     {
                         "type": "executed",
@@ -139,21 +163,18 @@ class ComfyExecutionTests(unittest.TestCase):
                             [
                                 json.dumps(
                                     {
-                                        "type": "executed",
-                                        "data": {
-                                            "output": {
-                                                "images": [
-                                                    {
-                                                        "filename": "ComfyUI_00001_.png",
-                                                        "subfolder": "",
-                                                        "type": "output",
-                                                    }
-                                                ]
+                                        "event": "node_executed",
+                                        "outputs": [
+                                            {
+                                                "category": "images",
+                                                "filename": "ComfyUI_00001_.png",
+                                                "subfolder": "",
+                                                "type": "output",
                                             }
-                                        },
+                                        ],
                                     }
                                 ),
-                                json.dumps({"type": "execution_success"}),
+                                json.dumps({"event": "completed"}),
                             ]
                         ),
                         stderr="",
@@ -163,6 +184,13 @@ class ComfyExecutionTests(unittest.TestCase):
 
         ready.assert_called_once()
         command = run.call_args.args[0]
+        self.assertIn("--host", command)
+        self.assertIn(config.comfyui_host, command)
+        self.assertIn("--port", command)
+        self.assertIn(str(config.comfyui_port), command)
+        self.assertIn("--timeout", command)
+        self.assertIn(str(config.execution_timeout_seconds), command)
+        self.assertNotIn("--address", command)
         self.assertIn("--wait", command)
         self.assertEqual(images[0].data_base64, base64.b64encode(b"png").decode("ascii"))
         self.assertEqual(images[0].mime_type, "image/png")

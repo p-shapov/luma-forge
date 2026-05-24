@@ -130,9 +130,13 @@ class ComfyExecutor:
             "run",
             "--workflow",
             str(workflow_path),
-            "--address",
-            f"http://{self.config.comfyui_host}:{self.config.comfyui_port}",
+            "--host",
+            self.config.comfyui_host,
+            "--port",
+            str(self.config.comfyui_port),
             "--wait",
+            "--timeout",
+            str(self.config.execution_timeout_seconds),
             "--json",
         ]
         try:
@@ -176,7 +180,7 @@ def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
         if not isinstance(event, dict):
             raise ComfyExecutionError("Comfy CLI emitted an unexpected JSON event.")
 
-        event_type = event.get("type")
+        event_type = event.get("event") or event.get("type")
         if event_type in {"execution_success", "completed", "success"}:
             completed = True
         outputs.extend(_event_images(event))
@@ -189,16 +193,27 @@ def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
 
 
 def _event_images(event: dict[str, Any]) -> list[ComfyImageOutput]:
+    parsed = _output_images(event.get("outputs"))
+    if parsed:
+        return parsed
+
     output = _find_output(event)
     if not isinstance(output, dict):
         return []
     images = output.get("images")
+    return _output_images(images)
+
+
+def _output_images(images: Any) -> list[ComfyImageOutput]:
     if not isinstance(images, list):
         return []
 
     parsed: list[ComfyImageOutput] = []
     for image in images:
         if not isinstance(image, dict) or not isinstance(image.get("filename"), str):
+            continue
+        category = image.get("category")
+        if isinstance(category, str) and category != "images":
             continue
         parsed.append(
             ComfyImageOutput(
