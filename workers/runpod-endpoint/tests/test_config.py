@@ -37,6 +37,7 @@ class EndpointConfigTests(TestCase):
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT": "8199",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS": "12",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS": "34",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES": "56",
             },
             clear=True,
         ):
@@ -49,3 +50,4 @@ class EndpointConfigTests(TestCase):
         self.assertEqual(config.comfyui_port, 8199)
         self.assertEqual(config.comfyui_startup_timeout_seconds, 12)
         self.assertEqual(config.execution_timeout_seconds, 34)
+        self.assertEqual(config.max_response_bytes, 56)

@@ -2,6 +2,8 @@ import base64
 import json
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -32,9 +34,41 @@ class FakeHttpClient:
 
 
 class ComfyExecutionTests(unittest.TestCase):
+    def test_runtime_launch_is_serialized_during_concurrent_cold_start(self):
+        class RacingRuntime(ComfyRuntime):
+            def __init__(self, *, config, http_client):
+                super().__init__(config=config, http_client=http_client)
+                self.barrier = threading.Barrier(2)
+                self.launch_count = 0
+                self.ready_checks = 0
+
+            def _is_ready(self):
+                self.ready_checks += 1
+                if self.ready_checks <= 2:
+                    self.barrier.wait(1)
+                    return False
+                return self.launch_count > 0
+
+            def _launch(self):
+                self.launch_count += 1
+                time.sleep(0.01)
+
+        runtime = RacingRuntime(
+            config=EndpointConfig(comfy_ui_ready_poll_seconds=0, comfyui_startup_timeout_seconds=1),
+            http_client=FakeHttpClient(),
+        )
+        threads = [threading.Thread(target=runtime.ensure_ready) for _ in range(2)]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(runtime.launch_count, 1)
+
     def test_runtime_launches_comfyui_once_and_reuses_ready_server(self):
         with tempfile.TemporaryDirectory() as directory:
-            client = FakeHttpClient(ready_after=2)
+            client = FakeHttpClient(ready_after=3)
             config = EndpointConfig(
                 comfy_ui_ready_poll_seconds=0,
                 comfyui_startup_timeout_seconds=1,
@@ -97,6 +131,25 @@ class ComfyExecutionTests(unittest.TestCase):
 
         outputs = parse_comfy_run_events(events)
 
+        self.assertEqual(outputs[0].filename, "ComfyUI_00001_.png")
+
+    def test_parse_uses_terminal_outputs_without_duplicate_node_outputs(self):
+        output = {
+            "category": "images",
+            "filename": "ComfyUI_00001_.png",
+            "subfolder": "",
+            "type": "output",
+        }
+        events = "\n".join(
+            [
+                json.dumps({"event": "node_executed", "outputs": [output]}),
+                json.dumps({"event": "completed", "outputs": [output]}),
+            ]
+        )
+
+        outputs = parse_comfy_run_events(events)
+
+        self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0].filename, "ComfyUI_00001_.png")
 
     def test_parse_accepts_legacy_websocket_shaped_events(self):
@@ -195,6 +248,104 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertEqual(images[0].data_base64, base64.b64encode(b"png").decode("ascii"))
         self.assertEqual(images[0].mime_type, "image/png")
         self.assertEqual(images[0].filename, "ComfyUI_00001_.png")
+
+    def test_executor_normalizes_wildcard_host_for_local_http_fetches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "workflow.json"
+            workflow.write_text(
+                json.dumps(
+                    {
+                        "nodes": [
+                            {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
+                            {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
+                            {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
+                            {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = FakeHttpClient(image_body=b"png")
+            config = EndpointConfig(workflow_path=workflow, comfyui_host="0.0.0.0")
+            runtime = ComfyRuntime(config=config, http_client=client)
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
+
+            with patch.object(runtime, "ensure_ready"):
+                with patch("subprocess.run") as run:
+                    run.return_value = subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout="\n".join(
+                            [
+                                json.dumps(
+                                    {
+                                        "event": "completed",
+                                        "outputs": [
+                                            {
+                                                "category": "images",
+                                                "filename": "ComfyUI_00001_.png",
+                                                "subfolder": "",
+                                                "type": "output",
+                                            }
+                                        ],
+                                    }
+                                ),
+                            ]
+                        ),
+                        stderr="",
+                    )
+
+                    executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
+
+        self.assertTrue(any(url.startswith("http://127.0.0.1:") for url in client.urls))
+        self.assertFalse(any(url.startswith("http://0.0.0.0:") for url in client.urls))
+
+    def test_executor_rejects_inline_response_that_exceeds_configured_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "workflow.json"
+            workflow.write_text(
+                json.dumps(
+                    {
+                        "nodes": [
+                            {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
+                            {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
+                            {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
+                            {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            config = EndpointConfig(workflow_path=workflow, max_response_bytes=3)
+            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
+            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
+
+            with self.assertRaises(ComfyExecutionError):
+                with patch.object(runtime, "ensure_ready"):
+                    with patch("subprocess.run") as run:
+                        run.return_value = subprocess.CompletedProcess(
+                            args=[],
+                            returncode=0,
+                            stdout="\n".join(
+                                [
+                                    json.dumps(
+                                        {
+                                            "event": "completed",
+                                            "outputs": [
+                                                {
+                                                    "category": "images",
+                                                    "filename": "ComfyUI_00001_.png",
+                                                    "subfolder": "",
+                                                    "type": "output",
+                                                }
+                                            ],
+                                        }
+                                    ),
+                                ]
+                            ),
+                            stderr="",
+                        )
+                        executor.generate(GenerationRequest(execution_type="t2i", prompt="new prompt"))
 
 
 if __name__ == "__main__":

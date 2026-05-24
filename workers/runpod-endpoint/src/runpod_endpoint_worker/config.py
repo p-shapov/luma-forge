@@ -14,6 +14,7 @@ class EndpointConfig:
     comfyui_startup_timeout_seconds: int = 300
     comfy_ui_ready_poll_seconds: float = 1.0
     execution_timeout_seconds: int = 900
+    max_response_bytes: int = 9_000_000
     max_prompt_chars: int = 4000
     supported_execution_types: tuple[str, ...] = ("t2i",)
 
@@ -34,6 +35,7 @@ class EndpointConfig:
             comfyui_port=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT", 8188),
             comfyui_startup_timeout_seconds=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS", 300),
             execution_timeout_seconds=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS", 900),
+            max_response_bytes=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES", 9_000_000),
             max_prompt_chars=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS", 4000),
             supported_execution_types=tuple(_csv("LUMA_FORGE_RUNPOD_ENDPOINT_SUPPORTED_EXECUTION_TYPES", ("t2i",))),
         )

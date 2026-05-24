@@ -5,6 +5,7 @@ import json
 import mimetypes
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,9 @@ from runpod_endpoint_worker.config import EndpointConfig
 from runpod_endpoint_worker.errors import ComfyExecutionError, ComfyStartupError
 from runpod_endpoint_worker.schemas import GenerationImage, GenerationRequest
 from runpod_endpoint_worker.workflow import write_patched_workflow
+
+
+_COMFY_STARTUP_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -48,15 +52,20 @@ class ComfyRuntime:
             self.ready = True
             return
 
-        self._launch()
-        deadline = time.monotonic() + self.config.comfyui_startup_timeout_seconds
-        while time.monotonic() <= deadline:
+        with _COMFY_STARTUP_LOCK:
             if self._is_ready():
                 self.ready = True
                 return
-            time.sleep(self.config.comfy_ui_ready_poll_seconds)
 
-        raise ComfyStartupError("ComfyUI did not become ready before the startup timeout.")
+            self._launch()
+            deadline = time.monotonic() + self.config.comfyui_startup_timeout_seconds
+            while time.monotonic() <= deadline:
+                if self._is_ready():
+                    self.ready = True
+                    return
+                time.sleep(self.config.comfy_ui_ready_poll_seconds)
+
+            raise ComfyStartupError("ComfyUI did not become ready before the startup timeout.")
 
     def _launch(self) -> None:
         extra_model_paths_config = _write_extra_model_paths_config(self.config)
@@ -119,7 +128,10 @@ class ComfyExecutor:
         if not outputs:
             raise ComfyExecutionError("ComfyUI completed without image outputs.")
 
-        return [self._fetch_image(output) for output in outputs]
+        images = [self._fetch_image(output) for output in outputs]
+        if sum(len(image.data_base64) for image in images) > self.config.max_response_bytes:
+            raise ComfyExecutionError("Generated image response exceeds the inline response size limit.")
+        return images
 
     def _run_workflow(self, workflow_path: Path) -> list[ComfyImageOutput]:
         command = [
@@ -131,7 +143,7 @@ class ComfyExecutor:
             "--workflow",
             str(workflow_path),
             "--host",
-            self.config.comfyui_host,
+            _connect_host(self.config.comfyui_host),
             "--port",
             str(self.config.comfyui_port),
             "--wait",
@@ -168,7 +180,8 @@ class ComfyExecutor:
 
 
 def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
-    outputs: list[ComfyImageOutput] = []
+    node_outputs: list[ComfyImageOutput] = []
+    terminal_outputs: list[ComfyImageOutput] = []
     completed = False
     for line in stdout.splitlines():
         if line.strip() == "":
@@ -183,10 +196,13 @@ def parse_comfy_run_events(stdout: str) -> list[ComfyImageOutput]:
         event_type = event.get("event") or event.get("type")
         if event_type in {"execution_success", "completed", "success"}:
             completed = True
-        outputs.extend(_event_images(event))
+            terminal_outputs.extend(_event_images(event))
+        else:
+            node_outputs.extend(_event_images(event))
 
     if not completed:
         raise ComfyExecutionError("Comfy CLI did not report workflow completion.")
+    outputs = terminal_outputs or node_outputs
     if not outputs:
         raise ComfyExecutionError("ComfyUI completed without image outputs.")
     return outputs
@@ -235,7 +251,11 @@ def _find_output(event: dict[str, Any]) -> Any:
 
 
 def _url(config: EndpointConfig, path: str) -> str:
-    return f"http://{config.comfyui_host}:{config.comfyui_port}{path}"
+    return f"http://{_connect_host(config.comfyui_host)}:{config.comfyui_port}{path}"
+
+
+def _connect_host(host: str) -> str:
+    return "127.0.0.1" if host == "0.0.0.0" else host
 
 
 def _write_extra_model_paths_config(config: EndpointConfig) -> Path:
