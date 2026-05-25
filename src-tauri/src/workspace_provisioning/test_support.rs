@@ -26,7 +26,7 @@ use crate::{
         HuggingFaceApiKeyStore, ProviderKeyStore, ProvisionerTokenStore,
         ProvisionerWorkerBearerToken, SecretStoreError,
     },
-    workspace_catalog::repository::{DeleteWorkspaceResult, WorkspaceCatalogRepository},
+    workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_resources::{WorkspaceResourceError, WorkspaceResourceOperationResult},
     workspace_setup::error::WorkspaceSetupError,
 };
@@ -401,8 +401,7 @@ impl WorkspaceCatalogRepository for FakeWorkspaceCatalog {
     fn delete_workspace<'a>(
         &'a self,
         id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
         Box::pin(async move {
             let mut workspace = self.workspace.lock().expect("fake workspace");
             if workspace
@@ -410,7 +409,7 @@ impl WorkspaceCatalogRepository for FakeWorkspaceCatalog {
                 .is_some_and(|workspace| workspace.id == id)
             {
                 *workspace = None;
-                return Ok(DeleteWorkspaceResult::Deleted);
+                return Ok(());
             }
             Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
         })

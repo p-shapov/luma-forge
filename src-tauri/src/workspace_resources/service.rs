@@ -158,7 +158,7 @@ mod tests {
             HuggingFaceApiKeyStore, ProviderKeyStore, ProvisionerTokenStore,
             ProvisionerWorkerBearerToken, SecretStoreError,
         },
-        workspace_catalog::repository::{DeleteWorkspaceResult, WorkspaceCatalogRepository},
+        workspace_catalog::repository::WorkspaceCatalogRepository,
         workspace_resources::providers::{
             WorkspaceResourceProvider, WorkspaceResourceProviderResolver,
         },
@@ -419,11 +419,7 @@ mod tests {
         fn delete_workspace<'a>(
             &'a self,
             _id: &'a str,
-        ) -> Pin<
-            Box<
-                dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a,
-            >,
-        > {
+        ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
             Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
         }
     }

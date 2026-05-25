@@ -131,7 +131,7 @@ function recoveryHint(recoveryAction: string | null): string | null {
     case "refresh_workspace_catalog":
       return "Refresh the workspace catalog before creating another workspace.";
     case "refresh_workspace":
-      return "Refresh the workspace catalog, then retry the command.";
+      return "Refresh the workspace catalog, then retry the provisioning command.";
     case "change_request":
       return "Change the highlighted request value and retry.";
     case "inspect_workspace_provisioning":

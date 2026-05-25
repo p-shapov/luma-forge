@@ -186,181 +186,73 @@ impl From<WorkspaceProvisioningError> for NativeCommandError {
 
 impl From<WorkspaceRemovalError> for NativeCommandError {
     fn from(error: WorkspaceRemovalError) -> Self {
-        Self {
-            code: removal_error_code(&error),
-            message: removal_error_message(&error).to_string(),
-            retryable: removal_error_retryable(&error),
-            field: removal_error_field(&error).map(str::to_string),
-            recovery_action: removal_error_recovery_action(&error).map(str::to_string),
-        }
-    }
-}
-
-fn removal_error_code(error: &WorkspaceRemovalError) -> NativeCommandErrorCode {
-    match error {
-        WorkspaceRemovalError::WorkspaceNotFound => NativeCommandErrorCode::WorkspaceNotFound,
-        WorkspaceRemovalError::InvalidWorkspaceLifecycle => {
-            NativeCommandErrorCode::InvalidWorkspaceLifecycle
-        }
-        WorkspaceRemovalError::WorkspaceCatalogUnavailable => {
-            NativeCommandErrorCode::WorkspaceCatalogUnavailable
-        }
-        WorkspaceRemovalError::WorkspaceCatalogStorageUnavailable => {
-            NativeCommandErrorCode::WorkspaceCatalogStorageUnavailable
-        }
-        WorkspaceRemovalError::WorkspaceCatalogMigrationFailed => {
-            NativeCommandErrorCode::WorkspaceCatalogMigrationFailed
-        }
-        WorkspaceRemovalError::WorkspaceCatalogQueryFailed => {
-            NativeCommandErrorCode::WorkspaceCatalogQueryFailed
-        }
-        WorkspaceRemovalError::WorkspaceCatalogCorrupt => {
-            NativeCommandErrorCode::WorkspaceCatalogCorrupt
-        }
-        WorkspaceRemovalError::WorkspaceCatalogSchemaMismatch => {
-            NativeCommandErrorCode::WorkspaceCatalogSchemaMismatch
-        }
-        WorkspaceRemovalError::ProviderSetupIncomplete => {
-            NativeCommandErrorCode::ProviderSetupIncomplete
-        }
-        WorkspaceRemovalError::ProviderApiKeyUnauthorized => {
-            NativeCommandErrorCode::ProviderApiKeyUnauthorized
-        }
-        WorkspaceRemovalError::ProviderApiUnavailable => {
-            NativeCommandErrorCode::ProviderApiUnavailable
-        }
-        WorkspaceRemovalError::ProviderRateLimited => NativeCommandErrorCode::ProviderRateLimited,
-        WorkspaceRemovalError::ProviderRequestRejected => {
-            NativeCommandErrorCode::ProviderRequestRejected
-        }
-        WorkspaceRemovalError::ProviderResponseInvalid => {
-            NativeCommandErrorCode::ProviderResponseInvalid
-        }
-        WorkspaceRemovalError::ProviderResourceNotFound => {
-            NativeCommandErrorCode::ProviderResourceNotFound
-        }
-        WorkspaceRemovalError::ProviderOrphanedResources => {
-            NativeCommandErrorCode::ProviderOrphanedResources
-        }
-        WorkspaceRemovalError::ProviderOperationConflict => {
-            NativeCommandErrorCode::ProviderOperationConflict
-        }
-        WorkspaceRemovalError::ProviderOperationIndeterminate => {
-            NativeCommandErrorCode::ProviderOperationIndeterminate
-        }
-        WorkspaceRemovalError::HuggingFaceApiKeySetupRequired => {
-            NativeCommandErrorCode::HuggingFaceApiKeySetupRequired
-        }
-        WorkspaceRemovalError::SecureKeyringUnavailable => {
-            NativeCommandErrorCode::SecureKeyringUnavailable
-        }
-        WorkspaceRemovalError::ProvisionerWorkerTokenInvalid => {
-            NativeCommandErrorCode::ProvisionerWorkerTokenInvalid
-        }
-        WorkspaceRemovalError::CleanupFailed => NativeCommandErrorCode::CleanupFailed,
-    }
-}
-
-fn removal_error_retryable(error: &WorkspaceRemovalError) -> bool {
-    matches!(
-        error,
-        WorkspaceRemovalError::WorkspaceCatalogUnavailable
-            | WorkspaceRemovalError::WorkspaceCatalogStorageUnavailable
-            | WorkspaceRemovalError::WorkspaceCatalogMigrationFailed
-            | WorkspaceRemovalError::WorkspaceCatalogQueryFailed
-            | WorkspaceRemovalError::ProviderApiUnavailable
-            | WorkspaceRemovalError::ProviderRateLimited
-            | WorkspaceRemovalError::ProviderOperationConflict
-            | WorkspaceRemovalError::ProviderOperationIndeterminate
-            | WorkspaceRemovalError::SecureKeyringUnavailable
-            | WorkspaceRemovalError::CleanupFailed
-    )
-}
-
-fn removal_error_message(error: &WorkspaceRemovalError) -> &'static str {
-    match error {
-        WorkspaceRemovalError::WorkspaceNotFound => "Workspace was not found.",
-        WorkspaceRemovalError::InvalidWorkspaceLifecycle => {
-            "Workspace lifecycle does not allow removal."
-        }
-        WorkspaceRemovalError::WorkspaceCatalogUnavailable => "Workspace catalog is unavailable.",
-        WorkspaceRemovalError::WorkspaceCatalogStorageUnavailable => {
-            "Workspace catalog storage is unavailable."
-        }
-        WorkspaceRemovalError::WorkspaceCatalogMigrationFailed => {
-            "Workspace catalog migration failed."
-        }
-        WorkspaceRemovalError::WorkspaceCatalogQueryFailed => "Workspace catalog query failed.",
-        WorkspaceRemovalError::WorkspaceCatalogCorrupt => "Workspace catalog data is corrupt.",
-        WorkspaceRemovalError::WorkspaceCatalogSchemaMismatch => {
-            "Workspace catalog row data is inconsistent."
-        }
-        WorkspaceRemovalError::ProviderSetupIncomplete => "GPU cloud provider setup is incomplete.",
-        WorkspaceRemovalError::ProviderApiKeyUnauthorized => "Provider API key is not authorized.",
-        WorkspaceRemovalError::ProviderApiUnavailable => "Provider API is unavailable.",
-        WorkspaceRemovalError::ProviderRateLimited => "Provider API rate limit was reached.",
-        WorkspaceRemovalError::ProviderRequestRejected => "Provider cleanup request was rejected.",
-        WorkspaceRemovalError::ProviderResponseInvalid => "Provider cleanup response is invalid.",
-        WorkspaceRemovalError::ProviderResourceNotFound => "Provider resource was not found.",
-        WorkspaceRemovalError::ProviderOrphanedResources => {
-            "Provider has workspace-owned resources that cannot be safely cleaned up."
-        }
-        WorkspaceRemovalError::ProviderOperationConflict => {
-            "Provider cleanup operation is currently in conflict."
-        }
-        WorkspaceRemovalError::ProviderOperationIndeterminate => {
-            "Provider cleanup operation result is indeterminate."
-        }
-        WorkspaceRemovalError::HuggingFaceApiKeySetupRequired => {
-            "Hugging Face API key setup is required."
-        }
-        WorkspaceRemovalError::SecureKeyringUnavailable => "Secure keyring is unavailable.",
-        WorkspaceRemovalError::ProvisionerWorkerTokenInvalid => {
-            "Provisioner worker token is invalid."
-        }
-        WorkspaceRemovalError::CleanupFailed => "Workspace resource cleanup failed.",
-    }
-}
-
-fn removal_error_field(error: &WorkspaceRemovalError) -> Option<&'static str> {
-    match error {
-        WorkspaceRemovalError::WorkspaceNotFound => Some("workspace_id"),
-        WorkspaceRemovalError::ProviderApiKeyUnauthorized => Some("provider_api_key"),
-        WorkspaceRemovalError::HuggingFaceApiKeySetupRequired => Some("hugging_face_api_key"),
-        _ => None,
-    }
-}
-
-fn removal_error_recovery_action(error: &WorkspaceRemovalError) -> Option<&'static str> {
-    match error {
-        WorkspaceRemovalError::WorkspaceNotFound => Some("refresh_workspace_catalog"),
-        WorkspaceRemovalError::InvalidWorkspaceLifecycle => Some("refresh_workspace"),
-        WorkspaceRemovalError::WorkspaceCatalogUnavailable
-        | WorkspaceRemovalError::WorkspaceCatalogStorageUnavailable
-        | WorkspaceRemovalError::WorkspaceCatalogMigrationFailed
-        | WorkspaceRemovalError::WorkspaceCatalogQueryFailed
-        | WorkspaceRemovalError::ProviderApiUnavailable
-        | WorkspaceRemovalError::ProviderRateLimited
-        | WorkspaceRemovalError::ProviderOperationConflict
-        | WorkspaceRemovalError::ProviderOperationIndeterminate
-        | WorkspaceRemovalError::CleanupFailed
-        | WorkspaceRemovalError::SecureKeyringUnavailable => Some("retry"),
-        WorkspaceRemovalError::WorkspaceCatalogCorrupt
-        | WorkspaceRemovalError::WorkspaceCatalogSchemaMismatch => {
-            Some("recover_workspace_catalog")
-        }
-        WorkspaceRemovalError::ProviderSetupIncomplete
-        | WorkspaceRemovalError::ProviderApiKeyUnauthorized => Some("recover_provider_setup"),
-        WorkspaceRemovalError::HuggingFaceApiKeySetupRequired => {
-            Some("configure_hugging_face_setup")
-        }
-        WorkspaceRemovalError::ProviderRequestRejected
-        | WorkspaceRemovalError::ProviderResponseInvalid
-        | WorkspaceRemovalError::ProviderResourceNotFound
-        | WorkspaceRemovalError::ProviderOrphanedResources
-        | WorkspaceRemovalError::ProvisionerWorkerTokenInvalid => {
-            Some("cleanup_workspace_resources")
-        }
+        let provisioning_error = match error {
+            WorkspaceRemovalError::WorkspaceNotFound => {
+                WorkspaceProvisioningError::WorkspaceNotFound
+            }
+            WorkspaceRemovalError::InvalidWorkspaceLifecycle => {
+                WorkspaceProvisioningError::InvalidWorkspaceLifecycle
+            }
+            WorkspaceRemovalError::WorkspaceCatalogUnavailable => {
+                WorkspaceProvisioningError::WorkspaceCatalogUnavailable
+            }
+            WorkspaceRemovalError::WorkspaceCatalogStorageUnavailable => {
+                WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable
+            }
+            WorkspaceRemovalError::WorkspaceCatalogMigrationFailed => {
+                WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
+            }
+            WorkspaceRemovalError::WorkspaceCatalogQueryFailed => {
+                WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
+            }
+            WorkspaceRemovalError::WorkspaceCatalogCorrupt => {
+                WorkspaceProvisioningError::WorkspaceCatalogCorrupt
+            }
+            WorkspaceRemovalError::WorkspaceCatalogSchemaMismatch => {
+                WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch
+            }
+            WorkspaceRemovalError::ProviderSetupIncomplete => {
+                WorkspaceProvisioningError::ProviderSetupIncomplete
+            }
+            WorkspaceRemovalError::ProviderApiKeyUnauthorized => {
+                WorkspaceProvisioningError::ProviderApiKeyUnauthorized
+            }
+            WorkspaceRemovalError::ProviderApiUnavailable => {
+                WorkspaceProvisioningError::ProviderApiUnavailable
+            }
+            WorkspaceRemovalError::ProviderRateLimited => {
+                WorkspaceProvisioningError::ProviderRateLimited
+            }
+            WorkspaceRemovalError::ProviderRequestRejected => {
+                WorkspaceProvisioningError::ProviderRequestRejected
+            }
+            WorkspaceRemovalError::ProviderResponseInvalid => {
+                WorkspaceProvisioningError::ProviderResponseInvalid
+            }
+            WorkspaceRemovalError::ProviderResourceNotFound => {
+                WorkspaceProvisioningError::ProviderResourceNotFound
+            }
+            WorkspaceRemovalError::ProviderOrphanedResources => {
+                WorkspaceProvisioningError::ProviderOrphanedResources
+            }
+            WorkspaceRemovalError::ProviderOperationConflict => {
+                WorkspaceProvisioningError::ProviderOperationConflict
+            }
+            WorkspaceRemovalError::ProviderOperationIndeterminate => {
+                WorkspaceProvisioningError::ProviderOperationIndeterminate
+            }
+            WorkspaceRemovalError::HuggingFaceApiKeySetupRequired => {
+                WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired
+            }
+            WorkspaceRemovalError::SecureKeyringUnavailable => {
+                WorkspaceProvisioningError::SecureKeyringUnavailable
+            }
+            WorkspaceRemovalError::ProvisionerWorkerTokenInvalid => {
+                WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
+            }
+            WorkspaceRemovalError::CleanupFailed => WorkspaceProvisioningError::CleanupFailed,
+        };
+        NativeCommandError::from(provisioning_error)
     }
 }
 
@@ -1092,71 +984,6 @@ mod tests {
             ),
             (
                 WorkspaceProvisioningError::ProviderApiKeyUnauthorized,
-                NativeCommandErrorCode::ProviderApiKeyUnauthorized,
-                false,
-                Some("provider_api_key"),
-                "recover_provider_setup",
-            ),
-        ] {
-            let command_error = NativeCommandError::from(error);
-
-            assert_eq!(command_error.code, code);
-            assert_eq!(command_error.retryable, retryable);
-            assert_eq!(command_error.field.as_deref(), field);
-            assert_eq!(
-                command_error.recovery_action.as_deref(),
-                Some(recovery_action)
-            );
-        }
-    }
-
-    #[test]
-    fn removal_command_errors_map_cleanup_recovery_metadata() {
-        for (error, code, retryable, field, recovery_action) in [
-            (
-                WorkspaceRemovalError::WorkspaceNotFound,
-                NativeCommandErrorCode::WorkspaceNotFound,
-                false,
-                Some("workspace_id"),
-                "refresh_workspace_catalog",
-            ),
-            (
-                WorkspaceRemovalError::InvalidWorkspaceLifecycle,
-                NativeCommandErrorCode::InvalidWorkspaceLifecycle,
-                false,
-                None,
-                "refresh_workspace",
-            ),
-            (
-                WorkspaceRemovalError::ProviderOperationConflict,
-                NativeCommandErrorCode::ProviderOperationConflict,
-                true,
-                None,
-                "retry",
-            ),
-            (
-                WorkspaceRemovalError::CleanupFailed,
-                NativeCommandErrorCode::CleanupFailed,
-                true,
-                None,
-                "retry",
-            ),
-            (
-                WorkspaceRemovalError::ProviderRequestRejected,
-                NativeCommandErrorCode::ProviderRequestRejected,
-                false,
-                None,
-                "cleanup_workspace_resources",
-            ),
-            (
-                WorkspaceRemovalError::ProvisionerWorkerTokenInvalid,
-                NativeCommandErrorCode::ProvisionerWorkerTokenInvalid,
-                false,
-                None,
-                "cleanup_workspace_resources",
-            ),
-            (
-                WorkspaceRemovalError::ProviderApiKeyUnauthorized,
                 NativeCommandErrorCode::ProviderApiKeyUnauthorized,
                 false,
                 Some("provider_api_key"),

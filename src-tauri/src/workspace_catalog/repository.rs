@@ -5,13 +5,6 @@ use crate::{
     workspace_setup::error::WorkspaceSetupError,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeleteWorkspaceResult {
-    Deleted,
-    NotFound,
-    InvalidLifecycle,
-}
-
 pub trait WorkspaceCatalogRepository: Send + Sync {
     fn list_workspaces<'a>(
         &'a self,
@@ -35,7 +28,7 @@ pub trait WorkspaceCatalogRepository: Send + Sync {
     fn delete_workspace<'a>(
         &'a self,
         id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -74,8 +67,7 @@ impl WorkspaceCatalogRepository for UnavailableWorkspaceCatalog {
     fn delete_workspace<'a>(
         &'a self,
         _id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a>>
-    {
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
         Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
     }
 }
