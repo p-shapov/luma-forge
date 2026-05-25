@@ -117,6 +117,10 @@ const COMMAND_TOAST_COPY = {
     loading: "Creating workspace...",
     success: "Workspace created",
   },
+  deleteWorkspace: {
+    loading: "Removing workspace...",
+    success: "Workspace removed",
+  },
   initiateWorkspaceProvisioning: {
     loading: "Starting workspace provisioning...",
     success: "Workspace provisioning started",
@@ -380,6 +384,8 @@ export function HomePage() {
     selectedProvisioningProgress,
     selectedProvisioningWorkspace,
   );
+  const canRemoveWorkspace = selectedProvisioningWorkspace !== undefined
+    && selectedProvisioningWorkspace.lifecycle_state !== "provisioning";
   const autoSyncWorkspace = workspaces.find(({ id }) => id === autoSyncWorkspaceId);
   const autoSyncActive = autoSyncWorkspaceId !== null;
 
@@ -709,6 +715,29 @@ export function HomePage() {
         if (label === "initiateWorkspaceProvisioning") {
           setAutoSyncWorkspaceId(response.workspace.id);
         }
+      },
+    );
+  }
+
+  function removeWorkspace() {
+    const workspaceId = selectedProvisioningWorkspaceId.trim();
+
+    if (!workspaceId) {
+      return;
+    }
+
+    void runCommand(
+      "deleteWorkspace",
+      async () => commands.deleteWorkspace({ workspace_id: workspaceId }),
+      ({ workspace_catalog }) => {
+        setWorkspaceCatalog(workspace_catalog);
+        setAutoSyncWorkspaceId(value => value === workspaceId ? null : value);
+        setProvisioningWorkspaceId(value => value === workspaceId ? "" : value);
+        setProvisioningProgressByWorkspaceId((progressByWorkspaceId) => {
+          const nextProgressByWorkspaceId = { ...progressByWorkspaceId };
+          delete nextProgressByWorkspaceId[workspaceId];
+          return nextProgressByWorkspaceId;
+        });
       },
     );
   }
@@ -1223,6 +1252,14 @@ export function HomePage() {
                     >
                       <HugeiconsIcon icon={StopIcon} strokeWidth={2} data-icon="inline-start" />
                       Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      disabled={!canRemoveWorkspace || pendingCommand !== null}
+                      onClick={removeWorkspace}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} strokeWidth={2} data-icon="inline-start" />
+                      Remove
                     </Button>
                   </div>
                 </FieldGroup>
