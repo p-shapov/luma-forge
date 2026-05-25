@@ -289,6 +289,40 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
         })
     }
+
+    fn delete_workspace<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut transaction = self
+                .pool
+                .begin()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+            delete_workspace_details(&mut transaction, id).await?;
+            let result = sqlx::query("DELETE FROM workspaces WHERE id = ?")
+                .bind(id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+            if result.rows_affected() != 1 {
+                transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+                return Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed);
+            }
+
+            transaction
+                .commit()
+                .await
+                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            Ok(())
+        })
+    }
 }
 
 fn is_unique_constraint(error: &sqlx::Error) -> bool {
@@ -485,7 +519,7 @@ mod tests {
         workspace_setup::error::WorkspaceSetupError,
     };
     use sqlx::Row;
-    use test_fixtures::{catalog_path, draft_workspace, volume};
+    use test_fixtures::{catalog_path, draft_workspace, ready_workspace, volume};
 
     #[tokio::test]
     async fn connect_lists_empty_catalog() {
@@ -662,6 +696,76 @@ mod tests {
             .expect("list workspaces")
             .workspaces
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_removes_workspace_and_normalized_details() {
+        let catalog = SqliteWorkspaceCatalog::connect(catalog_path("delete"))
+            .await
+            .expect("connect catalog");
+        let workspace = ready_workspace();
+        catalog
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert workspace");
+
+        catalog
+            .delete_workspace(&workspace.id)
+            .await
+            .expect("delete workspace");
+
+        assert_eq!(
+            catalog
+                .find_workspace_by_id(&workspace.id)
+                .await
+                .expect("find deleted workspace"),
+            None
+        );
+        assert!(catalog
+            .list_workspaces()
+            .await
+            .expect("list workspaces")
+            .workspaces
+            .is_empty());
+        for table in [
+            "workspace_runpod_placements",
+            "workspace_runtime_images",
+            "workspace_provisioner_images",
+            "workspace_resource_snapshots",
+            "workspace_provisioning_failures",
+        ] {
+            let statement = format!("SELECT COUNT(*) AS count FROM {table}");
+            let count: i64 = sqlx::query(&statement)
+                .fetch_one(&catalog.pool)
+                .await
+                .expect("read detail count")
+                .try_get("count")
+                .expect("detail count");
+            assert_eq!(count, 0, "{table} rows should be deleted");
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_missing_workspace_fails_without_changing_catalog() {
+        let catalog = SqliteWorkspaceCatalog::connect(catalog_path("missing-delete"))
+            .await
+            .expect("connect catalog");
+        let workspace = draft_workspace("workspace-a", "Workspace A", "preset-a");
+        catalog
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert workspace");
+
+        assert_eq!(
+            catalog.delete_workspace("missing").await,
+            Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
+        );
+        assert_eq!(
+            catalog.list_workspaces().await.expect("list workspaces"),
+            WorkspaceCatalog {
+                workspaces: vec![workspace]
+            }
+        );
     }
 
     #[tokio::test]

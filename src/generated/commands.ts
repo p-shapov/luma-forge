@@ -13,6 +13,7 @@ export const commands = {
 	getWorkflowCatalog: () => typedError<GetWorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
 	getProviderPlacementOptions: (request: GetProviderPlacementOptionsRequest) => typedError<GetProviderPlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_provider_placement_options", { request })),
 	getWorkspaceCatalog: () => typedError<GetWorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
+	deleteWorkspace: (request: DeleteWorkspaceRequest) => typedError<DeleteWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("delete_workspace", { request })),
 	createWorkspace: (request: CreateWorkspaceRequest) => typedError<CreateWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_workspace", { request })),
 	initiateWorkspaceProvisioning: (request: WorkspaceProvisioningRequest) => typedError<WorkspaceProvisioningResponse, NativeCommandError>(__TAURI_INVOKE("initiate_workspace_provisioning", { request })),
 	syncWorkspaceProvisioning: (request: WorkspaceProvisioningRequest) => typedError<WorkspaceProvisioningResponse, NativeCommandError>(__TAURI_INVOKE("sync_workspace_provisioning", { request })),
@@ -50,6 +51,14 @@ export type DeleteHuggingFaceApiKeySetupRequest = null;
 
 export type DeleteHuggingFaceApiKeySetupResponse = {
 	hugging_face_api_key_setup: HuggingFaceApiKeySetup | null,
+};
+
+export type DeleteWorkspaceRequest = {
+	workspace_id: string,
+};
+
+export type DeleteWorkspaceResponse = {
+	workspace_catalog: WorkspaceCatalog,
 };
 
 export type EndpointKeepAliveCapability = { supported: "true"; default_seconds: number; min_seconds: number; max_seconds: number } | { supported: "false" };

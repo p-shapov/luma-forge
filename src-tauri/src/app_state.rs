@@ -20,6 +20,7 @@ use crate::{
         WorkspaceProvisioningConfig, WorkspaceProvisioningCoordinator, WorkspaceProvisioningError,
         WorkspaceProvisioningService,
     },
+    workspace_removal::{WorkspaceRemovalError, WorkspaceRemovalService},
     workspace_resources::WorkspaceResourceProviderRegistry,
     workspace_resources::WorkspaceResourceService,
     workspace_setup::{
@@ -40,6 +41,10 @@ pub(crate) type ProductionWorkspaceProvisioningService = WorkspaceProvisioningSe
     ProductionSecretStore,
     SqliteWorkspaceCatalog,
     ProvisionerWorkerHttpGateway,
+>;
+pub(crate) type ProductionWorkspaceRemovalService = WorkspaceRemovalService<
+    SqliteWorkspaceCatalog,
+    WorkspaceResourceService<ProductionSecretStore, SqliteWorkspaceCatalog>,
 >;
 
 pub(crate) struct NativeAppState {
@@ -134,6 +139,27 @@ impl NativeAppState {
             self.provisioner_workers.clone()?,
             self.workspace_provisioning_coordinator.clone(),
             WorkspaceProvisioningConfig,
+        ))
+    }
+
+    pub(crate) async fn workspace_removal_service(
+        &self,
+    ) -> Result<ProductionWorkspaceRemovalService, WorkspaceRemovalError> {
+        let workspace_catalog = self
+            .workspace_catalog()
+            .await
+            .map_err(WorkspaceRemovalError::from)?;
+        let resources = WorkspaceResourceService::with_provider_registry(
+            self.secrets.clone(),
+            workspace_catalog.clone(),
+            self.workspace_resource_registry
+                .clone()
+                .map_err(crate::workspace_resources::WorkspaceResourceError::from)?,
+        );
+        Ok(WorkspaceRemovalService::new(
+            workspace_catalog,
+            resources,
+            self.workspace_provisioning_coordinator.clone(),
         ))
     }
 

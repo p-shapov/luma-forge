@@ -8,6 +8,7 @@ mod provider_setup;
 mod secrets;
 mod workspace_catalog;
 mod workspace_provisioning;
+mod workspace_removal;
 mod workspace_resources;
 mod workspace_setup;
 

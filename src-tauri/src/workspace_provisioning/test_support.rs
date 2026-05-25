@@ -397,6 +397,23 @@ impl WorkspaceCatalogRepository for FakeWorkspaceCatalog {
             Ok(workspace.clone())
         })
     }
+
+    fn delete_workspace<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut workspace = self.workspace.lock().expect("fake workspace");
+            if workspace
+                .as_ref()
+                .is_some_and(|workspace| workspace.id == id)
+            {
+                *workspace = None;
+                return Ok(());
+            }
+            Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]

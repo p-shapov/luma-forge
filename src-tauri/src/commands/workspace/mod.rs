@@ -9,7 +9,8 @@ use tauri::State;
 
 use crate::commands::CommandResult;
 use contracts::{
-    CreateWorkspaceRequest, CreateWorkspaceResponse, GetProviderPlacementOptionsRequest,
+    CreateWorkspaceRequest, CreateWorkspaceResponse, DeleteWorkspaceRequest,
+    DeleteWorkspaceResponse, GetProviderPlacementOptionsRequest,
     GetProviderPlacementOptionsResponse, GetWorkflowCatalogResponse, GetWorkspaceCatalogResponse,
 };
 
@@ -61,6 +62,28 @@ pub(crate) async fn get_workspace_catalog(
             .map_err(NativeCommandError::from)?
             .get_workspace_catalog()
             .await
+            .map(Into::into)
+            .map_err(Into::into)
+    }
+    .await;
+    command_log.finish(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn delete_workspace(
+    request: DeleteWorkspaceRequest,
+    app_state: State<'_, NativeAppState>,
+) -> CommandResult<DeleteWorkspaceResponse> {
+    let command_log = CommandLog::new("delete_workspace").start();
+    let result = async {
+        app_state
+            .workspace_removal_service()
+            .await
+            .map_err(NativeCommandError::from)?
+            .delete_workspace(&request.workspace_id)
+            .await
+            .map(|result| result.workspace_catalog)
             .map(Into::into)
             .map_err(Into::into)
     }

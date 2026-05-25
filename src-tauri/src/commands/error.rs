@@ -3,7 +3,7 @@ use specta::Type;
 
 use crate::{
     hugging_face_setup::HuggingFaceSetupError, provider_setup::ProviderSetupError,
-    workspace_provisioning::WorkspaceProvisioningError,
+    workspace_provisioning::WorkspaceProvisioningError, workspace_removal::WorkspaceRemovalError,
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -181,6 +181,78 @@ impl From<WorkspaceProvisioningError> for NativeCommandError {
             field: provisioning_error_field(&error).map(str::to_string),
             recovery_action: provisioning_error_recovery_action(&error).map(str::to_string),
         }
+    }
+}
+
+impl From<WorkspaceRemovalError> for NativeCommandError {
+    fn from(error: WorkspaceRemovalError) -> Self {
+        let provisioning_error = match error {
+            WorkspaceRemovalError::WorkspaceNotFound => {
+                WorkspaceProvisioningError::WorkspaceNotFound
+            }
+            WorkspaceRemovalError::InvalidWorkspaceLifecycle => {
+                WorkspaceProvisioningError::InvalidWorkspaceLifecycle
+            }
+            WorkspaceRemovalError::WorkspaceCatalogUnavailable => {
+                WorkspaceProvisioningError::WorkspaceCatalogUnavailable
+            }
+            WorkspaceRemovalError::WorkspaceCatalogStorageUnavailable => {
+                WorkspaceProvisioningError::WorkspaceCatalogStorageUnavailable
+            }
+            WorkspaceRemovalError::WorkspaceCatalogMigrationFailed => {
+                WorkspaceProvisioningError::WorkspaceCatalogMigrationFailed
+            }
+            WorkspaceRemovalError::WorkspaceCatalogQueryFailed => {
+                WorkspaceProvisioningError::WorkspaceCatalogQueryFailed
+            }
+            WorkspaceRemovalError::WorkspaceCatalogCorrupt => {
+                WorkspaceProvisioningError::WorkspaceCatalogCorrupt
+            }
+            WorkspaceRemovalError::WorkspaceCatalogSchemaMismatch => {
+                WorkspaceProvisioningError::WorkspaceCatalogSchemaMismatch
+            }
+            WorkspaceRemovalError::ProviderSetupIncomplete => {
+                WorkspaceProvisioningError::ProviderSetupIncomplete
+            }
+            WorkspaceRemovalError::ProviderApiKeyUnauthorized => {
+                WorkspaceProvisioningError::ProviderApiKeyUnauthorized
+            }
+            WorkspaceRemovalError::ProviderApiUnavailable => {
+                WorkspaceProvisioningError::ProviderApiUnavailable
+            }
+            WorkspaceRemovalError::ProviderRateLimited => {
+                WorkspaceProvisioningError::ProviderRateLimited
+            }
+            WorkspaceRemovalError::ProviderRequestRejected => {
+                WorkspaceProvisioningError::ProviderRequestRejected
+            }
+            WorkspaceRemovalError::ProviderResponseInvalid => {
+                WorkspaceProvisioningError::ProviderResponseInvalid
+            }
+            WorkspaceRemovalError::ProviderResourceNotFound => {
+                WorkspaceProvisioningError::ProviderResourceNotFound
+            }
+            WorkspaceRemovalError::ProviderOrphanedResources => {
+                WorkspaceProvisioningError::ProviderOrphanedResources
+            }
+            WorkspaceRemovalError::ProviderOperationConflict => {
+                WorkspaceProvisioningError::ProviderOperationConflict
+            }
+            WorkspaceRemovalError::ProviderOperationIndeterminate => {
+                WorkspaceProvisioningError::ProviderOperationIndeterminate
+            }
+            WorkspaceRemovalError::HuggingFaceApiKeySetupRequired => {
+                WorkspaceProvisioningError::HuggingFaceApiKeySetupRequired
+            }
+            WorkspaceRemovalError::SecureKeyringUnavailable => {
+                WorkspaceProvisioningError::SecureKeyringUnavailable
+            }
+            WorkspaceRemovalError::ProvisionerWorkerTokenInvalid => {
+                WorkspaceProvisioningError::ProvisionerWorkerTokenInvalid
+            }
+            WorkspaceRemovalError::CleanupFailed => WorkspaceProvisioningError::CleanupFailed,
+        };
+        NativeCommandError::from(provisioning_error)
     }
 }
 

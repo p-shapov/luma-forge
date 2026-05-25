@@ -283,6 +283,24 @@ impl From<domain_workspace::WorkspaceCatalog> for GetWorkspaceCatalogResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct DeleteWorkspaceRequest {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct DeleteWorkspaceResponse {
+    pub workspace_catalog: domain_workspace::WorkspaceCatalog,
+}
+
+impl From<domain_workspace::WorkspaceCatalog> for DeleteWorkspaceResponse {
+    fn from(response: domain_workspace::WorkspaceCatalog) -> Self {
+        Self {
+            workspace_catalog: response,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct CreateWorkspaceRequest {
     pub workspace_id: String,
     pub name: String,

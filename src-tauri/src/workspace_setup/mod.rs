@@ -510,6 +510,22 @@ mod tests {
                 Ok(workspace.clone())
             })
         }
+
+        fn delete_workspace<'a>(
+            &'a self,
+            id: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("fake workspace catalog mutex");
+                let index = state
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == id)
+                    .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+                state.workspaces.remove(index);
+                Ok(())
+            })
+        }
     }
 
     #[derive(Debug, Default)]

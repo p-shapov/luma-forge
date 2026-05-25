@@ -24,6 +24,11 @@ pub trait WorkspaceCatalogRepository: Send + Sync {
         &'a self,
         workspace: &'a Workspace,
     ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>>;
+
+    fn delete_workspace<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -56,6 +61,13 @@ impl WorkspaceCatalogRepository for UnavailableWorkspaceCatalog {
         &'a self,
         _workspace: &'a Workspace,
     ) -> Pin<Box<dyn Future<Output = Result<Workspace, WorkspaceSetupError>> + Send + 'a>> {
+        Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
+    }
+
+    fn delete_workspace<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
         Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
     }
 }

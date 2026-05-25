@@ -331,6 +331,13 @@ mod tests {
                 Ok(workspace.clone())
             })
         }
+
+        fn delete_workspace<'a>(
+            &'a self,
+            _id: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
+            Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
+        }
     }
 
     #[derive(Debug, Default)]
