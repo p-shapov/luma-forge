@@ -294,6 +294,8 @@ mod tests {
         }
     }
 
+    use crate::workspace_catalog::repository::DeleteWorkspaceResult;
+
     impl WorkspaceCatalogRepository for FakeWorkspaceCatalog {
         fn list_workspaces<'a>(
             &'a self,
@@ -335,7 +337,11 @@ mod tests {
         fn delete_workspace<'a>(
             &'a self,
             _id: &'a str,
-        ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
+        ) -> Pin<
+            Box<
+                dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a,
+            >,
+        > {
             Box::pin(async { Err(WorkspaceSetupError::WorkspaceCatalogUnavailable) })
         }
     }

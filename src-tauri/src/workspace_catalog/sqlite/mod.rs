@@ -1,13 +1,16 @@
 use std::{future::Future, path::Path, pin::Pin};
 
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool, SqliteTransaction};
+use sqlx::{sqlite::SqlitePoolOptions, Row, SqlitePool, SqliteTransaction};
 
 use crate::{
     domain::{
         workspace::validator as workspace_validator,
-        workspace::{Workspace, WorkspaceCatalog},
+        workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     },
-    workspace_catalog::{repository::WorkspaceCatalogRepository, schema_bootstrap},
+    workspace_catalog::{
+        repository::{DeleteWorkspaceResult, WorkspaceCatalogRepository},
+        schema_bootstrap,
+    },
     workspace_setup::error::WorkspaceSetupError,
 };
 
@@ -293,7 +296,8 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
     fn delete_workspace<'a>(
         &'a self,
         id: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut transaction = self
                 .pool
@@ -301,25 +305,55 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalog {
                 .await
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
-            delete_workspace_details(&mut transaction, id).await?;
-            let result = sqlx::query("DELETE FROM workspaces WHERE id = ?")
-                .bind(id)
-                .execute(&mut *transaction)
-                .await
-                .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+            let result = sqlx::query(
+                r#"
+                DELETE FROM workspaces
+                WHERE id = ?
+                    AND lifecycle_state != ?
+                "#,
+            )
+            .bind(id)
+            .bind(lifecycle_state_value(
+                &WorkspaceLifecycleState::Provisioning,
+            ))
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
 
-            if result.rows_affected() != 1 {
+            if result.rows_affected() == 1 {
+                delete_workspace_details(&mut transaction, id).await?;
                 transaction
-                    .rollback()
+                    .commit()
                     .await
                     .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
-                return Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed);
+                return Ok(DeleteWorkspaceResult::Deleted);
             }
+
+            let lifecycle_state = sqlx::query(
+                r#"
+                SELECT lifecycle_state
+                FROM workspaces
+                WHERE id = ?
+                "#,
+            )
+            .bind(id)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?
+            .map(|row| row.try_get::<String, _>("lifecycle_state"))
+            .transpose()
+            .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
+
+            let result = match lifecycle_state.as_deref() {
+                Some("provisioning") => DeleteWorkspaceResult::InvalidLifecycle,
+                Some(_) => DeleteWorkspaceResult::NotFound,
+                None => DeleteWorkspaceResult::NotFound,
+            };
             transaction
                 .commit()
                 .await
                 .map_err(|_| WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
-            Ok(())
+            Ok(result)
         })
     }
 }
@@ -514,7 +548,7 @@ mod tests {
     use super::*;
     use crate::{
         domain::workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
-        workspace_catalog::repository::WorkspaceCatalogRepository,
+        workspace_catalog::repository::{DeleteWorkspaceResult, WorkspaceCatalogRepository},
         workspace_setup::error::WorkspaceSetupError,
     };
     use sqlx::Row;
@@ -708,10 +742,13 @@ mod tests {
             .await
             .expect("insert workspace");
 
-        catalog
-            .delete_workspace(&workspace.id)
-            .await
-            .expect("delete workspace");
+        assert_eq!(
+            catalog
+                .delete_workspace(&workspace.id)
+                .await
+                .expect("delete workspace"),
+            DeleteWorkspaceResult::Deleted
+        );
 
         assert_eq!(
             catalog
@@ -757,7 +794,7 @@ mod tests {
 
         assert_eq!(
             catalog.delete_workspace("missing").await,
-            Err(WorkspaceSetupError::WorkspaceCatalogQueryFailed)
+            Ok(DeleteWorkspaceResult::NotFound)
         );
         assert_eq!(
             catalog.list_workspaces().await.expect("list workspaces"),
@@ -765,6 +802,42 @@ mod tests {
                 workspaces: vec![workspace]
             }
         );
+    }
+
+    #[tokio::test]
+    async fn delete_provisioning_workspace_returns_invalid_lifecycle_without_deleting_details() {
+        let catalog = SqliteWorkspaceCatalog::connect(catalog_path("provisioning-delete"))
+            .await
+            .expect("connect catalog");
+        let mut workspace = draft_workspace("workspace-a", "Workspace A", "preset-a");
+        workspace.lifecycle_state = WorkspaceLifecycleState::Provisioning;
+        catalog
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert workspace");
+
+        assert_eq!(
+            catalog.delete_workspace(&workspace.id).await,
+            Ok(DeleteWorkspaceResult::InvalidLifecycle)
+        );
+
+        assert_eq!(
+            catalog
+                .find_workspace_by_id(&workspace.id)
+                .await
+                .expect("find workspace"),
+            Some(workspace)
+        );
+        let detail_count: i64 = sqlx::query(
+            "SELECT COUNT(*) AS count FROM workspace_runpod_placements WHERE workspace_id = ?",
+        )
+        .bind("workspace-a")
+        .fetch_one(&catalog.pool)
+        .await
+        .expect("read placement count")
+        .try_get("count")
+        .expect("placement count");
+        assert_eq!(detail_count, 1);
     }
 
     #[tokio::test]
