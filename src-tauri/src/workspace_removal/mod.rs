@@ -5,7 +5,7 @@ use thiserror::Error;
 use crate::{
     domain::workspace::{Workspace, WorkspaceCatalog, WorkspaceLifecycleState},
     secrets::{AsyncHuggingFaceApiKeyStore, AsyncProviderKeyStore, AsyncProvisionerTokenStore},
-    workspace_catalog::repository::{DeleteWorkspaceResult, WorkspaceCatalogRepository},
+    workspace_catalog::repository::WorkspaceCatalogRepository,
     workspace_provisioning::WorkspaceProvisioningCoordinator,
     workspace_resources::{WorkspaceResourceError, WorkspaceResourceService},
     workspace_setup::error::WorkspaceSetupError,
@@ -201,20 +201,10 @@ where
                 .map_err(WorkspaceRemovalError::from)?;
         }
 
-        match self
-            .workspace_catalog
+        self.workspace_catalog
             .delete_workspace(workspace_id)
             .await
-            .map_err(WorkspaceRemovalError::from)?
-        {
-            DeleteWorkspaceResult::Deleted => {}
-            DeleteWorkspaceResult::NotFound => {
-                return Err(WorkspaceRemovalError::WorkspaceNotFound)
-            }
-            DeleteWorkspaceResult::InvalidLifecycle => {
-                return Err(WorkspaceRemovalError::InvalidWorkspaceLifecycle);
-            }
-        }
+            .map_err(WorkspaceRemovalError::from)?;
         let workspace_catalog = self
             .workspace_catalog
             .list_workspaces()
@@ -251,8 +241,6 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    type CleanupCallback = Box<dyn Fn() + Send>;
-
     #[derive(Debug, Clone)]
     struct FakeWorkspaceCatalog {
         workspaces: Arc<Mutex<Vec<Workspace>>>,
@@ -273,14 +261,6 @@ mod tests {
 
         fn push_delete_error(&self, error: WorkspaceSetupError) {
             *self.delete_error.lock().expect("fake delete error") = Some(error);
-        }
-
-        fn set_lifecycle_state(&self, lifecycle_state: WorkspaceLifecycleState) {
-            let mut workspaces = self.workspaces.lock().expect("fake workspaces");
-            let workspace = workspaces
-                .first_mut()
-                .expect("fake catalog should contain workspace");
-            workspace.lifecycle_state = lifecycle_state;
         }
 
         fn stored_workspaces(&self) -> Vec<Workspace> {
@@ -341,28 +321,18 @@ mod tests {
         fn delete_workspace<'a>(
             &'a self,
             id: &'a str,
-        ) -> Pin<
-            Box<
-                dyn Future<Output = Result<DeleteWorkspaceResult, WorkspaceSetupError>> + Send + 'a,
-            >,
-        > {
+        ) -> Pin<Box<dyn Future<Output = Result<(), WorkspaceSetupError>> + Send + 'a>> {
             Box::pin(async move {
                 if let Some(error) = self.delete_error.lock().expect("fake delete error").take() {
                     return Err(error);
                 }
                 let mut workspaces = self.workspaces.lock().expect("fake workspaces");
-                if workspaces.iter().any(|workspace| {
-                    workspace.id == id
-                        && workspace.lifecycle_state == WorkspaceLifecycleState::Provisioning
-                }) {
-                    return Ok(DeleteWorkspaceResult::InvalidLifecycle);
-                }
-                let index = workspaces.iter().position(|workspace| workspace.id == id);
-                let Some(index) = index else {
-                    return Ok(DeleteWorkspaceResult::NotFound);
-                };
+                let index = workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == id)
+                    .ok_or(WorkspaceSetupError::WorkspaceCatalogQueryFailed)?;
                 workspaces.remove(index);
-                Ok(DeleteWorkspaceResult::Deleted)
+                Ok(())
             })
         }
     }
@@ -371,7 +341,6 @@ mod tests {
     struct FakeWorkspaceResources {
         calls: Arc<Mutex<Vec<String>>>,
         cleanup_result: Arc<Mutex<Option<Result<Workspace, WorkspaceResourceError>>>>,
-        on_cleanup: Arc<Mutex<Option<CleanupCallback>>>,
     }
 
     impl FakeWorkspaceResources {
@@ -381,10 +350,6 @@ mod tests {
 
         fn push_cleanup_result(&self, result: Result<Workspace, WorkspaceResourceError>) {
             *self.cleanup_result.lock().expect("fake cleanup result") = Some(result);
-        }
-
-        fn on_cleanup(&self, callback: impl Fn() + Send + 'static) {
-            *self.on_cleanup.lock().expect("fake cleanup callback") = Some(Box::new(callback));
         }
     }
 
@@ -399,14 +364,6 @@ mod tests {
                     .lock()
                     .expect("fake resource calls")
                     .push(workspace.id.clone());
-                if let Some(callback) = self
-                    .on_cleanup
-                    .lock()
-                    .expect("fake cleanup callback")
-                    .take()
-                {
-                    callback();
-                }
                 self.cleanup_result
                     .lock()
                     .expect("fake cleanup result")
@@ -544,35 +501,6 @@ mod tests {
 
         assert_eq!(error, WorkspaceRemovalError::CleanupFailed);
         assert_eq!(catalog.stored_workspaces(), vec![workspace]);
-    }
-
-    #[tokio::test]
-    async fn lifecycle_change_to_provisioning_before_delete_preserves_workspace() {
-        let mut workspace = ready_provisioning_workspace();
-        workspace.lifecycle_state = WorkspaceLifecycleState::Ready;
-        let catalog = FakeWorkspaceCatalog::with_workspaces([workspace.clone()]);
-        let resources = FakeWorkspaceResources::default();
-        let catalog_for_callback = catalog.clone();
-        resources.on_cleanup(move || {
-            catalog_for_callback.set_lifecycle_state(WorkspaceLifecycleState::Provisioning);
-        });
-        resources.push_cleanup_result(Ok(workspace.clone()));
-        let service = service(catalog.clone(), resources);
-
-        let error = service
-            .delete_workspace(&workspace.id)
-            .await
-            .expect_err("provisioning transition should prevent delete");
-
-        assert_eq!(error, WorkspaceRemovalError::InvalidWorkspaceLifecycle);
-        assert_eq!(
-            catalog
-                .stored_workspaces()
-                .first()
-                .expect("workspace should remain")
-                .lifecycle_state,
-            WorkspaceLifecycleState::Provisioning
-        );
     }
 
     #[tokio::test]
