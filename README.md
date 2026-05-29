@@ -13,7 +13,7 @@ This roadmap is a living document. It captures the current implementation status
 - [x] **Provisioner Worker**: container-side worker that prepares the mounted ComfyUI workspace and reports UI-safe provisioning progress.
 - [x] **RunPod Endpoint Worker**: define and implement the RunPod Serverless runtime contract between the Serverless Endpoint and the prepared ComfyUI environment.
 - [x] **Workspace Provisioning Flow**: native sync loop that creates RunPod resources, invokes the Provisioner Worker, creates the Serverless Endpoint, supports cancellation, and moves a `Draft` Workspace to `Ready`.
-- [x] **Native Command Console**: development UI for provider setup, workspace setup, placement selection, provisioning progress sync, cancellation, and recovery/error inspection.
+- [x] **Native Command Console**: archived with the previous native backend under `src-tauri-legacy`.
 - [ ] **Onboarding UI**: replace the command console with the user-facing setup path for provider setup, workspace setup, placement selection, provisioning progress, cancellation, and recovery states.
 - [ ] **Text-to-Image Generator**: build the first generation surface on top of a `Ready` Workspace and the RunPod Endpoint Worker contract. v1 targets the bundled text-to-image workflow rather than arbitrary user-authored ComfyUI workflows.
 
@@ -36,23 +36,14 @@ src/
   generated/             Generated frontend contracts and route tree; do not edit manually
 
 src-tauri/
-  src/app_state.rs       Native application state wiring
-  src/bundled_catalog/   Bundled workflow, provisioning, and endpoint catalog loading
-  src/commands/          Tauri command adapters and generated binding export
-  src/domain/            Provider, workflow, runtime, placement, and workspace rules
-  src/provider/          GPU provider inventory and provider-facing queries
-  src/provider_setup/    Provider API key validation and secure setup workflow
-  src/secrets/           Secure secret storage abstraction
-  src/workspace_catalog/ SQLite-backed Workspace Catalog persistence
-  src/workspace_resources/
-                         Provider resource lifecycle, naming, state, and cleanup
-  src/workspace_setup/   Draft Workspace creation from catalog and placement input
-  src/workspace_provisioning/
-                         Native provisioning orchestration, RunPod provider adapter,
-                         Provisioner Worker gateway, progress sync, and failures
-  capabilities/          Tauri capability declarations
-  icons/                 Application icons
-  gen/                   Tauri-generated schemas
+  src/                   Active minimal Tauri native backend refactor shell
+  capabilities/          Tauri capability declarations for the active shell
+  icons/                 Application icons used by the active shell
+
+src-tauri-legacy/
+  src/                   Archived previous native backend implementation
+  capabilities/          Archived Tauri capability declarations
+  icons/                 Archived application icons
 
 openspec/
   changes/               Proposed or in-progress OpenSpec changes
@@ -92,9 +83,9 @@ workers/
 | `bun run lint`                                                                                         | Run ESLint.                                 |
 | `bun run lint:fix`                                                                                     | Apply ESLint autofixes.                     |
 | `bun run format`                                                                                       | Format frontend files with ESLint fixes.    |
-| `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run native tests.                           |
-| `cargo fmt --manifest-path src-tauri/Cargo.toml --check`                                               | Check native formatting.                    |
-| `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict native linting.                  |
+| `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run active native shell tests.              |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --check`                                               | Check active native shell formatting.       |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict active native shell linting.     |
 | `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`         | Run provisioner worker tests.               |
 | `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests` | Run RunPod endpoint worker tests.           |
 
@@ -114,9 +105,9 @@ Deleting this file removes local Workspace Catalog records only. It does not cle
 
 Generated files live in `src/generated` and should not be edited manually.
 
-| Command                        | Purpose                                                                      |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| `bun run codegen`              | Regenerate all generated frontend contracts.                                 |
-| `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` after `src/routes/**` changes.   |
-| `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                 |
-| `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` after Tauri command contract changes. |
+| Command                        | Purpose                                                                                   |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `bun run codegen`              | Regenerate all generated frontend contracts.                                              |
+| `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` after `src/routes/**` changes.                |
+| `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                              |
+| `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` after active Tauri shell command contract changes. |

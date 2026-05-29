@@ -17,7 +17,8 @@ LumaForge is a desktop application that helps a user provision remote GPU infras
 ## Project Structure
 
 - `src/`: React frontend. See `src/AGENTS.md`.
-- `src-tauri/`: Tauri native backend. See `src-tauri/AGENTS.md`.
+- `src-tauri/`: Active minimal Tauri native backend refactor shell. See `src-tauri/AGENTS.md`.
+- `src-tauri-legacy/`: Archived previous Tauri native backend, kept for refactor reference.
 - `workers/`: Python workers and worker contract tooling. See `workers/AGENTS.md`.
 - `bundled/`: Bundled workflow, runtime, and provisioner catalogs.
 - `openspec/`: Active and archived behavior specs. Check before changing behavior.
@@ -30,7 +31,7 @@ LumaForge is a desktop application that helps a user provision remote GPU infras
 Additional local instructions live in nested `AGENTS.md` files:
 
 - `src/AGENTS.md`: React frontend.
-- `src-tauri/AGENTS.md`: Tauri native backend.
+- `src-tauri/AGENTS.md`: Active Tauri native backend refactor shell.
 - `workers/AGENTS.md`: Python workers.
 
 When editing files under those directories, follow both this root file and the nearest nested `AGENTS.md`.
