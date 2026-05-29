@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-provisioner-contract/release_tool.py"
-PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner-worker.yml"
+PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner-contract.yml"
 
 spec = importlib.util.spec_from_file_location("provisioner_contract_promotion_tool", TOOL_PATH)
 release_tool = importlib.util.module_from_spec(spec)
@@ -19,13 +19,13 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
     def test_provisioner_workflow_promotes_digest_after_publish(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
 
-        resolve_index = workflow.index("Resolve provisioner catalog metadata")
+        resolve_index = workflow.index("Resolve provisioner contracts metadata")
         tag_index = workflow.index("Resolve image tag")
         publish_index = workflow.index("Publish provisioner image")
         digest_index = workflow.index("Resolve pushed image digest")
         promotion_index = workflow.index("Promote provisioner image to catalog")
         promotion_section = workflow.split("Promote provisioner image to catalog", maxsplit=1)[1].split(
-            "Verify Provisioner Catalog promotion PR scope",
+            "Verify Provisioner Contracts promotion PR scope",
             maxsplit=1,
         )[0]
 
@@ -42,21 +42,21 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
     def test_provisioner_workflow_restricts_catalog_promotion_pr_to_catalog_files(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
-        verify_section = workflow.split("Verify Provisioner Catalog promotion PR scope", maxsplit=1)[1].split(
-            "Open Provisioner Catalog promotion PR",
+        verify_section = workflow.split("Verify Provisioner Contracts promotion PR scope", maxsplit=1)[1].split(
+            "Open Provisioner Contracts promotion PR",
             maxsplit=1,
         )[0]
-        pr_section = workflow.split("Open Provisioner Catalog promotion PR", maxsplit=1)[1]
+        pr_section = workflow.split("Open Provisioner Contracts promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("grep -Evx 'bundled/(provisioner|workflow)-catalog\\.json'", verify_section)
+        self.assertIn("grep -Evx 'bundled/(provisioner-contracts|workflow-catalog)\\.json'", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
-        self.assertIn("bundled/provisioner-catalog.json", pr_section)
+        self.assertIn("bundled/provisioner-contracts.json", pr_section)
         self.assertIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote provisioner image", pr_section)
         self.assertIn(
-            "branch: provisioner-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
+            "branch: provisioner-contracts/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
             pr_section,
         )
         self.assertIn(
@@ -89,7 +89,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         self.assertEqual(2, len(revisions))
         self.assertEqual("1.0.0", revisions[0]["version"])
         self.assertEqual("1.0.1", revisions[1]["version"])
-        self.assertEqual(_image_ref("4"), revisions[1]["provisioner_worker_image_ref"])
+        self.assertEqual(_image_ref("4"), revisions[1]["image_ref"])
 
     def test_promote_provisioner_image_rejects_duplicate_explicit_revision(self):
         catalog = _provisioner_catalog()
@@ -125,7 +125,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
     def test_cli_resolve_provisioner_writes_next_catalog_revision(self):
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "provisioner-catalog.json"
+            catalog_path = Path(directory) / "provisioner-contracts.json"
             output_path = Path(directory) / "github-output"
             catalog_path.write_text(json.dumps(_provisioner_catalog()), encoding="utf-8")
 
@@ -146,7 +146,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
     def test_cli_promote_provisioner_image_appends_revision_and_updates_workflow_catalog(self):
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "provisioner-catalog.json"
+            catalog_path = Path(directory) / "provisioner-contracts.json"
             workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(json.dumps(_provisioner_catalog()), encoding="utf-8")
             workflow_path.write_text(json.dumps(_workflow_catalog()), encoding="utf-8")
@@ -171,7 +171,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
             self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["provisioner_contract"]["version"])
 
-    def test_provisioner_catalog_rejects_malformed_catalog(self):
+    def test_provisioner_contracts_reject_malformed_catalog(self):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "contracts must be a list"):
             release_tool.next_provisioner_contract_version(
                 catalog={"contracts": {}},
@@ -186,7 +186,7 @@ def _provisioner_catalog():
                 "revisions": [
                     {
                         "version": "1.0.0",
-                        "provisioner_worker_image_ref": _image_ref("2"),
+                        "image_ref": _image_ref("2"),
                     }
                 ],
             }
@@ -199,7 +199,7 @@ def _workflow_catalog():
         "workflow_presets": [
             {
                 "id": "preset",
-                "runtime_contract": {
+                "endpoint_contract": {
                     "id": "comfyui-hidream-o1-dev",
                     "version": "1.0.0",
                 },

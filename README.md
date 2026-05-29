@@ -11,7 +11,7 @@ This roadmap is a living document. It captures the current implementation status
 - [x] **Provider Setup**: native-owned provider setup that validates and stores a provider-scoped API key in the secure keyring, with RunPod as the only v1 provider.
 - [x] **Workspace Setup**: native-owned creation of a local `Draft` Workspace from a bundled Workflow Preset and Placement Plan without creating provider resources.
 - [x] **Provisioner Worker**: container-side worker that prepares the mounted ComfyUI workspace and reports UI-safe provisioning progress.
-- [x] **RunPod Endpoint Worker**: define and implement the RunPod Serverless runtime contract between the Serverless Endpoint and the prepared ComfyUI environment.
+- [x] **RunPod Endpoint Worker**: define and implement the RunPod Serverless endpoint contract between the Serverless Endpoint and the prepared ComfyUI environment.
 - [x] **Workspace Provisioning Flow**: native sync loop that creates RunPod resources, invokes the Provisioner Worker, creates the Serverless Endpoint, supports cancellation, and moves a `Draft` Workspace to `Ready`.
 - [x] **Native Command Console**: archived with the previous native backend under `src-tauri-legacy`.
 - [ ] **Onboarding UI**: replace the command console with the user-facing setup path for provider setup, workspace setup, placement selection, provisioning progress, cancellation, and recovery states.
@@ -60,9 +60,9 @@ spec/
 workers/
   provisioner/           Container-side workspace preparation worker, Dockerfile, and tests
   promote-provisioner-contract/
-                         Provisioner Catalog promotion tooling and tests
+                         Provisioner Contracts promotion tooling and tests
   promote-runtime-contract/
-                         Runtime contract schema, metadata, and Runtime Catalog promotion
+                         Endpoint contract schema, metadata, and Endpoint Contracts promotion
   runpod-endpoint/       RunPod endpoint runtime worker, Dockerfile, and tests
 ```
 

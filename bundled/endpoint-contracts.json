@@ -1,0 +1,73 @@
+{
+  "contracts": [
+    {
+      "id": "comfyui-hidream-o1-dev",
+      "revisions": [
+        {
+          "version": "1.0.0",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:1c954a52b11fe9947a9820dfaa33873e0bef5f23a7e5ffaadedbb3f42637d61e"
+        },
+        {
+          "version": "1.0.1",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:90637a1182d55b4c2de5db1d978b96c51aa8422a1ef5c85ec3170e9cb54528cb"
+        },
+        {
+          "version": "1.0.2",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c2518949aa54ef8eceb742deac576c1347cc2135a18933ee0072d05dfc13a908"
+        },
+        {
+          "version": "1.0.3",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:0c8854a2269b7c26762e1a2d9294962d1a70a3446c86560a06276718aa1d1c5f"
+        },
+        {
+          "version": "1.0.4",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:3096095c885ea1c2e093c462e867581563086c454451c5fd8e5bb2a5f89a1a18"
+        },
+        {
+          "version": "1.0.5",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:4a8e3a12b92286e4937c2fb1338526d192d579121b2c37ccb11d6eaef94f615d"
+        },
+        {
+          "version": "1.0.6",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:e949443220f880e1070326fa5f83d32d373543d62deecdf4d995e90814db7969"
+        },
+        {
+          "version": "1.0.7",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:8f39d63ff702078c4b18dbbad6ca2201c907fa845601992850c4632467dd2158"
+        },
+        {
+          "version": "1.0.8",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c3d141ccc676b22a724b6d14035b3f15ed65741a60e1e4f85485dca54ce77851"
+        },
+        {
+          "version": "1.0.9",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:eacb936bd610bda78e4168b13f268e21a0c1d88602627d9ca51444e1d679f8a1"
+        },
+        {
+          "version": "1.0.10",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:d9b0ea79ece7f587a3dcaa987f113ab8f869bb2f49b26728e619bdf12b18b68f"
+        },
+        {
+          "version": "1.0.11",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:7c8f6c190c79c732fdf9e9602cfa89501a43cae67806bcca5b53fe35cfbbbe3b"
+        },
+        {
+          "version": "1.0.12",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c785bbcf721ef7d5e2777e4dfc915223d59cf93a78b2d3023c20d509d817cdd8"
+        },
+        {
+          "version": "1.0.13",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:df66cf769c96bdc5933ad114af865a66bb029fd5c75869f9261594cd55bb0c01"
+        },
+        {
+          "version": "1.0.14",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:6474af2b1337ad7205422a8f89f272c520db2e7674174ff6425a9906ac2bb8a3"
+        },
+        {
+          "version": "1.0.15",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:ac7b4ee14423f5e74f444a03c429dece830fc4f72b01847df18b2a5b960cdd1a"
+        }
+      ]
+    }
+  ]
+}

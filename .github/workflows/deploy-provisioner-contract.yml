@@ -1,4 +1,4 @@
-name: Deploy Provisioner Worker
+name: Deploy Provisioner Contract
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: deploy-provisioner-worker-${{ github.ref }}
+  group: deploy-provisioner-contract-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -29,11 +29,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Resolve provisioner catalog metadata
+      - name: Resolve provisioner contracts metadata
         id: contract
         run: |
           python workers/promote-provisioner-contract/release_tool.py resolve-provisioner \
-            --catalog bundled/provisioner-catalog.json \
+            --catalog bundled/provisioner-contracts.json \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate provisioner worker
@@ -93,16 +93,16 @@ jobs:
       - name: Promote provisioner image to catalog
         run: |
           python workers/promote-provisioner-contract/release_tool.py promote-provisioner-image \
-            --catalog bundled/provisioner-catalog.json \
+            --catalog bundled/provisioner-contracts.json \
             --workflow-catalog bundled/workflow-catalog.json \
             --contract-version "${{ steps.contract.outputs.contract_version }}" \
             --image-ref "${{ steps.digest.outputs.provisioner_ref }}"
 
-      - name: Verify Provisioner Catalog promotion PR scope
+      - name: Verify Provisioner Contracts promotion PR scope
         run: |
           changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
-          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/provisioner-catalog.json'; then
-            echo "::error::Catalog promotion did not modify bundled/provisioner-catalog.json"
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/provisioner-contracts.json'; then
+            echo "::error::Catalog promotion did not modify bundled/provisioner-contracts.json"
             exit 1
           fi
 
@@ -111,25 +111,25 @@ jobs:
             exit 1
           fi
 
-          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(provisioner|workflow)-catalog\.json' || true)"
+          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(provisioner-contracts|workflow-catalog)\.json' || true)"
           if [ -n "$unexpected_paths" ]; then
             echo "::error::Catalog promotion produced unexpected changed paths:"
             printf '%s\n' "$unexpected_paths"
             exit 1
           fi
 
-      - name: Open Provisioner Catalog promotion PR
+      - name: Open Provisioner Contracts promotion PR
         uses: peter-evans/create-pull-request@v8
         with:
           add-paths: |
-            bundled/provisioner-catalog.json
+            bundled/provisioner-contracts.json
             bundled/workflow-catalog.json
-          branch: provisioner-catalog/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          branch: provisioner-contracts/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
           title: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           commit-message: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           body: |
-            Promotes the validated provisioner image into the Provisioner Catalog and points Workflow Presets at it.
+            Promotes the validated provisioner image into the Provisioner Contracts and points Workflow Presets at it.
 
             Published image: `${{ steps.digest.outputs.provisioner_ref }}`
             Catalog version: `${{ steps.contract.outputs.contract_version }}`
-          labels: provisioner-catalog
+          labels: provisioner-contracts

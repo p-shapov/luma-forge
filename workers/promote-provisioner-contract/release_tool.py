@@ -19,7 +19,7 @@ class ReleaseToolError(Exception):
 def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
     for contract in _list_value(catalog, "contracts"):
         if not isinstance(contract, dict):
-            raise ReleaseToolError("provisioner catalog contains a malformed contract entry")
+            raise ReleaseToolError("provisioner contracts contains a malformed contract entry")
         if contract.get("id") == contract_id:
             return contract
     return None
@@ -28,7 +28,7 @@ def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] |
 def find_provisioner_revision(contract: dict[str, Any], contract_version: str) -> dict[str, Any] | None:
     for revision in _list_value(contract, "revisions"):
         if not isinstance(revision, dict):
-            raise ReleaseToolError("provisioner catalog contains a malformed revision entry")
+            raise ReleaseToolError("provisioner contracts contains a malformed revision entry")
         if revision.get("version") == contract_version:
             return revision
     return None
@@ -37,11 +37,11 @@ def find_provisioner_revision(contract: dict[str, Any], contract_version: str) -
 def next_provisioner_contract_version(*, catalog: dict[str, Any], contract_id: str) -> str:
     catalog_contract = find_contract(catalog, contract_id)
     if catalog_contract is None:
-        raise ReleaseToolError(f"provisioner catalog does not contain contract: {contract_id}")
+        raise ReleaseToolError(f"provisioner contracts does not contain contract: {contract_id}")
 
     revisions = _list_value(catalog_contract, "revisions")
     if not revisions:
-        raise ReleaseToolError(f"provisioner catalog contract has no revisions: {contract_id}")
+        raise ReleaseToolError(f"provisioner contracts contract has no revisions: {contract_id}")
 
     latest = max(_parse_semver(_provisioner_revision_version(revision)) for revision in revisions)
     return _format_semver((latest[0], latest[1], latest[2] + 1))
@@ -57,11 +57,11 @@ def promote_provisioner_image(
     _validate_image_ref(image_ref)
     catalog_contract = find_contract(catalog, contract_id)
     if catalog_contract is None:
-        raise ReleaseToolError(f"provisioner catalog does not contain contract: {contract_id}")
+        raise ReleaseToolError(f"provisioner contracts does not contain contract: {contract_id}")
 
     revisions = _list_value(catalog_contract, "revisions")
     if not revisions:
-        raise ReleaseToolError(f"provisioner catalog contract has no revisions: {contract_id}")
+        raise ReleaseToolError(f"provisioner contracts contract has no revisions: {contract_id}")
 
     resolved_contract_version = contract_version or next_provisioner_contract_version(
         catalog=catalog,
@@ -70,14 +70,14 @@ def promote_provisioner_image(
     _parse_semver(resolved_contract_version)
     if find_provisioner_revision(catalog_contract, resolved_contract_version) is not None:
         raise ReleaseToolError(
-            f"provisioner catalog revision already exists: {contract_id} {resolved_contract_version}"
+            f"provisioner contracts revision already exists: {contract_id} {resolved_contract_version}"
         )
 
     latest_revision = max(revisions, key=lambda revision: _parse_semver(_provisioner_revision_version(revision)))
-    _string_value(latest_revision, "provisioner_worker_image_ref")
+    _string_value(latest_revision, "image_ref")
     new_revision = dict(latest_revision)
     new_revision["version"] = resolved_contract_version
-    new_revision["provisioner_worker_image_ref"] = image_ref
+    new_revision["image_ref"] = image_ref
     revisions.append(new_revision)
     return catalog
 
@@ -154,7 +154,7 @@ def _string_value(value: dict[str, Any], key: str) -> str:
 
 def _provisioner_revision_version(revision: Any) -> str:
     if not isinstance(revision, dict):
-        raise ReleaseToolError("provisioner catalog contains a malformed revision entry")
+        raise ReleaseToolError("provisioner contracts contains a malformed revision entry")
     return _string_value(revision, "version")
 
 
@@ -223,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Provisioner contract image promotion helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    resolve_provisioner = subparsers.add_parser("resolve-provisioner", help="resolve provisioner catalog outputs")
+    resolve_provisioner = subparsers.add_parser("resolve-provisioner", help="resolve provisioner contracts outputs")
     resolve_provisioner.add_argument("--catalog", required=True)
     resolve_provisioner.add_argument("--contract-id", default=DEFAULT_PROVISIONER_CONTRACT_ID)
     resolve_provisioner.add_argument("--github-output")
@@ -231,7 +231,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     promote_provisioner = subparsers.add_parser(
         "promote-provisioner-image",
-        help="promote a digest-pinned provisioner image into the Provisioner Catalog",
+        help="promote a digest-pinned provisioner image into the Provisioner Contracts",
     )
     promote_provisioner.add_argument("--catalog", required=True)
     promote_provisioner.add_argument("--image-ref", required=True)

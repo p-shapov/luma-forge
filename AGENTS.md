@@ -20,7 +20,7 @@ LumaForge is a desktop application that helps a user provision remote GPU infras
 - `src-tauri/`: Active minimal Tauri native backend refactor shell. See `src-tauri/AGENTS.md`.
 - `src-tauri-legacy/`: Archived previous Tauri native backend, kept for refactor reference.
 - `workers/`: Python workers and worker contract tooling. See `workers/AGENTS.md`.
-- `bundled/`: Bundled workflow, runtime, and provisioner catalogs.
+- `bundled/`: Bundled workflow catalog, endpoint contracts, and provisioner contracts.
 - `openspec/`: Active and archived behavior specs. Check before changing behavior.
 - `spec/`: Product flows, reference contracts, architecture notes, and ubiquitous language.
 

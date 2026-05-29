@@ -25,7 +25,7 @@ def load_contract(path: Path) -> dict[str, Any]:
 def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
     for contract in _list_value(catalog, "contracts"):
         if not isinstance(contract, dict):
-            raise ReleaseToolError("runtime catalog contains a malformed contract entry")
+            raise ReleaseToolError("endpoint contracts contains a malformed contract entry")
         if contract.get("id") == contract_id:
             return contract
     return None
@@ -34,7 +34,7 @@ def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] |
 def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, Any] | None:
     for revision in _list_value(contract, "revisions"):
         if not isinstance(revision, dict):
-            raise ReleaseToolError("runtime catalog contains a malformed revision entry")
+            raise ReleaseToolError("endpoint contracts contains a malformed revision entry")
         if revision.get("version") == contract_version:
             return revision
     return None
@@ -66,7 +66,7 @@ def validate_catalog_compatibility(*, contract: dict[str, Any], catalog: dict[st
     if revision is None:
         return
     _string_value(revision, "version")
-    _validate_image_ref(_string_value(revision, "endpoint_image_ref"))
+    _validate_image_ref(_string_value(revision, "image_ref"))
 
 
 def promote_runtime_image(
@@ -90,7 +90,7 @@ def promote_runtime_image(
                 "revisions": [
                     {
                         "version": resolved_contract_version,
-                        "endpoint_image_ref": image_ref,
+                        "image_ref": image_ref,
                     }
                 ],
             }
@@ -99,11 +99,11 @@ def promote_runtime_image(
         revisions = _list_value(catalog_contract, "revisions")
         revision = find_revision(catalog_contract, resolved_contract_version)
         if revision is not None:
-            raise ReleaseToolError(f"runtime catalog revision already exists: {contract_id} {resolved_contract_version}")
+            raise ReleaseToolError(f"endpoint contracts revision already exists: {contract_id} {resolved_contract_version}")
         revisions.append(
             {
                 "version": resolved_contract_version,
-                "endpoint_image_ref": image_ref,
+                "image_ref": image_ref,
             }
         )
     return catalog
@@ -121,10 +121,10 @@ def update_runtime_workflow_catalog(
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
         if preset.get("id") != contract_id:
             continue
-        runtime_contract = _dict_value(preset, "runtime_contract")
-        if runtime_contract.get("id") != contract_id:
-            raise ReleaseToolError(f"workflow preset {contract_id} does not reference runtime contract: {contract_id}")
-        runtime_contract["version"] = contract_version
+        endpoint_contract = _dict_value(preset, "endpoint_contract")
+        if endpoint_contract.get("id") != contract_id:
+            raise ReleaseToolError(f"workflow preset {contract_id} does not reference endpoint contract: {contract_id}")
+        endpoint_contract["version"] = contract_version
         return catalog
     raise ReleaseToolError(f"workflow catalog does not contain preset: {contract_id}")
 
@@ -440,7 +440,7 @@ def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Runtime contract release and promotion helper")
+    parser = argparse.ArgumentParser(description="Endpoint contract release and promotion helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     resolve = subparsers.add_parser("resolve", help="resolve contract outputs")
@@ -456,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     promote_runtime = subparsers.add_parser(
         "promote-runtime-image",
-        help="promote a digest-pinned endpoint image into the Runtime Catalog",
+        help="promote a digest-pinned endpoint image into the Endpoint Contracts",
     )
     promote_runtime.add_argument("--contract", required=True)
     promote_runtime.add_argument("--catalog", required=True)

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri_specta::{collect_commands, Builder};
 
+pub mod domain;
+
 const REFACTOR_MESSAGE: &str = "Native backend refactor is in progress.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
