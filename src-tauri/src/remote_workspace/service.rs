@@ -9,13 +9,7 @@ use crate::domain::{
 };
 
 use super::{
-    errors::{
-        CreateVolumeError, DeleteEndpointError, DeleteVolumeError, ObserveEndpointError,
-        ObserveProvisionerError, ObserveVolumeError, ProviderApiError,
-        RemoteWorkspaceProviderRegistryError, StartProvisionerError, TerminateProvisionerError,
-        WorkspaceDeleteError, WorkspaceExecuteError, WorkspaceObserveError,
-        WorkspaceProvisionError, WorkspaceSetupError,
-    },
+    errors::RemoteWorkspaceError,
     provider::{
         CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, ObserveEndpointParams,
         ObserveProvisionerParams, ObserveVolumeParams, StartProvisionerParams,
@@ -44,9 +38,9 @@ impl RemoteWorkspaceService {
     pub fn setup_workspace(
         &self,
         request: SetupWorkspaceRequest,
-    ) -> Result<Workspace, WorkspaceSetupError> {
+    ) -> Result<Workspace, RemoteWorkspaceError> {
         if request.workspace_id.trim().is_empty() {
-            return Err(WorkspaceSetupError::InvalidRequest {
+            return Err(RemoteWorkspaceError::InvalidRequest {
                 message: "workspace id is required".to_string(),
             });
         }
@@ -72,23 +66,20 @@ impl RemoteWorkspaceService {
     pub async fn observe_workspace(
         &self,
         workspace: &Workspace,
-    ) -> Result<(), WorkspaceObserveError> {
+    ) -> Result<(), RemoteWorkspaceError> {
         let remote = remote_workspace(workspace);
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-        let provider = self
-            .provider_registry
-            .for_provider(provider_id)
-            .map_err(workspace_observe_registry_error)?;
+        let provider = self.provider_registry.for_provider(provider_id)?;
 
         if provider
             .observe_volume(ObserveVolumeParams {
                 workspace_id: workspace.id.clone(),
             })
             .await
-            .map_err(workspace_observe_volume_error)?
+            .map_err(sanitize_remote_workspace_error)?
             .is_some()
         {
-            return Err(WorkspaceObserveError::ExistingVolume);
+            return Err(RemoteWorkspaceError::ExistingVolume);
         }
 
         if provider
@@ -96,10 +87,10 @@ impl RemoteWorkspaceService {
                 workspace_id: workspace.id.clone(),
             })
             .await
-            .map_err(workspace_observe_provisioner_error)?
+            .map_err(sanitize_remote_workspace_error)?
             .is_some()
         {
-            return Err(WorkspaceObserveError::ExistingProvisioner);
+            return Err(RemoteWorkspaceError::ExistingProvisioner);
         }
 
         if provider
@@ -112,10 +103,10 @@ impl RemoteWorkspaceService {
                     .map(|endpoint| endpoint.id.clone()),
             })
             .await
-            .map_err(workspace_observe_endpoint_error)?
+            .map_err(sanitize_remote_workspace_error)?
             .is_some()
         {
-            return Err(WorkspaceObserveError::ExistingEndpoint);
+            return Err(RemoteWorkspaceError::ExistingEndpoint);
         }
 
         Ok(())
@@ -124,20 +115,15 @@ impl RemoteWorkspaceService {
     pub async fn provision_workspace(
         &self,
         workspace: &Workspace,
-    ) -> Result<Workspace, WorkspaceProvisionError> {
+    ) -> Result<Workspace, RemoteWorkspaceError> {
         let remote = remote_workspace(workspace);
 
         match &remote.remote_provisioning.status {
             RemoteProvisioningStatus::NotStarted => {
-                self.observe_workspace(workspace)
-                    .await
-                    .map_err(workspace_provision_observe_error)?;
+                self.observe_workspace(workspace).await?;
 
                 let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self
-                    .provider_registry
-                    .for_provider(provider_id)
-                    .map_err(workspace_provision_registry_error)?;
+                let provider = self.provider_registry.for_provider(provider_id)?;
 
                 let remote_volume = provider
                     .create_volume(CreateVolumeParams {
@@ -148,7 +134,7 @@ impl RemoteWorkspaceService {
                         mount_path: "/workspace".to_string(),
                     })
                     .await
-                    .map_err(workspace_provision_create_volume_error)?;
+                    .map_err(sanitize_remote_workspace_error)?;
 
                 let mut workspace = workspace.clone();
                 let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
@@ -164,16 +150,13 @@ impl RemoteWorkspaceService {
                 phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
             } => {
                 let remote_volume = remote.remote_resources.remote_volume.as_ref().ok_or(
-                    WorkspaceProvisionError::InvalidWorkspaceState {
+                    RemoteWorkspaceError::InvalidWorkspaceState {
                         message: "remote volume snapshot is required before provisioner start"
                             .to_string(),
                     },
                 )?;
                 let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self
-                    .provider_registry
-                    .for_provider(provider_id)
-                    .map_err(workspace_provision_registry_error)?;
+                let provider = self.provider_registry.for_provider(provider_id)?;
 
                 let remote_provisioner = provider
                     .start_provisioner(StartProvisionerParams {
@@ -185,7 +168,7 @@ impl RemoteWorkspaceService {
                         mount_path: "/workspace".to_string(),
                     })
                     .await
-                    .map_err(workspace_provision_start_provisioner_error)?;
+                    .map_err(sanitize_remote_workspace_error)?;
 
                 let mut workspace = workspace.clone();
                 let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
@@ -201,30 +184,30 @@ impl RemoteWorkspaceService {
             }
             RemoteProvisioningStatus::Completed => Ok(workspace.clone()),
             RemoteProvisioningStatus::Failed { .. } => {
-                Err(WorkspaceProvisionError::InvalidWorkspaceState {
+                Err(RemoteWorkspaceError::InvalidWorkspaceState {
                     message:
                         "failed workspace must be deleted or reset before provisioning can continue"
                             .to_string(),
                 })
             }
-            _ => Err(WorkspaceProvisionError::NotImplemented {
+            _ => Err(RemoteWorkspaceError::NotImplemented {
                 message: "provisioning step is not implemented in this skeleton".to_string(),
             }),
         }
     }
 
-    pub fn execute_workspace(&self, workspace: &Workspace) -> Result<(), WorkspaceExecuteError> {
+    pub fn execute_workspace(&self, workspace: &Workspace) -> Result<(), RemoteWorkspaceError> {
         let remote = remote_workspace(workspace);
 
         if remote.remote_provisioning.status != RemoteProvisioningStatus::Completed {
-            return Err(WorkspaceExecuteError::WorkspaceNotReady);
+            return Err(RemoteWorkspaceError::WorkspaceNotReady);
         }
 
         if remote.remote_resources.remote_endpoint.is_none() {
-            return Err(WorkspaceExecuteError::MissingEndpoint);
+            return Err(RemoteWorkspaceError::MissingEndpoint);
         }
 
-        Err(WorkspaceExecuteError::NotImplemented {
+        Err(RemoteWorkspaceError::NotImplemented {
             message: "endpoint worker execution is not implemented in this skeleton".to_string(),
         })
     }
@@ -232,42 +215,54 @@ impl RemoteWorkspaceService {
     pub async fn delete_workspace(
         &self,
         workspace: &Workspace,
-    ) -> Result<(), WorkspaceDeleteError> {
+    ) -> Result<(), RemoteWorkspaceError> {
         let remote = remote_workspace(workspace);
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-        let provider = self
-            .provider_registry
-            .for_provider(provider_id)
-            .map_err(workspace_delete_registry_error)?;
+        let provider = self.provider_registry.for_provider(provider_id)?;
 
         if let Some(endpoint) = &remote.remote_resources.remote_endpoint {
-            provider
+            if let Err(error) = provider
                 .delete_endpoint(DeleteEndpointParams {
                     workspace_id: workspace.id.clone(),
                     endpoint_id: endpoint.id.clone(),
                 })
                 .await
-                .or_else(workspace_delete_endpoint_error)?;
+            {
+                let error = sanitize_remote_workspace_error(error);
+                if error != RemoteWorkspaceError::NonExistingEndpoint {
+                    return Err(error);
+                }
+            }
         }
 
         if let Some(provisioner) = &remote.remote_resources.remote_provisioner {
-            provider
+            if let Err(error) = provider
                 .terminate_provisioner(TerminateProvisionerParams {
                     workspace_id: workspace.id.clone(),
                     provisioner_id: provisioner.id.clone(),
                 })
                 .await
-                .or_else(workspace_delete_provisioner_error)?;
+            {
+                let error = sanitize_remote_workspace_error(error);
+                if error != RemoteWorkspaceError::NonExistingProvisioner {
+                    return Err(error);
+                }
+            }
         }
 
         if let Some(volume) = &remote.remote_resources.remote_volume {
-            provider
+            if let Err(error) = provider
                 .delete_volume(DeleteVolumeParams {
                     workspace_id: workspace.id.clone(),
                     volume_id: volume.id.clone(),
                 })
                 .await
-                .or_else(workspace_delete_volume_error)?;
+            {
+                let error = sanitize_remote_workspace_error(error);
+                if error != RemoteWorkspaceError::NonExistingVolume {
+                    return Err(error);
+                }
+            }
         }
 
         Ok(())
@@ -280,126 +275,14 @@ fn remote_workspace(workspace: &Workspace) -> &RemoteWorkspace {
     }
 }
 
-fn workspace_observe_registry_error(
-    error: RemoteWorkspaceProviderRegistryError,
-) -> WorkspaceObserveError {
+fn sanitize_remote_workspace_error(error: RemoteWorkspaceError) -> RemoteWorkspaceError {
     match error {
-        RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id } => {
-            WorkspaceObserveError::MissingProvider { provider_id }
-        }
-    }
-}
-
-fn workspace_observe_volume_error(error: ObserveVolumeError) -> WorkspaceObserveError {
-    match error {
-        ObserveVolumeError::ProviderApi(error) => {
-            WorkspaceObserveError::ProviderApi(ui_safe_provider_api_error(error))
-        }
-    }
-}
-
-fn workspace_observe_provisioner_error(error: ObserveProvisionerError) -> WorkspaceObserveError {
-    match error {
-        ObserveProvisionerError::ProviderApi(error) => {
-            WorkspaceObserveError::ProviderApi(ui_safe_provider_api_error(error))
-        }
-    }
-}
-
-fn workspace_observe_endpoint_error(error: ObserveEndpointError) -> WorkspaceObserveError {
-    match error {
-        ObserveEndpointError::ProviderApi(error) => {
-            WorkspaceObserveError::ProviderApi(ui_safe_provider_api_error(error))
-        }
-    }
-}
-
-fn workspace_provision_registry_error(
-    error: RemoteWorkspaceProviderRegistryError,
-) -> WorkspaceProvisionError {
-    match error {
-        RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id } => {
-            WorkspaceProvisionError::MissingProvider { provider_id }
-        }
-    }
-}
-
-fn workspace_provision_observe_error(error: WorkspaceObserveError) -> WorkspaceProvisionError {
-    match error {
-        WorkspaceObserveError::ProviderApi(error) => {
-            WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
+        RemoteWorkspaceError::ProviderRequestFailed { .. } => {
+            RemoteWorkspaceError::ProviderRequestFailed {
+                message: "provider request failed".to_string(),
+            }
         }
         error => error,
-    }
-}
-
-fn workspace_provision_create_volume_error(error: CreateVolumeError) -> WorkspaceProvisionError {
-    match error {
-        CreateVolumeError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
-        CreateVolumeError::ProviderApi(error) => {
-            WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
-        }
-    }
-}
-
-fn workspace_provision_start_provisioner_error(
-    error: StartProvisionerError,
-) -> WorkspaceProvisionError {
-    match error {
-        StartProvisionerError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
-        StartProvisionerError::ProviderApi(error) => {
-            WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
-        }
-    }
-}
-
-fn ui_safe_provider_api_error(error: ProviderApiError) -> ProviderApiError {
-    match error {
-        ProviderApiError::Unauthorized => ProviderApiError::Unauthorized,
-        ProviderApiError::RateLimited => ProviderApiError::RateLimited,
-        ProviderApiError::Timeout => ProviderApiError::Timeout,
-        ProviderApiError::RequestFailed { .. } => ProviderApiError::RequestFailed {
-            message: "provider request failed".to_string(),
-        },
-    }
-}
-
-fn workspace_delete_registry_error(
-    error: RemoteWorkspaceProviderRegistryError,
-) -> WorkspaceDeleteError {
-    match error {
-        RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id } => {
-            WorkspaceDeleteError::MissingProvider { provider_id }
-        }
-    }
-}
-
-fn workspace_delete_endpoint_error(error: DeleteEndpointError) -> Result<(), WorkspaceDeleteError> {
-    match error {
-        DeleteEndpointError::NonExistingEndpoint => Ok(()),
-        DeleteEndpointError::ProviderApi(error) => Err(WorkspaceDeleteError::ProviderApi(
-            ui_safe_provider_api_error(error),
-        )),
-    }
-}
-
-fn workspace_delete_provisioner_error(
-    error: TerminateProvisionerError,
-) -> Result<(), WorkspaceDeleteError> {
-    match error {
-        TerminateProvisionerError::NonExistingProvisioner => Ok(()),
-        TerminateProvisionerError::ProviderApi(error) => Err(WorkspaceDeleteError::ProviderApi(
-            ui_safe_provider_api_error(error),
-        )),
-    }
-}
-
-fn workspace_delete_volume_error(error: DeleteVolumeError) -> Result<(), WorkspaceDeleteError> {
-    match error {
-        DeleteVolumeError::NonExistingVolume => Ok(()),
-        DeleteVolumeError::ProviderApi(error) => Err(WorkspaceDeleteError::ProviderApi(
-            ui_safe_provider_api_error(error),
-        )),
     }
 }
 
@@ -427,12 +310,7 @@ mod tests {
 
     use super::*;
     use crate::remote_workspace::{
-        errors::{
-            CreateEndpointError, CreateVolumeError, DeleteEndpointError, DeleteVolumeError,
-            GetProvisionerStatusError, ObserveEndpointError, ObserveProvisionerError,
-            ObserveVolumeError, ProviderApiError, StartProvisionerError, TerminateProvisionerError,
-            WorkspaceDeleteError, WorkspaceExecuteError,
-        },
+        errors::RemoteWorkspaceError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
             GetProvisionerStatusParams, ObserveEndpointParams, ObserveProvisionerParams,
@@ -448,14 +326,14 @@ mod tests {
         volume: Option<RemoteVolumeSnapshot>,
         provisioner: Option<RemoteProvisionerSnapshot>,
         endpoint: Option<RemoteEndpointSnapshot>,
-        observe_volume_error: Option<ObserveVolumeError>,
-        observe_provisioner_error: Option<ObserveProvisionerError>,
-        observe_endpoint_error: Option<ObserveEndpointError>,
-        create_volume_error: Option<CreateVolumeError>,
-        start_provisioner_error: Option<StartProvisionerError>,
-        delete_endpoint_error: Option<DeleteEndpointError>,
-        terminate_provisioner_error: Option<TerminateProvisionerError>,
-        delete_volume_error: Option<DeleteVolumeError>,
+        observe_volume_error: Option<RemoteWorkspaceError>,
+        observe_provisioner_error: Option<RemoteWorkspaceError>,
+        observe_endpoint_error: Option<RemoteWorkspaceError>,
+        create_volume_error: Option<RemoteWorkspaceError>,
+        start_provisioner_error: Option<RemoteWorkspaceError>,
+        delete_endpoint_error: Option<RemoteWorkspaceError>,
+        terminate_provisioner_error: Option<RemoteWorkspaceError>,
+        delete_volume_error: Option<RemoteWorkspaceError>,
         last_create_volume_params: Option<CreateVolumeParams>,
         last_start_provisioner_params: Option<StartProvisionerParams>,
     }
@@ -474,7 +352,7 @@ mod tests {
         fn create_volume<'a>(
             &'a self,
             params: CreateVolumeParams,
-        ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, CreateVolumeError>> {
+        ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("create_volume");
@@ -493,7 +371,7 @@ mod tests {
         fn delete_volume<'a>(
             &'a self,
             _params: DeleteVolumeParams,
-        ) -> ProviderFuture<'a, Result<(), DeleteVolumeError>> {
+        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("delete_volume");
@@ -507,7 +385,8 @@ mod tests {
         fn observe_volume<'a>(
             &'a self,
             _params: ObserveVolumeParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteVolumeSnapshot>, ObserveVolumeError>> {
+        ) -> ProviderFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>>
+        {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("observe_volume");
@@ -523,7 +402,7 @@ mod tests {
         fn start_provisioner<'a>(
             &'a self,
             params: StartProvisionerParams,
-        ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, StartProvisionerError>> {
+        ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("start_provisioner");
@@ -543,7 +422,7 @@ mod tests {
         fn terminate_provisioner<'a>(
             &'a self,
             _params: TerminateProvisionerParams,
-        ) -> ProviderFuture<'a, Result<(), TerminateProvisionerError>> {
+        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("terminate_provisioner");
@@ -557,7 +436,7 @@ mod tests {
         fn observe_provisioner<'a>(
             &'a self,
             _params: ObserveProvisionerParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteProvisionerSnapshot>, ObserveProvisionerError>>
+        ) -> ProviderFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>
         {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
@@ -572,8 +451,7 @@ mod tests {
         fn get_provisioner_status<'a>(
             &'a self,
             _params: GetProvisionerStatusParams,
-        ) -> ProviderFuture<'a, Result<RemoteProvisionerStatus, GetProvisionerStatusError>>
-        {
+        ) -> ProviderFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
             Box::pin(async { Ok(RemoteProvisionerStatus::Pending) })
         }
     }
@@ -582,7 +460,7 @@ mod tests {
         fn create_endpoint<'a>(
             &'a self,
             _params: CreateEndpointParams,
-        ) -> ProviderFuture<'a, Result<RemoteEndpointSnapshot, CreateEndpointError>> {
+        ) -> ProviderFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
             Box::pin(async {
                 Ok(RemoteEndpointSnapshot {
                     id: "endpoint".to_string(),
@@ -594,7 +472,7 @@ mod tests {
         fn delete_endpoint<'a>(
             &'a self,
             _params: DeleteEndpointParams,
-        ) -> ProviderFuture<'a, Result<(), DeleteEndpointError>> {
+        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("delete_endpoint");
@@ -608,7 +486,7 @@ mod tests {
         fn observe_endpoint<'a>(
             &'a self,
             _params: ObserveEndpointParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteEndpointSnapshot>, ObserveEndpointError>>
+        ) -> ProviderFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>>
         {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
@@ -743,7 +621,7 @@ mod tests {
         let error = block_on(service.observe_workspace(&workspace))
             .expect_err("existing volume should be a conflict");
 
-        assert_eq!(error, WorkspaceObserveError::ExistingVolume);
+        assert_eq!(error, RemoteWorkspaceError::ExistingVolume);
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["observe_volume"]
@@ -765,7 +643,7 @@ mod tests {
         let error = block_on(service.observe_workspace(&workspace))
             .expect_err("existing provisioner should be a conflict");
 
-        assert_eq!(error, WorkspaceObserveError::ExistingProvisioner);
+        assert_eq!(error, RemoteWorkspaceError::ExistingProvisioner);
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["observe_volume", "observe_provisioner"]
@@ -787,7 +665,7 @@ mod tests {
         let error = block_on(service.observe_workspace(&workspace))
             .expect_err("existing endpoint should be a conflict");
 
-        assert_eq!(error, WorkspaceObserveError::ExistingEndpoint);
+        assert_eq!(error, RemoteWorkspaceError::ExistingEndpoint);
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["observe_volume", "observe_provisioner", "observe_endpoint"]
@@ -797,11 +675,9 @@ mod tests {
     #[test]
     fn observe_workspace_sanitizes_provider_request_failure() {
         let state = Arc::new(Mutex::new(ProviderState {
-            observe_volume_error: Some(ObserveVolumeError::ProviderApi(
-                ProviderApiError::RequestFailed {
-                    message: "raw secret token".to_string(),
-                },
-            )),
+            observe_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
+                message: "raw secret token".to_string(),
+            }),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -812,9 +688,9 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceObserveError::ProviderApi(ProviderApiError::RequestFailed {
+            RemoteWorkspaceError::ProviderRequestFailed {
                 message: "provider request failed".to_string(),
-            })
+            }
         );
         assert!(!format!("{error:?}").contains("raw secret token"));
         assert_eq!(
@@ -930,11 +806,9 @@ mod tests {
     fn provision_workspace_sanitizes_provider_request_failed_messages() {
         let raw_message = "secret bearer token abc123 leaked by provider";
         let state = Arc::new(Mutex::new(ProviderState {
-            create_volume_error: Some(CreateVolumeError::ProviderApi(
-                ProviderApiError::RequestFailed {
-                    message: raw_message.to_string(),
-                },
-            )),
+            create_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
+                message: raw_message.to_string(),
+            }),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -945,9 +819,9 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceProvisionError::ProviderApi(ProviderApiError::RequestFailed {
+            RemoteWorkspaceError::ProviderRequestFailed {
                 message: "provider request failed".to_string(),
-            })
+            }
         );
         assert!(!format!("{error:?}").contains(raw_message));
     }
@@ -989,7 +863,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceProvisionError::InvalidWorkspaceState {
+            RemoteWorkspaceError::InvalidWorkspaceState {
                 message:
                     "failed workspace must be deleted or reset before provisioning can continue"
                         .to_string(),
@@ -1018,7 +892,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceProvisionError::NotImplemented {
+            RemoteWorkspaceError::NotImplemented {
                 message: "provisioning step is not implemented in this skeleton".to_string(),
             }
         );
@@ -1045,7 +919,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceProvisionError::InvalidWorkspaceState {
+            RemoteWorkspaceError::InvalidWorkspaceState {
                 message: "remote volume snapshot is required before provisioner start".to_string(),
             }
         );
@@ -1066,7 +940,7 @@ mod tests {
             .execute_workspace(&workspace)
             .expect_err("draft workspace should not be executed");
 
-        assert_eq!(error, WorkspaceExecuteError::WorkspaceNotReady);
+        assert_eq!(error, RemoteWorkspaceError::WorkspaceNotReady);
         assert!(state
             .lock()
             .expect("state lock should succeed")
@@ -1086,7 +960,7 @@ mod tests {
             .execute_workspace(&workspace)
             .expect_err("completed workspace without endpoint should not execute");
 
-        assert_eq!(error, WorkspaceExecuteError::MissingEndpoint);
+        assert_eq!(error, RemoteWorkspaceError::MissingEndpoint);
         assert!(state
             .lock()
             .expect("state lock should succeed")
@@ -1112,7 +986,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceExecuteError::NotImplemented {
+            RemoteWorkspaceError::NotImplemented {
                 message: "endpoint worker execution is not implemented in this skeleton"
                     .to_string(),
             }
@@ -1141,9 +1015,9 @@ mod tests {
     #[test]
     fn delete_workspace_ignores_not_found_cleanup_errors() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(DeleteEndpointError::NonExistingEndpoint),
-            terminate_provisioner_error: Some(TerminateProvisionerError::NonExistingProvisioner),
-            delete_volume_error: Some(DeleteVolumeError::NonExistingVolume),
+            delete_endpoint_error: Some(RemoteWorkspaceError::NonExistingEndpoint),
+            terminate_provisioner_error: Some(RemoteWorkspaceError::NonExistingProvisioner),
+            delete_volume_error: Some(RemoteWorkspaceError::NonExistingVolume),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1162,11 +1036,9 @@ mod tests {
     fn delete_workspace_sanitizes_endpoint_cleanup_failure_and_stops_cleanup() {
         let raw_message = "raw secret token";
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(DeleteEndpointError::ProviderApi(
-                ProviderApiError::RequestFailed {
-                    message: raw_message.to_string(),
-                },
-            )),
+            delete_endpoint_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
+                message: raw_message.to_string(),
+            }),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1177,9 +1049,9 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceDeleteError::ProviderApi(ProviderApiError::RequestFailed {
+            RemoteWorkspaceError::ProviderRequestFailed {
                 message: "provider request failed".to_string(),
-            })
+            }
         );
         assert!(!format!("{error:?}").contains(raw_message));
         assert_eq!(

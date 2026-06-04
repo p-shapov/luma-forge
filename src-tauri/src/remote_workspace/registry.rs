@@ -1,6 +1,6 @@
 use crate::domain::provider::GpuCloudProviderId;
 
-use super::{errors::RemoteWorkspaceProviderRegistryError, provider::RemoteWorkspaceProvider};
+use super::{errors::RemoteWorkspaceError, provider::RemoteWorkspaceProvider};
 
 pub struct RemoteWorkspaceProviderRegistry {
     providers: Vec<Box<dyn RemoteWorkspaceProvider>>,
@@ -20,12 +20,12 @@ impl RemoteWorkspaceProviderRegistry {
     pub fn for_provider(
         &self,
         provider_id: GpuCloudProviderId,
-    ) -> Result<&dyn RemoteWorkspaceProvider, RemoteWorkspaceProviderRegistryError> {
+    ) -> Result<&dyn RemoteWorkspaceProvider, RemoteWorkspaceError> {
         self.providers
             .iter()
             .find(|provider| provider.provider_id() == provider_id)
             .map(|provider| provider.as_ref())
-            .ok_or(RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id })
+            .ok_or(RemoteWorkspaceError::MissingProvider { provider_id })
     }
 }
 
@@ -41,11 +41,7 @@ mod tests {
 
     use super::*;
     use crate::remote_workspace::{
-        errors::{
-            CreateEndpointError, CreateVolumeError, DeleteEndpointError, DeleteVolumeError,
-            GetProvisionerStatusError, ObserveEndpointError, ObserveProvisionerError,
-            ObserveVolumeError, StartProvisionerError, TerminateProvisionerError,
-        },
+        errors::RemoteWorkspaceError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
             GetProvisionerStatusParams, ObserveEndpointParams, ObserveProvisionerParams,
@@ -62,7 +58,7 @@ mod tests {
         fn create_volume<'a>(
             &'a self,
             _params: CreateVolumeParams,
-        ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, CreateVolumeError>> {
+        ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
             Box::pin(async {
                 Ok(RemoteVolumeSnapshot {
                     id: "volume".to_string(),
@@ -73,14 +69,15 @@ mod tests {
         fn delete_volume<'a>(
             &'a self,
             _params: DeleteVolumeParams,
-        ) -> ProviderFuture<'a, Result<(), DeleteVolumeError>> {
+        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn observe_volume<'a>(
             &'a self,
             _params: ObserveVolumeParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteVolumeSnapshot>, ObserveVolumeError>> {
+        ) -> ProviderFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>>
+        {
             Box::pin(async { Ok(None) })
         }
     }
@@ -89,7 +86,7 @@ mod tests {
         fn start_provisioner<'a>(
             &'a self,
             _params: StartProvisionerParams,
-        ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, StartProvisionerError>> {
+        ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
             Box::pin(async {
                 Ok(RemoteProvisionerSnapshot {
                     id: "provisioner".to_string(),
@@ -101,14 +98,14 @@ mod tests {
         fn terminate_provisioner<'a>(
             &'a self,
             _params: TerminateProvisionerParams,
-        ) -> ProviderFuture<'a, Result<(), TerminateProvisionerError>> {
+        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn observe_provisioner<'a>(
             &'a self,
             _params: ObserveProvisionerParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteProvisionerSnapshot>, ObserveProvisionerError>>
+        ) -> ProviderFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>
         {
             Box::pin(async { Ok(None) })
         }
@@ -116,8 +113,7 @@ mod tests {
         fn get_provisioner_status<'a>(
             &'a self,
             _params: GetProvisionerStatusParams,
-        ) -> ProviderFuture<'a, Result<RemoteProvisionerStatus, GetProvisionerStatusError>>
-        {
+        ) -> ProviderFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
             Box::pin(async { Ok(RemoteProvisionerStatus::Pending) })
         }
     }
@@ -126,7 +122,7 @@ mod tests {
         fn create_endpoint<'a>(
             &'a self,
             _params: CreateEndpointParams,
-        ) -> ProviderFuture<'a, Result<RemoteEndpointSnapshot, CreateEndpointError>> {
+        ) -> ProviderFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
             Box::pin(async {
                 Ok(RemoteEndpointSnapshot {
                     id: "endpoint".to_string(),
@@ -138,14 +134,14 @@ mod tests {
         fn delete_endpoint<'a>(
             &'a self,
             _params: DeleteEndpointParams,
-        ) -> ProviderFuture<'a, Result<(), DeleteEndpointError>> {
+        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn observe_endpoint<'a>(
             &'a self,
             _params: ObserveEndpointParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteEndpointSnapshot>, ObserveEndpointError>>
+        ) -> ProviderFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>>
         {
             Box::pin(async { Ok(None) })
         }
@@ -184,7 +180,7 @@ mod tests {
 
         assert_eq!(
             error,
-            RemoteWorkspaceProviderRegistryError::MissingProvider {
+            RemoteWorkspaceError::MissingProvider {
                 provider_id: GpuCloudProviderId::Runpod
             }
         );

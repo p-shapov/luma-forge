@@ -63,7 +63,7 @@ The new module is an application/service boundary. It consumes the existing doma
 
 `registry.rs` owns static provider registration and provider lookup.
 
-`errors.rs` owns UI-safe provider and workspace operation errors.
+`errors.rs` owns UI-safe provider and workspace service errors.
 
 No `src-tauri/src/providers/runpod/` module is added in this iteration. `GpuCloudProviderId::Runpod` already exists, but registry lookup for `Runpod` returns an explicit missing-provider error until a real adapter is added later.
 
@@ -152,9 +152,9 @@ It exposes:
 
 - `new(providers: Vec<Box<dyn RemoteWorkspaceProvider>>) -> Self`
 - `empty() -> Self`
-- `for_provider(provider_id: GpuCloudProviderId) -> Result<&dyn RemoteWorkspaceProvider, RemoteWorkspaceProviderRegistryError>`
+- `for_provider(provider_id: GpuCloudProviderId) -> Result<&dyn RemoteWorkspaceProvider, RemoteWorkspaceError>`
 
-Lookup is exact by `GpuCloudProviderId`. Missing providers return `RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id }`.
+Lookup is exact by `GpuCloudProviderId`. Missing providers return `RemoteWorkspaceError::MissingProvider { provider_id }`.
 
 The registry never falls back to a different provider.
 
@@ -200,9 +200,9 @@ The skeleton:
 
 Conflict errors are:
 
-- `WorkspaceObserveError::ExistingVolume`
-- `WorkspaceObserveError::ExistingProvisioner`
-- `WorkspaceObserveError::ExistingEndpoint`
+- `RemoteWorkspaceError::ExistingVolume`
+- `RemoteWorkspaceError::ExistingProvisioner`
+- `RemoteWorkspaceError::ExistingEndpoint`
 
 ### provision_workspace
 
@@ -247,13 +247,13 @@ When a provider or worker returns a terminal failure, the service persists `Remo
 
 Provider implementations expose only resource primitives. They do not duplicate this workflow.
 
-The skeleton returns an explicit `WorkspaceProvisionError::NotImplemented` only where a real provider, worker gateway, repository, or secure-storage collaborator is required. The skeleton still defines the state-machine boundary and tests the initial operation decisions with fake providers.
+The skeleton returns an explicit `RemoteWorkspaceError::NotImplemented` only where a real provider, worker gateway, repository, or secure-storage collaborator is required. The skeleton still defines the state-machine boundary and tests the initial operation decisions with fake providers.
 
 ### execute_workspace
 
 Executes only on a Ready remote workspace in a later implementation step.
 
-The skeleton rejects workspaces that are not ready and verifies that a stored endpoint snapshot exists before returning `WorkspaceExecuteError::NotImplemented`.
+The skeleton rejects workspaces that are not ready and verifies that a stored endpoint snapshot exists before returning `RemoteWorkspaceError::NotImplemented`.
 
 It does not automatically provision Draft workspaces and does not hide provisioning failures behind execution errors.
 
@@ -271,34 +271,27 @@ Future deletion order:
 
 Provider not-found errors for known resources may be treated as already deleted. Provider cleanup failures prevent local catalog removal.
 
-The skeleton includes dependency-order tests using a fake provider and fake catalog collaborator. It does not implement secure storage or real catalog deletion.
+The skeleton includes dependency-order tests using a fake provider. It does not implement secure storage or real catalog deletion.
 
 ## Error Model
 
-Provider API errors are normalized:
+All remote workspace errors are represented by one enum, `RemoteWorkspaceError`.
 
-- `ProviderApiError::Unauthorized`
-- `ProviderApiError::RateLimited`
-- `ProviderApiError::Timeout`
-- `ProviderApiError::RequestFailed { message }`
+Provider API errors are normalized into:
 
-Resource-specific provider errors include:
+- `RemoteWorkspaceError::ProviderUnauthorized`
+- `RemoteWorkspaceError::ProviderRateLimited`
+- `RemoteWorkspaceError::ProviderTimeout`
+- `RemoteWorkspaceError::ProviderRequestFailed { message }`
 
-- `ExistingVolume`
-- `NonExistingVolume`
-- `ExistingProvisioner`
-- `NonExistingProvisioner`
-- `ExistingEndpoint`
-- `NonExistingEndpoint`
-- `ProviderApi`
+Resource-specific errors are represented as direct `RemoteWorkspaceError` variants:
 
-Workspace operation errors use one shared `RemoteWorkspaceError` enum, with operation-specific type aliases for call-site readability. The shared enum preserves resource specificity:
-
-- `WorkspaceObserveError::ExistingVolume`
-- `WorkspaceObserveError::ExistingProvisioner`
-- `WorkspaceObserveError::ExistingEndpoint`
-- `WorkspaceProvisionError::ProviderApi`
-- `WorkspaceDeleteError::ProviderApi`
+- `RemoteWorkspaceError::ExistingVolume`
+- `RemoteWorkspaceError::NonExistingVolume`
+- `RemoteWorkspaceError::ExistingProvisioner`
+- `RemoteWorkspaceError::NonExistingProvisioner`
+- `RemoteWorkspaceError::ExistingEndpoint`
+- `RemoteWorkspaceError::NonExistingEndpoint`
 
 Errors returned from service skeletons are UI-safe. They do not contain secrets, raw provider payloads, stack traces, environment dumps, or SDK debug output.
 
@@ -321,9 +314,9 @@ Setup tests:
 
 Observe tests:
 
-- existing volume returns `WorkspaceObserveError::ExistingVolume`.
-- existing provisioner returns `WorkspaceObserveError::ExistingProvisioner`.
-- existing endpoint returns `WorkspaceObserveError::ExistingEndpoint`.
+- existing volume returns `RemoteWorkspaceError::ExistingVolume`.
+- existing provisioner returns `RemoteWorkspaceError::ExistingProvisioner`.
+- existing endpoint returns `RemoteWorkspaceError::ExistingEndpoint`.
 - observe does not persist discovered snapshots.
 
 Delete tests:
