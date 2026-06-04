@@ -292,19 +292,25 @@ fn workspace_observe_registry_error(
 
 fn workspace_observe_volume_error(error: ObserveVolumeError) -> WorkspaceObserveError {
     match error {
-        ObserveVolumeError::ProviderApi(error) => WorkspaceObserveError::ProviderApi(error),
+        ObserveVolumeError::ProviderApi(error) => {
+            WorkspaceObserveError::ProviderApi(ui_safe_provider_api_error(error))
+        }
     }
 }
 
 fn workspace_observe_provisioner_error(error: ObserveProvisionerError) -> WorkspaceObserveError {
     match error {
-        ObserveProvisionerError::ProviderApi(error) => WorkspaceObserveError::ProviderApi(error),
+        ObserveProvisionerError::ProviderApi(error) => {
+            WorkspaceObserveError::ProviderApi(ui_safe_provider_api_error(error))
+        }
     }
 }
 
 fn workspace_observe_endpoint_error(error: ObserveEndpointError) -> WorkspaceObserveError {
     match error {
-        ObserveEndpointError::ProviderApi(error) => WorkspaceObserveError::ProviderApi(error),
+        ObserveEndpointError::ProviderApi(error) => {
+            WorkspaceObserveError::ProviderApi(ui_safe_provider_api_error(error))
+        }
     }
 }
 
@@ -327,7 +333,7 @@ fn workspace_provision_observe_error(error: WorkspaceObserveError) -> WorkspaceP
         WorkspaceObserveError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
         WorkspaceObserveError::ExistingEndpoint => WorkspaceProvisionError::ExistingEndpoint,
         WorkspaceObserveError::ProviderApi(error) => {
-            WorkspaceProvisionError::ProviderApi(workspace_provision_provider_api_error(error))
+            WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
         }
     }
 }
@@ -336,7 +342,7 @@ fn workspace_provision_create_volume_error(error: CreateVolumeError) -> Workspac
     match error {
         CreateVolumeError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
         CreateVolumeError::ProviderApi(error) => {
-            WorkspaceProvisionError::ProviderApi(workspace_provision_provider_api_error(error))
+            WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
         }
     }
 }
@@ -347,12 +353,12 @@ fn workspace_provision_start_provisioner_error(
     match error {
         StartProvisionerError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
         StartProvisionerError::ProviderApi(error) => {
-            WorkspaceProvisionError::ProviderApi(workspace_provision_provider_api_error(error))
+            WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
         }
     }
 }
 
-fn workspace_provision_provider_api_error(error: ProviderApiError) -> ProviderApiError {
+fn ui_safe_provider_api_error(error: ProviderApiError) -> ProviderApiError {
     match error {
         ProviderApiError::Unauthorized => ProviderApiError::Unauthorized,
         ProviderApiError::RateLimited => ProviderApiError::RateLimited,
@@ -447,6 +453,9 @@ mod tests {
         volume: Option<RemoteVolumeSnapshot>,
         provisioner: Option<RemoteProvisionerSnapshot>,
         endpoint: Option<RemoteEndpointSnapshot>,
+        observe_volume_error: Option<ObserveVolumeError>,
+        observe_provisioner_error: Option<ObserveProvisionerError>,
+        observe_endpoint_error: Option<ObserveEndpointError>,
         create_volume_error: Option<CreateVolumeError>,
         start_provisioner_error: Option<StartProvisionerError>,
         delete_endpoint_error: Option<DeleteEndpointError>,
@@ -507,6 +516,9 @@ mod tests {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("observe_volume");
+                if let Some(error) = state.observe_volume_error.clone() {
+                    return Err(error);
+                }
                 Ok(state.volume.clone())
             })
         }
@@ -555,6 +567,9 @@ mod tests {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("observe_provisioner");
+                if let Some(error) = state.observe_provisioner_error.clone() {
+                    return Err(error);
+                }
                 Ok(state.provisioner.clone())
             })
         }
@@ -603,6 +618,9 @@ mod tests {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("observe_endpoint");
+                if let Some(error) = state.observe_endpoint_error.clone() {
+                    return Err(error);
+                }
                 Ok(state.endpoint.clone())
             })
         }
@@ -778,6 +796,35 @@ mod tests {
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["observe_volume", "observe_provisioner", "observe_endpoint"]
+        );
+    }
+
+    #[test]
+    fn observe_workspace_sanitizes_provider_request_failure() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            observe_volume_error: Some(ObserveVolumeError::ProviderApi(
+                ProviderApiError::RequestFailed {
+                    message: "raw secret token".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = draft_workspace(&service);
+
+        let error = block_on(service.observe_workspace(&workspace))
+            .expect_err("provider request failure should be returned as a sanitized error");
+
+        assert_eq!(
+            error,
+            WorkspaceObserveError::ProviderApi(ProviderApiError::RequestFailed {
+                message: "provider request failed".to_string(),
+            })
+        );
+        assert!(!format!("{error:?}").contains("raw secret token"));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["observe_volume"]
         );
     }
 
