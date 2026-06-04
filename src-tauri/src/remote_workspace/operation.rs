@@ -430,7 +430,7 @@ mod tests {
             CreateEndpointError, CreateVolumeError, DeleteEndpointError, DeleteVolumeError,
             GetProvisionerStatusError, ObserveEndpointError, ObserveProvisionerError,
             ObserveVolumeError, ProviderApiError, StartProvisionerError, TerminateProvisionerError,
-            WorkspaceExecuteError,
+            WorkspaceDeleteError, WorkspaceExecuteError,
         },
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
@@ -449,6 +449,9 @@ mod tests {
         endpoint: Option<RemoteEndpointSnapshot>,
         create_volume_error: Option<CreateVolumeError>,
         start_provisioner_error: Option<StartProvisionerError>,
+        delete_endpoint_error: Option<DeleteEndpointError>,
+        terminate_provisioner_error: Option<TerminateProvisionerError>,
+        delete_volume_error: Option<DeleteVolumeError>,
         last_create_volume_params: Option<CreateVolumeParams>,
         last_start_provisioner_params: Option<StartProvisionerParams>,
     }
@@ -490,6 +493,9 @@ mod tests {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("delete_volume");
+                if let Some(error) = state.delete_volume_error.take() {
+                    return Err(error);
+                }
                 Ok(())
             })
         }
@@ -534,6 +540,9 @@ mod tests {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("terminate_provisioner");
+                if let Some(error) = state.terminate_provisioner_error.take() {
+                    return Err(error);
+                }
                 Ok(())
             })
         }
@@ -579,6 +588,9 @@ mod tests {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("delete_endpoint");
+                if let Some(error) = state.delete_endpoint_error.take() {
+                    return Err(error);
+                }
                 Ok(())
             })
         }
@@ -657,6 +669,23 @@ mod tests {
                 remote_placement: placement_plan(),
             })
             .expect("workspace setup should succeed")
+    }
+
+    fn workspace_with_all_remote_resources(service: &RemoteWorkspaceService) -> Workspace {
+        let mut workspace = draft_workspace(service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_resources.remote_endpoint = Some(RemoteEndpointSnapshot {
+            id: "endpoint".to_string(),
+            url: "https://endpoint.example".to_string(),
+        });
+        workspace
     }
 
     #[test]
@@ -1004,28 +1033,116 @@ mod tests {
     }
 
     #[test]
-    fn delete_workspace_cleans_resources_in_dependency_order() {
+    fn execute_workspace_completed_without_endpoint_returns_missing_endpoint() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
-            id: "volume".to_string(),
-        });
-        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
-            id: "provisioner".to_string(),
-            status_url: "https://status.example".to_string(),
-        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Completed;
+
+        let error = service
+            .execute_workspace(&workspace)
+            .expect_err("completed workspace without endpoint should not execute");
+
+        assert_eq!(error, WorkspaceExecuteError::MissingEndpoint);
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn execute_workspace_completed_with_endpoint_returns_not_implemented() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Completed;
         remote.remote_resources.remote_endpoint = Some(RemoteEndpointSnapshot {
             id: "endpoint".to_string(),
             url: "https://endpoint.example".to_string(),
         });
+
+        let error = service
+            .execute_workspace(&workspace)
+            .expect_err("endpoint execution is not implemented yet");
+
+        assert_eq!(
+            error,
+            WorkspaceExecuteError::NotImplemented {
+                message: "endpoint worker execution is not implemented in this skeleton"
+                    .to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn delete_workspace_cleans_resources_in_dependency_order() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = workspace_with_all_remote_resources(&service);
 
         block_on(service.delete_workspace(&workspace)).expect("workspace cleanup should succeed");
 
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["delete_endpoint", "terminate_provisioner", "delete_volume"]
+        );
+    }
+
+    #[test]
+    fn delete_workspace_ignores_not_found_cleanup_errors() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            delete_endpoint_error: Some(DeleteEndpointError::NonExistingEndpoint),
+            terminate_provisioner_error: Some(TerminateProvisionerError::NonExistingProvisioner),
+            delete_volume_error: Some(DeleteVolumeError::NonExistingVolume),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = workspace_with_all_remote_resources(&service);
+
+        block_on(service.delete_workspace(&workspace))
+            .expect("not-found cleanup errors should be treated as already deleted");
+
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint", "terminate_provisioner", "delete_volume"]
+        );
+    }
+
+    #[test]
+    fn delete_workspace_sanitizes_endpoint_cleanup_failure_and_stops_cleanup() {
+        let raw_message = "raw secret token";
+        let state = Arc::new(Mutex::new(ProviderState {
+            delete_endpoint_error: Some(DeleteEndpointError::ProviderApi(
+                ProviderApiError::RequestFailed {
+                    message: raw_message.to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = workspace_with_all_remote_resources(&service);
+
+        let error = block_on(service.delete_workspace(&workspace))
+            .expect_err("endpoint cleanup failure should stop cleanup");
+
+        assert_eq!(
+            error,
+            WorkspaceDeleteError::CleanupFailed {
+                message: "endpoint cleanup failed".to_string(),
+            }
+        );
+        assert!(!format!("{error:?}").contains(raw_message));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint"]
         );
     }
 
