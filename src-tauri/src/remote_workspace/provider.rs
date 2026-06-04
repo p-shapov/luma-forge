@@ -1,5 +1,3 @@
-use std::{future::Future, pin::Pin};
-
 use crate::domain::{
     provider::GpuCloudProviderId,
     workspace::{
@@ -7,10 +5,9 @@ use crate::domain::{
         RemoteVolumeSnapshot,
     },
 };
+use crate::shared::AppFuture;
 
 use super::errors::RemoteWorkspaceError;
-
-pub type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateVolumeParams {
@@ -85,56 +82,56 @@ pub trait RemoteVolumeProvider {
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>>;
 
     fn delete_volume<'a>(
         &'a self,
         params: DeleteVolumeParams,
-    ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
 
     fn observe_volume<'a>(
         &'a self,
         params: ObserveVolumeParams,
-    ) -> ProviderFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>>;
 }
 
 pub trait RemoteProvisionerProvider {
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>>;
 
     fn terminate_provisioner<'a>(
         &'a self,
         params: TerminateProvisionerParams,
-    ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
 
     fn observe_provisioner<'a>(
         &'a self,
         params: ObserveProvisionerParams,
-    ) -> ProviderFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>;
 
     fn get_provisioner_status<'a>(
         &'a self,
         params: GetProvisionerStatusParams,
-    ) -> ProviderFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>>;
 }
 
 pub trait RemoteEndpointProvider {
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> ProviderFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>>;
 
     fn delete_endpoint<'a>(
         &'a self,
         params: DeleteEndpointParams,
-    ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
 
     fn observe_endpoint<'a>(
         &'a self,
         params: ObserveEndpointParams,
-    ) -> ProviderFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>>;
 }
 
 pub trait RemoteWorkspaceProvider:

@@ -4,6 +4,7 @@ use tauri_specta::{collect_commands, Builder};
 
 pub mod domain;
 pub mod remote_workspace;
+pub mod shared;
 
 const REFACTOR_MESSAGE: &str = "Native backend refactor is in progress.";
 

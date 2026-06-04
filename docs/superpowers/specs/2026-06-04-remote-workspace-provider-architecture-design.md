@@ -71,11 +71,13 @@ No `src-tauri/src/providers/runpod/` module is added in this iteration. `GpuClou
 
 Provider traits are resource-oriented. They do not own the full workspace orchestration.
 
-Use boxed futures in trait methods to keep the traits object-safe without adding a new dependency:
+Use the shared boxed future alias in trait methods to keep the traits object-safe without adding a new dependency:
 
 ```rust
-type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+use crate::shared::AppFuture;
 ```
+
+`AppFuture` is defined in `src-tauri/src/shared.rs`.
 
 The common provider trait combines the resource traits:
 

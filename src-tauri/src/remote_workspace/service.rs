@@ -296,11 +296,12 @@ mod tests {
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
             GetProvisionerStatusParams, ObserveEndpointParams, ObserveProvisionerParams,
-            ObserveVolumeParams, ProviderFuture, RemoteEndpointProvider, RemoteProvisionerProvider,
+            ObserveVolumeParams, RemoteEndpointProvider, RemoteProvisionerProvider,
             RemoteVolumeProvider, RemoteWorkspaceProvider, StartProvisionerParams,
             TerminateProvisionerParams,
         },
     };
+    use crate::shared::AppFuture;
 
     #[derive(Default)]
     struct ProviderState {
@@ -334,7 +335,7 @@ mod tests {
         fn create_volume<'a>(
             &'a self,
             params: CreateVolumeParams,
-        ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("create_volume");
@@ -353,7 +354,7 @@ mod tests {
         fn delete_volume<'a>(
             &'a self,
             _params: DeleteVolumeParams,
-        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("delete_volume");
@@ -367,8 +368,7 @@ mod tests {
         fn observe_volume<'a>(
             &'a self,
             _params: ObserveVolumeParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("observe_volume");
@@ -384,7 +384,7 @@ mod tests {
         fn start_provisioner<'a>(
             &'a self,
             params: StartProvisionerParams,
-        ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("start_provisioner");
@@ -404,7 +404,7 @@ mod tests {
         fn terminate_provisioner<'a>(
             &'a self,
             _params: TerminateProvisionerParams,
-        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("terminate_provisioner");
@@ -418,7 +418,7 @@ mod tests {
         fn observe_provisioner<'a>(
             &'a self,
             _params: ObserveProvisionerParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>
+        ) -> AppFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>
         {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
@@ -433,7 +433,7 @@ mod tests {
         fn get_provisioner_status<'a>(
             &'a self,
             _params: GetProvisionerStatusParams,
-        ) -> ProviderFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
             Box::pin(async { Ok(RemoteProvisionerStatus::Pending) })
         }
     }
@@ -442,7 +442,7 @@ mod tests {
         fn create_endpoint<'a>(
             &'a self,
             _params: CreateEndpointParams,
-        ) -> ProviderFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
             Box::pin(async {
                 Ok(RemoteEndpointSnapshot {
                     id: "endpoint".to_string(),
@@ -454,7 +454,7 @@ mod tests {
         fn delete_endpoint<'a>(
             &'a self,
             _params: DeleteEndpointParams,
-        ) -> ProviderFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("delete_endpoint");
@@ -468,8 +468,7 @@ mod tests {
         fn observe_endpoint<'a>(
             &'a self,
             _params: ObserveEndpointParams,
-        ) -> ProviderFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("observe_endpoint");
