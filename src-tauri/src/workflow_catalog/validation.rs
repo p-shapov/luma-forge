@@ -8,13 +8,6 @@ use crate::shared::{is_blank, is_safe_relative_path};
 
 use super::errors::WorkflowCatalogError;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "workflow catalog service shell is wired in follow-up tasks"
-    )
-)]
 pub(super) fn validate_runtime_catalog(
     catalog: &RuntimeCatalog,
 ) -> Result<(), WorkflowCatalogError> {
@@ -46,13 +39,6 @@ pub(super) fn validate_runtime_catalog(
     Ok(())
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "workflow catalog service shell is wired in follow-up tasks"
-    )
-)]
 pub(super) fn validate_workflows(
     workflows: &[WorkflowPreset],
     endpoint_contract_catalog: &RuntimeCatalog,
