@@ -11,8 +11,8 @@ use crate::domain::{
 use super::{
     errors::{
         CreateVolumeError, ObserveEndpointError, ObserveProvisionerError, ObserveVolumeError,
-        RemoteWorkspaceProviderRegistryError, StartProvisionerError, WorkspaceObserveError,
-        WorkspaceProvisionError, WorkspaceSetupError,
+        ProviderApiError, RemoteWorkspaceProviderRegistryError, StartProvisionerError,
+        WorkspaceObserveError, WorkspaceProvisionError, WorkspaceSetupError,
     },
     provider::{
         CreateVolumeParams, ObserveEndpointParams, ObserveProvisionerParams, ObserveVolumeParams,
@@ -20,6 +20,8 @@ use super::{
     },
     registry::RemoteWorkspaceProviderRegistry,
 };
+
+const UNRESOLVED_PROVISIONER_IMAGE_REF: &str = "unresolved-provisioner-image";
 
 pub struct SetupWorkspaceRequest {
     pub workspace_id: String,
@@ -176,7 +178,7 @@ impl RemoteWorkspaceService {
                         datacenter_id: remote.remote_placement.datacenter_id.clone(),
                         gpu_id: remote.remote_placement.gpu_id.clone(),
                         volume_id: remote_volume.id.clone(),
-                        provisioner_image_ref: "unresolved-provisioner-image".to_string(),
+                        provisioner_image_ref: UNRESOLVED_PROVISIONER_IMAGE_REF.to_string(),
                         mount_path: "/workspace".to_string(),
                     })
                     .await
@@ -261,14 +263,18 @@ fn workspace_provision_observe_error(error: WorkspaceObserveError) -> WorkspaceP
         WorkspaceObserveError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
         WorkspaceObserveError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
         WorkspaceObserveError::ExistingEndpoint => WorkspaceProvisionError::ExistingEndpoint,
-        WorkspaceObserveError::ProviderApi(error) => WorkspaceProvisionError::ProviderApi(error),
+        WorkspaceObserveError::ProviderApi(error) => {
+            WorkspaceProvisionError::ProviderApi(workspace_provision_provider_api_error(error))
+        }
     }
 }
 
 fn workspace_provision_create_volume_error(error: CreateVolumeError) -> WorkspaceProvisionError {
     match error {
         CreateVolumeError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
-        CreateVolumeError::ProviderApi(error) => WorkspaceProvisionError::ProviderApi(error),
+        CreateVolumeError::ProviderApi(error) => {
+            WorkspaceProvisionError::ProviderApi(workspace_provision_provider_api_error(error))
+        }
     }
 }
 
@@ -277,7 +283,20 @@ fn workspace_provision_start_provisioner_error(
 ) -> WorkspaceProvisionError {
     match error {
         StartProvisionerError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
-        StartProvisionerError::ProviderApi(error) => WorkspaceProvisionError::ProviderApi(error),
+        StartProvisionerError::ProviderApi(error) => {
+            WorkspaceProvisionError::ProviderApi(workspace_provision_provider_api_error(error))
+        }
+    }
+}
+
+fn workspace_provision_provider_api_error(error: ProviderApiError) -> ProviderApiError {
+    match error {
+        ProviderApiError::Unauthorized => ProviderApiError::Unauthorized,
+        ProviderApiError::RateLimited => ProviderApiError::RateLimited,
+        ProviderApiError::Timeout => ProviderApiError::Timeout,
+        ProviderApiError::RequestFailed { .. } => ProviderApiError::RequestFailed {
+            message: "provider request failed".to_string(),
+        },
     }
 }
 
@@ -308,7 +327,7 @@ mod tests {
         errors::{
             CreateEndpointError, CreateVolumeError, DeleteEndpointError, DeleteVolumeError,
             GetProvisionerStatusError, ObserveEndpointError, ObserveProvisionerError,
-            ObserveVolumeError, StartProvisionerError, TerminateProvisionerError,
+            ObserveVolumeError, ProviderApiError, StartProvisionerError, TerminateProvisionerError,
         },
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
@@ -325,6 +344,10 @@ mod tests {
         volume: Option<RemoteVolumeSnapshot>,
         provisioner: Option<RemoteProvisionerSnapshot>,
         endpoint: Option<RemoteEndpointSnapshot>,
+        create_volume_error: Option<CreateVolumeError>,
+        start_provisioner_error: Option<StartProvisionerError>,
+        last_create_volume_params: Option<CreateVolumeParams>,
+        last_start_provisioner_params: Option<StartProvisionerParams>,
     }
 
     struct FakeProvider {
@@ -340,11 +363,16 @@ mod tests {
     impl RemoteVolumeProvider for FakeProvider {
         fn create_volume<'a>(
             &'a self,
-            _params: CreateVolumeParams,
+            params: CreateVolumeParams,
         ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, CreateVolumeError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("create_volume");
+                state.last_create_volume_params = Some(params);
+
+                if let Some(error) = state.create_volume_error.clone() {
+                    return Err(error);
+                }
 
                 Ok(RemoteVolumeSnapshot {
                     id: "volume".to_string(),
@@ -374,11 +402,16 @@ mod tests {
     impl RemoteProvisionerProvider for FakeProvider {
         fn start_provisioner<'a>(
             &'a self,
-            _params: StartProvisionerParams,
+            params: StartProvisionerParams,
         ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, StartProvisionerError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("state lock should succeed");
                 state.calls.push("start_provisioner");
+                state.last_start_provisioner_params = Some(params);
+
+                if let Some(error) = state.start_provisioner_error.clone() {
+                    return Err(error);
+                }
 
                 Ok(RemoteProvisionerSnapshot {
                     id: "provisioner".to_string(),
@@ -638,6 +671,19 @@ mod tests {
                 "create_volume"
             ]
         );
+        assert_eq!(
+            state
+                .lock()
+                .expect("state lock should succeed")
+                .last_create_volume_params,
+            Some(CreateVolumeParams {
+                workspace_id: "workspace".to_string(),
+                datacenter_id: "dc".to_string(),
+                gpu_id: "gpu".to_string(),
+                size_bytes: 1,
+                mount_path: "/workspace".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -678,6 +724,150 @@ mod tests {
             state.lock().expect("state lock should succeed").calls,
             vec!["start_provisioner"]
         );
+        assert_eq!(
+            state
+                .lock()
+                .expect("state lock should succeed")
+                .last_start_provisioner_params,
+            Some(StartProvisionerParams {
+                workspace_id: "workspace".to_string(),
+                datacenter_id: "dc".to_string(),
+                gpu_id: "gpu".to_string(),
+                volume_id: "volume".to_string(),
+                provisioner_image_ref: UNRESOLVED_PROVISIONER_IMAGE_REF.to_string(),
+                mount_path: "/workspace".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn provision_workspace_sanitizes_provider_request_failed_messages() {
+        let raw_message = "secret bearer token abc123 leaked by provider";
+        let state = Arc::new(Mutex::new(ProviderState {
+            create_volume_error: Some(CreateVolumeError::ProviderApi(
+                ProviderApiError::RequestFailed {
+                    message: raw_message.to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = draft_workspace(&service);
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("provider request failure should be returned as a provisioning error");
+
+        assert_eq!(
+            error,
+            WorkspaceProvisionError::ProviderApi(ProviderApiError::RequestFailed {
+                message: "provider request failed".to_string(),
+            })
+        );
+        assert!(!format!("{error:?}").contains(raw_message));
+    }
+
+    #[test]
+    fn provision_workspace_completed_returns_workspace_unchanged_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Completed;
+        remote.remote_provisioning.percent = Some(100);
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("completed workspace should be returned unchanged");
+
+        assert_eq!(provisioned, workspace);
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_failed_returns_invalid_state_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+            code: "provider_error".to_string(),
+            message: "raw failure".to_string(),
+        };
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("failed workspace should not continue provisioning");
+
+        assert_eq!(
+            error,
+            WorkspaceProvisionError::InvalidWorkspaceState {
+                message:
+                    "failed workspace must be deleted or reset before provisioning can continue"
+                        .to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_unsupported_in_progress_phase_returns_not_implemented_without_provider_calls(
+    ) {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
+        };
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("unsupported phase should not run provider calls");
+
+        assert_eq!(
+            error,
+            WorkspaceProvisionError::NotImplemented {
+                message: "provisioning step is not implemented in this skeleton".to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_starting_provisioner_without_volume_returns_invalid_state_without_provider_calls(
+    ) {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+        };
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("missing volume should stop provisioner start");
+
+        assert_eq!(
+            error,
+            WorkspaceProvisionError::InvalidWorkspaceState {
+                message: "remote volume snapshot is required before provisioner start".to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
