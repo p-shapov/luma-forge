@@ -164,6 +164,18 @@ mod tests {
         WorkflowCatalogService::new(reader.clone(), reader.clone(), reader)
     }
 
+    fn service_with_workflows(
+        workflows: Vec<WorkflowPreset>,
+    ) -> WorkflowCatalogService<FakeReader, FakeReader, FakeReader> {
+        let reader = FakeReader {
+            workflows,
+            endpoint_contract_catalog: runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+            provisioner_contract_catalog: runtime_catalog("luma-forge-provisioner", "1.0.6"),
+        };
+
+        WorkflowCatalogService::new(reader.clone(), reader.clone(), reader)
+    }
+
     #[test]
     fn get_workflows_returns_valid_workflows() {
         let workflows = service()
@@ -195,5 +207,16 @@ mod tests {
             .expect("workflows should be valid");
 
         assert_eq!(workflow, None);
+    }
+
+    #[test]
+    fn get_workflows_rejects_invalid_catalog() {
+        let mut workflow = valid_workflow("comfyui-hidream-o1-dev");
+        workflow.name = " ".to_string();
+
+        assert_eq!(
+            service_with_workflows(vec![workflow]).get_workflows(),
+            Err(WorkflowCatalogError::ValidationFailed)
+        );
     }
 }
