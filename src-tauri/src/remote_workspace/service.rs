@@ -262,6 +262,8 @@ impl RemoteWorkspaceService {
 }
 
 fn remote_workspace(workspace: &Workspace) -> Result<&RemoteWorkspace, RemoteWorkspaceError> {
+    // When WorkspaceRuntime gets non-remote variants, return an explicit
+    // RemoteWorkspaceError here instead of accepting them in this service.
     let WorkspaceRuntime::Remote(remote) = &workspace.runtime;
     Ok(remote)
 }
