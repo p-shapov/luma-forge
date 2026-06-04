@@ -6,14 +6,6 @@ pub enum GpuCloudProviderId {
     Runpod,
 }
 
-impl GpuCloudProviderId {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Runpod => "runpod",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderGpuOption {
     pub id: String,

@@ -121,7 +121,12 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             contract_version="1.0.1",
         )
 
-        self.assertEqual("1.0.1", updated["workflow_presets"][0]["provisioner_contract"]["version"])
+        self.assertEqual(
+            "1.0.1",
+            updated["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                "provisioner_contract"
+            ]["version"],
+        )
 
     def test_cli_resolve_provisioner_writes_next_catalog_revision(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -169,7 +174,12 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             updated_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             updated_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
-            self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["provisioner_contract"]["version"])
+            self.assertEqual(
+                "1.0.1",
+                updated_workflow["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                    "provisioner_contract"
+                ]["version"],
+            )
 
     def test_provisioner_contracts_reject_malformed_catalog(self):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "contracts must be a list"):
@@ -199,13 +209,20 @@ def _workflow_catalog():
         "workflow_presets": [
             {
                 "id": "preset",
-                "endpoint_contract": {
-                    "id": "comfyui-hidream-o1-dev",
-                    "version": "1.0.0",
-                },
-                "provisioner_contract": {
-                    "id": "luma-forge-provisioner",
-                    "version": "1.0.0",
+                "remote_runtime_requirements": {
+                    "provider_requirements": [
+                        {
+                            "gpu_cloud_provider_id": "runpod",
+                            "endpoint_contract": {
+                                "id": "comfyui-hidream-o1-dev",
+                                "version": "1.0.0",
+                            },
+                            "provisioner_contract": {
+                                "id": "luma-forge-provisioner",
+                                "version": "1.0.0",
+                            },
+                        }
+                    ],
                 },
             }
         ]

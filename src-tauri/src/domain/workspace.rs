@@ -1,27 +1,27 @@
 use serde::{Deserialize, Serialize};
 
-use super::{placement::PlacementPlan, workflow_preset::WorkflowPreset};
+use super::{placement::RemotePlacementPlan, workflow_preset::WorkflowPreset};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VolumeSnapshot {
+pub struct RemoteVolumeSnapshot {
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionerSnapshot {
+pub struct RemoteProvisionerSnapshot {
     pub id: String,
     pub status_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EndpointSnapshot {
+pub struct RemoteEndpointSnapshot {
     pub id: String,
     pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionerStatus {
+pub enum RemoteProvisionerStatus {
     Pending,
     Starting,
     Running,
@@ -32,47 +32,62 @@ pub enum ProvisionerStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkspaceSetupPhase {
-    CreatingVolume,
-    StartingProvisioner,
-    RunningProvisioner { status: ProvisionerStatus },
-    CleaningUpProvisioner,
-    CreatingEndpoint,
+pub enum RemoteProvisioningPhase {
+    CreatingRemoteVolume,
+    StartingRemoteProvisioner,
+    RunningRemoteProvisioner { status: RemoteProvisionerStatus },
+    CleaningUpRemoteProvisioner,
+    CreatingRemoteEndpoint,
     ValidatingReadiness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkspaceSetupStatus {
+pub enum RemoteProvisioningStatus {
     NotStarted,
     InProgress {
-        phase: WorkspaceSetupPhase,
+        phase: RemoteProvisioningPhase,
     },
     Cancelling {
-        phase: Option<WorkspaceSetupPhase>,
+        phase: Option<RemoteProvisioningPhase>,
     },
     Completed,
     Failed {
-        phase: Option<WorkspaceSetupPhase>,
+        phase: Option<RemoteProvisioningPhase>,
         code: String,
         message: String,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WorkspaceSetupProgress {
-    pub status: WorkspaceSetupStatus,
+pub struct RemoteProvisioningState {
+    pub status: RemoteProvisioningStatus,
     pub percent: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteWorkspaceResources {
+    pub remote_volume: Option<RemoteVolumeSnapshot>,
+    pub remote_provisioner: Option<RemoteProvisionerSnapshot>,
+    pub remote_endpoint: Option<RemoteEndpointSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteWorkspace {
+    pub remote_placement: RemotePlacementPlan,
+    pub remote_provisioning: RemoteProvisioningState,
+    pub remote_resources: RemoteWorkspaceResources,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "runtime_type", rename_all = "snake_case")]
+pub enum WorkspaceRuntime {
+    Remote(RemoteWorkspace),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
-    pub is_ready: bool,
-    pub placement: PlacementPlan,
     pub workflow_preset: WorkflowPreset,
-    pub setup_progress: Option<WorkspaceSetupProgress>,
-    pub volume: Option<VolumeSnapshot>,
-    pub provisioner: Option<ProvisionerSnapshot>,
-    pub endpoint: Option<EndpointSnapshot>,
+    pub runtime: WorkspaceRuntime,
 }

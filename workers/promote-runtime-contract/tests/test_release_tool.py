@@ -308,8 +308,18 @@ runtime:
             contract_version="1.0.1",
         )
 
-        self.assertEqual("1.0.1", updated["workflow_presets"][0]["endpoint_contract"]["version"])
-        self.assertEqual("9.9.9", updated["workflow_presets"][1]["endpoint_contract"]["version"])
+        self.assertEqual(
+            "1.0.1",
+            updated["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                "endpoint_contract"
+            ]["version"],
+        )
+        self.assertEqual(
+            "9.9.9",
+            updated["workflow_presets"][1]["remote_runtime_requirements"]["provider_requirements"][0][
+                "endpoint_contract"
+            ]["version"],
+        )
 
     def test_update_runtime_workflow_catalog_rejects_missing_matching_preset(self):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "workflow catalog does not contain preset"):
@@ -321,7 +331,9 @@ runtime:
 
     def test_update_runtime_workflow_catalog_rejects_mismatched_endpoint_contract_id(self):
         workflow_catalog = _workflow_catalog()
-        workflow_catalog["workflow_presets"][0]["endpoint_contract"]["id"] = "other-runtime"
+        workflow_catalog["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+            "endpoint_contract"
+        ]["id"] = "other-runtime"
 
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "does not reference endpoint contract"):
             release_tool.update_runtime_workflow_catalog(
@@ -369,7 +381,12 @@ runtime:
             updated_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             updated_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
-            self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["endpoint_contract"]["version"])
+            self.assertEqual(
+                "1.0.1",
+                updated_workflow["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                    "endpoint_contract"
+                ]["version"],
+            )
 
     def test_cli_writes_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -434,16 +451,30 @@ def _workflow_catalog():
         "workflow_presets": [
             {
                 "id": "comfyui-hidream-o1-dev",
-                "endpoint_contract": {
-                    "id": "comfyui-hidream-o1-dev",
-                    "version": "1.0.0",
+                "remote_runtime_requirements": {
+                    "provider_requirements": [
+                        {
+                            "gpu_cloud_provider_id": "runpod",
+                            "endpoint_contract": {
+                                "id": "comfyui-hidream-o1-dev",
+                                "version": "1.0.0",
+                            },
+                        }
+                    ],
                 },
             },
             {
                 "id": "other-preset",
-                "endpoint_contract": {
-                    "id": "comfyui-hidream-o1-dev",
-                    "version": "9.9.9",
+                "remote_runtime_requirements": {
+                    "provider_requirements": [
+                        {
+                            "gpu_cloud_provider_id": "runpod",
+                            "endpoint_contract": {
+                                "id": "comfyui-hidream-o1-dev",
+                                "version": "9.9.9",
+                            },
+                        }
+                    ],
                 },
             },
         ]

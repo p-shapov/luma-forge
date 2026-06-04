@@ -93,10 +93,11 @@ def update_provisioner_workflow_catalog(
     for preset in workflow_presets:
         if not isinstance(preset, dict):
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        provisioner_contract = _dict_value(preset, "provisioner_contract")
-        if provisioner_contract.get("id") == contract_id:
-            provisioner_contract["version"] = contract_version
-            updated = True
+        for provider_requirement in _remote_provider_requirements(preset):
+            provisioner_contract = _dict_value(provider_requirement, "provisioner_contract")
+            if provisioner_contract.get("id") == contract_id:
+                provisioner_contract["version"] = contract_version
+                updated = True
     if not updated:
         raise ReleaseToolError(f"workflow catalog does not reference provisioner contract: {contract_id}")
     return catalog
@@ -136,6 +137,11 @@ def _dict_value(value: dict[str, Any], key: str) -> dict[str, Any]:
     if not isinstance(item, dict):
         raise ReleaseToolError(f"{key} must be an object")
     return item
+
+
+def _remote_provider_requirements(preset: dict[str, Any]) -> list[Any]:
+    remote_runtime_requirements = _dict_value(preset, "remote_runtime_requirements")
+    return _list_value(remote_runtime_requirements, "provider_requirements")
 
 
 def _list_value(value: dict[str, Any], key: str) -> list[Any]:

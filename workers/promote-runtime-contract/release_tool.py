@@ -121,11 +121,13 @@ def update_runtime_workflow_catalog(
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
         if preset.get("id") != contract_id:
             continue
-        endpoint_contract = _dict_value(preset, "endpoint_contract")
-        if endpoint_contract.get("id") != contract_id:
-            raise ReleaseToolError(f"workflow preset {contract_id} does not reference endpoint contract: {contract_id}")
-        endpoint_contract["version"] = contract_version
-        return catalog
+        provider_requirements = _remote_provider_requirements(preset)
+        for provider_requirement in provider_requirements:
+            endpoint_contract = _dict_value(provider_requirement, "endpoint_contract")
+            if endpoint_contract.get("id") == contract_id:
+                endpoint_contract["version"] = contract_version
+                return catalog
+        raise ReleaseToolError(f"workflow preset {contract_id} does not reference endpoint contract: {contract_id}")
     raise ReleaseToolError(f"workflow catalog does not contain preset: {contract_id}")
 
 
@@ -184,6 +186,11 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(value, handle, indent=2, sort_keys=False)
         handle.write("\n")
+
+
+def _remote_provider_requirements(preset: dict[str, Any]) -> list[Any]:
+    remote_runtime_requirements = _dict_value(preset, "remote_runtime_requirements")
+    return _list_value(remote_runtime_requirements, "provider_requirements")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
