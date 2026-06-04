@@ -44,8 +44,7 @@ mod tests {
         errors::RemoteWorkspaceError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, ObserveEndpointParams, ObserveProvisionerParams,
-            ObserveVolumeParams, RemoteEndpointProvider, RemoteProvisionerProvider,
+            GetProvisionerStatusParams, RemoteEndpointProvider, RemoteProvisionerProvider,
             RemoteVolumeProvider, StartProvisionerParams, TerminateProvisionerParams,
         },
     };
@@ -73,13 +72,6 @@ mod tests {
         ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async { Ok(()) })
         }
-
-        fn observe_volume<'a>(
-            &'a self,
-            _params: ObserveVolumeParams,
-        ) -> AppFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>> {
-            Box::pin(async { Ok(None) })
-        }
     }
 
     impl RemoteProvisionerProvider for FakeProvider {
@@ -100,14 +92,6 @@ mod tests {
             _params: TerminateProvisionerParams,
         ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async { Ok(()) })
-        }
-
-        fn observe_provisioner<'a>(
-            &'a self,
-            _params: ObserveProvisionerParams,
-        ) -> AppFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>
-        {
-            Box::pin(async { Ok(None) })
         }
 
         fn get_provisioner_status<'a>(
@@ -136,13 +120,6 @@ mod tests {
             _params: DeleteEndpointParams,
         ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
             Box::pin(async { Ok(()) })
-        }
-
-        fn observe_endpoint<'a>(
-            &'a self,
-            _params: ObserveEndpointParams,
-        ) -> AppFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>> {
-            Box::pin(async { Ok(None) })
         }
     }
 

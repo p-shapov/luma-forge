@@ -11,8 +11,7 @@ use crate::domain::{
 use super::{
     errors::RemoteWorkspaceError,
     provider::{
-        CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, ObserveEndpointParams,
-        ObserveProvisionerParams, ObserveVolumeParams, StartProvisionerParams,
+        CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, StartProvisionerParams,
         TerminateProvisionerParams,
     },
     registry::RemoteWorkspaceProviderRegistry,
@@ -63,52 +62,6 @@ impl RemoteWorkspaceService {
         })
     }
 
-    pub async fn observe_workspace(
-        &self,
-        workspace: &Workspace,
-    ) -> Result<(), RemoteWorkspaceError> {
-        let remote = remote_workspace(workspace)?;
-        let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-        let provider = self.provider_registry.for_provider(provider_id)?;
-
-        if provider
-            .observe_volume(ObserveVolumeParams {
-                workspace_id: workspace.id.clone(),
-            })
-            .await?
-            .is_some()
-        {
-            return Err(RemoteWorkspaceError::ExistingVolume);
-        }
-
-        if provider
-            .observe_provisioner(ObserveProvisionerParams {
-                workspace_id: workspace.id.clone(),
-            })
-            .await?
-            .is_some()
-        {
-            return Err(RemoteWorkspaceError::ExistingProvisioner);
-        }
-
-        if provider
-            .observe_endpoint(ObserveEndpointParams {
-                workspace_id: workspace.id.clone(),
-                endpoint_id: remote
-                    .remote_resources
-                    .remote_endpoint
-                    .as_ref()
-                    .map(|endpoint| endpoint.id.clone()),
-            })
-            .await?
-            .is_some()
-        {
-            return Err(RemoteWorkspaceError::ExistingEndpoint);
-        }
-
-        Ok(())
-    }
-
     pub async fn provision_workspace(
         &self,
         workspace: &Workspace,
@@ -117,8 +70,6 @@ impl RemoteWorkspaceService {
 
         match &remote.remote_provisioning.status {
             RemoteProvisioningStatus::NotStarted => {
-                self.observe_workspace(workspace).await?;
-
                 let provider_id = remote.remote_placement.gpu_cloud_provider_id;
                 let provider = self.provider_registry.for_provider(provider_id)?;
 
@@ -295,8 +246,7 @@ mod tests {
         errors::RemoteWorkspaceError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, ObserveEndpointParams, ObserveProvisionerParams,
-            ObserveVolumeParams, RemoteEndpointProvider, RemoteProvisionerProvider,
+            GetProvisionerStatusParams, RemoteEndpointProvider, RemoteProvisionerProvider,
             RemoteVolumeProvider, RemoteWorkspaceProvider, StartProvisionerParams,
             TerminateProvisionerParams,
         },
@@ -306,12 +256,6 @@ mod tests {
     #[derive(Default)]
     struct ProviderState {
         calls: Vec<&'static str>,
-        volume: Option<RemoteVolumeSnapshot>,
-        provisioner: Option<RemoteProvisionerSnapshot>,
-        endpoint: Option<RemoteEndpointSnapshot>,
-        observe_volume_error: Option<RemoteWorkspaceError>,
-        observe_provisioner_error: Option<RemoteWorkspaceError>,
-        observe_endpoint_error: Option<RemoteWorkspaceError>,
         create_volume_error: Option<RemoteWorkspaceError>,
         start_provisioner_error: Option<RemoteWorkspaceError>,
         delete_endpoint_error: Option<RemoteWorkspaceError>,
@@ -364,20 +308,6 @@ mod tests {
                 Ok(())
             })
         }
-
-        fn observe_volume<'a>(
-            &'a self,
-            _params: ObserveVolumeParams,
-        ) -> AppFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>> {
-            Box::pin(async move {
-                let mut state = self.state.lock().expect("state lock should succeed");
-                state.calls.push("observe_volume");
-                if let Some(error) = state.observe_volume_error.clone() {
-                    return Err(error);
-                }
-                Ok(state.volume.clone())
-            })
-        }
     }
 
     impl RemoteProvisionerProvider for FakeProvider {
@@ -415,21 +345,6 @@ mod tests {
             })
         }
 
-        fn observe_provisioner<'a>(
-            &'a self,
-            _params: ObserveProvisionerParams,
-        ) -> AppFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>
-        {
-            Box::pin(async move {
-                let mut state = self.state.lock().expect("state lock should succeed");
-                state.calls.push("observe_provisioner");
-                if let Some(error) = state.observe_provisioner_error.clone() {
-                    return Err(error);
-                }
-                Ok(state.provisioner.clone())
-            })
-        }
-
         fn get_provisioner_status<'a>(
             &'a self,
             _params: GetProvisionerStatusParams,
@@ -462,20 +377,6 @@ mod tests {
                     return Err(error);
                 }
                 Ok(())
-            })
-        }
-
-        fn observe_endpoint<'a>(
-            &'a self,
-            _params: ObserveEndpointParams,
-        ) -> AppFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>> {
-            Box::pin(async move {
-                let mut state = self.state.lock().expect("state lock should succeed");
-                state.calls.push("observe_endpoint");
-                if let Some(error) = state.observe_endpoint_error.clone() {
-                    return Err(error);
-                }
-                Ok(state.endpoint.clone())
             })
         }
     }
@@ -589,98 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn observe_workspace_returns_existing_volume_conflict() {
-        let state = Arc::new(Mutex::new(ProviderState {
-            volume: Some(RemoteVolumeSnapshot {
-                id: "volume".to_string(),
-            }),
-            ..ProviderState::default()
-        }));
-        let service = service_with_state(Arc::clone(&state));
-        let workspace = draft_workspace(&service);
-
-        let error = block_on(service.observe_workspace(&workspace))
-            .expect_err("existing volume should be a conflict");
-
-        assert_eq!(error, RemoteWorkspaceError::ExistingVolume);
-        assert_eq!(
-            state.lock().expect("state lock should succeed").calls,
-            vec!["observe_volume"]
-        );
-    }
-
-    #[test]
-    fn observe_workspace_returns_existing_provisioner_conflict() {
-        let state = Arc::new(Mutex::new(ProviderState {
-            provisioner: Some(RemoteProvisionerSnapshot {
-                id: "provisioner".to_string(),
-                status_url: "https://status.example".to_string(),
-            }),
-            ..ProviderState::default()
-        }));
-        let service = service_with_state(Arc::clone(&state));
-        let workspace = draft_workspace(&service);
-
-        let error = block_on(service.observe_workspace(&workspace))
-            .expect_err("existing provisioner should be a conflict");
-
-        assert_eq!(error, RemoteWorkspaceError::ExistingProvisioner);
-        assert_eq!(
-            state.lock().expect("state lock should succeed").calls,
-            vec!["observe_volume", "observe_provisioner"]
-        );
-    }
-
-    #[test]
-    fn observe_workspace_returns_existing_endpoint_conflict() {
-        let state = Arc::new(Mutex::new(ProviderState {
-            endpoint: Some(RemoteEndpointSnapshot {
-                id: "endpoint".to_string(),
-                url: "https://endpoint.example".to_string(),
-            }),
-            ..ProviderState::default()
-        }));
-        let service = service_with_state(Arc::clone(&state));
-        let workspace = draft_workspace(&service);
-
-        let error = block_on(service.observe_workspace(&workspace))
-            .expect_err("existing endpoint should be a conflict");
-
-        assert_eq!(error, RemoteWorkspaceError::ExistingEndpoint);
-        assert_eq!(
-            state.lock().expect("state lock should succeed").calls,
-            vec!["observe_volume", "observe_provisioner", "observe_endpoint"]
-        );
-    }
-
-    #[test]
-    fn observe_workspace_returns_provider_request_failure() {
-        let state = Arc::new(Mutex::new(ProviderState {
-            observe_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
-            }),
-            ..ProviderState::default()
-        }));
-        let service = service_with_state(Arc::clone(&state));
-        let workspace = draft_workspace(&service);
-
-        let error = block_on(service.observe_workspace(&workspace))
-            .expect_err("provider request failure should be returned");
-
-        assert_eq!(
-            error,
-            RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
-            }
-        );
-        assert_eq!(
-            state.lock().expect("state lock should succeed").calls,
-            vec!["observe_volume"]
-        );
-    }
-
-    #[test]
-    fn provision_workspace_not_started_runs_preflight_then_creates_volume_only() {
+    fn provision_workspace_not_started_creates_volume_only() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
         let workspace = draft_workspace(&service);
@@ -706,12 +516,7 @@ mod tests {
         assert_eq!(remote.remote_provisioning.percent, Some(25));
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
-            vec![
-                "observe_volume",
-                "observe_provisioner",
-                "observe_endpoint",
-                "create_volume"
-            ]
+            vec!["create_volume"]
         );
         assert_eq!(
             state

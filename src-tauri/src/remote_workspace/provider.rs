@@ -25,11 +25,6 @@ pub struct DeleteVolumeParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObserveVolumeParams {
-    pub workspace_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartProvisionerParams {
     pub workspace_id: String,
     pub datacenter_id: String,
@@ -43,11 +38,6 @@ pub struct StartProvisionerParams {
 pub struct TerminateProvisionerParams {
     pub workspace_id: String,
     pub provisioner_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObserveProvisionerParams {
-    pub workspace_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,12 +62,6 @@ pub struct DeleteEndpointParams {
     pub endpoint_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ObserveEndpointParams {
-    pub workspace_id: String,
-    pub endpoint_id: Option<String>,
-}
-
 pub trait RemoteVolumeProvider {
     fn create_volume<'a>(
         &'a self,
@@ -88,11 +72,6 @@ pub trait RemoteVolumeProvider {
         &'a self,
         params: DeleteVolumeParams,
     ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
-
-    fn observe_volume<'a>(
-        &'a self,
-        params: ObserveVolumeParams,
-    ) -> AppFuture<'a, Result<Option<RemoteVolumeSnapshot>, RemoteWorkspaceError>>;
 }
 
 pub trait RemoteProvisionerProvider {
@@ -105,11 +84,6 @@ pub trait RemoteProvisionerProvider {
         &'a self,
         params: TerminateProvisionerParams,
     ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
-
-    fn observe_provisioner<'a>(
-        &'a self,
-        params: ObserveProvisionerParams,
-    ) -> AppFuture<'a, Result<Option<RemoteProvisionerSnapshot>, RemoteWorkspaceError>>;
 
     fn get_provisioner_status<'a>(
         &'a self,
@@ -127,11 +101,6 @@ pub trait RemoteEndpointProvider {
         &'a self,
         params: DeleteEndpointParams,
     ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
-
-    fn observe_endpoint<'a>(
-        &'a self,
-        params: ObserveEndpointParams,
-    ) -> AppFuture<'a, Result<Option<RemoteEndpointSnapshot>, RemoteWorkspaceError>>;
 }
 
 pub trait RemoteWorkspaceProvider:

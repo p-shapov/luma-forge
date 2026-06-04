@@ -4,11 +4,8 @@ use crate::domain::provider::GpuCloudProviderId;
 pub enum RemoteWorkspaceError {
     MissingProvider { provider_id: GpuCloudProviderId },
     InvalidRequest { message: String },
-    ExistingVolume,
     NonExistingVolume,
-    ExistingProvisioner,
     NonExistingProvisioner,
-    ExistingEndpoint,
     NonExistingEndpoint,
     ProviderUnauthorized,
     ProviderRateLimited,
