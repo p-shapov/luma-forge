@@ -167,10 +167,22 @@ mod tests {
     fn service_with_workflows(
         workflows: Vec<WorkflowPreset>,
     ) -> WorkflowCatalogService<FakeReader, FakeReader, FakeReader> {
+        service_with_catalogs(
+            workflows,
+            runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+            runtime_catalog("luma-forge-provisioner", "1.0.6"),
+        )
+    }
+
+    fn service_with_catalogs(
+        workflows: Vec<WorkflowPreset>,
+        endpoint_contract_catalog: RuntimeCatalog,
+        provisioner_contract_catalog: RuntimeCatalog,
+    ) -> WorkflowCatalogService<FakeReader, FakeReader, FakeReader> {
         let reader = FakeReader {
             workflows,
-            endpoint_contract_catalog: runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
-            provisioner_contract_catalog: runtime_catalog("luma-forge-provisioner", "1.0.6"),
+            endpoint_contract_catalog,
+            provisioner_contract_catalog,
         };
 
         WorkflowCatalogService::new(reader.clone(), reader.clone(), reader)
@@ -210,12 +222,38 @@ mod tests {
     }
 
     #[test]
-    fn get_workflows_rejects_invalid_catalog() {
+    fn get_workflows_rejects_invalid_workflow_catalog() {
         let mut workflow = valid_workflow("comfyui-hidream-o1-dev");
         workflow.name = " ".to_string();
 
         assert_eq!(
             service_with_workflows(vec![workflow]).get_workflows(),
+            Err(WorkflowCatalogError::ValidationFailed)
+        );
+    }
+
+    #[test]
+    fn get_workflows_rejects_invalid_endpoint_contract_catalog() {
+        assert_eq!(
+            service_with_catalogs(
+                vec![valid_workflow("comfyui-hidream-o1-dev")],
+                RuntimeCatalog { contracts: vec![] },
+                runtime_catalog("luma-forge-provisioner", "1.0.6"),
+            )
+            .get_workflows(),
+            Err(WorkflowCatalogError::ValidationFailed)
+        );
+    }
+
+    #[test]
+    fn get_workflows_rejects_invalid_provisioner_contract_catalog() {
+        assert_eq!(
+            service_with_catalogs(
+                vec![valid_workflow("comfyui-hidream-o1-dev")],
+                runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+                RuntimeCatalog { contracts: vec![] },
+            )
+            .get_workflows(),
             Err(WorkflowCatalogError::ValidationFailed)
         );
     }
