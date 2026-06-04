@@ -2,7 +2,7 @@
 
 ## Context
 
-LumaForge is refactoring its active Tauri backend around a small domain model. The current workspace domain lives in `src-tauri/src/domain/workspace.rs`:
+LumaForge provisions remote GPU workspaces for ComfyUI workflow execution. The active native backend keeps the workspace domain intentionally small. The current workspace domain lives in `src-tauri/src/domain/workspace.rs`:
 
 - `Workspace` owns the common workspace identity and selected `WorkflowPreset`.
 - `WorkspaceRuntime` is a tagged enum.
@@ -206,9 +206,26 @@ Conflict errors are:
 
 ### provision_workspace
 
-Defines the common orchestration order but does not implement real remote provisioning yet.
+Defines the common provisioning state machine and advances it. It does not implement real remote provisioning in the skeleton phase.
 
-Expected future order:
+`provision_workspace` is a step-synchronizing operation. Each invocation reads the current remote workspace state, chooses the next valid action, performs at most one bounded provider or worker step, persists the resulting workspace state when persistence exists, and returns the updated workspace/progress. The frontend or a later scheduler may call it repeatedly until the workspace reaches a terminal state.
+
+It is not a single blocking call that loops until the workspace is ready.
+
+The state machine is represented by the existing `RemoteProvisioningStatus` and `RemoteProvisioningPhase` values on `RemoteWorkspace`:
+
+- `NotStarted`
+- `InProgress { phase: CreatingRemoteVolume }`
+- `InProgress { phase: StartingRemoteProvisioner }`
+- `InProgress { phase: RunningRemoteProvisioner { status } }`
+- `InProgress { phase: CleaningUpRemoteProvisioner }`
+- `InProgress { phase: CreatingRemoteEndpoint }`
+- `InProgress { phase: ValidatingReadiness }`
+- `Completed`
+- `Failed { phase, code, message }`
+- `Cancelling { phase }`
+
+The normal forward path is:
 
 1. Run `observe_workspace` preflight.
 2. Create remote volume.
@@ -220,9 +237,17 @@ Expected future order:
 8. Observe endpoint readiness.
 9. Persist Ready workspace state.
 
+Draft means `RemoteProvisioningStatus::NotStarted`. Ready means `RemoteProvisioningStatus::Completed` with a stored endpoint snapshot. Failed means `RemoteProvisioningStatus::Failed`.
+
+On the first `NotStarted` invocation, the service runs `observe_workspace` as a conflict preflight before creating resources. Later invocations do not repeat conflict discovery; they use persisted snapshots and the current provisioning phase to decide the next action.
+
+When a provider or worker returns a non-terminal intermediate status, the service persists the updated phase/status and returns without continuing to the next stage. A later `provision_workspace` call resumes from that persisted state.
+
+When a provider or worker returns a terminal failure, the service persists `RemoteProvisioningStatus::Failed` with UI-safe failure metadata. It preserves known resource snapshots so `delete_workspace` can clean them up later.
+
 Provider implementations expose only resource primitives. They do not duplicate this workflow.
 
-The skeleton returns an explicit `WorkspaceProvisionError::NotImplemented` after validating that the workspace is a remote Draft workspace and the provider exists.
+The skeleton returns an explicit `WorkspaceProvisionError::NotImplemented` only where a real provider, worker gateway, repository, or secure-storage collaborator is required. The skeleton still defines the state-machine boundary and tests the initial operation decisions with fake providers.
 
 ### execute_workspace
 
@@ -306,6 +331,14 @@ Delete tests:
 - delete calls provider cleanup in dependency order: endpoint, provisioner, volume.
 - provider not-found cleanup results are treated as already deleted.
 - provider cleanup failure prevents local catalog removal.
+
+Provisioning state-machine tests:
+
+- first `NotStarted` provision call runs observe preflight before resource creation.
+- provisioning advances by bounded steps instead of looping to completion in one call.
+- intermediate provider or worker status is persisted as `InProgress`.
+- terminal provider or worker failure is persisted as `Failed` with UI-safe metadata.
+- known resource snapshots are preserved after provisioning failure for later cleanup.
 
 Error safety tests:
 
