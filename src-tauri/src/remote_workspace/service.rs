@@ -75,8 +75,7 @@ impl RemoteWorkspaceService {
             .observe_volume(ObserveVolumeParams {
                 workspace_id: workspace.id.clone(),
             })
-            .await
-            .map_err(sanitize_remote_workspace_error)?
+            .await?
             .is_some()
         {
             return Err(RemoteWorkspaceError::ExistingVolume);
@@ -86,8 +85,7 @@ impl RemoteWorkspaceService {
             .observe_provisioner(ObserveProvisionerParams {
                 workspace_id: workspace.id.clone(),
             })
-            .await
-            .map_err(sanitize_remote_workspace_error)?
+            .await?
             .is_some()
         {
             return Err(RemoteWorkspaceError::ExistingProvisioner);
@@ -102,8 +100,7 @@ impl RemoteWorkspaceService {
                     .as_ref()
                     .map(|endpoint| endpoint.id.clone()),
             })
-            .await
-            .map_err(sanitize_remote_workspace_error)?
+            .await?
             .is_some()
         {
             return Err(RemoteWorkspaceError::ExistingEndpoint);
@@ -133,8 +130,7 @@ impl RemoteWorkspaceService {
                         size_bytes: remote.remote_placement.remote_volume_size_bytes,
                         mount_path: "/workspace".to_string(),
                     })
-                    .await
-                    .map_err(sanitize_remote_workspace_error)?;
+                    .await?;
 
                 let mut workspace = workspace.clone();
                 let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
@@ -167,8 +163,7 @@ impl RemoteWorkspaceService {
                         provisioner_image_ref: UNRESOLVED_PROVISIONER_IMAGE_REF.to_string(),
                         mount_path: "/workspace".to_string(),
                     })
-                    .await
-                    .map_err(sanitize_remote_workspace_error)?;
+                    .await?;
 
                 let mut workspace = workspace.clone();
                 let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
@@ -228,7 +223,6 @@ impl RemoteWorkspaceService {
                 })
                 .await
             {
-                let error = sanitize_remote_workspace_error(error);
                 if error != RemoteWorkspaceError::NonExistingEndpoint {
                     return Err(error);
                 }
@@ -243,7 +237,6 @@ impl RemoteWorkspaceService {
                 })
                 .await
             {
-                let error = sanitize_remote_workspace_error(error);
                 if error != RemoteWorkspaceError::NonExistingProvisioner {
                     return Err(error);
                 }
@@ -258,7 +251,6 @@ impl RemoteWorkspaceService {
                 })
                 .await
             {
-                let error = sanitize_remote_workspace_error(error);
                 if error != RemoteWorkspaceError::NonExistingVolume {
                     return Err(error);
                 }
@@ -272,17 +264,6 @@ impl RemoteWorkspaceService {
 fn remote_workspace(workspace: &Workspace) -> &RemoteWorkspace {
     match &workspace.runtime {
         WorkspaceRuntime::Remote(remote) => remote,
-    }
-}
-
-fn sanitize_remote_workspace_error(error: RemoteWorkspaceError) -> RemoteWorkspaceError {
-    match error {
-        RemoteWorkspaceError::ProviderRequestFailed { .. } => {
-            RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
-            }
-        }
-        error => error,
     }
 }
 
@@ -673,10 +654,10 @@ mod tests {
     }
 
     #[test]
-    fn observe_workspace_sanitizes_provider_request_failure() {
+    fn observe_workspace_returns_provider_request_failure() {
         let state = Arc::new(Mutex::new(ProviderState {
             observe_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: "raw secret token".to_string(),
+                message: "provider request failed".to_string(),
             }),
             ..ProviderState::default()
         }));
@@ -684,7 +665,7 @@ mod tests {
         let workspace = draft_workspace(&service);
 
         let error = block_on(service.observe_workspace(&workspace))
-            .expect_err("provider request failure should be returned as a sanitized error");
+            .expect_err("provider request failure should be returned");
 
         assert_eq!(
             error,
@@ -692,7 +673,6 @@ mod tests {
                 message: "provider request failed".to_string(),
             }
         );
-        assert!(!format!("{error:?}").contains("raw secret token"));
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["observe_volume"]
@@ -803,11 +783,10 @@ mod tests {
     }
 
     #[test]
-    fn provision_workspace_sanitizes_provider_request_failed_messages() {
-        let raw_message = "secret bearer token abc123 leaked by provider";
+    fn provision_workspace_returns_provider_request_failed_messages() {
         let state = Arc::new(Mutex::new(ProviderState {
             create_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: raw_message.to_string(),
+                message: "provider request failed".to_string(),
             }),
             ..ProviderState::default()
         }));
@@ -823,7 +802,6 @@ mod tests {
                 message: "provider request failed".to_string(),
             }
         );
-        assert!(!format!("{error:?}").contains(raw_message));
     }
 
     #[test]
@@ -1033,11 +1011,10 @@ mod tests {
     }
 
     #[test]
-    fn delete_workspace_sanitizes_endpoint_cleanup_failure_and_stops_cleanup() {
-        let raw_message = "raw secret token";
+    fn delete_workspace_returns_endpoint_cleanup_failure_and_stops_cleanup() {
         let state = Arc::new(Mutex::new(ProviderState {
             delete_endpoint_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: raw_message.to_string(),
+                message: "provider request failed".to_string(),
             }),
             ..ProviderState::default()
         }));
@@ -1053,7 +1030,6 @@ mod tests {
                 message: "provider request failed".to_string(),
             }
         );
-        assert!(!format!("{error:?}").contains(raw_message));
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["delete_endpoint"]

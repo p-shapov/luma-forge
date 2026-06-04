@@ -335,7 +335,7 @@ Provisioning state-machine tests:
 
 Error safety tests:
 
-- formatted error output uses sanitized provider messages only.
+- provider adapters return UI-safe provider messages only.
 - provider errors do not expose raw payload fields because raw payload fields are not present in error types.
 
 ## Verification
