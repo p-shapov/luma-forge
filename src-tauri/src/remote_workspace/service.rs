@@ -326,15 +326,10 @@ fn workspace_provision_registry_error(
 
 fn workspace_provision_observe_error(error: WorkspaceObserveError) -> WorkspaceProvisionError {
     match error {
-        WorkspaceObserveError::MissingProvider { provider_id } => {
-            WorkspaceProvisionError::MissingProvider { provider_id }
-        }
-        WorkspaceObserveError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
-        WorkspaceObserveError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
-        WorkspaceObserveError::ExistingEndpoint => WorkspaceProvisionError::ExistingEndpoint,
         WorkspaceObserveError::ProviderApi(error) => {
             WorkspaceProvisionError::ProviderApi(ui_safe_provider_api_error(error))
         }
+        error => error,
     }
 }
 
@@ -382,9 +377,9 @@ fn workspace_delete_registry_error(
 fn workspace_delete_endpoint_error(error: DeleteEndpointError) -> Result<(), WorkspaceDeleteError> {
     match error {
         DeleteEndpointError::NonExistingEndpoint => Ok(()),
-        DeleteEndpointError::ProviderApi(_) => Err(WorkspaceDeleteError::CleanupFailed {
-            message: "endpoint cleanup failed".to_string(),
-        }),
+        DeleteEndpointError::ProviderApi(error) => Err(WorkspaceDeleteError::ProviderApi(
+            ui_safe_provider_api_error(error),
+        )),
     }
 }
 
@@ -393,18 +388,18 @@ fn workspace_delete_provisioner_error(
 ) -> Result<(), WorkspaceDeleteError> {
     match error {
         TerminateProvisionerError::NonExistingProvisioner => Ok(()),
-        TerminateProvisionerError::ProviderApi(_) => Err(WorkspaceDeleteError::CleanupFailed {
-            message: "provisioner cleanup failed".to_string(),
-        }),
+        TerminateProvisionerError::ProviderApi(error) => Err(WorkspaceDeleteError::ProviderApi(
+            ui_safe_provider_api_error(error),
+        )),
     }
 }
 
 fn workspace_delete_volume_error(error: DeleteVolumeError) -> Result<(), WorkspaceDeleteError> {
     match error {
         DeleteVolumeError::NonExistingVolume => Ok(()),
-        DeleteVolumeError::ProviderApi(_) => Err(WorkspaceDeleteError::CleanupFailed {
-            message: "volume cleanup failed".to_string(),
-        }),
+        DeleteVolumeError::ProviderApi(error) => Err(WorkspaceDeleteError::ProviderApi(
+            ui_safe_provider_api_error(error),
+        )),
     }
 }
 
@@ -1182,9 +1177,9 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceDeleteError::CleanupFailed {
-                message: "endpoint cleanup failed".to_string(),
-            }
+            WorkspaceDeleteError::ProviderApi(ProviderApiError::RequestFailed {
+                message: "provider request failed".to_string(),
+            })
         );
         assert!(!format!("{error:?}").contains(raw_message));
         assert_eq!(

@@ -70,39 +70,22 @@ pub enum RemoteWorkspaceProviderRegistryError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceSetupError {
+pub enum RemoteWorkspaceError {
+    MissingProvider { provider_id: GpuCloudProviderId },
     InvalidRequest { message: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceObserveError {
-    MissingProvider { provider_id: GpuCloudProviderId },
-    ExistingVolume,
-    ExistingProvisioner,
-    ExistingEndpoint,
-    ProviderApi(ProviderApiError),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceProvisionError {
-    MissingProvider { provider_id: GpuCloudProviderId },
     ExistingVolume,
     ExistingProvisioner,
     ExistingEndpoint,
     ProviderApi(ProviderApiError),
     InvalidWorkspaceState { message: String },
-    NotImplemented { message: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceExecuteError {
     WorkspaceNotReady,
     MissingEndpoint,
+    CleanupFailed { message: String },
     NotImplemented { message: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkspaceDeleteError {
-    MissingProvider { provider_id: GpuCloudProviderId },
-    CleanupFailed { message: String },
-}
+pub type WorkspaceSetupError = RemoteWorkspaceError;
+pub type WorkspaceObserveError = RemoteWorkspaceError;
+pub type WorkspaceProvisionError = RemoteWorkspaceError;
+pub type WorkspaceExecuteError = RemoteWorkspaceError;
+pub type WorkspaceDeleteError = RemoteWorkspaceError;

@@ -41,7 +41,7 @@ Add a new native backend module:
 ```text
 src-tauri/src/remote_workspace/
   mod.rs
-  operation.rs
+  service.rs
   provider.rs
   registry.rs
   errors.rs
@@ -51,7 +51,7 @@ Expose it from `src-tauri/src/lib.rs` with `pub mod remote_workspace;`.
 
 The new module is an application/service boundary. It consumes the existing domain types instead of replacing them with a general workspace trait hierarchy.
 
-`operation.rs` owns service-level use case skeletons:
+`service.rs` owns service-level use case skeletons:
 
 - `setup_workspace`
 - `observe_workspace`
@@ -292,13 +292,13 @@ Resource-specific provider errors include:
 - `NonExistingEndpoint`
 - `ProviderApi`
 
-Workspace operation errors preserve resource specificity:
+Workspace operation errors use one shared `RemoteWorkspaceError` enum, with operation-specific type aliases for call-site readability. The shared enum preserves resource specificity:
 
 - `WorkspaceObserveError::ExistingVolume`
 - `WorkspaceObserveError::ExistingProvisioner`
 - `WorkspaceObserveError::ExistingEndpoint`
 - `WorkspaceProvisionError::ProviderApi`
-- `WorkspaceDeleteError::CleanupFailed`
+- `WorkspaceDeleteError::ProviderApi`
 
 Errors returned from service skeletons are UI-safe. They do not contain secrets, raw provider payloads, stack traces, environment dumps, or SDK debug output.
 
