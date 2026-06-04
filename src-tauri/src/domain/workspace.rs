@@ -35,8 +35,12 @@ pub enum RemoteProvisionerStatus {
 pub enum RemoteProvisioningPhase {
     CreatingRemoteVolume,
     StartingRemoteProvisioner,
-    RunningRemoteProvisioner { status: RemoteProvisionerStatus },
-    CleaningUpRemoteProvisioner,
+    RunningRemoteProvisioner {
+        status: RemoteProvisionerStatus,
+    },
+    CleaningUpRemoteProvisioner {
+        terminal_status: RemoteProvisionerStatus,
+    },
     CreatingRemoteEndpoint,
     ValidatingReadiness,
 }

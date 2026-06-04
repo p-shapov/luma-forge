@@ -588,6 +588,26 @@ mod tests {
     }
 
     #[test]
+    fn cleaning_up_phase_preserves_terminal_worker_status() {
+        let phase = RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
+            terminal_status: RemoteProvisionerStatus::Failed {
+                code: "provisioner_worker_failed".to_string(),
+                message: "worker failed".to_string(),
+            },
+        };
+
+        assert_eq!(
+            phase,
+            RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
+                terminal_status: RemoteProvisionerStatus::Failed {
+                    code: "provisioner_worker_failed".to_string(),
+                    message: "worker failed".to_string(),
+                },
+            }
+        );
+    }
+
+    #[test]
     fn provision_workspace_returns_provider_request_failed_messages() {
         let state = Arc::new(Mutex::new(ProviderState {
             create_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
