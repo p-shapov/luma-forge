@@ -11,8 +11,8 @@ use crate::domain::{
 use super::{
     errors::RemoteWorkspaceError,
     provider::{
-        CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, StartProvisionerParams,
-        TerminateProvisionerParams,
+        CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, GetProvisionerStatusParams,
+        StartProvisionerParams, TerminateProvisionerParams,
     },
     registry::RemoteWorkspaceProviderRegistry,
 };
@@ -125,6 +125,51 @@ impl RemoteWorkspaceService {
                     },
                 };
                 remote.remote_provisioning.percent = Some(50);
+
+                Ok(workspace)
+            }
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::RunningRemoteProvisioner { .. },
+            } => {
+                let remote_provisioner = remote
+                    .remote_resources
+                    .remote_provisioner
+                    .as_ref()
+                    .ok_or(RemoteWorkspaceError::InvalidWorkspaceState {
+                        message: "remote provisioner snapshot is required before status polling"
+                            .to_string(),
+                    })?;
+                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
+                let provider = self.provider_registry.for_provider(provider_id)?;
+                let status = provider
+                    .get_provisioner_status(GetProvisionerStatusParams {
+                        workspace_id: workspace.id.clone(),
+                        provisioner_id: remote_provisioner.id.clone(),
+                    })
+                    .await?;
+
+                let mut workspace = workspace.clone();
+                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+                remote.remote_provisioning.percent = Some(match status {
+                    RemoteProvisionerStatus::Pending | RemoteProvisionerStatus::Starting => 50,
+                    RemoteProvisionerStatus::Running => 60,
+                    RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. } => {
+                        75
+                    }
+                    RemoteProvisionerStatus::Terminated => 75,
+                });
+                remote.remote_provisioning.status = match status {
+                    RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. } => {
+                        RemoteProvisioningStatus::InProgress {
+                            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
+                                terminal_status: status,
+                            },
+                        }
+                    }
+                    status => RemoteProvisioningStatus::InProgress {
+                        phase: RemoteProvisioningPhase::RunningRemoteProvisioner { status },
+                    },
+                };
 
                 Ok(workspace)
             }
@@ -261,8 +306,10 @@ mod tests {
         delete_endpoint_error: Option<RemoteWorkspaceError>,
         terminate_provisioner_error: Option<RemoteWorkspaceError>,
         delete_volume_error: Option<RemoteWorkspaceError>,
+        provisioner_status_results: Vec<Result<RemoteProvisionerStatus, RemoteWorkspaceError>>,
         last_create_volume_params: Option<CreateVolumeParams>,
         last_start_provisioner_params: Option<StartProvisionerParams>,
+        last_get_provisioner_status_params: Option<GetProvisionerStatusParams>,
     }
 
     struct FakeProvider {
@@ -347,9 +394,17 @@ mod tests {
 
         fn get_provisioner_status<'a>(
             &'a self,
-            _params: GetProvisionerStatusParams,
+            params: GetProvisionerStatusParams,
         ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
-            Box::pin(async { Ok(RemoteProvisionerStatus::Pending) })
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("get_provisioner_status");
+                state.last_get_provisioner_status_params = Some(params);
+                if state.provisioner_status_results.is_empty() {
+                    return Ok(RemoteProvisionerStatus::Pending);
+                }
+                state.provisioner_status_results.remove(0)
+            })
         }
     }
 
@@ -604,6 +659,123 @@ mod tests {
                     message: "worker failed".to_string(),
                 },
             }
+        );
+    }
+
+    #[test]
+    fn provision_workspace_running_provisioner_stores_non_terminal_status() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Running)],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Pending,
+            },
+        };
+        remote.remote_provisioning.percent = Some(50);
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("running provisioner should poll status");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Running
+                }
+            }
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(60));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["get_provisioner_status"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_worker_success_moves_to_cleanup() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Succeeded)],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            },
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("worker success should move to cleanup");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
+                    terminal_status: RemoteProvisionerStatus::Succeeded
+                }
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["get_provisioner_status"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_worker_failure_moves_to_cleanup_with_failure_details() {
+        let failed_status = RemoteProvisionerStatus::Failed {
+            code: "provisioner_worker_asset_download_failed".to_string(),
+            message: "asset download failed".to_string(),
+        };
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Ok(failed_status.clone())],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            },
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("worker failure should move to cleanup before failed state");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
+                    terminal_status: failed_status
+                }
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["get_provisioner_status"]
         );
     }
 
