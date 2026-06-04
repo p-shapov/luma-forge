@@ -4,15 +4,10 @@ LumaForge is a macOS desktop application for preparing remote GPU infrastructure
 
 The main goal of the product is to turn a local workflow choice into a ready-to-use remote workspace and then use that workspace to execute the selected ComfyUI workflow on remote GPU infrastructure.
 
-## Key Flows
-
-- [GPU Cloud Provider Setup](./spec/flows/gpu-cloud-provider-setup.md): validates a provider API key, stores it in the secure keyring, and derives setup status from the stored key and provider identity.
-- [Workspace Setup](./spec/flows/workspace-setup.md): creates one local `Draft` Workspace Catalog entry from a Workflow Preset and Placement Plan. It does not create provider resources.
-- [Workspace Provisioning](./spec/flows/workspace-provisioning.md): provisions one saved `Draft` Workspace into `Ready` by creating provider resources, preparing the environment, syncing progress, and preserving cleanup metadata on failure.
-
 ## Development
 
 Native backend architecture and extension notes live in [src-tauri/README.md](./src-tauri/README.md).
+
 
 | Command                                                                                                | Purpose                                     |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
@@ -53,4 +48,5 @@ Generated files live in `src/generated` and should not be edited manually.
 | `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` after `src/routes/**` changes.                |
 | `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                              |
 | `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` after active Tauri shell command contract changes. |
+
 
