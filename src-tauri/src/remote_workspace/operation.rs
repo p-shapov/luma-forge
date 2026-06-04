@@ -10,13 +10,16 @@ use crate::domain::{
 
 use super::{
     errors::{
-        CreateVolumeError, ObserveEndpointError, ObserveProvisionerError, ObserveVolumeError,
-        ProviderApiError, RemoteWorkspaceProviderRegistryError, StartProvisionerError,
-        WorkspaceObserveError, WorkspaceProvisionError, WorkspaceSetupError,
+        CreateVolumeError, DeleteEndpointError, DeleteVolumeError, ObserveEndpointError,
+        ObserveProvisionerError, ObserveVolumeError, ProviderApiError,
+        RemoteWorkspaceProviderRegistryError, StartProvisionerError, TerminateProvisionerError,
+        WorkspaceDeleteError, WorkspaceExecuteError, WorkspaceObserveError,
+        WorkspaceProvisionError, WorkspaceSetupError,
     },
     provider::{
-        CreateVolumeParams, ObserveEndpointParams, ObserveProvisionerParams, ObserveVolumeParams,
-        StartProvisionerParams,
+        CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, ObserveEndpointParams,
+        ObserveProvisionerParams, ObserveVolumeParams, StartProvisionerParams,
+        TerminateProvisionerParams,
     },
     registry::RemoteWorkspaceProviderRegistry,
 };
@@ -209,6 +212,66 @@ impl RemoteWorkspaceService {
             }),
         }
     }
+
+    pub fn execute_workspace(&self, workspace: &Workspace) -> Result<(), WorkspaceExecuteError> {
+        let remote = remote_workspace(workspace);
+
+        if remote.remote_provisioning.status != RemoteProvisioningStatus::Completed {
+            return Err(WorkspaceExecuteError::WorkspaceNotReady);
+        }
+
+        if remote.remote_resources.remote_endpoint.is_none() {
+            return Err(WorkspaceExecuteError::MissingEndpoint);
+        }
+
+        Err(WorkspaceExecuteError::NotImplemented {
+            message: "endpoint worker execution is not implemented in this skeleton".to_string(),
+        })
+    }
+
+    pub async fn delete_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<(), WorkspaceDeleteError> {
+        let remote = remote_workspace(workspace);
+        let provider_id = remote.remote_placement.gpu_cloud_provider_id;
+        let provider = self
+            .provider_registry
+            .for_provider(provider_id)
+            .map_err(workspace_delete_registry_error)?;
+
+        if let Some(endpoint) = &remote.remote_resources.remote_endpoint {
+            provider
+                .delete_endpoint(DeleteEndpointParams {
+                    workspace_id: workspace.id.clone(),
+                    endpoint_id: endpoint.id.clone(),
+                })
+                .await
+                .or_else(workspace_delete_endpoint_error)?;
+        }
+
+        if let Some(provisioner) = &remote.remote_resources.remote_provisioner {
+            provider
+                .terminate_provisioner(TerminateProvisionerParams {
+                    workspace_id: workspace.id.clone(),
+                    provisioner_id: provisioner.id.clone(),
+                })
+                .await
+                .or_else(workspace_delete_provisioner_error)?;
+        }
+
+        if let Some(volume) = &remote.remote_resources.remote_volume {
+            provider
+                .delete_volume(DeleteVolumeParams {
+                    workspace_id: workspace.id.clone(),
+                    volume_id: volume.id.clone(),
+                })
+                .await
+                .or_else(workspace_delete_volume_error)?;
+        }
+
+        Ok(())
+    }
 }
 
 fn remote_workspace(workspace: &Workspace) -> &RemoteWorkspace {
@@ -300,6 +363,45 @@ fn workspace_provision_provider_api_error(error: ProviderApiError) -> ProviderAp
     }
 }
 
+fn workspace_delete_registry_error(
+    error: RemoteWorkspaceProviderRegistryError,
+) -> WorkspaceDeleteError {
+    match error {
+        RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id } => {
+            WorkspaceDeleteError::MissingProvider { provider_id }
+        }
+    }
+}
+
+fn workspace_delete_endpoint_error(error: DeleteEndpointError) -> Result<(), WorkspaceDeleteError> {
+    match error {
+        DeleteEndpointError::NonExistingEndpoint => Ok(()),
+        DeleteEndpointError::ProviderApi(_) => Err(WorkspaceDeleteError::CleanupFailed {
+            message: "endpoint cleanup failed".to_string(),
+        }),
+    }
+}
+
+fn workspace_delete_provisioner_error(
+    error: TerminateProvisionerError,
+) -> Result<(), WorkspaceDeleteError> {
+    match error {
+        TerminateProvisionerError::NonExistingProvisioner => Ok(()),
+        TerminateProvisionerError::ProviderApi(_) => Err(WorkspaceDeleteError::CleanupFailed {
+            message: "provisioner cleanup failed".to_string(),
+        }),
+    }
+}
+
+fn workspace_delete_volume_error(error: DeleteVolumeError) -> Result<(), WorkspaceDeleteError> {
+    match error {
+        DeleteVolumeError::NonExistingVolume => Ok(()),
+        DeleteVolumeError::ProviderApi(_) => Err(WorkspaceDeleteError::CleanupFailed {
+            message: "volume cleanup failed".to_string(),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -328,6 +430,7 @@ mod tests {
             CreateEndpointError, CreateVolumeError, DeleteEndpointError, DeleteVolumeError,
             GetProvisionerStatusError, ObserveEndpointError, ObserveProvisionerError,
             ObserveVolumeError, ProviderApiError, StartProvisionerError, TerminateProvisionerError,
+            WorkspaceExecuteError,
         },
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
@@ -384,7 +487,11 @@ mod tests {
             &'a self,
             _params: DeleteVolumeParams,
         ) -> ProviderFuture<'a, Result<(), DeleteVolumeError>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("delete_volume");
+                Ok(())
+            })
         }
 
         fn observe_volume<'a>(
@@ -424,7 +531,11 @@ mod tests {
             &'a self,
             _params: TerminateProvisionerParams,
         ) -> ProviderFuture<'a, Result<(), TerminateProvisionerError>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("terminate_provisioner");
+                Ok(())
+            })
         }
 
         fn observe_provisioner<'a>(
@@ -465,7 +576,11 @@ mod tests {
             &'a self,
             _params: DeleteEndpointParams,
         ) -> ProviderFuture<'a, Result<(), DeleteEndpointError>> {
-            Box::pin(async { Ok(()) })
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("delete_endpoint");
+                Ok(())
+            })
         }
 
         fn observe_endpoint<'a>(
@@ -868,6 +983,50 @@ mod tests {
             .expect("state lock should succeed")
             .calls
             .is_empty());
+    }
+
+    #[test]
+    fn execute_workspace_rejects_non_ready_workspace() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = draft_workspace(&service);
+
+        let error = service
+            .execute_workspace(&workspace)
+            .expect_err("draft workspace should not be executed");
+
+        assert_eq!(error, WorkspaceExecuteError::WorkspaceNotReady);
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn delete_workspace_cleans_resources_in_dependency_order() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_resources.remote_endpoint = Some(RemoteEndpointSnapshot {
+            id: "endpoint".to_string(),
+            url: "https://endpoint.example".to_string(),
+        });
+
+        block_on(service.delete_workspace(&workspace)).expect("workspace cleanup should succeed");
+
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint", "terminate_provisioner", "delete_volume"]
+        );
     }
 
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
