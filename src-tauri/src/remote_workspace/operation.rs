@@ -2,17 +2,22 @@ use crate::domain::{
     placement::RemotePlacementPlan,
     workflow_preset::WorkflowPreset,
     workspace::{
-        RemoteProvisioningState, RemoteProvisioningStatus, RemoteWorkspace,
-        RemoteWorkspaceResources, Workspace, WorkspaceRuntime,
+        RemoteProvisionerStatus, RemoteProvisioningPhase, RemoteProvisioningState,
+        RemoteProvisioningStatus, RemoteWorkspace, RemoteWorkspaceResources, Workspace,
+        WorkspaceRuntime,
     },
 };
 
 use super::{
     errors::{
-        ObserveEndpointError, ObserveProvisionerError, ObserveVolumeError,
-        RemoteWorkspaceProviderRegistryError, WorkspaceObserveError, WorkspaceSetupError,
+        CreateVolumeError, ObserveEndpointError, ObserveProvisionerError, ObserveVolumeError,
+        RemoteWorkspaceProviderRegistryError, StartProvisionerError, WorkspaceObserveError,
+        WorkspaceProvisionError, WorkspaceSetupError,
     },
-    provider::{ObserveEndpointParams, ObserveProvisionerParams, ObserveVolumeParams},
+    provider::{
+        CreateVolumeParams, ObserveEndpointParams, ObserveProvisionerParams, ObserveVolumeParams,
+        StartProvisionerParams,
+    },
     registry::RemoteWorkspaceProviderRegistry,
 };
 
@@ -110,6 +115,98 @@ impl RemoteWorkspaceService {
 
         Ok(())
     }
+
+    pub async fn provision_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Workspace, WorkspaceProvisionError> {
+        let remote = remote_workspace(workspace);
+
+        match &remote.remote_provisioning.status {
+            RemoteProvisioningStatus::NotStarted => {
+                self.observe_workspace(workspace)
+                    .await
+                    .map_err(workspace_provision_observe_error)?;
+
+                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
+                let provider = self
+                    .provider_registry
+                    .for_provider(provider_id)
+                    .map_err(workspace_provision_registry_error)?;
+
+                let remote_volume = provider
+                    .create_volume(CreateVolumeParams {
+                        workspace_id: workspace.id.clone(),
+                        datacenter_id: remote.remote_placement.datacenter_id.clone(),
+                        gpu_id: remote.remote_placement.gpu_id.clone(),
+                        size_bytes: remote.remote_placement.remote_volume_size_bytes,
+                        mount_path: "/workspace".to_string(),
+                    })
+                    .await
+                    .map_err(workspace_provision_create_volume_error)?;
+
+                let mut workspace = workspace.clone();
+                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+                remote.remote_resources.remote_volume = Some(remote_volume);
+                remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+                    phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+                };
+                remote.remote_provisioning.percent = Some(25);
+
+                Ok(workspace)
+            }
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+            } => {
+                let remote_volume = remote.remote_resources.remote_volume.as_ref().ok_or(
+                    WorkspaceProvisionError::InvalidWorkspaceState {
+                        message: "remote volume snapshot is required before provisioner start"
+                            .to_string(),
+                    },
+                )?;
+                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
+                let provider = self
+                    .provider_registry
+                    .for_provider(provider_id)
+                    .map_err(workspace_provision_registry_error)?;
+
+                let remote_provisioner = provider
+                    .start_provisioner(StartProvisionerParams {
+                        workspace_id: workspace.id.clone(),
+                        datacenter_id: remote.remote_placement.datacenter_id.clone(),
+                        gpu_id: remote.remote_placement.gpu_id.clone(),
+                        volume_id: remote_volume.id.clone(),
+                        provisioner_image_ref: "unresolved-provisioner-image".to_string(),
+                        mount_path: "/workspace".to_string(),
+                    })
+                    .await
+                    .map_err(workspace_provision_start_provisioner_error)?;
+
+                let mut workspace = workspace.clone();
+                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+                remote.remote_resources.remote_provisioner = Some(remote_provisioner);
+                remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+                    phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                        status: RemoteProvisionerStatus::Pending,
+                    },
+                };
+                remote.remote_provisioning.percent = Some(50);
+
+                Ok(workspace)
+            }
+            RemoteProvisioningStatus::Completed => Ok(workspace.clone()),
+            RemoteProvisioningStatus::Failed { .. } => {
+                Err(WorkspaceProvisionError::InvalidWorkspaceState {
+                    message:
+                        "failed workspace must be deleted or reset before provisioning can continue"
+                            .to_string(),
+                })
+            }
+            _ => Err(WorkspaceProvisionError::NotImplemented {
+                message: "provisioning step is not implemented in this skeleton".to_string(),
+            }),
+        }
+    }
 }
 
 fn remote_workspace(workspace: &Workspace) -> &RemoteWorkspace {
@@ -146,6 +243,44 @@ fn workspace_observe_endpoint_error(error: ObserveEndpointError) -> WorkspaceObs
     }
 }
 
+fn workspace_provision_registry_error(
+    error: RemoteWorkspaceProviderRegistryError,
+) -> WorkspaceProvisionError {
+    match error {
+        RemoteWorkspaceProviderRegistryError::MissingProvider { provider_id } => {
+            WorkspaceProvisionError::MissingProvider { provider_id }
+        }
+    }
+}
+
+fn workspace_provision_observe_error(error: WorkspaceObserveError) -> WorkspaceProvisionError {
+    match error {
+        WorkspaceObserveError::MissingProvider { provider_id } => {
+            WorkspaceProvisionError::MissingProvider { provider_id }
+        }
+        WorkspaceObserveError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
+        WorkspaceObserveError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
+        WorkspaceObserveError::ExistingEndpoint => WorkspaceProvisionError::ExistingEndpoint,
+        WorkspaceObserveError::ProviderApi(error) => WorkspaceProvisionError::ProviderApi(error),
+    }
+}
+
+fn workspace_provision_create_volume_error(error: CreateVolumeError) -> WorkspaceProvisionError {
+    match error {
+        CreateVolumeError::ExistingVolume => WorkspaceProvisionError::ExistingVolume,
+        CreateVolumeError::ProviderApi(error) => WorkspaceProvisionError::ProviderApi(error),
+    }
+}
+
+fn workspace_provision_start_provisioner_error(
+    error: StartProvisionerError,
+) -> WorkspaceProvisionError {
+    match error {
+        StartProvisionerError::ExistingProvisioner => WorkspaceProvisionError::ExistingProvisioner,
+        StartProvisionerError::ProviderApi(error) => WorkspaceProvisionError::ProviderApi(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -163,7 +298,8 @@ mod tests {
         },
         workspace::{
             RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-            RemoteVolumeSnapshot, RemoteWorkspaceResources, WorkspaceRuntime,
+            RemoteProvisioningPhase, RemoteVolumeSnapshot, RemoteWorkspaceResources,
+            WorkspaceRuntime,
         },
     };
 
@@ -206,7 +342,10 @@ mod tests {
             &'a self,
             _params: CreateVolumeParams,
         ) -> ProviderFuture<'a, Result<RemoteVolumeSnapshot, CreateVolumeError>> {
-            Box::pin(async {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("create_volume");
+
                 Ok(RemoteVolumeSnapshot {
                     id: "volume".to_string(),
                 })
@@ -237,7 +376,10 @@ mod tests {
             &'a self,
             _params: StartProvisionerParams,
         ) -> ProviderFuture<'a, Result<RemoteProvisionerSnapshot, StartProvisionerError>> {
-            Box::pin(async {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("start_provisioner");
+
                 Ok(RemoteProvisionerSnapshot {
                     id: "provisioner".to_string(),
                     status_url: "https://status.example".to_string(),
@@ -459,6 +601,82 @@ mod tests {
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["observe_volume", "observe_provisioner", "observe_endpoint"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_not_started_runs_preflight_then_creates_volume_only() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = draft_workspace(&service);
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("not started workspace should create a volume");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string()
+            })
+        );
+        assert_eq!(remote.remote_resources.remote_provisioner, None);
+        assert_eq!(remote.remote_resources.remote_endpoint, None);
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::StartingRemoteProvisioner
+            }
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(25));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec![
+                "observe_volume",
+                "observe_provisioner",
+                "observe_endpoint",
+                "create_volume"
+            ]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_starting_provisioner_advances_one_step() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+        };
+        remote.remote_provisioning.percent = Some(25);
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("starting provisioner phase should start provisioner");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_resources.remote_provisioner,
+            Some(RemoteProvisionerSnapshot {
+                id: "provisioner".to_string(),
+                status_url: "https://status.example".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Pending
+                }
+            }
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(50));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["start_provisioner"]
         );
     }
 
