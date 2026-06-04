@@ -11,13 +11,14 @@ use crate::domain::{
 use super::{
     errors::RemoteWorkspaceError,
     provider::{
-        CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams, GetProvisionerStatusParams,
-        StartProvisionerParams, TerminateProvisionerParams,
+        CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
+        GetProvisionerStatusParams, StartProvisionerParams, TerminateProvisionerParams,
     },
     registry::RemoteWorkspaceProviderRegistry,
 };
 
 const UNRESOLVED_PROVISIONER_IMAGE_REF: &str = "unresolved-provisioner-image";
+const UNRESOLVED_ENDPOINT_IMAGE_REF: &str = "unresolved-endpoint-image";
 
 pub struct SetupWorkspaceRequest {
     pub workspace_id: String,
@@ -254,6 +255,36 @@ impl RemoteWorkspaceService {
 
                 Ok(workspace)
             }
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
+            } => {
+                let remote_volume = remote.remote_resources.remote_volume.as_ref().ok_or(
+                    RemoteWorkspaceError::InvalidWorkspaceState {
+                        message: "remote volume snapshot is required before endpoint creation"
+                            .to_string(),
+                    },
+                )?;
+                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
+                let provider = self.provider_registry.for_provider(provider_id)?;
+                let remote_endpoint = provider
+                    .create_endpoint(CreateEndpointParams {
+                        workspace_id: workspace.id.clone(),
+                        datacenter_id: remote.remote_placement.datacenter_id.clone(),
+                        gpu_id: remote.remote_placement.gpu_id.clone(),
+                        volume_id: remote_volume.id.clone(),
+                        endpoint_image_ref: UNRESOLVED_ENDPOINT_IMAGE_REF.to_string(),
+                        mount_path: "/workspace".to_string(),
+                    })
+                    .await?;
+
+                let mut workspace = workspace.clone();
+                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+                remote.remote_resources.remote_endpoint = Some(remote_endpoint);
+                remote.remote_provisioning.status = RemoteProvisioningStatus::Completed;
+                remote.remote_provisioning.percent = Some(100);
+
+                Ok(workspace)
+            }
             RemoteProvisioningStatus::Completed => Ok(workspace.clone()),
             RemoteProvisioningStatus::Failed { .. } => {
                 Err(RemoteWorkspaceError::InvalidWorkspaceState {
@@ -390,12 +421,14 @@ mod tests {
     struct ProviderState {
         calls: Vec<&'static str>,
         create_volume_error: Option<RemoteWorkspaceError>,
+        create_endpoint_error: Option<RemoteWorkspaceError>,
         start_provisioner_error: Option<RemoteWorkspaceError>,
         delete_endpoint_error: Option<RemoteWorkspaceError>,
         terminate_provisioner_error: Option<RemoteWorkspaceError>,
         delete_volume_error: Option<RemoteWorkspaceError>,
         provisioner_status_results: Vec<Result<RemoteProvisionerStatus, RemoteWorkspaceError>>,
         last_create_volume_params: Option<CreateVolumeParams>,
+        last_create_endpoint_params: Option<CreateEndpointParams>,
         last_start_provisioner_params: Option<StartProvisionerParams>,
         last_get_provisioner_status_params: Option<GetProvisionerStatusParams>,
     }
@@ -499,9 +532,15 @@ mod tests {
     impl RemoteEndpointProvider for FakeProvider {
         fn create_endpoint<'a>(
             &'a self,
-            _params: CreateEndpointParams,
+            params: CreateEndpointParams,
         ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
-            Box::pin(async {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("create_endpoint");
+                state.last_create_endpoint_params = Some(params);
+                if let Some(error) = state.create_endpoint_error.clone() {
+                    return Err(error);
+                }
                 Ok(RemoteEndpointSnapshot {
                     id: "endpoint".to_string(),
                     url: "https://endpoint.example".to_string(),
@@ -1147,8 +1186,42 @@ mod tests {
     }
 
     #[test]
-    fn provision_workspace_unsupported_in_progress_phase_returns_not_implemented_without_provider_calls(
-    ) {
+    fn provision_workspace_creating_endpoint_marks_completed() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("endpoint creation should complete workspace");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_resources.remote_endpoint,
+            Some(RemoteEndpointSnapshot {
+                id: "endpoint".to_string(),
+                url: "https://endpoint.example".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Completed
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(100));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["create_endpoint"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_creating_endpoint_without_volume_returns_invalid_state() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
         let mut workspace = draft_workspace(&service);
@@ -1158,12 +1231,12 @@ mod tests {
         };
 
         let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("unsupported phase should not run provider calls");
+            .expect_err("missing volume should stop endpoint creation");
 
         assert_eq!(
             error,
-            RemoteWorkspaceError::NotImplemented {
-                message: "provisioning step is not implemented in this skeleton".to_string(),
+            RemoteWorkspaceError::InvalidWorkspaceState {
+                message: "remote volume snapshot is required before endpoint creation".to_string(),
             }
         );
         assert!(state
