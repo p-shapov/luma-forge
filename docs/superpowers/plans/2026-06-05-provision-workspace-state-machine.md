@@ -229,7 +229,17 @@ RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
 
 - [ ] **Step 4: Add worker error variants**
 
-In `src-tauri/src/remote_workspace/errors.rs`, add:
+In `src-tauri/src/remote_workspace/errors.rs`, derive `Serialize` and configure snake-case serialization:
+
+```rust
+use serde::Serialize;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteWorkspaceError {
+```
+
+Add:
 
 ```rust
 ProvisionerWorkerTokenMissing,
@@ -246,128 +256,17 @@ ProvisionerWorkerStepTimeout,
 ProvisionerWorkerUnexpectedError,
 ```
 
-- [ ] **Step 5: Add helper for known worker failure codes**
-
-In `src-tauri/src/remote_workspace/service.rs`, add this helper outside the test module:
-
-```rust
-fn worker_failure_code(error: &RemoteWorkspaceError) -> Option<&'static str> {
-    match error {
-        RemoteWorkspaceError::ProvisionerWorkerTokenMissing => {
-            Some("provisioner_worker_token_missing")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerTokenInvalid => {
-            Some("provisioner_worker_token_invalid")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerUnauthorized => {
-            Some("provisioner_worker_unauthorized")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerUnavailable => {
-            Some("provisioner_worker_unavailable")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerConflict => {
-            Some("provisioner_worker_conflict")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerResponseInvalid => {
-            Some("provisioner_worker_response_invalid")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerFailed => Some("provisioner_worker_failed"),
-        RemoteWorkspaceError::ProvisionerWorkerAssetDownloadFailed => {
-            Some("provisioner_worker_asset_download_failed")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerAssetAuthRequired => {
-            Some("provisioner_worker_asset_auth_required")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerPathValidationFailed => {
-            Some("provisioner_worker_path_validation_failed")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerStepTimeout => {
-            Some("provisioner_worker_step_timeout")
-        }
-        RemoteWorkspaceError::ProvisionerWorkerUnexpectedError => {
-            Some("provisioner_worker_unexpected_error")
-        }
-        _ => None,
-    }
-}
-```
-
-- [ ] **Step 6: Add parameterized worker error mapping test**
-
-In `src-tauri/src/remote_workspace/service.rs`, add:
-
-```rust
-#[test]
-fn worker_errors_map_to_ui_safe_failure_codes() {
-    let cases = vec![
-        (
-            RemoteWorkspaceError::ProvisionerWorkerTokenMissing,
-            "provisioner_worker_token_missing",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerTokenInvalid,
-            "provisioner_worker_token_invalid",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerUnauthorized,
-            "provisioner_worker_unauthorized",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerUnavailable,
-            "provisioner_worker_unavailable",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerConflict,
-            "provisioner_worker_conflict",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerResponseInvalid,
-            "provisioner_worker_response_invalid",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerFailed,
-            "provisioner_worker_failed",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerAssetDownloadFailed,
-            "provisioner_worker_asset_download_failed",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerAssetAuthRequired,
-            "provisioner_worker_asset_auth_required",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerPathValidationFailed,
-            "provisioner_worker_path_validation_failed",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerStepTimeout,
-            "provisioner_worker_step_timeout",
-        ),
-        (
-            RemoteWorkspaceError::ProvisionerWorkerUnexpectedError,
-            "provisioner_worker_unexpected_error",
-        ),
-    ];
-
-    for (error, expected_code) in cases {
-        assert_eq!(worker_failure_code(&error), Some(expected_code));
-    }
-}
-```
-
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 5: Run focused test**
 
 Run:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml cleaning_up_phase_preserves_terminal_worker_status
-cargo test --manifest-path src-tauri/Cargo.toml worker_errors_map_to_ui_safe_failure_codes
 ```
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 Run:
 
