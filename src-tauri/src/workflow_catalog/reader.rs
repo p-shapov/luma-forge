@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::domain::{runtime_contract::RuntimeCatalog, workflow_preset::WorkflowPreset};
 
-use super::{WorkflowCatalogError, WorkflowCatalogResult};
+use super::WorkflowCatalogError;
 
 #[derive(Debug, Clone, Deserialize)]
 struct WorkflowCatalogJson {
@@ -10,15 +10,15 @@ struct WorkflowCatalogJson {
 }
 
 pub trait WorkflowCatalogReader {
-    fn read_workflows(&self) -> WorkflowCatalogResult<Vec<WorkflowPreset>>;
+    fn read_workflows(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError>;
 }
 
 pub trait EndpointContractCatalogReader {
-    fn read_endpoint_contract_catalog(&self) -> WorkflowCatalogResult<RuntimeCatalog>;
+    fn read_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError>;
 }
 
 pub trait ProvisionerContractCatalogReader {
-    fn read_provisioner_contract_catalog(&self) -> WorkflowCatalogResult<RuntimeCatalog>;
+    fn read_provisioner_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -36,7 +36,7 @@ const PROVISIONER_CONTRACTS_JSON: &str =
     include_str!("../../../bundled/provisioner-contracts.json");
 
 impl WorkflowCatalogReader for BundledWorkflowCatalogReader {
-    fn read_workflows(&self) -> WorkflowCatalogResult<Vec<WorkflowPreset>> {
+    fn read_workflows(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError> {
         let catalog: WorkflowCatalogJson = serde_json::from_str(WORKFLOW_CATALOG_JSON)
             .map_err(|_| WorkflowCatalogError::ParseFailed)?;
 
@@ -45,13 +45,13 @@ impl WorkflowCatalogReader for BundledWorkflowCatalogReader {
 }
 
 impl EndpointContractCatalogReader for BundledEndpointContractCatalogReader {
-    fn read_endpoint_contract_catalog(&self) -> WorkflowCatalogResult<RuntimeCatalog> {
+    fn read_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
         serde_json::from_str(ENDPOINT_CONTRACTS_JSON).map_err(|_| WorkflowCatalogError::ParseFailed)
     }
 }
 
 impl ProvisionerContractCatalogReader for BundledProvisionerContractCatalogReader {
-    fn read_provisioner_contract_catalog(&self) -> WorkflowCatalogResult<RuntimeCatalog> {
+    fn read_provisioner_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
         serde_json::from_str(PROVISIONER_CONTRACTS_JSON)
             .map_err(|_| WorkflowCatalogError::ParseFailed)
     }
