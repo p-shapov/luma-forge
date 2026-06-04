@@ -67,7 +67,7 @@ impl RemoteWorkspaceService {
         &self,
         workspace: &Workspace,
     ) -> Result<(), RemoteWorkspaceError> {
-        let remote = remote_workspace(workspace);
+        let remote = remote_workspace(workspace)?;
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
         let provider = self.provider_registry.for_provider(provider_id)?;
 
@@ -113,7 +113,7 @@ impl RemoteWorkspaceService {
         &self,
         workspace: &Workspace,
     ) -> Result<Workspace, RemoteWorkspaceError> {
-        let remote = remote_workspace(workspace);
+        let remote = remote_workspace(workspace)?;
 
         match &remote.remote_provisioning.status {
             RemoteProvisioningStatus::NotStarted => {
@@ -192,7 +192,7 @@ impl RemoteWorkspaceService {
     }
 
     pub fn execute_workspace(&self, workspace: &Workspace) -> Result<(), RemoteWorkspaceError> {
-        let remote = remote_workspace(workspace);
+        let remote = remote_workspace(workspace)?;
 
         if remote.remote_provisioning.status != RemoteProvisioningStatus::Completed {
             return Err(RemoteWorkspaceError::WorkspaceNotReady);
@@ -211,7 +211,7 @@ impl RemoteWorkspaceService {
         &self,
         workspace: &Workspace,
     ) -> Result<(), RemoteWorkspaceError> {
-        let remote = remote_workspace(workspace);
+        let remote = remote_workspace(workspace)?;
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
         let provider = self.provider_registry.for_provider(provider_id)?;
 
@@ -261,10 +261,9 @@ impl RemoteWorkspaceService {
     }
 }
 
-fn remote_workspace(workspace: &Workspace) -> &RemoteWorkspace {
-    match &workspace.runtime {
-        WorkspaceRuntime::Remote(remote) => remote,
-    }
+fn remote_workspace(workspace: &Workspace) -> Result<&RemoteWorkspace, RemoteWorkspaceError> {
+    let WorkspaceRuntime::Remote(remote) = &workspace.runtime;
+    Ok(remote)
 }
 
 #[cfg(test)]
