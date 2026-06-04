@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderApiKeyError {
     ProviderSetupIncomplete,
+    ProviderSetupAlreadyExists,
     StoredProviderApiKeyInvalid,
     SecureKeyringUnavailable,
     ProviderUnauthorized,

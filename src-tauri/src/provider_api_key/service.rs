@@ -42,6 +42,10 @@ where
         provider_id: GpuCloudProviderId,
         api_key: ProviderApiKey,
     ) -> Result<ApiKeySetup, ProviderApiKeyError> {
+        if self.store.has_key(provider_id).await? {
+            return Err(ProviderApiKeyError::ProviderSetupAlreadyExists);
+        }
+
         let setup = self
             .validator
             .validate_identity(provider_id, &api_key)
@@ -468,7 +472,27 @@ mod tests {
     }
 
     #[test]
-    fn write_key_validates_provider_identity_before_storage_is_touched() {
+    fn write_key_rejects_existing_provider_setup_before_validation() {
+        let (service, store_state, validator_state, events) = service_parts_with_events();
+        insert_key(&store_state);
+
+        let error = block_on(service.write_key(GpuCloudProviderId::Runpod, api_key()))
+            .expect_err("existing setup should be rejected");
+
+        assert_eq!(error, ProviderApiKeyError::ProviderSetupAlreadyExists);
+        assert!(validator_state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+        assert_eq!(
+            *events.lock().expect("events lock should succeed"),
+            vec!["has_key"]
+        );
+    }
+
+    #[test]
+    fn write_key_validates_provider_identity_before_storing_key() {
         let (service, _, _, events) = service_parts_with_events();
 
         block_on(service.write_key(GpuCloudProviderId::Runpod, api_key()))
@@ -476,7 +500,7 @@ mod tests {
 
         assert_eq!(
             *events.lock().expect("events lock should succeed"),
-            vec!["validate_identity", "write_key"]
+            vec!["has_key", "validate_identity", "write_key"]
         );
     }
 
@@ -529,6 +553,25 @@ mod tests {
             .expect_err("storage failure should be returned");
 
         assert_eq!(error, ProviderApiKeyError::SecureKeyringUnavailable);
+    }
+
+    #[test]
+    fn write_key_maps_storage_check_failure_without_validating_identity() {
+        let (service, store_state, validator_state) = service_parts();
+        store_state
+            .lock()
+            .expect("state lock should succeed")
+            .has_key_error = Some(ProviderApiKeyError::SecureKeyringUnavailable);
+
+        let error = block_on(service.write_key(GpuCloudProviderId::Runpod, api_key()))
+            .expect_err("has_key failure should be returned");
+
+        assert_eq!(error, ProviderApiKeyError::SecureKeyringUnavailable);
+        assert!(validator_state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     #[test]
