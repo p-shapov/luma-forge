@@ -293,9 +293,23 @@ impl RemoteWorkspaceService {
                             .to_string(),
                 })
             }
-            _ => Err(RemoteWorkspaceError::NotImplemented {
-                message: "provisioning step is not implemented in this skeleton".to_string(),
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::CreatingRemoteVolume,
+            } => Err(RemoteWorkspaceError::InvalidWorkspaceState {
+                message: "remote volume creation starts from not started provisioning state"
+                    .to_string(),
             }),
+            RemoteProvisioningStatus::InProgress {
+                phase: RemoteProvisioningPhase::ValidatingReadiness,
+            } => Err(RemoteWorkspaceError::NotImplemented {
+                message: "readiness validation is not implemented in this skeleton".to_string(),
+            }),
+            RemoteProvisioningStatus::Cancelling { .. } => {
+                Err(RemoteWorkspaceError::NotImplemented {
+                    message: "provisioning cancellation is not implemented in this skeleton"
+                        .to_string(),
+                })
+            }
         }
     }
 
@@ -1264,6 +1278,90 @@ mod tests {
             error,
             RemoteWorkspaceError::InvalidWorkspaceState {
                 message: "remote volume snapshot is required before provisioner start".to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_validating_readiness_returns_not_implemented_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::ValidatingReadiness,
+        };
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("readiness validation remains unimplemented");
+
+        assert_eq!(
+            error,
+            RemoteWorkspaceError::NotImplemented {
+                message: "readiness validation is not implemented in this skeleton".to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_running_provisioner_without_snapshot_returns_invalid_state() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            },
+        };
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("missing provisioner should stop polling");
+
+        assert_eq!(
+            error,
+            RemoteWorkspaceError::InvalidWorkspaceState {
+                message: "remote provisioner snapshot is required before status polling"
+                    .to_string(),
+            }
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_cleanup_without_provisioner_returns_invalid_state() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
+                terminal_status: RemoteProvisionerStatus::Succeeded,
+            },
+        };
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("missing provisioner should stop cleanup");
+
+        assert_eq!(
+            error,
+            RemoteWorkspaceError::InvalidWorkspaceState {
+                message: "remote provisioner snapshot is required before provisioner cleanup"
+                    .to_string(),
             }
         );
         assert!(state
