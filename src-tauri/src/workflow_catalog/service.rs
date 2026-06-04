@@ -67,28 +67,108 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow_catalog::bundled_reader::{
-        BundledEndpointContractCatalogReader, BundledProvisionerContractCatalogReader,
-        BundledWorkflowCatalogReader,
+    use crate::domain::{
+        provider::GpuCloudProviderId,
+        runtime_contract::{
+            RuntimeCatalog, RuntimeContract, RuntimeContractReference, RuntimeContractRevision,
+        },
+        workflow_preset::{
+            ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
+            RemoteRuntimeRequirements, WorkflowExecutionType,
+        },
     };
 
-    fn bundled_service() -> WorkflowCatalogService<
-        BundledWorkflowCatalogReader,
-        BundledEndpointContractCatalogReader,
-        BundledProvisionerContractCatalogReader,
-    > {
-        WorkflowCatalogService::new(
-            BundledWorkflowCatalogReader,
-            BundledEndpointContractCatalogReader,
-            BundledProvisionerContractCatalogReader,
-        )
+    #[derive(Debug, Clone)]
+    struct FakeReader {
+        workflows: Vec<WorkflowPreset>,
+        endpoint_contract_catalog: RuntimeCatalog,
+        provisioner_contract_catalog: RuntimeCatalog,
+    }
+
+    impl WorkflowCatalogReader for FakeReader {
+        fn read_workflows(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError> {
+            Ok(self.workflows.clone())
+        }
+    }
+
+    impl EndpointContractCatalogReader for FakeReader {
+        fn read_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
+            Ok(self.endpoint_contract_catalog.clone())
+        }
+    }
+
+    impl ProvisionerContractCatalogReader for FakeReader {
+        fn read_provisioner_contract_catalog(
+            &self,
+        ) -> Result<RuntimeCatalog, WorkflowCatalogError> {
+            Ok(self.provisioner_contract_catalog.clone())
+        }
+    }
+
+    fn runtime_catalog(id: &str, version: &str) -> RuntimeCatalog {
+        RuntimeCatalog {
+            contracts: vec![RuntimeContract {
+                id: id.to_string(),
+                revisions: vec![RuntimeContractRevision {
+                    version: version.to_string(),
+                    image_ref: "ghcr.io/example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .to_string(),
+                }],
+            }],
+        }
+    }
+
+    fn valid_workflow(id: &str) -> WorkflowPreset {
+        WorkflowPreset {
+            id: id.to_string(),
+            version: "1.0.0".to_string(),
+            name: "ComfyUI HiDream O1 Dev".to_string(),
+            execution_type: WorkflowExecutionType::T2i,
+            requires_hugging_face_api_key: true,
+            remote_runtime_requirements: RemoteRuntimeRequirements {
+                required_base_volume_size_bytes: 18837849239,
+                provider_requirements: vec![RemoteProviderRuntimeRequirements {
+                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                    endpoint_contract: RuntimeContractReference {
+                        id: "comfyui-hidream-o1-dev".to_string(),
+                        version: "1.0.15".to_string(),
+                    },
+                    provisioner_contract: RuntimeContractReference {
+                        id: "luma-forge-provisioner".to_string(),
+                        version: "1.0.6".to_string(),
+                    },
+                }],
+            },
+            required_model_assets: vec![ModelAsset {
+                id: "hidream-o1-image-dev-fp8-scaled".to_string(),
+                name: "HiDream O1 Image Dev FP8 Scaled".to_string(),
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "Comfy-Org/HiDream-O1-Image".to_string(),
+                    file_path: "checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"
+                        .to_string(),
+                    revision: "e469681accde36057e32e4a3125e39929a1bcd68".to_string(),
+                },
+                install_comfyui_relative_path:
+                    "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors".to_string(),
+            }],
+        }
+    }
+
+    fn service() -> WorkflowCatalogService<FakeReader, FakeReader, FakeReader> {
+        let reader = FakeReader {
+            workflows: vec![valid_workflow("comfyui-hidream-o1-dev")],
+            endpoint_contract_catalog: runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+            provisioner_contract_catalog: runtime_catalog("luma-forge-provisioner", "1.0.6"),
+        };
+
+        WorkflowCatalogService::new(reader.clone(), reader.clone(), reader)
     }
 
     #[test]
-    fn get_workflows_returns_bundled_workflows() {
-        let workflows = bundled_service()
+    fn get_workflows_returns_valid_workflows() {
+        let workflows = service()
             .get_workflows()
-            .expect("bundled workflows should be valid");
+            .expect("workflows should be valid");
 
         assert!(
             workflows
@@ -100,9 +180,9 @@ mod tests {
 
     #[test]
     fn get_workflow_by_id_returns_matching_workflow() {
-        let workflow = bundled_service()
+        let workflow = service()
             .get_workflow_by_id("comfyui-hidream-o1-dev")
-            .expect("bundled workflows should be valid")
+            .expect("workflows should be valid")
             .expect("known workflow should be present");
 
         assert_eq!(workflow.id, "comfyui-hidream-o1-dev");
@@ -110,9 +190,9 @@ mod tests {
 
     #[test]
     fn get_workflow_by_id_returns_none_for_unknown_workflow() {
-        let workflow = bundled_service()
+        let workflow = service()
             .get_workflow_by_id("unknown-workflow")
-            .expect("bundled workflows should be valid");
+            .expect("workflows should be valid");
 
         assert_eq!(workflow, None);
     }
