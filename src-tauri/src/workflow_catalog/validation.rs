@@ -4,6 +4,7 @@ use crate::domain::{
     runtime_contract::RuntimeCatalog,
     workflow_preset::{ModelAssetSource, WorkflowPreset},
 };
+use crate::shared::{is_blank, is_safe_relative_path};
 
 use super::errors::WorkflowCatalogError;
 
@@ -134,20 +135,6 @@ fn is_safe_hugging_face_name(value: &str) -> bool {
         && value
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
-}
-
-fn is_safe_relative_path(path: &str) -> bool {
-    let path = path.trim();
-    if path.is_empty() || path.starts_with('/') || path.starts_with('\\') || path.contains('\\') {
-        return false;
-    }
-
-    path.split('/')
-        .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
-}
-
-fn is_blank(value: &str) -> bool {
-    value.trim().is_empty()
 }
 
 #[cfg(test)]
