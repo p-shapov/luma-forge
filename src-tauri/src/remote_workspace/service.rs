@@ -167,6 +167,13 @@ impl RemoteWorkspaceService {
                             },
                         }
                     }
+                    RemoteProvisionerStatus::Terminated => RemoteProvisioningStatus::Failed {
+                        phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                            status: RemoteProvisionerStatus::Terminated,
+                        }),
+                        code: "provisioner_terminated".to_string(),
+                        message: "remote provisioner terminated before completion".to_string(),
+                    },
                     status => RemoteProvisioningStatus::InProgress {
                         phase: RemoteProvisioningPhase::RunningRemoteProvisioner { status },
                     },
@@ -912,6 +919,61 @@ mod tests {
                 phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
                     terminal_status: failed_status
                 }
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["get_provisioner_status"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_terminated_provisioner_status_marks_failed() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Terminated)],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            },
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("terminated provisioner status should mark failed");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string()
+            })
+        );
+        assert_eq!(
+            remote.remote_resources.remote_provisioner,
+            Some(RemoteProvisionerSnapshot {
+                id: "provisioner".to_string(),
+                status_url: "https://status.example".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Terminated,
+                }),
+                code: "provisioner_terminated".to_string(),
+                message: "remote provisioner terminated before completion".to_string(),
             }
         );
         assert_eq!(
