@@ -1,6 +1,27 @@
 use serde::{Deserialize, Serialize};
 
-use super::{placement::RemotePlacementPlan, workflow_preset::WorkflowPreset};
+use super::{
+    placement::RemotePlacementPlan, provider::ProviderError, workflow_preset::WorkflowPreset,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteProvisioningError {
+    Provider(ProviderError),
+    ProvisionerWorkerTokenMissing,
+    ProvisionerWorkerTokenInvalid,
+    ProvisionerWorkerUnauthorized,
+    ProvisionerWorkerUnavailable,
+    ProvisionerWorkerConflict,
+    ProvisionerWorkerResponseInvalid,
+    ProvisionerWorkerFailed,
+    ProvisionerWorkerAssetDownloadFailed,
+    ProvisionerWorkerAssetAuthRequired,
+    ProvisionerWorkerPathValidationFailed,
+    ProvisionerWorkerStepTimeout,
+    ProvisionerWorkerUnexpectedError,
+    InvalidProvisioningState { message: String },
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteVolumeSnapshot {
@@ -25,9 +46,9 @@ pub enum RemoteProvisionerStatus {
     Pending,
     Starting,
     Running,
+    CleaningUp,
     Succeeded,
     Failed { code: String, message: String },
-    Terminated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,14 +56,8 @@ pub enum RemoteProvisionerStatus {
 pub enum RemoteProvisioningPhase {
     CreatingRemoteVolume,
     StartingRemoteProvisioner,
-    RunningRemoteProvisioner {
-        status: RemoteProvisionerStatus,
-    },
-    CleaningUpRemoteProvisioner {
-        terminal_status: RemoteProvisionerStatus,
-    },
+    RunningRemoteProvisioner { status: RemoteProvisionerStatus },
     CreatingRemoteEndpoint,
-    ValidatingReadiness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,8 +73,7 @@ pub enum RemoteProvisioningStatus {
     Completed,
     Failed {
         phase: Option<RemoteProvisioningPhase>,
-        code: String,
-        message: String,
+        error: RemoteProvisioningError,
     },
 }
 

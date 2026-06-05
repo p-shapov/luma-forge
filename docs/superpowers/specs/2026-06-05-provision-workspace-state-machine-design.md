@@ -36,18 +36,18 @@ The normal path is:
 1. `NotStarted`: create a remote volume, store `remote_volume`, set phase to `StartingRemoteProvisioner`, and return.
 2. `StartingRemoteProvisioner`: require `remote_volume`, start the provisioner, store `remote_provisioner`, set phase to `RunningRemoteProvisioner { status: Pending }`, and return.
 3. `RunningRemoteProvisioner`: require `remote_provisioner`, call `get_provisioner_status`, store the returned status in the phase, and return for non-terminal statuses.
-4. `RunningRemoteProvisioner` with `Succeeded`: move to `CleaningUpRemoteProvisioner { terminal_status: Succeeded }` and return.
-5. `RunningRemoteProvisioner` with `Failed { code, message }`: move to `CleaningUpRemoteProvisioner { terminal_status: Failed { code, message } }` and return.
-6. `CleaningUpRemoteProvisioner`: terminate the stored provisioner and clear `remote_provisioner` only after successful termination.
-7. If the terminal worker status was success, move to `CreatingRemoteEndpoint` and return.
-8. If the terminal worker status was failure, set `Failed { phase: Some(RunningRemoteProvisioner { status }), code, message }`, preserve known resource snapshots, and return.
+4. `RunningRemoteProvisioner` with `Succeeded` or `Failed { code, message }`: move to `RunningRemoteProvisioner { status: CleaningUp }` and return.
+5. `RunningRemoteProvisioner { status: CleaningUp }`: require `remote_provisioner`, read the terminal provisioner status, terminate the stored provisioner, and clear `remote_provisioner` only after successful termination.
+6. If the terminal worker status was success, move to `CreatingRemoteEndpoint` and return.
+7. If the terminal worker status was failure, set `Failed { phase: Some(RunningRemoteProvisioner { status }), code, message }`, preserve known resource snapshots, and return.
+8. If cleanup cannot read a terminal worker status, return `InvalidWorkspaceState` and do not terminate the provisioner.
 9. `CreatingRemoteEndpoint`: require `remote_volume`, create the endpoint, store `remote_endpoint`, set `Completed`, set progress to `100`, and return.
 10. `Completed`: return the workspace unchanged and do not call the provider.
 11. `Failed`: return `InvalidWorkspaceState` and do not call the provider.
 
 The service does not internally loop across these steps. If the worker reports `Pending`, `Starting`, or `Running`, the call only updates the phase status and returns. If it reports a terminal status, the next call performs cleanup.
 
-The active `RemoteProvisioningPhase::CleaningUpRemoteProvisioner` variant must carry the terminal worker status. Without that payload, the next sync call cannot distinguish success cleanup from failure cleanup without polling the worker again or performing multiple actions in one call.
+`RemoteProvisionerStatus::CleaningUp` is a plain status. The cleanup call polls the provisioner status again before termination so terminal success or failure details are not stored in the workspace cleanup status.
 
 ## Resource Observation Removal
 

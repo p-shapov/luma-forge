@@ -2,9 +2,9 @@ use crate::domain::{
     placement::RemotePlacementPlan,
     workflow_preset::WorkflowPreset,
     workspace::{
-        RemoteProvisionerStatus, RemoteProvisioningPhase, RemoteProvisioningState,
-        RemoteProvisioningStatus, RemoteWorkspace, RemoteWorkspaceResources, Workspace,
-        WorkspaceRuntime,
+        RemoteProvisionerStatus, RemoteProvisioningError, RemoteProvisioningPhase,
+        RemoteProvisioningState, RemoteProvisioningStatus, RemoteWorkspace,
+        RemoteWorkspaceResources, Workspace, WorkspaceRuntime,
     },
 };
 
@@ -40,7 +40,7 @@ impl RemoteWorkspaceService {
         request: SetupWorkspaceRequest,
     ) -> Result<Workspace, RemoteWorkspaceError> {
         if request.workspace_id.trim().is_empty() {
-            return Err(RemoteWorkspaceError::InvalidRequest {
+            return Err(RemoteWorkspaceError::SetupWorkspaceInvalidRequest {
                 message: "workspace id is required".to_string(),
             });
         }
@@ -69,12 +69,19 @@ impl RemoteWorkspaceService {
     ) -> Result<Workspace, RemoteWorkspaceError> {
         let remote = remote_workspace(workspace)?;
 
+        if matches!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Completed | RemoteProvisioningStatus::Failed { .. }
+        ) {
+            return Ok(workspace.clone());
+        }
+
+        let provider_id = remote.remote_placement.gpu_cloud_provider_id;
+        let provider = self.provider_registry.for_provider(provider_id)?;
+
         match &remote.remote_provisioning.status {
             RemoteProvisioningStatus::NotStarted => {
-                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self.provider_registry.for_provider(provider_id)?;
-
-                let remote_volume = provider
+                let remote_volume = match provider
                     .create_volume(CreateVolumeParams {
                         workspace_id: workspace.id.clone(),
                         datacenter_id: remote.remote_placement.datacenter_id.clone(),
@@ -82,31 +89,48 @@ impl RemoteWorkspaceService {
                         size_bytes: remote.remote_placement.remote_volume_size_bytes,
                         mount_path: "/workspace".to_string(),
                     })
-                    .await?;
-
-                let mut workspace = workspace.clone();
-                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-                remote.remote_resources.remote_volume = Some(remote_volume);
-                remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-                    phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+                    .await
+                {
+                    Ok(remote_volume) => remote_volume,
+                    Err(error) => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+                            error.into(),
+                        ));
+                    }
                 };
-                remote.remote_provisioning.percent = Some(25);
 
-                Ok(workspace)
+                Ok(update_provisioning_workspace(
+                    workspace,
+                    RemoteProvisioningStatus::InProgress {
+                        phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+                    },
+                    25,
+                    |resources| {
+                        resources.remote_volume = Some(remote_volume);
+                    },
+                ))
             }
             RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+                phase: phase @ RemoteProvisioningPhase::StartingRemoteProvisioner,
             } => {
-                let remote_volume = remote.remote_resources.remote_volume.as_ref().ok_or(
-                    RemoteWorkspaceError::InvalidWorkspaceState {
-                        message: "remote volume snapshot is required before provisioner start"
-                            .to_string(),
-                    },
-                )?;
-                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self.provider_registry.for_provider(provider_id)?;
+                let remote_volume = match remote.remote_resources.remote_volume.as_ref() {
+                    Some(remote_volume) => remote_volume,
+                    None => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            RemoteProvisioningError::InvalidProvisioningState {
+                                message:
+                                    "remote volume snapshot is required before provisioner start"
+                                        .to_string(),
+                            },
+                        ));
+                    }
+                };
 
-                let remote_provisioner = provider
+                let remote_provisioner = match provider
                     .start_provisioner(StartProvisionerParams {
                         workspace_id: workspace.id.clone(),
                         datacenter_id: remote.remote_placement.datacenter_id.clone(),
@@ -115,96 +139,83 @@ impl RemoteWorkspaceService {
                         provisioner_image_ref: UNRESOLVED_PROVISIONER_IMAGE_REF.to_string(),
                         mount_path: "/workspace".to_string(),
                     })
-                    .await?;
-
-                let mut workspace = workspace.clone();
-                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-                remote.remote_resources.remote_provisioner = Some(remote_provisioner);
-                remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-                    phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
-                        status: RemoteProvisionerStatus::Pending,
-                    },
+                    .await
+                {
+                    Ok(remote_provisioner) => remote_provisioner,
+                    Err(error) => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            error.into(),
+                        ));
+                    }
                 };
-                remote.remote_provisioning.percent = Some(50);
 
-                Ok(workspace)
+                Ok(update_provisioning_workspace(
+                    workspace,
+                    RemoteProvisioningStatus::InProgress {
+                        phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                            status: RemoteProvisionerStatus::Pending,
+                        },
+                    },
+                    50,
+                    |resources| {
+                        resources.remote_provisioner = Some(remote_provisioner);
+                    },
+                ))
             }
             RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::RunningRemoteProvisioner { .. },
+                phase:
+                    phase @ RemoteProvisioningPhase::RunningRemoteProvisioner {
+                        status: RemoteProvisionerStatus::CleaningUp,
+                    },
             } => {
-                let remote_provisioner = remote
-                    .remote_resources
-                    .remote_provisioner
-                    .as_ref()
-                    .ok_or(RemoteWorkspaceError::InvalidWorkspaceState {
-                        message: "remote provisioner snapshot is required before status polling"
-                            .to_string(),
-                    })?;
-                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self.provider_registry.for_provider(provider_id)?;
-                let status = provider
+                let remote_provisioner = match remote.remote_resources.remote_provisioner.as_ref() {
+                    Some(remote_provisioner) => remote_provisioner,
+                    None => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            RemoteProvisioningError::InvalidProvisioningState {
+                                message:
+                                    "remote provisioner snapshot is required before provisioner cleanup"
+                                        .to_string(),
+                            },
+                        ));
+                    }
+                };
+                let status = match provider
                     .get_provisioner_status(GetProvisionerStatusParams {
                         workspace_id: workspace.id.clone(),
                         provisioner_id: remote_provisioner.id.clone(),
                     })
-                    .await?;
-
-                let mut workspace = workspace.clone();
-                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-                remote.remote_provisioning.percent = Some(match status {
-                    RemoteProvisionerStatus::Pending | RemoteProvisionerStatus::Starting => 50,
-                    RemoteProvisionerStatus::Running => 60,
-                    RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. } => {
-                        75
+                    .await
+                {
+                    Ok(status) => status,
+                    Err(error) => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            error.into(),
+                        ));
                     }
-                    RemoteProvisionerStatus::Terminated => 75,
-                });
-                remote.remote_provisioning.status = match status {
-                    RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. } => {
-                        RemoteProvisioningStatus::InProgress {
-                            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                                terminal_status: status,
-                            },
-                        }
-                    }
-                    RemoteProvisionerStatus::Terminated => RemoteProvisioningStatus::Failed {
-                        phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
-                            status: RemoteProvisionerStatus::Terminated,
-                        }),
-                        code: "provisioner_terminated".to_string(),
-                        message: "remote provisioner terminated before completion".to_string(),
-                    },
-                    status => RemoteProvisioningStatus::InProgress {
-                        phase: RemoteProvisioningPhase::RunningRemoteProvisioner { status },
-                    },
                 };
 
-                Ok(workspace)
-            }
-            RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner { terminal_status },
-            } => {
                 if !matches!(
-                    terminal_status,
+                    status,
                     RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. }
                 ) {
-                    return Err(RemoteWorkspaceError::InvalidWorkspaceState {
-                        message: format!(
-                            "cleanup requires terminal provisioner status: {terminal_status:?}"
-                        ),
-                    });
+                    return Ok(failed_provisioning_workspace(
+                        workspace,
+                        Some(phase.clone()),
+                        RemoteProvisioningError::InvalidProvisioningState {
+                            message: format!(
+                                "cleanup requires finished provisioner status: {status:?}"
+                            ),
+                        },
+                    ));
                 }
 
-                let remote_provisioner =
-                    remote.remote_resources.remote_provisioner.as_ref().ok_or(
-                        RemoteWorkspaceError::InvalidWorkspaceState {
-                            message:
-                                "remote provisioner snapshot is required before provisioner cleanup"
-                                    .to_string(),
-                        },
-                    )?;
-                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self.provider_registry.for_provider(provider_id)?;
                 let termination_result = provider
                     .terminate_provisioner(TerminateProvisionerParams {
                         workspace_id: workspace.id.clone(),
@@ -212,68 +223,132 @@ impl RemoteWorkspaceService {
                     })
                     .await;
 
-                let mut workspace = workspace.clone();
-                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-
-                match (terminal_status.clone(), termination_result) {
+                match (status, termination_result) {
                     (RemoteProvisionerStatus::Succeeded, Ok(())) => {
-                        remote.remote_resources.remote_provisioner = None;
-                        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-                            phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
-                        };
-                        remote.remote_provisioning.percent = Some(75);
+                        Ok(update_provisioning_workspace(
+                            workspace,
+                            RemoteProvisioningStatus::InProgress {
+                                phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
+                            },
+                            75,
+                            |resources| {
+                                resources.remote_provisioner = None;
+                            },
+                        ))
                     }
                     (RemoteProvisionerStatus::Succeeded, Err(error)) => {
-                        remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
-                            phase: Some(RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                                terminal_status: RemoteProvisionerStatus::Succeeded,
+                        Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                                status: RemoteProvisionerStatus::CleaningUp,
                             }),
-                            code: "cleanup_failed".to_string(),
-                            message: provider_error_message(error),
-                        };
+                            error.into(),
+                        ))
                     }
                     (RemoteProvisionerStatus::Failed { code, message }, Ok(())) => {
-                        remote.remote_resources.remote_provisioner = None;
-                        remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
-                            phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
-                                status: RemoteProvisionerStatus::Failed {
-                                    code: code.clone(),
-                                    message: message.clone(),
-                                },
+                        let mut workspace = failed_provisioning_workspace(
+                            workspace,
+                            Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                                status: RemoteProvisionerStatus::Failed { code, message },
                             }),
-                            code,
-                            message,
-                        };
+                            RemoteProvisioningError::ProvisionerWorkerFailed,
+                        );
+                        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+                        remote.remote_resources.remote_provisioner = None;
+                        Ok(workspace)
                     }
                     (RemoteProvisionerStatus::Failed { code, message }, Err(_)) => {
-                        remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
-                            phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
-                                status: RemoteProvisionerStatus::Failed {
-                                    code: code.clone(),
-                                    message: message.clone(),
-                                },
+                        Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                                status: RemoteProvisionerStatus::Failed { code, message },
                             }),
-                            code,
-                            message,
-                        };
+                            RemoteProvisioningError::ProvisionerWorkerFailed,
+                        ))
                     }
-                    _ => unreachable!("cleanup terminal status was validated before termination"),
+                    _ => unreachable!("cleanup-ready status was validated before termination"),
                 }
-
-                Ok(workspace)
             }
             RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
+                phase: phase @ RemoteProvisioningPhase::RunningRemoteProvisioner { .. },
             } => {
-                let remote_volume = remote.remote_resources.remote_volume.as_ref().ok_or(
-                    RemoteWorkspaceError::InvalidWorkspaceState {
-                        message: "remote volume snapshot is required before endpoint creation"
-                            .to_string(),
+                let remote_provisioner = match remote.remote_resources.remote_provisioner.as_ref() {
+                    Some(remote_provisioner) => remote_provisioner,
+                    None => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            RemoteProvisioningError::InvalidProvisioningState {
+                                message:
+                                    "remote provisioner snapshot is required before status polling"
+                                        .to_string(),
+                            },
+                        ));
+                    }
+                };
+                let status = match provider
+                    .get_provisioner_status(GetProvisionerStatusParams {
+                        workspace_id: workspace.id.clone(),
+                        provisioner_id: remote_provisioner.id.clone(),
+                    })
+                    .await
+                {
+                    Ok(status) => status,
+                    Err(error) => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            error.into(),
+                        ));
+                    }
+                };
+
+                let percent = match &status {
+                    RemoteProvisionerStatus::Pending | RemoteProvisionerStatus::Starting => 50,
+                    RemoteProvisionerStatus::Running => 60,
+                    RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. } => {
+                        75
+                    }
+                    RemoteProvisionerStatus::CleaningUp => 75,
+                };
+                let provisioning_status = match status {
+                    RemoteProvisionerStatus::Succeeded | RemoteProvisionerStatus::Failed { .. } => {
+                        RemoteProvisioningStatus::InProgress {
+                            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                                status: RemoteProvisionerStatus::CleaningUp,
+                            },
+                        }
+                    }
+                    status => RemoteProvisioningStatus::InProgress {
+                        phase: RemoteProvisioningPhase::RunningRemoteProvisioner { status },
                     },
-                )?;
-                let provider_id = remote.remote_placement.gpu_cloud_provider_id;
-                let provider = self.provider_registry.for_provider(provider_id)?;
-                let remote_endpoint = provider
+                };
+
+                Ok(update_provisioning_workspace(
+                    workspace,
+                    provisioning_status,
+                    percent,
+                    |_| {},
+                ))
+            }
+            RemoteProvisioningStatus::InProgress {
+                phase: phase @ RemoteProvisioningPhase::CreatingRemoteEndpoint,
+            } => {
+                let remote_volume = match remote.remote_resources.remote_volume.as_ref() {
+                    Some(remote_volume) => remote_volume,
+                    None => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            RemoteProvisioningError::InvalidProvisioningState {
+                                message:
+                                    "remote volume snapshot is required before endpoint creation"
+                                        .to_string(),
+                            },
+                        ));
+                    }
+                };
+                let remote_endpoint = match provider
                     .create_endpoint(CreateEndpointParams {
                         workspace_id: workspace.id.clone(),
                         datacenter_id: remote.remote_placement.datacenter_id.clone(),
@@ -282,41 +357,48 @@ impl RemoteWorkspaceService {
                         endpoint_image_ref: UNRESOLVED_ENDPOINT_IMAGE_REF.to_string(),
                         mount_path: "/workspace".to_string(),
                     })
-                    .await?;
+                    .await
+                {
+                    Ok(remote_endpoint) => remote_endpoint,
+                    Err(error) => {
+                        return Ok(failed_provisioning_workspace(
+                            workspace,
+                            Some(phase.clone()),
+                            error.into(),
+                        ));
+                    }
+                };
 
-                let mut workspace = workspace.clone();
-                let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-                remote.remote_resources.remote_endpoint = Some(remote_endpoint);
-                remote.remote_provisioning.status = RemoteProvisioningStatus::Completed;
-                remote.remote_provisioning.percent = Some(100);
-
-                Ok(workspace)
+                Ok(update_provisioning_workspace(
+                    workspace,
+                    RemoteProvisioningStatus::Completed,
+                    100,
+                    |resources| {
+                        resources.remote_endpoint = Some(remote_endpoint);
+                    },
+                ))
             }
-            RemoteProvisioningStatus::Completed => Ok(workspace.clone()),
-            RemoteProvisioningStatus::Failed { .. } => {
-                Err(RemoteWorkspaceError::InvalidWorkspaceState {
-                    message:
-                        "failed workspace must be deleted or reset before provisioning can continue"
-                            .to_string(),
-                })
+            RemoteProvisioningStatus::Completed | RemoteProvisioningStatus::Failed { .. } => {
+                unreachable!("terminal provisioning states are handled before provider lookup")
             }
             RemoteProvisioningStatus::InProgress {
                 phase: RemoteProvisioningPhase::CreatingRemoteVolume,
-            } => Err(RemoteWorkspaceError::InvalidWorkspaceState {
-                message: "remote volume creation starts from not started provisioning state"
-                    .to_string(),
-            }),
-            RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::ValidatingReadiness,
-            } => Err(RemoteWorkspaceError::NotImplemented {
-                message: "readiness validation is not implemented in this skeleton".to_string(),
-            }),
-            RemoteProvisioningStatus::Cancelling { .. } => {
-                Err(RemoteWorkspaceError::NotImplemented {
+            } => Ok(failed_provisioning_workspace(
+                workspace,
+                Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+                RemoteProvisioningError::InvalidProvisioningState {
+                    message: "remote volume creation starts from not started provisioning state"
+                        .to_string(),
+                },
+            )),
+            RemoteProvisioningStatus::Cancelling { phase } => Ok(failed_provisioning_workspace(
+                workspace,
+                phase.clone(),
+                RemoteProvisioningError::InvalidProvisioningState {
                     message: "provisioning cancellation is not implemented in this skeleton"
                         .to_string(),
-                })
-            }
+                },
+            )),
         }
     }
 
@@ -324,64 +406,103 @@ impl RemoteWorkspaceService {
         let remote = remote_workspace(workspace)?;
 
         if remote.remote_provisioning.status != RemoteProvisioningStatus::Completed {
-            return Err(RemoteWorkspaceError::WorkspaceNotReady);
+            return Err(RemoteWorkspaceError::ExecuteWorkspaceNotReady);
         }
 
         if remote.remote_resources.remote_endpoint.is_none() {
-            return Err(RemoteWorkspaceError::MissingEndpoint);
+            return Err(RemoteWorkspaceError::ExecuteWorkspaceMissingEndpoint);
         }
 
-        Err(RemoteWorkspaceError::NotImplemented {
+        Err(RemoteWorkspaceError::ExecuteWorkspaceNotImplemented {
             message: "endpoint worker execution is not implemented in this skeleton".to_string(),
         })
     }
 
-    pub async fn delete_workspace(
+    pub async fn cleanup_workspace(
         &self,
         workspace: &Workspace,
-    ) -> Result<(), RemoteWorkspaceError> {
+    ) -> Result<Workspace, RemoteWorkspaceError> {
         let remote = remote_workspace(workspace)?;
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
         let provider = self.provider_registry.for_provider(provider_id)?;
 
-        if let Some(endpoint) = &remote.remote_resources.remote_endpoint {
-            ignore_cleanup_error(
+        let endpoint_cleanup = match &remote.remote_resources.remote_endpoint {
+            Some(endpoint) => cleanup_failed_workspace(
+                workspace,
                 provider
                     .delete_endpoint(DeleteEndpointParams {
                         workspace_id: workspace.id.clone(),
                         endpoint_id: endpoint.id.clone(),
                     })
                     .await,
-                RemoteWorkspaceError::NonExistingEndpoint,
-            )?;
+                RemoteWorkspaceError::RemoteEndpointNotFound,
+            ),
+            None => None,
+        };
+
+        if let Some(failed_workspace) = endpoint_cleanup {
+            return Ok(failed_workspace);
         }
 
-        if let Some(provisioner) = &remote.remote_resources.remote_provisioner {
-            ignore_cleanup_error(
+        let provisioner_cleanup = match &remote.remote_resources.remote_provisioner {
+            Some(provisioner) => cleanup_failed_workspace(
+                workspace,
                 provider
                     .terminate_provisioner(TerminateProvisionerParams {
                         workspace_id: workspace.id.clone(),
                         provisioner_id: provisioner.id.clone(),
                     })
                     .await,
-                RemoteWorkspaceError::NonExistingProvisioner,
-            )?;
+                RemoteWorkspaceError::RemoteProvisionerNotFound,
+            ),
+            None => None,
+        };
+
+        if let Some(failed_workspace) = provisioner_cleanup {
+            return Ok(failed_workspace);
         }
 
-        if let Some(volume) = &remote.remote_resources.remote_volume {
-            ignore_cleanup_error(
+        let volume_cleanup = match &remote.remote_resources.remote_volume {
+            Some(volume) => cleanup_failed_workspace(
+                workspace,
                 provider
                     .delete_volume(DeleteVolumeParams {
                         workspace_id: workspace.id.clone(),
                         volume_id: volume.id.clone(),
                     })
                     .await,
-                RemoteWorkspaceError::NonExistingVolume,
-            )?;
+                RemoteWorkspaceError::RemoteVolumeNotFound,
+            ),
+            None => None,
+        };
+
+        if let Some(failed_workspace) = volume_cleanup {
+            return Ok(failed_workspace);
         }
 
-        Ok(())
+        let mut workspace = workspace.clone();
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources = RemoteWorkspaceResources {
+            remote_volume: None,
+            remote_provisioner: None,
+            remote_endpoint: None,
+        };
+        remote.remote_provisioning.status = RemoteProvisioningStatus::NotStarted;
+        remote.remote_provisioning.percent = None;
+        Ok(workspace)
     }
+}
+
+fn cleanup_failed_workspace(
+    workspace: &Workspace,
+    result: Result<(), RemoteWorkspaceError>,
+    ignored_error: RemoteWorkspaceError,
+) -> Option<Workspace> {
+    ignore_cleanup_error(result, ignored_error)
+        .err()
+        .map(|error| {
+            failed_provisioning_workspace(workspace, None, RemoteProvisioningError::from(error))
+        })
 }
 
 fn ignore_cleanup_error(
@@ -402,11 +523,29 @@ fn remote_workspace(workspace: &Workspace) -> Result<&RemoteWorkspace, RemoteWor
     Ok(remote)
 }
 
-fn provider_error_message(error: RemoteWorkspaceError) -> String {
-    match error {
-        RemoteWorkspaceError::ProviderRequestFailed { message } => message,
-        error => format!("{error:?}"),
-    }
+fn failed_provisioning_workspace(
+    workspace: &Workspace,
+    phase: Option<RemoteProvisioningPhase>,
+    error: RemoteProvisioningError,
+) -> Workspace {
+    let mut workspace = workspace.clone();
+    let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+    remote.remote_provisioning.status = RemoteProvisioningStatus::Failed { phase, error };
+    workspace
+}
+
+fn update_provisioning_workspace(
+    workspace: &Workspace,
+    status: RemoteProvisioningStatus,
+    percent: u8,
+    update_resources: impl FnOnce(&mut RemoteWorkspaceResources),
+) -> Workspace {
+    let mut workspace = workspace.clone();
+    let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+    update_resources(&mut remote.remote_resources);
+    remote.remote_provisioning.status = status;
+    remote.remote_provisioning.percent = Some(percent);
+    workspace
 }
 
 #[cfg(test)]
@@ -418,7 +557,7 @@ mod tests {
             Capability, RemoteEndpointKeepAliveLimits, RemotePlacementCapabilities,
             RemotePlacementPlan,
         },
-        provider::GpuCloudProviderId,
+        provider::{GpuCloudProviderId, ProviderError},
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
             RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
@@ -426,8 +565,8 @@ mod tests {
         },
         workspace::{
             RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-            RemoteProvisioningPhase, RemoteVolumeSnapshot, RemoteWorkspaceResources,
-            WorkspaceRuntime,
+            RemoteProvisioningError, RemoteProvisioningPhase, RemoteVolumeSnapshot,
+            RemoteWorkspaceResources, WorkspaceRuntime,
         },
     };
 
@@ -742,6 +881,22 @@ mod tests {
     }
 
     #[test]
+    fn provision_workspace_missing_provider_returns_error_without_failed_workspace() {
+        let service = RemoteWorkspaceService::new(RemoteWorkspaceProviderRegistry::empty());
+        let workspace = draft_workspace(&service);
+
+        let error = block_on(service.provision_workspace(&workspace))
+            .expect_err("missing provider should return service error");
+
+        assert_eq!(
+            error,
+            RemoteWorkspaceError::ProviderUnavailable {
+                provider_id: GpuCloudProviderId::Runpod,
+            }
+        );
+    }
+
+    #[test]
     fn provision_workspace_starting_provisioner_advances_one_step() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
@@ -796,27 +951,14 @@ mod tests {
     }
 
     #[test]
-    fn cleaning_up_phase_preserves_terminal_worker_status() {
-        let phase = RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-            terminal_status: RemoteProvisionerStatus::Failed {
-                code: "provisioner_worker_failed".to_string(),
-                message: "worker failed".to_string(),
-            },
-        };
+    fn cleaning_up_status_is_plain_provisioner_status() {
+        let status = RemoteProvisionerStatus::CleaningUp;
 
-        assert_eq!(
-            phase,
-            RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: RemoteProvisionerStatus::Failed {
-                    code: "provisioner_worker_failed".to_string(),
-                    message: "worker failed".to_string(),
-                },
-            }
-        );
+        assert_eq!(status, RemoteProvisionerStatus::CleaningUp);
     }
 
     #[test]
-    fn provision_workspace_running_provisioner_stores_non_terminal_status() {
+    fn provision_workspace_running_provisioner_stores_incomplete_status() {
         let state = Arc::new(Mutex::new(ProviderState {
             provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Running)],
             ..ProviderState::default()
@@ -880,8 +1022,8 @@ mod tests {
         assert_eq!(
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                    terminal_status: RemoteProvisionerStatus::Succeeded
+                phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp
                 }
             }
         );
@@ -921,8 +1063,8 @@ mod tests {
         assert_eq!(
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::InProgress {
-                phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                    terminal_status: failed_status
+                phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp
                 }
             }
         );
@@ -933,73 +1075,21 @@ mod tests {
     }
 
     #[test]
-    fn provision_workspace_terminated_provisioner_status_marks_failed() {
+    fn provision_workspace_cleanup_after_success_moves_to_endpoint_creation() {
         let state = Arc::new(Mutex::new(ProviderState {
-            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Terminated)],
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Succeeded)],
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
-            id: "volume".to_string(),
-        });
         remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
             id: "provisioner".to_string(),
             status_url: "https://status.example".to_string(),
         });
         remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
             phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
-                status: RemoteProvisionerStatus::Running,
-            },
-        };
-
-        let provisioned = block_on(service.provision_workspace(&workspace))
-            .expect("terminated provisioner status should mark failed");
-
-        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
-        assert_eq!(
-            remote.remote_resources.remote_volume,
-            Some(RemoteVolumeSnapshot {
-                id: "volume".to_string()
-            })
-        );
-        assert_eq!(
-            remote.remote_resources.remote_provisioner,
-            Some(RemoteProvisionerSnapshot {
-                id: "provisioner".to_string(),
-                status_url: "https://status.example".to_string(),
-            })
-        );
-        assert_eq!(
-            remote.remote_provisioning.status,
-            RemoteProvisioningStatus::Failed {
-                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
-                    status: RemoteProvisionerStatus::Terminated,
-                }),
-                code: "provisioner_terminated".to_string(),
-                message: "remote provisioner terminated before completion".to_string(),
-            }
-        );
-        assert_eq!(
-            state.lock().expect("state lock should succeed").calls,
-            vec!["get_provisioner_status"]
-        );
-    }
-
-    #[test]
-    fn provision_workspace_cleanup_after_success_moves_to_endpoint_creation() {
-        let state = Arc::new(Mutex::new(ProviderState::default()));
-        let service = service_with_state(Arc::clone(&state));
-        let mut workspace = draft_workspace(&service);
-        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
-            id: "provisioner".to_string(),
-            status_url: "https://status.example".to_string(),
-        });
-        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: RemoteProvisionerStatus::Succeeded,
+                status: RemoteProvisionerStatus::CleaningUp,
             },
         };
 
@@ -1017,13 +1107,19 @@ mod tests {
         assert_eq!(remote.remote_provisioning.percent, Some(75));
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
-            vec!["terminate_provisioner"]
+            vec!["get_provisioner_status", "terminate_provisioner"]
         );
     }
 
     #[test]
     fn provision_workspace_cleanup_after_worker_failure_marks_failed() {
-        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Failed {
+                code: "provisioner_worker_step_timeout".to_string(),
+                message: "step timed out".to_string(),
+            })],
+            ..ProviderState::default()
+        }));
         let service = service_with_state(Arc::clone(&state));
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
@@ -1035,11 +1131,8 @@ mod tests {
             status_url: "https://status.example".to_string(),
         });
         remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: RemoteProvisionerStatus::Failed {
-                    code: "provisioner_worker_step_timeout".to_string(),
-                    message: "step timed out".to_string(),
-                },
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::CleaningUp,
             },
         };
 
@@ -1063,8 +1156,7 @@ mod tests {
                         message: "step timed out".to_string(),
                     },
                 }),
-                code: "provisioner_worker_step_timeout".to_string(),
-                message: "step timed out".to_string(),
+                error: RemoteProvisioningError::ProvisionerWorkerFailed,
             }
         );
     }
@@ -1072,9 +1164,12 @@ mod tests {
     #[test]
     fn provision_workspace_cleanup_error_after_success_marks_failed_and_preserves_provisioner() {
         let state = Arc::new(Mutex::new(ProviderState {
-            terminate_provisioner_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: "terminate failed".to_string(),
-            }),
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Succeeded)],
+            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "terminate failed".to_string(),
+                },
+            )),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1085,8 +1180,8 @@ mod tests {
             status_url: "https://status.example".to_string(),
         });
         remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: RemoteProvisionerStatus::Succeeded,
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::CleaningUp,
             },
         };
 
@@ -1104,25 +1199,29 @@ mod tests {
         assert_eq!(
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
-                phase: Some(RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                    terminal_status: RemoteProvisionerStatus::Succeeded,
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp,
                 }),
-                code: "cleanup_failed".to_string(),
-                message: "terminate failed".to_string(),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "terminate failed".to_string(),
+                }),
             }
         );
     }
 
     #[test]
     fn provision_workspace_cleanup_error_after_worker_failure_preserves_worker_failure() {
-        let terminal_status = RemoteProvisionerStatus::Failed {
+        let failed_status = RemoteProvisionerStatus::Failed {
             code: "provisioner_worker_unexpected_error".to_string(),
             message: "unexpected worker error".to_string(),
         };
         let state = Arc::new(Mutex::new(ProviderState {
-            terminate_provisioner_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: "terminate failed".to_string(),
-            }),
+            provisioner_status_results: vec![Ok(failed_status.clone())],
+            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "terminate failed".to_string(),
+                },
+            )),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1133,8 +1232,8 @@ mod tests {
             status_url: "https://status.example".to_string(),
         });
         remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: terminal_status.clone(),
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::CleaningUp,
             },
         };
 
@@ -1153,18 +1252,20 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
-                    status: terminal_status,
+                    status: failed_status,
                 }),
-                code: "provisioner_worker_unexpected_error".to_string(),
-                message: "unexpected worker error".to_string(),
+                error: RemoteProvisioningError::ProvisionerWorkerFailed,
             }
         );
     }
 
     #[test]
-    fn provision_workspace_cleanup_with_non_terminal_status_returns_invalid_state_without_provider_calls(
+    fn provision_workspace_cleanup_with_incomplete_status_returns_invalid_state_without_termination(
     ) {
-        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Running)],
+            ..ProviderState::default()
+        }));
         let service = service_with_state(Arc::clone(&state));
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
@@ -1173,45 +1274,166 @@ mod tests {
             status_url: "https://status.example".to_string(),
         });
         remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: RemoteProvisionerStatus::Running,
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::CleaningUp,
             },
         };
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("non-terminal cleanup status should be invalid");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("incomplete cleanup status should fail provisioning state");
 
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
         assert_eq!(
-            error,
-            RemoteWorkspaceError::InvalidWorkspaceState {
-                message: "cleanup requires terminal provisioner status: Running".to_string(),
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp,
+                }),
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "cleanup requires finished provisioner status: Running".to_string(),
+                },
             }
         );
-        assert!(state
-            .lock()
-            .expect("state lock should succeed")
-            .calls
-            .is_empty());
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["get_provisioner_status"]
+        );
     }
 
     #[test]
     fn provision_workspace_returns_provider_request_failed_messages() {
         let state = Arc::new(Mutex::new(ProviderState {
-            create_volume_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
-            }),
+            create_volume_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
         let workspace = draft_workspace(&service);
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("provider request failure should be returned as a provisioning error");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("provider request failure should fail provisioning state");
 
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
         assert_eq!(
-            error,
-            RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn provision_workspace_start_provisioner_failure_marks_failed() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            start_provisioner_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "start failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("start provisioner failure should fail provisioning state");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "start failed".to_string(),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn provision_workspace_status_poll_failure_marks_failed() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Err(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "status failed".to_string(),
+                },
+            ))],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            },
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("status poll failure should fail provisioning state");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Running,
+                }),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "status failed".to_string(),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn provision_workspace_create_endpoint_failure_marks_failed() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            create_endpoint_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "endpoint failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
+        };
+
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("create endpoint failure should fail provisioning state");
+
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "endpoint failed".to_string(),
+                }),
             }
         );
     }
@@ -1237,28 +1459,22 @@ mod tests {
     }
 
     #[test]
-    fn provision_workspace_failed_returns_invalid_state_without_provider_calls() {
+    fn provision_workspace_failed_returns_workspace_unchanged_without_provider_calls() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
         remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
             phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
-            code: "provider_error".to_string(),
-            message: "raw failure".to_string(),
+            error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                message: "raw failure".to_string(),
+            }),
         };
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("failed workspace should not continue provisioning");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("failed workspace should be returned unchanged");
 
-        assert_eq!(
-            error,
-            RemoteWorkspaceError::InvalidWorkspaceState {
-                message:
-                    "failed workspace must be deleted or reset before provisioning can continue"
-                        .to_string(),
-            }
-        );
+        assert_eq!(provisioned, workspace);
         assert!(state
             .lock()
             .expect("state lock should succeed")
@@ -1311,13 +1527,18 @@ mod tests {
             phase: RemoteProvisioningPhase::CreatingRemoteEndpoint,
         };
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("missing volume should stop endpoint creation");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("missing volume should fail provisioning state");
 
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
         assert_eq!(
-            error,
-            RemoteWorkspaceError::InvalidWorkspaceState {
-                message: "remote volume snapshot is required before endpoint creation".to_string(),
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "remote volume snapshot is required before endpoint creation"
+                        .to_string(),
+                },
             }
         );
         assert!(state
@@ -1338,39 +1559,18 @@ mod tests {
             phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
         };
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("missing volume should stop provisioner start");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("missing volume should fail provisioning state");
 
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
         assert_eq!(
-            error,
-            RemoteWorkspaceError::InvalidWorkspaceState {
-                message: "remote volume snapshot is required before provisioner start".to_string(),
-            }
-        );
-        assert!(state
-            .lock()
-            .expect("state lock should succeed")
-            .calls
-            .is_empty());
-    }
-
-    #[test]
-    fn provision_workspace_validating_readiness_returns_not_implemented_without_provider_calls() {
-        let state = Arc::new(Mutex::new(ProviderState::default()));
-        let service = service_with_state(Arc::clone(&state));
-        let mut workspace = draft_workspace(&service);
-        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
-        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::ValidatingReadiness,
-        };
-
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("readiness validation remains unimplemented");
-
-        assert_eq!(
-            error,
-            RemoteWorkspaceError::NotImplemented {
-                message: "readiness validation is not implemented in this skeleton".to_string(),
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "remote volume snapshot is required before provisioner start"
+                        .to_string(),
+                },
             }
         );
         assert!(state
@@ -1392,14 +1592,20 @@ mod tests {
             },
         };
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("missing provisioner should stop polling");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("missing provisioner should fail provisioning state");
 
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
         assert_eq!(
-            error,
-            RemoteWorkspaceError::InvalidWorkspaceState {
-                message: "remote provisioner snapshot is required before status polling"
-                    .to_string(),
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Running,
+                }),
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "remote provisioner snapshot is required before status polling"
+                        .to_string(),
+                },
             }
         );
         assert!(state
@@ -1416,19 +1622,25 @@ mod tests {
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
         remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
-            phase: RemoteProvisioningPhase::CleaningUpRemoteProvisioner {
-                terminal_status: RemoteProvisionerStatus::Succeeded,
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::CleaningUp,
             },
         };
 
-        let error = block_on(service.provision_workspace(&workspace))
-            .expect_err("missing provisioner should stop cleanup");
+        let provisioned = block_on(service.provision_workspace(&workspace))
+            .expect("missing provisioner should fail provisioning state");
 
+        let WorkspaceRuntime::Remote(remote) = provisioned.runtime;
         assert_eq!(
-            error,
-            RemoteWorkspaceError::InvalidWorkspaceState {
-                message: "remote provisioner snapshot is required before provisioner cleanup"
-                    .to_string(),
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp,
+                }),
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "remote provisioner snapshot is required before provisioner cleanup"
+                        .to_string(),
+                },
             }
         );
         assert!(state
@@ -1448,7 +1660,7 @@ mod tests {
             .execute_workspace(&workspace)
             .expect_err("draft workspace should not be executed");
 
-        assert_eq!(error, RemoteWorkspaceError::WorkspaceNotReady);
+        assert_eq!(error, RemoteWorkspaceError::ExecuteWorkspaceNotReady);
         assert!(state
             .lock()
             .expect("state lock should succeed")
@@ -1468,7 +1680,7 @@ mod tests {
             .execute_workspace(&workspace)
             .expect_err("completed workspace without endpoint should not execute");
 
-        assert_eq!(error, RemoteWorkspaceError::MissingEndpoint);
+        assert_eq!(error, RemoteWorkspaceError::ExecuteWorkspaceMissingEndpoint);
         assert!(state
             .lock()
             .expect("state lock should succeed")
@@ -1494,7 +1706,7 @@ mod tests {
 
         assert_eq!(
             error,
-            RemoteWorkspaceError::NotImplemented {
+            RemoteWorkspaceError::ExecuteWorkspaceNotImplemented {
                 message: "endpoint worker execution is not implemented in this skeleton"
                     .to_string(),
             }
@@ -1507,63 +1719,156 @@ mod tests {
     }
 
     #[test]
-    fn delete_workspace_cleans_resources_in_dependency_order() {
+    fn cleanup_workspace_cleans_resources_in_dependency_order() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
         let workspace = workspace_with_all_remote_resources(&service);
 
-        block_on(service.delete_workspace(&workspace)).expect("workspace cleanup should succeed");
+        let cleaned_workspace = block_on(service.cleanup_workspace(&workspace))
+            .expect("workspace cleanup should succeed");
 
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["delete_endpoint", "terminate_provisioner", "delete_volume"]
         );
+        let WorkspaceRuntime::Remote(remote) = cleaned_workspace.runtime;
+        assert_eq!(
+            remote.remote_resources,
+            RemoteWorkspaceResources {
+                remote_volume: None,
+                remote_provisioner: None,
+                remote_endpoint: None,
+            }
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::NotStarted
+        );
+        assert_eq!(remote.remote_provisioning.percent, None);
     }
 
     #[test]
-    fn delete_workspace_ignores_not_found_cleanup_errors() {
+    fn cleanup_workspace_ignores_not_found_cleanup_errors() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(RemoteWorkspaceError::NonExistingEndpoint),
-            terminate_provisioner_error: Some(RemoteWorkspaceError::NonExistingProvisioner),
-            delete_volume_error: Some(RemoteWorkspaceError::NonExistingVolume),
+            delete_endpoint_error: Some(RemoteWorkspaceError::RemoteEndpointNotFound),
+            terminate_provisioner_error: Some(RemoteWorkspaceError::RemoteProvisionerNotFound),
+            delete_volume_error: Some(RemoteWorkspaceError::RemoteVolumeNotFound),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
         let workspace = workspace_with_all_remote_resources(&service);
 
-        block_on(service.delete_workspace(&workspace))
+        let cleaned_workspace = block_on(service.cleanup_workspace(&workspace))
             .expect("not-found cleanup errors should be treated as already deleted");
 
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["delete_endpoint", "terminate_provisioner", "delete_volume"]
         );
+        let WorkspaceRuntime::Remote(remote) = cleaned_workspace.runtime;
+        assert_eq!(
+            remote.remote_resources,
+            RemoteWorkspaceResources {
+                remote_volume: None,
+                remote_provisioner: None,
+                remote_endpoint: None,
+            }
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::NotStarted
+        );
+        assert_eq!(remote.remote_provisioning.percent, None);
     }
 
     #[test]
-    fn delete_workspace_returns_endpoint_cleanup_failure_and_stops_cleanup() {
+    fn cleanup_workspace_endpoint_cleanup_failure_marks_failed_and_stops_cleanup() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
-            }),
+            delete_endpoint_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
         let workspace = workspace_with_all_remote_resources(&service);
 
-        let error = block_on(service.delete_workspace(&workspace))
-            .expect_err("endpoint cleanup failure should stop cleanup");
+        let failed_workspace = block_on(service.cleanup_workspace(&workspace))
+            .expect("cleanup failure should return failed workspace");
 
         assert_eq!(
-            error,
-            RemoteWorkspaceError::ProviderRequestFailed {
-                message: "provider request failed".to_string(),
-            }
+            failed_workspace,
+            failed_cleanup_workspace(&workspace, "provider request failed")
         );
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["delete_endpoint"]
         );
+    }
+
+    #[test]
+    fn cleanup_workspace_provisioner_cleanup_failure_marks_failed_and_stops_cleanup() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = workspace_with_all_remote_resources(&service);
+
+        let failed_workspace = block_on(service.cleanup_workspace(&workspace))
+            .expect("cleanup failure should return failed workspace");
+
+        assert_eq!(
+            failed_workspace,
+            failed_cleanup_workspace(&workspace, "provider request failed")
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint", "terminate_provisioner"]
+        );
+    }
+
+    #[test]
+    fn cleanup_workspace_volume_cleanup_failure_marks_failed() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            delete_volume_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = workspace_with_all_remote_resources(&service);
+
+        let failed_workspace = block_on(service.cleanup_workspace(&workspace))
+            .expect("cleanup failure should return failed workspace");
+
+        assert_eq!(
+            failed_workspace,
+            failed_cleanup_workspace(&workspace, "provider request failed")
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint", "terminate_provisioner", "delete_volume"]
+        );
+    }
+
+    fn failed_cleanup_workspace(workspace: &Workspace, message: &str) -> Workspace {
+        let mut workspace = workspace.clone();
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
+            phase: None,
+            error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                message: message.to_string(),
+            }),
+        };
+        workspace
     }
 
     fn block_on<F: std::future::Future>(future: F) -> F::Output {

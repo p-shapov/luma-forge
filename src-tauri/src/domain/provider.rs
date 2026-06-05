@@ -7,6 +7,15 @@ pub enum GpuCloudProviderId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderError {
+    Unauthorized,
+    RateLimited,
+    Timeout,
+    RequestFailed { message: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderGpuOption {
     pub id: String,
     pub name: String,

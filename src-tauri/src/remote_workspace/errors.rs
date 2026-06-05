@@ -1,33 +1,31 @@
-use crate::domain::provider::GpuCloudProviderId;
-use serde::Serialize;
+use crate::domain::{
+    provider::{GpuCloudProviderId, ProviderError},
+    workspace::RemoteProvisioningError,
+};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteWorkspaceError {
-    MissingProvider { provider_id: GpuCloudProviderId },
-    InvalidRequest { message: String },
-    NonExistingVolume,
-    NonExistingProvisioner,
-    NonExistingEndpoint,
-    ProviderUnauthorized,
-    ProviderRateLimited,
-    ProviderTimeout,
-    ProviderRequestFailed { message: String },
-    ProvisionerWorkerTokenMissing,
-    ProvisionerWorkerTokenInvalid,
-    ProvisionerWorkerUnauthorized,
-    ProvisionerWorkerUnavailable,
-    ProvisionerWorkerConflict,
-    ProvisionerWorkerResponseInvalid,
-    ProvisionerWorkerFailed,
-    ProvisionerWorkerAssetDownloadFailed,
-    ProvisionerWorkerAssetAuthRequired,
-    ProvisionerWorkerPathValidationFailed,
-    ProvisionerWorkerStepTimeout,
-    ProvisionerWorkerUnexpectedError,
-    InvalidWorkspaceState { message: String },
-    WorkspaceNotReady,
-    MissingEndpoint,
-    CleanupFailed { message: String },
-    NotImplemented { message: String },
+    SetupWorkspaceInvalidRequest { message: String },
+    ProviderUnavailable { provider_id: GpuCloudProviderId },
+    Provider(ProviderError),
+    RemoteVolumeNotFound,
+    RemoteProvisionerNotFound,
+    RemoteEndpointNotFound,
+    ExecuteWorkspaceNotReady,
+    ExecuteWorkspaceMissingEndpoint,
+    ExecuteWorkspaceNotImplemented { message: String },
+    DeleteWorkspaceFailed { message: String },
+}
+
+impl From<RemoteWorkspaceError> for RemoteProvisioningError {
+    fn from(error: RemoteWorkspaceError) -> Self {
+        match error {
+            RemoteWorkspaceError::Provider(error) => RemoteProvisioningError::Provider(error),
+            error => RemoteProvisioningError::InvalidProvisioningState {
+                message: format!("{error:?}"),
+            },
+        }
+    }
 }

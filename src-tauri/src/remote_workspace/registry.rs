@@ -25,7 +25,7 @@ impl RemoteWorkspaceProviderRegistry {
             .iter()
             .find(|provider| provider.provider_id() == provider_id)
             .map(|provider| provider.as_ref())
-            .ok_or(RemoteWorkspaceError::MissingProvider { provider_id })
+            .ok_or(RemoteWorkspaceError::ProviderUnavailable { provider_id })
     }
 }
 
@@ -156,7 +156,7 @@ mod tests {
 
         assert_eq!(
             error,
-            RemoteWorkspaceError::MissingProvider {
+            RemoteWorkspaceError::ProviderUnavailable {
                 provider_id: GpuCloudProviderId::Runpod
             }
         );
