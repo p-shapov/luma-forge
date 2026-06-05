@@ -909,6 +909,85 @@ mod tests {
     }
 
     #[test]
+    fn cancel_workspace_not_started_marks_invalid_state_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let workspace = draft_workspace(&service);
+
+        let cancelled = service
+            .cancel_workspace(&workspace)
+            .expect("invalid cancellation should be represented in workspace state");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: None,
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "only in-progress provisioning can be cancelled".to_string(),
+                },
+            }
+        );
+        assert!(state.lock().expect("state lock should succeed").calls.is_empty());
+    }
+
+    #[test]
+    fn cancel_workspace_completed_marks_invalid_state_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Completed;
+        remote.remote_provisioning.percent = Some(100);
+
+        let cancelled = service
+            .cancel_workspace(&workspace)
+            .expect("invalid cancellation should be represented in workspace state");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: None,
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "only in-progress provisioning can be cancelled".to_string(),
+                },
+            }
+        );
+        assert!(state.lock().expect("state lock should succeed").calls.is_empty());
+    }
+
+    #[test]
+    fn cancel_workspace_failed_marks_invalid_state_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+            error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                message: "provider request failed".to_string(),
+            }),
+        };
+
+        let cancelled = service
+            .cancel_workspace(&workspace)
+            .expect("invalid cancellation should be represented in workspace state");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: None,
+                error: RemoteProvisioningError::InvalidProvisioningState {
+                    message: "only in-progress provisioning can be cancelled".to_string(),
+                },
+            }
+        );
+        assert!(state.lock().expect("state lock should succeed").calls.is_empty());
+    }
+
+    #[test]
     fn provision_workspace_not_started_creates_volume_only() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
