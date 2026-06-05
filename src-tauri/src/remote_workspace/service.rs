@@ -345,48 +345,53 @@ impl RemoteWorkspaceService {
         let provider = self.provider_registry.for_provider(provider_id)?;
 
         if let Some(endpoint) = &remote.remote_resources.remote_endpoint {
-            if let Err(error) = provider
-                .delete_endpoint(DeleteEndpointParams {
-                    workspace_id: workspace.id.clone(),
-                    endpoint_id: endpoint.id.clone(),
-                })
-                .await
-            {
-                if error != RemoteWorkspaceError::NonExistingEndpoint {
-                    return Err(error);
-                }
-            }
+            ignore_cleanup_error(
+                provider
+                    .delete_endpoint(DeleteEndpointParams {
+                        workspace_id: workspace.id.clone(),
+                        endpoint_id: endpoint.id.clone(),
+                    })
+                    .await,
+                RemoteWorkspaceError::NonExistingEndpoint,
+            )?;
         }
 
         if let Some(provisioner) = &remote.remote_resources.remote_provisioner {
-            if let Err(error) = provider
-                .terminate_provisioner(TerminateProvisionerParams {
-                    workspace_id: workspace.id.clone(),
-                    provisioner_id: provisioner.id.clone(),
-                })
-                .await
-            {
-                if error != RemoteWorkspaceError::NonExistingProvisioner {
-                    return Err(error);
-                }
-            }
+            ignore_cleanup_error(
+                provider
+                    .terminate_provisioner(TerminateProvisionerParams {
+                        workspace_id: workspace.id.clone(),
+                        provisioner_id: provisioner.id.clone(),
+                    })
+                    .await,
+                RemoteWorkspaceError::NonExistingProvisioner,
+            )?;
         }
 
         if let Some(volume) = &remote.remote_resources.remote_volume {
-            if let Err(error) = provider
-                .delete_volume(DeleteVolumeParams {
-                    workspace_id: workspace.id.clone(),
-                    volume_id: volume.id.clone(),
-                })
-                .await
-            {
-                if error != RemoteWorkspaceError::NonExistingVolume {
-                    return Err(error);
-                }
-            }
+            ignore_cleanup_error(
+                provider
+                    .delete_volume(DeleteVolumeParams {
+                        workspace_id: workspace.id.clone(),
+                        volume_id: volume.id.clone(),
+                    })
+                    .await,
+                RemoteWorkspaceError::NonExistingVolume,
+            )?;
         }
 
         Ok(())
+    }
+}
+
+fn ignore_cleanup_error(
+    result: Result<(), RemoteWorkspaceError>,
+    ignored_error: RemoteWorkspaceError,
+) -> Result<(), RemoteWorkspaceError> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error == ignored_error => Ok(()),
+        Err(error) => Err(error),
     }
 }
 
