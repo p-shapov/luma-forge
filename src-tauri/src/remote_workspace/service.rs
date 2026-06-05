@@ -1209,6 +1209,81 @@ mod tests {
     }
 
     #[test]
+    fn provision_workspace_cancelling_missing_endpoint_skips_to_provisioner_cleanup() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+        };
+        remote.remote_provisioning.percent = Some(75);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("missing endpoint should skip to provisioner cleanup");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(remote.remote_resources.remote_endpoint, None);
+        assert_eq!(remote.remote_resources.remote_provisioner, None);
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Cancelling {
+                phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner)
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["terminate_provisioner"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_ignores_endpoint_not_found() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            delete_endpoint_error: Some(RemoteWorkspaceError::RemoteEndpointNotFound),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = workspace_with_all_remote_resources(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+        };
+        remote.remote_provisioning.percent = Some(75);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("endpoint not found should be treated as already deleted");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(remote.remote_resources.remote_endpoint, None);
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Cancelling {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp,
+                })
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint"]
+        );
+    }
+
+    #[test]
     fn provision_workspace_cancelling_terminates_provisioner_without_polling_status() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
