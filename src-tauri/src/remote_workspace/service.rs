@@ -77,6 +77,16 @@ impl RemoteWorkspaceService {
             return Ok(workspace.clone());
         }
 
+        if matches!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Cancelling { .. }
+        ) && remote.remote_resources.remote_endpoint.is_none()
+            && remote.remote_resources.remote_provisioner.is_none()
+            && remote.remote_resources.remote_volume.is_none()
+        {
+            return Ok(reset_cancelled_workspace(workspace));
+        }
+
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
         let provider = self.provider_registry.for_provider(provider_id)?;
 
@@ -1560,6 +1570,35 @@ mod tests {
             .expect("state lock should succeed")
             .calls
             .is_empty());
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_without_resources_resets_without_provider_lookup() {
+        let service = RemoteWorkspaceService::new(RemoteWorkspaceProviderRegistry::empty());
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+        };
+        remote.remote_provisioning.percent = Some(10);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("empty cancellation should reset without provider lookup");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_resources,
+            RemoteWorkspaceResources {
+                remote_volume: None,
+                remote_provisioner: None,
+                remote_endpoint: None,
+            }
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::NotStarted
+        );
+        assert_eq!(remote.remote_provisioning.percent, None);
     }
 
     #[test]
