@@ -20,6 +20,7 @@ pub enum RemoteProvisioningError {
     ProvisionerWorkerPathValidationFailed,
     ProvisionerWorkerStepTimeout,
     ProvisionerWorkerUnexpectedError,
+    CancellationCleanupFailed,
     InvalidProvisioningState { message: String },
 }
 

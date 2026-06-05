@@ -837,6 +837,14 @@ mod tests {
     }
 
     #[test]
+    fn remote_provisioning_error_has_cancellation_cleanup_failed_variant() {
+        assert_eq!(
+            RemoteProvisioningError::CancellationCleanupFailed,
+            RemoteProvisioningError::CancellationCleanupFailed
+        );
+    }
+
+    #[test]
     fn provision_workspace_not_started_creates_volume_only() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(Arc::clone(&state));
