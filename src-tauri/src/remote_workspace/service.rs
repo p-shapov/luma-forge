@@ -566,7 +566,22 @@ async fn cancel_provisioning_step(
         };
     }
 
-    Ok(update_cancelling_workspace(workspace, None, 0, |_| {}))
+    if let Some(volume) = remote.remote_resources.remote_volume.as_ref() {
+        return match ignore_cleanup_error(
+            provider
+                .delete_volume(DeleteVolumeParams {
+                    workspace_id: workspace.id.clone(),
+                    volume_id: volume.id.clone(),
+                })
+                .await,
+            RemoteWorkspaceError::RemoteVolumeNotFound,
+        ) {
+            Ok(()) => Ok(reset_cancelled_workspace(workspace)),
+            Err(error) => Ok(failed_cancellation_workspace(workspace, phase, error)),
+        };
+    }
+
+    Ok(reset_cancelled_workspace(workspace))
 }
 
 fn cleanup_failed_workspace(
@@ -634,6 +649,19 @@ fn update_cancelling_workspace(
         percent,
         update_resources,
     )
+}
+
+fn reset_cancelled_workspace(workspace: &Workspace) -> Workspace {
+    let mut workspace = workspace.clone();
+    let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+    remote.remote_resources = RemoteWorkspaceResources {
+        remote_volume: None,
+        remote_provisioner: None,
+        remote_endpoint: None,
+    };
+    remote.remote_provisioning.status = RemoteProvisioningStatus::NotStarted;
+    remote.remote_provisioning.percent = None;
+    workspace
 }
 
 fn update_provisioning_workspace(
@@ -1222,6 +1250,79 @@ mod tests {
             state.lock().expect("state lock should succeed").calls,
             vec!["terminate_provisioner"]
         );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_deletes_volume_and_resets_to_not_started() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
+        };
+        remote.remote_provisioning.percent = Some(25);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("cancellation should delete volume");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_resources,
+            RemoteWorkspaceResources {
+                remote_volume: None,
+                remote_provisioner: None,
+                remote_endpoint: None,
+            }
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::NotStarted
+        );
+        assert_eq!(remote.remote_provisioning.percent, None);
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_volume"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_without_resources_resets_to_not_started_without_provider_calls(
+    ) {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
+        };
+        remote.remote_provisioning.percent = Some(10);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("empty cancellation should reset workspace");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_resources,
+            RemoteWorkspaceResources {
+                remote_volume: None,
+                remote_provisioner: None,
+                remote_endpoint: None,
+            }
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::NotStarted
+        );
+        assert_eq!(remote.remote_provisioning.percent, None);
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     #[test]
