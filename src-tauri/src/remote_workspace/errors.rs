@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub enum RemoteWorkspaceError {
     SetupWorkspaceInvalidRequest { message: String },
     ProviderUnavailable { provider_id: GpuCloudProviderId },
+    ProvisioningAlreadyRunning { workspace_id: String },
     Provider(ProviderError),
     RemoteVolumeNotFound,
     RemoteProvisionerNotFound,
