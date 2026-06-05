@@ -544,6 +544,28 @@ async fn cancel_provisioning_step(
         };
     }
 
+    if let Some(provisioner) = remote.remote_resources.remote_provisioner.as_ref() {
+        return match ignore_cleanup_error(
+            provider
+                .terminate_provisioner(TerminateProvisionerParams {
+                    workspace_id: workspace.id.clone(),
+                    provisioner_id: provisioner.id.clone(),
+                })
+                .await,
+            RemoteWorkspaceError::RemoteProvisionerNotFound,
+        ) {
+            Ok(()) => Ok(update_cancelling_workspace(
+                workspace,
+                Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
+                25,
+                |resources| {
+                    resources.remote_provisioner = None;
+                },
+            )),
+            Err(error) => Ok(failed_cancellation_workspace(workspace, phase, error)),
+        };
+    }
+
     Ok(update_cancelling_workspace(workspace, None, 0, |_| {}))
 }
 
@@ -1155,6 +1177,50 @@ mod tests {
         assert_eq!(
             state.lock().expect("state lock should succeed").calls,
             vec!["delete_endpoint"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_terminates_provisioner_without_polling_status() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            }),
+        };
+        remote.remote_provisioning.percent = Some(60);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("cancellation should terminate provisioner");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(remote.remote_resources.remote_provisioner, None);
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Cancelling {
+                phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner)
+            }
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(25));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["terminate_provisioner"]
         );
     }
 
