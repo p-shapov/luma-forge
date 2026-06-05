@@ -402,6 +402,31 @@ impl RemoteWorkspaceService {
         }
     }
 
+    pub fn cancel_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Workspace, RemoteWorkspaceError> {
+        let remote = remote_workspace(workspace)?;
+
+        let RemoteProvisioningStatus::InProgress { phase } = &remote.remote_provisioning.status
+        else {
+            return Ok(failed_provisioning_workspace(
+                workspace,
+                None,
+                RemoteProvisioningError::InvalidProvisioningState {
+                    message: "only in-progress provisioning can be cancelled".to_string(),
+                },
+            ));
+        };
+
+        let mut workspace = workspace.clone();
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(phase.clone()),
+        };
+        Ok(workspace)
+    }
+
     pub fn execute_workspace(&self, workspace: &Workspace) -> Result<(), RemoteWorkspaceError> {
         let remote = remote_workspace(workspace)?;
 
@@ -842,6 +867,45 @@ mod tests {
             RemoteProvisioningError::CancellationCleanupFailed,
             RemoteProvisioningError::CancellationCleanupFailed
         );
+    }
+
+    #[test]
+    fn cancel_workspace_marks_in_progress_workspace_as_cancelling_without_provider_calls() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::StartingRemoteProvisioner,
+        };
+        remote.remote_provisioning.percent = Some(25);
+
+        let cancelled = service
+            .cancel_workspace(&workspace)
+            .expect("in-progress workspace should enter cancellation");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Cancelling {
+                phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner)
+            }
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(25));
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string(),
+            })
+        );
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     #[test]
