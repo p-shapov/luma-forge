@@ -12,7 +12,8 @@ use super::{
     errors::RemoteWorkspaceError,
     provider::{
         CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-        GetProvisionerStatusParams, StartProvisionerParams, TerminateProvisionerParams,
+        GetProvisionerStatusParams, RemoteWorkspaceProvider, StartProvisionerParams,
+        TerminateProvisionerParams,
     },
     registry::RemoteWorkspaceProviderRegistry,
 };
@@ -391,14 +392,9 @@ impl RemoteWorkspaceService {
                         .to_string(),
                 },
             )),
-            RemoteProvisioningStatus::Cancelling { phase } => Ok(failed_provisioning_workspace(
-                workspace,
-                phase.clone(),
-                RemoteProvisioningError::InvalidProvisioningState {
-                    message: "provisioning cancellation is not implemented in this skeleton"
-                        .to_string(),
-                },
-            )),
+            RemoteProvisioningStatus::Cancelling { phase } => {
+                cancel_provisioning_step(workspace, remote, provider, phase.clone()).await
+            }
         }
     }
 
@@ -518,6 +514,39 @@ impl RemoteWorkspaceService {
     }
 }
 
+async fn cancel_provisioning_step(
+    workspace: &Workspace,
+    remote: &RemoteWorkspace,
+    provider: &dyn RemoteWorkspaceProvider,
+    phase: Option<RemoteProvisioningPhase>,
+) -> Result<Workspace, RemoteWorkspaceError> {
+    if let Some(endpoint) = remote.remote_resources.remote_endpoint.as_ref() {
+        return match ignore_cleanup_error(
+            provider
+                .delete_endpoint(DeleteEndpointParams {
+                    workspace_id: workspace.id.clone(),
+                    endpoint_id: endpoint.id.clone(),
+                })
+                .await,
+            RemoteWorkspaceError::RemoteEndpointNotFound,
+        ) {
+            Ok(()) => Ok(update_cancelling_workspace(
+                workspace,
+                Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp,
+                }),
+                75,
+                |resources| {
+                    resources.remote_endpoint = None;
+                },
+            )),
+            Err(error) => Ok(failed_cancellation_workspace(workspace, phase, error)),
+        };
+    }
+
+    Ok(update_cancelling_workspace(workspace, None, 0, |_| {}))
+}
+
 fn cleanup_failed_workspace(
     workspace: &Workspace,
     result: Result<(), RemoteWorkspaceError>,
@@ -557,6 +586,32 @@ fn failed_provisioning_workspace(
     let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
     remote.remote_provisioning.status = RemoteProvisioningStatus::Failed { phase, error };
     workspace
+}
+
+fn failed_cancellation_workspace(
+    workspace: &Workspace,
+    phase: Option<RemoteProvisioningPhase>,
+    error: RemoteWorkspaceError,
+) -> Workspace {
+    let provisioning_error = match error {
+        RemoteWorkspaceError::Provider(error) => RemoteProvisioningError::Provider(error),
+        _ => RemoteProvisioningError::CancellationCleanupFailed,
+    };
+    failed_provisioning_workspace(workspace, phase, provisioning_error)
+}
+
+fn update_cancelling_workspace(
+    workspace: &Workspace,
+    phase: Option<RemoteProvisioningPhase>,
+    percent: u8,
+    update_resources: impl FnOnce(&mut RemoteWorkspaceResources),
+) -> Workspace {
+    update_provisioning_workspace(
+        workspace,
+        RemoteProvisioningStatus::Cancelling { phase },
+        percent,
+        update_resources,
+    )
 }
 
 fn update_provisioning_workspace(
@@ -928,7 +983,11 @@ mod tests {
                 },
             }
         );
-        assert!(state.lock().expect("state lock should succeed").calls.is_empty());
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     #[test]
@@ -954,7 +1013,11 @@ mod tests {
                 },
             }
         );
-        assert!(state.lock().expect("state lock should succeed").calls.is_empty());
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     #[test]
@@ -984,7 +1047,11 @@ mod tests {
                 },
             }
         );
-        assert!(state.lock().expect("state lock should succeed").calls.is_empty());
+        assert!(state
+            .lock()
+            .expect("state lock should succeed")
+            .calls
+            .is_empty());
     }
 
     #[test]
@@ -1044,6 +1111,50 @@ mod tests {
             RemoteWorkspaceError::ProviderUnavailable {
                 provider_id: GpuCloudProviderId::Runpod,
             }
+        );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_deletes_endpoint_only_and_rolls_back_phase() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = workspace_with_all_remote_resources(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+        };
+        remote.remote_provisioning.percent = Some(75);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("cancellation should delete endpoint");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(remote.remote_resources.remote_endpoint, None);
+        assert_eq!(
+            remote.remote_resources.remote_provisioner,
+            Some(RemoteProvisionerSnapshot {
+                id: "provisioner".to_string(),
+                status_url: "https://status.example".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Cancelling {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::CleaningUp,
+                })
+            }
+        );
+        assert_eq!(remote.remote_provisioning.percent, Some(75));
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint"]
         );
     }
 
