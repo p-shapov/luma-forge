@@ -1365,6 +1365,168 @@ mod tests {
     }
 
     #[test]
+    fn provision_workspace_cancelling_endpoint_cleanup_failure_marks_failed_and_preserves_snapshots(
+    ) {
+        let state = Arc::new(Mutex::new(ProviderState {
+            delete_endpoint_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = workspace_with_all_remote_resources(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+        };
+        remote.remote_provisioning.percent = Some(75);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("cleanup failure should be represented in workspace state");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_resources,
+            RemoteWorkspaceResources {
+                remote_volume: Some(RemoteVolumeSnapshot {
+                    id: "volume".to_string(),
+                }),
+                remote_provisioner: Some(RemoteProvisionerSnapshot {
+                    id: "provisioner".to_string(),
+                    status_url: "https://status.example".to_string(),
+                }),
+                remote_endpoint: Some(RemoteEndpointSnapshot {
+                    id: "endpoint".to_string(),
+                    url: "https://endpoint.example".to_string(),
+                }),
+            }
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                }),
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_endpoint"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_provisioner_cleanup_failure_marks_failed_and_preserves_snapshots(
+    ) {
+        let state = Arc::new(Mutex::new(ProviderState {
+            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://status.example".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            }),
+        };
+        remote.remote_provisioning.percent = Some(60);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("cleanup failure should be represented in workspace state");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_resources.remote_provisioner,
+            Some(RemoteProvisionerSnapshot {
+                id: "provisioner".to_string(),
+                status_url: "https://status.example".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Running,
+                }),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                }),
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["terminate_provisioner"]
+        );
+    }
+
+    #[test]
+    fn provision_workspace_cancelling_volume_cleanup_failure_marks_failed_and_preserves_snapshot() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            delete_volume_error: Some(RemoteWorkspaceError::Provider(
+                ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                },
+            )),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(Arc::clone(&state));
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_volume = Some(RemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
+            phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
+        };
+        remote.remote_provisioning.percent = Some(25);
+
+        let cancelled = block_on(service.provision_workspace(&workspace))
+            .expect("cleanup failure should be represented in workspace state");
+
+        let WorkspaceRuntime::Remote(remote) = cancelled.runtime;
+        assert_eq!(
+            remote.remote_resources.remote_volume,
+            Some(RemoteVolumeSnapshot {
+                id: "volume".to_string(),
+            })
+        );
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
+                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                    message: "provider request failed".to_string(),
+                }),
+            }
+        );
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["delete_volume"]
+        );
+    }
+
+    #[test]
     fn provision_workspace_cancelling_without_resources_resets_to_not_started_without_provider_calls(
     ) {
         let state = Arc::new(Mutex::new(ProviderState::default()));
