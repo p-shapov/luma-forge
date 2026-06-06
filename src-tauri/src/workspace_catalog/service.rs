@@ -370,8 +370,8 @@ mod tests {
                     gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
                     datacenter_id: "datacenter-1".to_string(),
                     gpu_id: "gpu-1".to_string(),
-                    remote_volume_size_bytes: 1,
-                    remote_capabilities: RemotePlacementCapabilities {
+                    volume_size_bytes: 1,
+                    capabilities: RemotePlacementCapabilities {
                         remote_endpoint_keep_alive: Capability::Supported(
                             RemoteEndpointKeepAliveLimits {
                                 default_seconds: 60,

@@ -190,7 +190,7 @@ impl RemoteWorkspaceService {
                 workspace_id: workspace.id.clone(),
                 datacenter_id: remote.remote_placement.datacenter_id.clone(),
                 gpu_id: remote.remote_placement.gpu_id.clone(),
-                size_bytes: remote.remote_placement.remote_volume_size_bytes,
+                size_bytes: remote.remote_placement.volume_size_bytes,
                 mount_path: "/workspace".to_string(),
             })
             .await
@@ -952,8 +952,8 @@ mod tests {
             gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
             datacenter_id: "dc".to_string(),
             gpu_id: "gpu".to_string(),
-            remote_volume_size_bytes: 1,
-            remote_capabilities: RemotePlacementCapabilities {
+            volume_size_bytes: 1,
+            capabilities: RemotePlacementCapabilities {
                 remote_endpoint_keep_alive: Capability::Supported(RemoteEndpointKeepAliveLimits {
                     default_seconds: 60,
                     min_seconds: 30,
