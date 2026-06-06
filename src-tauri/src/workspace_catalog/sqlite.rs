@@ -101,16 +101,54 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
 
     fn update_workspace<'a>(
         &'a self,
-        _workspace: &'a Workspace,
+        workspace: &'a Workspace,
     ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
-        Box::pin(async { Err(WorkspaceCatalogError::QueryFailed) })
+        Box::pin(async move {
+            validate_id(&workspace.id)?;
+
+            let workspace_json =
+                serde_json::to_string(workspace).map_err(|_| WorkspaceCatalogError::Corrupt)?;
+            let now = timestamp()?;
+
+            let result = sqlx::query(
+                "UPDATE workspaces
+                 SET workspace_json = ?1, updated_at = ?2
+                 WHERE id = ?3",
+            )
+            .bind(workspace_json)
+            .bind(now)
+            .bind(&workspace.id)
+            .execute(&self.pool)
+            .await
+            .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+
+            if result.rows_affected() == 0 {
+                return Err(WorkspaceCatalogError::WorkspaceNotFound);
+            }
+
+            Ok(workspace.clone())
+        })
     }
 
     fn delete_workspace<'a>(
         &'a self,
-        _id: &'a str,
+        id: &'a str,
     ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>> {
-        Box::pin(async { Err(WorkspaceCatalogError::QueryFailed) })
+        Box::pin(async move {
+            validate_id(id)?;
+
+            let result = sqlx::query("DELETE FROM workspaces WHERE id = ?1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+
+            if result.rows_affected() == 0 {
+                return Err(WorkspaceCatalogError::WorkspaceNotFound);
+            }
+
+            Ok(())
+        })
     }
 }
 
@@ -488,6 +526,142 @@ mod tests {
             .insert_workspace(&workspace)
             .await
             .expect_err("blank workspace id should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn update_replaces_existing_workspace() {
+        let path = catalog_path("update");
+        let mut workspace = workspace("workspace-1");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        repository
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert should succeed");
+
+        workspace.workflow_preset.name = "Updated Workflow".to_string();
+        let updated = repository
+            .update_workspace(&workspace)
+            .await
+            .expect("update should succeed");
+        let found = repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("find should succeed");
+
+        assert_eq!(updated, workspace);
+        assert_eq!(found, Some(workspace));
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn delete_removes_existing_workspace() {
+        let path = catalog_path("delete");
+        let workspace = workspace("workspace-1");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        repository
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert should succeed");
+
+        repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should succeed");
+        let found = repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("find should succeed");
+
+        assert_eq!(found, None);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn missing_update_returns_workspace_not_found() {
+        let path = catalog_path("missing-update");
+        let workspace = workspace("missing-workspace");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let error = repository
+            .update_workspace(&workspace)
+            .await
+            .expect_err("missing update should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::WorkspaceNotFound);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn missing_delete_returns_workspace_not_found() {
+        let path = catalog_path("missing-delete");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let error = repository
+            .delete_workspace("missing-workspace")
+            .await
+            .expect_err("missing delete should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::WorkspaceNotFound);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn update_workspace_rejects_blank_id_as_corrupt() {
+        let path = catalog_path("blank-update");
+        let workspace = workspace(" ");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let error = repository
+            .update_workspace(&workspace)
+            .await
+            .expect_err("blank workspace id should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_rejects_blank_id_as_corrupt() {
+        let path = catalog_path("blank-delete");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let error = repository
+            .delete_workspace(" \t\n")
+            .await
+            .expect_err("blank id should fail");
 
         assert_eq!(error, WorkspaceCatalogError::Corrupt);
 
