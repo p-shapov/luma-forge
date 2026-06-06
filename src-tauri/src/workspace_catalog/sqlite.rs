@@ -438,6 +438,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn find_workspace_by_id_returns_none_when_absent() {
+        let path = catalog_path("absent-find");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let found = repository
+            .find_workspace_by_id("missing-workspace")
+            .await
+            .expect("find should succeed");
+
+        assert_eq!(found, None);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn find_workspace_by_id_rejects_blank_id_as_corrupt() {
+        let path = catalog_path("blank-find");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let error = repository
+            .find_workspace_by_id(" \t\n")
+            .await
+            .expect_err("blank id should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn insert_workspace_rejects_blank_id_as_corrupt() {
+        let path = catalog_path("blank-insert");
+        let workspace = workspace(" ");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let error = repository
+            .insert_workspace(&workspace)
+            .await
+            .expect_err("blank workspace id should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
     async fn duplicate_insert_returns_workspace_already_exists() {
         let path = catalog_path("duplicate");
         let workspace = workspace("workspace-1");
