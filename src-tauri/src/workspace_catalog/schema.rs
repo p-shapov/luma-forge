@@ -131,7 +131,7 @@ async fn validate_table(
                     .column_type
                     .eq_ignore_ascii_case(expected.column_type)
                 && (!expected.not_null || actual.not_null)
-                && (!expected.primary_key || actual.primary_key)
+                && actual.primary_key == expected.primary_key
         });
 
     if matches {
