@@ -832,7 +832,7 @@ mod tests {
             Capability, RemoteEndpointKeepAliveLimits, RemotePlacementCapabilities,
             RemotePlacementPlan,
         },
-        provider::{GpuCloudProviderId, ProviderError},
+        provider::{GpuCloudProviderId, ProviderApiError},
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
             RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
@@ -874,7 +874,7 @@ mod tests {
     }
 
     fn provider_request_failed(message: &str) -> RemoteWorkspaceError {
-        ProviderError::RequestFailed {
+        ProviderApiError::RequestFailed {
             message: message.to_string(),
         }
         .into()
@@ -1231,7 +1231,7 @@ mod tests {
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
         remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
             phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
-            error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+            error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                 message: "provider request failed".to_string(),
             }),
         };
@@ -1637,7 +1637,7 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "provider request failed".to_string(),
                 }),
             }
@@ -1695,7 +1695,7 @@ mod tests {
                 phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
                     status: RemoteProvisionerStatus::Running,
                 }),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "provider request failed".to_string(),
                 }),
             }
@@ -1737,7 +1737,7 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "provider request failed".to_string(),
                 }),
             }
@@ -1769,7 +1769,7 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "provider request failed".to_string(),
                 }),
             }
@@ -1810,7 +1810,7 @@ mod tests {
                 phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
                     status: RemoteProvisionerStatus::CleaningUp,
                 }),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "provider request failed".to_string(),
                 }),
             }
@@ -2223,7 +2223,7 @@ mod tests {
                 phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
                     status: RemoteProvisionerStatus::CleaningUp,
                 }),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "terminate failed".to_string(),
                 }),
             }
@@ -2339,7 +2339,7 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "provider request failed".to_string(),
                 }),
             }
@@ -2370,7 +2370,7 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::StartingRemoteProvisioner),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "start failed".to_string(),
                 }),
             }
@@ -2406,7 +2406,7 @@ mod tests {
                 phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
                     status: RemoteProvisionerStatus::Running,
                 }),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "status failed".to_string(),
                 }),
             }
@@ -2437,7 +2437,7 @@ mod tests {
             remote.remote_provisioning.status,
             RemoteProvisioningStatus::Failed {
                 phase: Some(RemoteProvisioningPhase::CreatingRemoteEndpoint),
-                error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+                error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "endpoint failed".to_string(),
                 }),
             }
@@ -2472,7 +2472,7 @@ mod tests {
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
         remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
             phase: Some(RemoteProvisioningPhase::CreatingRemoteVolume),
-            error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+            error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                 message: "raw failure".to_string(),
             }),
         };
@@ -2873,7 +2873,7 @@ mod tests {
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
         remote.remote_provisioning.status = RemoteProvisioningStatus::Failed {
             phase: None,
-            error: RemoteProvisioningError::Provider(ProviderError::RequestFailed {
+            error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                 message: message.to_string(),
             }),
         };

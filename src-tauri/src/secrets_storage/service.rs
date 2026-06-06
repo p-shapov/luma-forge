@@ -67,7 +67,7 @@ mod tests {
     };
 
     use crate::{
-        domain::{provider::ProviderError, secrets::ApiKeyIdentity},
+        domain::{provider::ProviderApiError, secrets::ApiKeyIdentity},
         shared::AppFuture,
     };
 
@@ -265,14 +265,14 @@ mod tests {
     #[tokio::test]
     async fn write_does_not_store_after_validation_failure() {
         let store = FakeStore::default();
-        let identity = FakeIdentityProvider::new(vec![Err(ProviderError::Unauthorized.into())]);
+        let identity = FakeIdentityProvider::new(vec![Err(ProviderApiError::Unauthorized.into())]);
         let service = SecretsStorageService::new(store.clone(), identity.clone());
 
         let result = service
             .write(SecretKey::RunpodApiKey, secret("bad-secret"))
             .await;
 
-        assert_eq!(result, Err(ProviderError::Unauthorized.into()));
+        assert_eq!(result, Err(ProviderApiError::Unauthorized.into()));
         assert_eq!(store.calls(), vec![StoreCall::Has(SecretKey::RunpodApiKey)]);
         assert_eq!(identity.calls(), vec!["bad-secret".to_string()]);
         assert_eq!(store.secret(SecretKey::RunpodApiKey), None);

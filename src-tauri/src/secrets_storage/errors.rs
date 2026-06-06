@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::provider::ProviderError;
+use crate::domain::provider::ProviderApiError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -10,12 +10,12 @@ pub enum SecretsStorageError {
     KeyNotFound,
     StoreUnavailable,
     StoredSecretInvalid,
-    Provider(ProviderError),
+    Provider(ProviderApiError),
     IdentityResponseInvalid,
 }
 
-impl From<ProviderError> for SecretsStorageError {
-    fn from(error: ProviderError) -> Self {
+impl From<ProviderApiError> for SecretsStorageError {
+    fn from(error: ProviderApiError) -> Self {
         Self::Provider(error)
     }
 }

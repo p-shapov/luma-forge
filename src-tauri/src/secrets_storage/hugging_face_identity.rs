@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::{provider::ProviderError, secrets::ApiKeyIdentity},
+    domain::{provider::ProviderApiError, secrets::ApiKeyIdentity},
     shared::AppFuture,
 };
 
@@ -104,15 +104,15 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
 
     match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-            Some(ProviderError::Unauthorized.into())
+            Some(ProviderApiError::Unauthorized.into())
         }
-        StatusCode::TOO_MANY_REQUESTS => Some(ProviderError::RateLimited.into()),
+        StatusCode::TOO_MANY_REQUESTS => Some(ProviderApiError::RateLimited.into()),
         _ => Some(provider_request_failed()),
     }
 }
 
 fn provider_request_failed() -> SecretsStorageError {
-    ProviderError::RequestFailed {
+    ProviderApiError::RequestFailed {
         message: "provider request failed".to_string(),
     }
     .into()
@@ -141,16 +141,16 @@ fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, Se
                     .access_token
                     .fine_grained
                     .ok_or(SecretsStorageError::Provider(
-                        ProviderError::InsufficientPermissions,
+                        ProviderApiError::InsufficientPermissions,
                     ))?;
 
             if !fine_grained.can_read_gated_repos.unwrap_or(false)
                 || !fine_grained.has_global_repo_content_read()
             {
-                return Err(ProviderError::InsufficientPermissions.into());
+                return Err(ProviderApiError::InsufficientPermissions.into());
             }
         }
-        _ => return Err(ProviderError::InsufficientPermissions.into()),
+        _ => return Err(ProviderApiError::InsufficientPermissions.into()),
     }
 
     Ok(ApiKeyIdentity {
@@ -275,7 +275,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderError::InsufficientPermissions.into())
+            Err(ProviderApiError::InsufficientPermissions.into())
         );
     }
 
@@ -293,7 +293,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderError::InsufficientPermissions.into())
+            Err(ProviderApiError::InsufficientPermissions.into())
         );
     }
 
@@ -315,7 +315,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderError::InsufficientPermissions.into())
+            Err(ProviderApiError::InsufficientPermissions.into())
         );
     }
 
@@ -337,7 +337,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderError::InsufficientPermissions.into())
+            Err(ProviderApiError::InsufficientPermissions.into())
         );
     }
 
@@ -363,11 +363,11 @@ mod tests {
     fn maps_unauthorized_status() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED),
-            Some(ProviderError::Unauthorized.into())
+            Some(ProviderApiError::Unauthorized.into())
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN),
-            Some(ProviderError::Unauthorized.into())
+            Some(ProviderApiError::Unauthorized.into())
         );
     }
 }

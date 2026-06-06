@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::{provider::ProviderError, secrets::ApiKeyIdentity},
+    domain::{provider::ProviderApiError, secrets::ApiKeyIdentity},
     shared::AppFuture,
 };
 
@@ -115,15 +115,15 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
 
     match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-            Some(ProviderError::Unauthorized.into())
+            Some(ProviderApiError::Unauthorized.into())
         }
-        StatusCode::TOO_MANY_REQUESTS => Some(ProviderError::RateLimited.into()),
+        StatusCode::TOO_MANY_REQUESTS => Some(ProviderApiError::RateLimited.into()),
         _ => Some(provider_request_failed()),
     }
 }
 
 fn provider_request_failed() -> SecretsStorageError {
-    ProviderError::RequestFailed {
+    ProviderApiError::RequestFailed {
         message: "provider request failed".to_string(),
     }
     .into()
@@ -149,7 +149,7 @@ fn map_graphql_response(
 
     let matched_key = match_api_key(submitted_secret, &identity.api_keys)?;
     if !matched_key.is_active {
-        return Err(ProviderError::Unauthorized.into());
+        return Err(ProviderApiError::Unauthorized.into());
     }
 
     Ok(ApiKeyIdentity {
@@ -198,7 +198,7 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
             || message.contains("authentication")
             || message.contains("api key")
     }) {
-        ProviderError::Unauthorized.into()
+        ProviderApiError::Unauthorized.into()
     } else {
         SecretsStorageError::IdentityResponseInvalid
     }
@@ -302,7 +302,7 @@ mod tests {
 
         assert_eq!(
             map_graphql_response("inactive-key-secret-value", response),
-            Err(ProviderError::Unauthorized.into())
+            Err(ProviderApiError::Unauthorized.into())
         );
     }
 
@@ -344,7 +344,7 @@ mod tests {
 
         assert_eq!(
             map_graphql_response("submitted-key-secret-value", response),
-            Err(ProviderError::Unauthorized.into())
+            Err(ProviderApiError::Unauthorized.into())
         );
     }
 
@@ -367,11 +367,11 @@ mod tests {
     fn maps_unauthorized_status() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED),
-            Some(ProviderError::Unauthorized.into())
+            Some(ProviderApiError::Unauthorized.into())
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN),
-            Some(ProviderError::Unauthorized.into())
+            Some(ProviderApiError::Unauthorized.into())
         );
     }
 }

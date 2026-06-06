@@ -1,13 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    placement::RemotePlacementPlan, provider::ProviderError, workflow_preset::WorkflowPreset,
+    placement::RemotePlacementPlan, provider::ProviderApiError, workflow_preset::WorkflowPreset,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteProvisioningError {
-    Provider(ProviderError),
+    Provider(ProviderApiError),
     ProvisionerWorkerTokenMissing,
     ProvisionerWorkerTokenInvalid,
     ProvisionerWorkerUnauthorized,
