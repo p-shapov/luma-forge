@@ -110,3 +110,8 @@ pub struct Workspace {
     pub workflow_preset: WorkflowPreset,
     pub runtime: WorkspaceRuntime,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCatalog {
+    pub workspaces: Vec<Workspace>,
+}
