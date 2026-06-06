@@ -773,6 +773,13 @@ mod tests {
         last_get_provisioner_status_params: Option<GetProvisionerStatusParams>,
     }
 
+    fn provider_request_failed(message: &str) -> RemoteWorkspaceError {
+        ProviderError::RequestFailed {
+            message: message.to_string(),
+        }
+        .into()
+    }
+
     struct FakeProvider {
         state: Arc<Mutex<ProviderState>>,
     }
@@ -1491,11 +1498,7 @@ mod tests {
     fn provision_workspace_cancelling_endpoint_cleanup_failure_marks_failed_and_preserves_snapshots(
     ) {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            delete_endpoint_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1545,11 +1548,7 @@ mod tests {
     fn provision_workspace_cancelling_provisioner_cleanup_failure_marks_failed_and_preserves_snapshots(
     ) {
         let state = Arc::new(Mutex::new(ProviderState {
-            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            terminate_provisioner_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1606,11 +1605,7 @@ mod tests {
     #[test]
     fn provision_workspace_cancelling_volume_cleanup_failure_marks_failed_and_preserves_snapshot() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_volume_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            delete_volume_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1652,11 +1647,7 @@ mod tests {
     #[test]
     fn provision_workspace_cancelling_endpoint_failure_reports_attempted_phase() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            delete_endpoint_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -1688,11 +1679,7 @@ mod tests {
     #[test]
     fn provision_workspace_cancelling_provisioner_failure_reports_attempted_phase() {
         let state = Arc::new(Mutex::new(ProviderState {
-            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            terminate_provisioner_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2095,11 +2082,7 @@ mod tests {
     fn provision_workspace_cleanup_error_after_success_marks_failed_and_preserves_provisioner() {
         let state = Arc::new(Mutex::new(ProviderState {
             provisioner_status_results: vec![Ok(RemoteProvisionerStatus::Succeeded)],
-            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "terminate failed".to_string(),
-                },
-            )),
+            terminate_provisioner_error: Some(provider_request_failed("terminate failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2147,11 +2130,7 @@ mod tests {
         };
         let state = Arc::new(Mutex::new(ProviderState {
             provisioner_status_results: vec![Ok(failed_status.clone())],
-            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "terminate failed".to_string(),
-                },
-            )),
+            terminate_provisioner_error: Some(provider_request_failed("terminate failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2233,11 +2212,7 @@ mod tests {
     #[test]
     fn provision_workspace_returns_provider_request_failed_messages() {
         let state = Arc::new(Mutex::new(ProviderState {
-            create_volume_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            create_volume_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2266,11 +2241,7 @@ mod tests {
     #[test]
     fn provision_workspace_start_provisioner_failure_marks_failed() {
         let state = Arc::new(Mutex::new(ProviderState {
-            start_provisioner_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "start failed".to_string(),
-                },
-            )),
+            start_provisioner_error: Some(provider_request_failed("start failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2301,11 +2272,7 @@ mod tests {
     #[test]
     fn provision_workspace_status_poll_failure_marks_failed() {
         let state = Arc::new(Mutex::new(ProviderState {
-            provisioner_status_results: vec![Err(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "status failed".to_string(),
-                },
-            ))],
+            provisioner_status_results: vec![Err(provider_request_failed("status failed"))],
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2341,11 +2308,7 @@ mod tests {
     #[test]
     fn provision_workspace_create_endpoint_failure_marks_failed() {
         let state = Arc::new(Mutex::new(ProviderState {
-            create_endpoint_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "endpoint failed".to_string(),
-                },
-            )),
+            create_endpoint_error: Some(provider_request_failed("endpoint failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2733,11 +2696,7 @@ mod tests {
     #[test]
     fn cleanup_workspace_endpoint_cleanup_failure_marks_failed_and_stops_cleanup() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_endpoint_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            delete_endpoint_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2759,11 +2718,7 @@ mod tests {
     #[test]
     fn cleanup_workspace_provisioner_cleanup_failure_marks_failed_and_stops_cleanup() {
         let state = Arc::new(Mutex::new(ProviderState {
-            terminate_provisioner_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            terminate_provisioner_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));
@@ -2785,11 +2740,7 @@ mod tests {
     #[test]
     fn cleanup_workspace_volume_cleanup_failure_marks_failed() {
         let state = Arc::new(Mutex::new(ProviderState {
-            delete_volume_error: Some(RemoteWorkspaceError::Provider(
-                ProviderError::RequestFailed {
-                    message: "provider request failed".to_string(),
-                },
-            )),
+            delete_volume_error: Some(provider_request_failed("provider request failed")),
             ..ProviderState::default()
         }));
         let service = service_with_state(Arc::clone(&state));

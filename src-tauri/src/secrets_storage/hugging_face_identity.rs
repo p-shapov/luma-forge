@@ -3,7 +3,10 @@ use std::time::Duration;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::{domain::secrets::ApiKeyIdentity, shared::AppFuture};
+use crate::{
+    domain::{provider::ProviderError, secrets::ApiKeyIdentity},
+    shared::AppFuture,
+};
 
 use super::{errors::SecretsStorageError, identity::ApiKeyIdentityProvider, store::ApiSecret};
 
@@ -22,7 +25,7 @@ impl HuggingFaceIdentityProvider {
             .connect_timeout(HUGGING_FACE_CONNECT_TIMEOUT)
             .timeout(HUGGING_FACE_REQUEST_TIMEOUT)
             .build()
-            .map_err(|_| SecretsStorageError::ProviderUnavailable)?;
+            .map_err(|_| provider_request_failed())?;
 
         Ok(Self {
             http,
@@ -40,7 +43,7 @@ impl HuggingFaceIdentityProvider {
             .bearer_auth(secret.expose_secret())
             .send()
             .await
-            .map_err(|_| SecretsStorageError::ProviderUnavailable)?;
+            .map_err(|_| provider_request_failed())?;
 
         if let Some(error) = map_status_error(response.status()) {
             return Err(error);
@@ -100,10 +103,19 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
     }
 
     match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Some(SecretsStorageError::Unauthorized),
-        StatusCode::TOO_MANY_REQUESTS => Some(SecretsStorageError::RateLimited),
-        _ => Some(SecretsStorageError::ProviderUnavailable),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+            Some(ProviderError::Unauthorized.into())
+        }
+        StatusCode::TOO_MANY_REQUESTS => Some(ProviderError::RateLimited.into()),
+        _ => Some(provider_request_failed()),
     }
+}
+
+fn provider_request_failed() -> SecretsStorageError {
+    ProviderError::RequestFailed {
+        message: "provider request failed".to_string(),
+    }
+    .into()
 }
 
 fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, SecretsStorageError> {
@@ -123,19 +135,22 @@ fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, Se
     match response.auth.access_token.role.as_str() {
         "read" | "write" => {}
         "fineGrained" => {
-            let fine_grained = response
-                .auth
-                .access_token
-                .fine_grained
-                .ok_or(SecretsStorageError::InsufficientPermissions)?;
+            let fine_grained =
+                response
+                    .auth
+                    .access_token
+                    .fine_grained
+                    .ok_or(SecretsStorageError::Provider(
+                        ProviderError::InsufficientPermissions,
+                    ))?;
 
             if !fine_grained.can_read_gated_repos.unwrap_or(false)
                 || !fine_grained.has_global_repo_content_read()
             {
-                return Err(SecretsStorageError::InsufficientPermissions);
+                return Err(ProviderError::InsufficientPermissions.into());
             }
         }
-        _ => return Err(SecretsStorageError::InsufficientPermissions),
+        _ => return Err(ProviderError::InsufficientPermissions.into()),
     }
 
     Ok(ApiKeyIdentity {
@@ -260,7 +275,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(SecretsStorageError::InsufficientPermissions)
+            Err(ProviderError::InsufficientPermissions.into())
         );
     }
 
@@ -278,7 +293,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(SecretsStorageError::InsufficientPermissions)
+            Err(ProviderError::InsufficientPermissions.into())
         );
     }
 
@@ -300,7 +315,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(SecretsStorageError::InsufficientPermissions)
+            Err(ProviderError::InsufficientPermissions.into())
         );
     }
 
@@ -322,7 +337,7 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(SecretsStorageError::InsufficientPermissions)
+            Err(ProviderError::InsufficientPermissions.into())
         );
     }
 
@@ -348,11 +363,11 @@ mod tests {
     fn maps_unauthorized_status() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED),
-            Some(SecretsStorageError::Unauthorized)
+            Some(ProviderError::Unauthorized.into())
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN),
-            Some(SecretsStorageError::Unauthorized)
+            Some(ProviderError::Unauthorized.into())
         );
     }
 }

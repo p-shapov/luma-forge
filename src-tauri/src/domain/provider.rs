@@ -10,6 +10,7 @@ pub enum GpuCloudProviderId {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderError {
     Unauthorized,
+    InsufficientPermissions,
     RateLimited,
     Timeout,
     RequestFailed { message: String },

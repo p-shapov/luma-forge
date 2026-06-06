@@ -3,7 +3,10 @@ use std::time::Duration;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use crate::{domain::secrets::ApiKeyIdentity, shared::AppFuture};
+use crate::{
+    domain::{provider::ProviderError, secrets::ApiKeyIdentity},
+    shared::AppFuture,
+};
 
 use super::{errors::SecretsStorageError, identity::ApiKeyIdentityProvider, store::ApiSecret};
 
@@ -24,7 +27,7 @@ impl RunpodIdentityProvider {
             .connect_timeout(RUNPOD_CONNECT_TIMEOUT)
             .timeout(RUNPOD_REQUEST_TIMEOUT)
             .build()
-            .map_err(|_| SecretsStorageError::ProviderUnavailable)?;
+            .map_err(|_| provider_request_failed())?;
 
         Ok(Self {
             http,
@@ -45,7 +48,7 @@ impl RunpodIdentityProvider {
             })
             .send()
             .await
-            .map_err(|_| SecretsStorageError::ProviderUnavailable)?;
+            .map_err(|_| provider_request_failed())?;
 
         if let Some(error) = map_status_error(response.status()) {
             return Err(error);
@@ -111,10 +114,19 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
     }
 
     match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Some(SecretsStorageError::Unauthorized),
-        StatusCode::TOO_MANY_REQUESTS => Some(SecretsStorageError::RateLimited),
-        _ => Some(SecretsStorageError::ProviderUnavailable),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+            Some(ProviderError::Unauthorized.into())
+        }
+        StatusCode::TOO_MANY_REQUESTS => Some(ProviderError::RateLimited.into()),
+        _ => Some(provider_request_failed()),
     }
+}
+
+fn provider_request_failed() -> SecretsStorageError {
+    ProviderError::RequestFailed {
+        message: "provider request failed".to_string(),
+    }
+    .into()
 }
 
 fn map_graphql_response(
@@ -137,7 +149,7 @@ fn map_graphql_response(
 
     let matched_key = match_api_key(submitted_secret, &identity.api_keys)?;
     if !matched_key.is_active {
-        return Err(SecretsStorageError::Unauthorized);
+        return Err(ProviderError::Unauthorized.into());
     }
 
     Ok(ApiKeyIdentity {
@@ -186,7 +198,7 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
             || message.contains("authentication")
             || message.contains("api key")
     }) {
-        SecretsStorageError::Unauthorized
+        ProviderError::Unauthorized.into()
     } else {
         SecretsStorageError::IdentityResponseInvalid
     }
@@ -290,7 +302,7 @@ mod tests {
 
         assert_eq!(
             map_graphql_response("inactive-key-secret-value", response),
-            Err(SecretsStorageError::Unauthorized)
+            Err(ProviderError::Unauthorized.into())
         );
     }
 
@@ -332,7 +344,7 @@ mod tests {
 
         assert_eq!(
             map_graphql_response("submitted-key-secret-value", response),
-            Err(SecretsStorageError::Unauthorized)
+            Err(ProviderError::Unauthorized.into())
         );
     }
 
@@ -355,11 +367,11 @@ mod tests {
     fn maps_unauthorized_status() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED),
-            Some(SecretsStorageError::Unauthorized)
+            Some(ProviderError::Unauthorized.into())
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN),
-            Some(SecretsStorageError::Unauthorized)
+            Some(ProviderError::Unauthorized.into())
         );
     }
 }

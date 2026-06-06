@@ -20,6 +20,12 @@ pub enum RemoteWorkspaceError {
     DeleteWorkspaceFailed { message: String },
 }
 
+impl From<ProviderError> for RemoteWorkspaceError {
+    fn from(error: ProviderError) -> Self {
+        Self::Provider(error)
+    }
+}
+
 impl From<RemoteWorkspaceError> for RemoteProvisioningError {
     fn from(error: RemoteWorkspaceError) -> Self {
         match error {
