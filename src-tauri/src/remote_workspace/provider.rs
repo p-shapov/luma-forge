@@ -1,4 +1,5 @@
 use crate::domain::{
+    placement::RemoteEndpointKeepAliveLimits,
     provider::GpuCloudProviderId,
     workspace::{
         RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
@@ -54,6 +55,7 @@ pub struct CreateEndpointParams {
     pub volume_id: String,
     pub endpoint_image_ref: String,
     pub mount_path: String,
+    pub keep_alive_limits: Option<RemoteEndpointKeepAliveLimits>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

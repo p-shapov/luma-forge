@@ -490,6 +490,7 @@ impl RemoteWorkspaceService {
                 volume_id: remote_volume.id.clone(),
                 endpoint_image_ref,
                 mount_path: "/workspace".to_string(),
+                keep_alive_limits: remote.remote_placement.keep_alive_limits.clone(),
             })
             .await
         {
@@ -828,10 +829,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::domain::{
-        placement::{
-            Capability, RemoteEndpointKeepAliveLimits, RemotePlacementCapabilities,
-            RemotePlacementPlan,
-        },
+        placement::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
         provider::{GpuCloudProviderId, ProviderApiError},
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
@@ -1054,13 +1052,11 @@ mod tests {
             datacenter_id: "dc".to_string(),
             gpu_id: "gpu".to_string(),
             volume_size_bytes: 1,
-            capabilities: RemotePlacementCapabilities {
-                remote_endpoint_keep_alive: Capability::Supported(RemoteEndpointKeepAliveLimits {
-                    default_seconds: 60,
-                    min_seconds: 30,
-                    max_seconds: 120,
-                }),
-            },
+            keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+                default_seconds: 60,
+                min_seconds: 30,
+                max_seconds: 120,
+            }),
         }
     }
 
@@ -2534,6 +2530,11 @@ mod tests {
                 endpoint_image_ref: "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:ac7b4ee14423f5e74f444a03c429dece830fc4f72b01847df18b2a5b960cdd1a"
                     .to_string(),
                 mount_path: "/workspace".to_string(),
+                keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+                    default_seconds: 60,
+                    min_seconds: 30,
+                    max_seconds: 120,
+                }),
             })
         );
     }

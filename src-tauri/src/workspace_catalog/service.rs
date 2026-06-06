@@ -50,10 +50,7 @@ mod tests {
 
     use crate::{
         domain::{
-            placement::{
-                Capability, RemoteEndpointKeepAliveLimits, RemotePlacementCapabilities,
-                RemotePlacementPlan,
-            },
+            placement::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
             provider::GpuCloudProviderId,
             runtime_contract::RuntimeContractReference,
             workflow_preset::{
@@ -371,15 +368,11 @@ mod tests {
                     datacenter_id: "datacenter-1".to_string(),
                     gpu_id: "gpu-1".to_string(),
                     volume_size_bytes: 1,
-                    capabilities: RemotePlacementCapabilities {
-                        remote_endpoint_keep_alive: Capability::Supported(
-                            RemoteEndpointKeepAliveLimits {
-                                default_seconds: 60,
-                                min_seconds: 0,
-                                max_seconds: 3600,
-                            },
-                        ),
-                    },
+                    keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+                        default_seconds: 60,
+                        min_seconds: 0,
+                        max_seconds: 3600,
+                    }),
                 },
                 remote_provisioning: RemoteProvisioningState {
                     status: RemoteProvisioningStatus::NotStarted,
