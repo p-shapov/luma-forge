@@ -55,6 +55,28 @@ mod tests {
         row.is_some()
     }
 
+    async fn column_info(pool: &SqlitePool, table_name: &str, column_name: &str) -> (String, bool) {
+        let row = sqlx::query(&format!("PRAGMA table_info({table_name})"))
+            .fetch_all(pool)
+            .await
+            .expect("table info query should succeed")
+            .into_iter()
+            .find(|row| row.get::<String, _>("name") == column_name)
+            .expect("column should exist");
+
+        let column_type = row.get::<String, _>("type");
+        let not_null = row.get::<i64, _>("notnull") == 1;
+
+        (column_type, not_null)
+    }
+
+    async fn assert_text_not_null_column(pool: &SqlitePool, table_name: &str, column_name: &str) {
+        let (column_type, not_null) = column_info(pool, table_name, column_name).await;
+
+        assert_eq!(column_type, "TEXT");
+        assert!(not_null, "{table_name}.{column_name} should be NOT NULL");
+    }
+
     #[tokio::test]
     async fn connect_creates_schema() {
         let path = catalog_path("schema");
@@ -66,6 +88,12 @@ mod tests {
         assert!(table_exists(&repository.pool, "metadata").await);
         assert!(table_exists(&repository.pool, "workspaces").await);
 
+        let (id_type, _) = column_info(&repository.pool, "workspaces", "id").await;
+        assert_eq!(id_type, "TEXT");
+        assert_text_not_null_column(&repository.pool, "workspaces", "workspace_json").await;
+        assert_text_not_null_column(&repository.pool, "workspaces", "created_at").await;
+        assert_text_not_null_column(&repository.pool, "workspaces", "updated_at").await;
+
         let version = sqlx::query("SELECT value FROM metadata WHERE key = ?1")
             .bind("workspace_catalog_schema_version")
             .fetch_one(&repository.pool)
@@ -76,6 +104,31 @@ mod tests {
         assert_eq!(version, "1");
 
         drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn connect_rejects_existing_wrong_workspaces_table_without_metadata() {
+        let path = catalog_path("wrong-workspaces");
+
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options)
+            .await
+            .expect("setup connection should succeed");
+        sqlx::query("CREATE TABLE workspaces (id TEXT PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .expect("setup table creation should succeed");
+        drop(pool);
+
+        let error = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect_err("connect should reject incompatible schema");
+
+        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+
         let _ = fs::remove_file(path);
     }
 }
