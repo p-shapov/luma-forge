@@ -1,5 +1,5 @@
 use crate::domain::{
-    placement::RemoteEndpointKeepAliveLimits,
+    placement::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
     provider::GpuCloudProviderId,
     workspace::{
         RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
@@ -64,6 +64,12 @@ pub struct DeleteEndpointParams {
     pub endpoint_id: String,
 }
 
+pub trait RemotePlacementOptionsProvider {
+    fn get_provider_placement_options<'a>(
+        &'a self,
+    ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>>;
+}
+
 pub trait RemoteVolumeProvider {
     fn create_volume<'a>(
         &'a self,
@@ -106,7 +112,12 @@ pub trait RemoteEndpointProvider {
 }
 
 pub trait RemoteWorkspaceProvider:
-    RemoteVolumeProvider + RemoteProvisionerProvider + RemoteEndpointProvider + Send + Sync
+    RemotePlacementOptionsProvider
+    + RemoteVolumeProvider
+    + RemoteProvisionerProvider
+    + RemoteEndpointProvider
+    + Send
+    + Sync
 {
     fn provider_id(&self) -> GpuCloudProviderId;
 }

@@ -32,6 +32,9 @@ impl RemoteWorkspaceProviderRegistry {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
+        placement::{
+            RemoteDatacenterPlacementOption, RemoteGpuPlacementOption, RemotePlacementOptions,
+        },
         provider::GpuCloudProviderId,
         workspace::{
             RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
@@ -44,14 +47,37 @@ mod tests {
         errors::RemoteWorkspaceError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, RemoteEndpointProvider, RemoteProvisionerProvider,
-            RemoteVolumeProvider, StartProvisionerParams, TerminateProvisionerParams,
+            GetProvisionerStatusParams, RemoteEndpointProvider, RemotePlacementOptionsProvider,
+            RemoteProvisionerProvider, RemoteVolumeProvider, StartProvisionerParams,
+            TerminateProvisionerParams,
         },
     };
     use crate::shared::AppFuture;
 
     struct FakeProvider {
         provider_id: GpuCloudProviderId,
+    }
+
+    impl RemotePlacementOptionsProvider for FakeProvider {
+        fn get_provider_placement_options<'a>(
+            &'a self,
+        ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>> {
+            Box::pin(async {
+                Ok(RemotePlacementOptions {
+                    max_persistent_storage_volume_size_bytes: Some(10),
+                    datacenters: vec![RemoteDatacenterPlacementOption {
+                        id: "dc".to_string(),
+                        name: "Datacenter".to_string(),
+                        gpu_options: vec![RemoteGpuPlacementOption {
+                            id: "gpu".to_string(),
+                            name: "GPU".to_string(),
+                            vram_bytes: 24,
+                            availability_score: 90,
+                        }],
+                    }],
+                })
+            })
+        }
     }
 
     impl RemoteVolumeProvider for FakeProvider {

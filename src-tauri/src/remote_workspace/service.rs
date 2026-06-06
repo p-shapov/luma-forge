@@ -4,7 +4,8 @@ use std::{
 };
 
 use crate::domain::{
-    placement::RemotePlacementPlan,
+    placement::{RemotePlacementOptions, RemotePlacementPlan},
+    provider::GpuCloudProviderId,
     runtime_contract::RuntimeContractReference,
     workflow_preset::WorkflowPreset,
     workspace::{
@@ -79,6 +80,15 @@ impl RemoteWorkspaceService {
                 },
             }),
         })
+    }
+
+    pub async fn get_provider_placement_options(
+        &self,
+        provider_id: GpuCloudProviderId,
+    ) -> Result<RemotePlacementOptions, RemoteWorkspaceError> {
+        let provider = self.provider_registry.for_provider(provider_id)?;
+
+        provider.get_provider_placement_options().await
     }
 
     pub async fn provision_workspace(
@@ -829,7 +839,10 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::domain::{
-        placement::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
+        placement::{
+            RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits,
+            RemoteGpuPlacementOption, RemotePlacementOptions, RemotePlacementPlan,
+        },
         provider::{GpuCloudProviderId, ProviderApiError},
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
@@ -848,9 +861,9 @@ mod tests {
         errors::RemoteWorkspaceError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, RemoteEndpointProvider, RemoteProvisionerProvider,
-            RemoteVolumeProvider, RemoteWorkspaceProvider, StartProvisionerParams,
-            TerminateProvisionerParams,
+            GetProvisionerStatusParams, RemoteEndpointProvider, RemotePlacementOptionsProvider,
+            RemoteProvisionerProvider, RemoteVolumeProvider, RemoteWorkspaceProvider,
+            StartProvisionerParams, TerminateProvisionerParams,
         },
     };
     use crate::shared::AppFuture;
@@ -858,6 +871,7 @@ mod tests {
     #[derive(Default)]
     struct ProviderState {
         calls: Vec<&'static str>,
+        placement_options_result: Option<Result<RemotePlacementOptions, RemoteWorkspaceError>>,
         create_volume_error: Option<RemoteWorkspaceError>,
         create_endpoint_error: Option<RemoteWorkspaceError>,
         start_provisioner_error: Option<RemoteWorkspaceError>,
@@ -878,6 +892,22 @@ mod tests {
         .into()
     }
 
+    fn placement_options() -> RemotePlacementOptions {
+        RemotePlacementOptions {
+            max_persistent_storage_volume_size_bytes: Some(10),
+            datacenters: vec![RemoteDatacenterPlacementOption {
+                id: "dc".to_string(),
+                name: "Datacenter".to_string(),
+                gpu_options: vec![RemoteGpuPlacementOption {
+                    id: "gpu".to_string(),
+                    name: "GPU".to_string(),
+                    vram_bytes: 24,
+                    availability_score: 90,
+                }],
+            }],
+        }
+    }
+
     struct FakeProvider {
         state: Arc<Mutex<ProviderState>>,
     }
@@ -885,6 +915,22 @@ mod tests {
     impl FakeProvider {
         fn new(state: Arc<Mutex<ProviderState>>) -> Self {
             Self { state }
+        }
+    }
+
+    impl RemotePlacementOptionsProvider for FakeProvider {
+        fn get_provider_placement_options<'a>(
+            &'a self,
+        ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>> {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("state lock should succeed");
+                state.calls.push("get_provider_placement_options");
+
+                state
+                    .placement_options_result
+                    .clone()
+                    .unwrap_or_else(|| Ok(placement_options()))
+            })
         }
     }
 
@@ -1113,6 +1159,42 @@ mod tests {
             .expect("state lock should succeed")
             .calls
             .is_empty());
+    }
+
+    #[test]
+    fn get_provider_placement_options_returns_selected_provider_options() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            placement_options_result: Some(Ok(placement_options())),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(state.clone());
+
+        let options = block_on(service.get_provider_placement_options(GpuCloudProviderId::Runpod))
+            .expect("placement options should be returned");
+
+        assert_eq!(options, placement_options());
+        assert_eq!(
+            state.lock().expect("state lock should succeed").calls,
+            vec!["get_provider_placement_options"]
+        );
+    }
+
+    #[test]
+    fn get_provider_placement_options_returns_provider_unavailable() {
+        let service = RemoteWorkspaceService::new(
+            RemoteWorkspaceProviderRegistry::empty(),
+            WorkflowCatalogService::new(),
+        );
+
+        let error = block_on(service.get_provider_placement_options(GpuCloudProviderId::Runpod))
+            .expect_err("missing provider should fail");
+
+        assert_eq!(
+            error,
+            RemoteWorkspaceError::ProviderUnavailable {
+                provider_id: GpuCloudProviderId::Runpod
+            }
+        );
     }
 
     #[test]
