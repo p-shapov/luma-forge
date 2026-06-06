@@ -1,12 +1,17 @@
 use std::path::Path;
 
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
-use super::{errors::WorkspaceCatalogError, schema};
+use crate::{
+    domain::workspace::{Workspace, WorkspaceCatalog},
+    shared::{is_blank, AppFuture},
+};
+
+use super::{errors::WorkspaceCatalogError, repository::WorkspaceCatalogRepository, schema};
 
 #[derive(Debug, Clone)]
 pub struct SqliteWorkspaceCatalogRepository {
-    #[allow(dead_code)]
     pool: SqlitePool,
 }
 
@@ -25,12 +30,153 @@ impl SqliteWorkspaceCatalogRepository {
     }
 }
 
+impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
+    fn list_workspaces<'a>(
+        &'a self,
+    ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            let rows =
+                sqlx::query("SELECT id, workspace_json FROM workspaces ORDER BY created_at ASC")
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+            let workspaces = rows
+                .iter()
+                .map(workspace_from_row)
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(WorkspaceCatalog { workspaces })
+        })
+    }
+
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> AppFuture<'a, Result<Option<Workspace>, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            validate_id(id)?;
+
+            let row = sqlx::query("SELECT id, workspace_json FROM workspaces WHERE id = ?1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+
+            row.as_ref().map(workspace_from_row).transpose()
+        })
+    }
+
+    fn insert_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            validate_id(&workspace.id)?;
+
+            let workspace_json =
+                serde_json::to_string(workspace).map_err(|_| WorkspaceCatalogError::Corrupt)?;
+            let now = timestamp()?;
+
+            sqlx::query(
+                "INSERT INTO workspaces (id, workspace_json, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )
+            .bind(&workspace.id)
+            .bind(workspace_json)
+            .bind(&now)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|error| {
+                if is_unique_constraint(&error) {
+                    WorkspaceCatalogError::WorkspaceAlreadyExists
+                } else {
+                    WorkspaceCatalogError::QueryFailed
+                }
+            })?;
+
+            Ok(workspace.clone())
+        })
+    }
+
+    fn update_workspace<'a>(
+        &'a self,
+        _workspace: &'a Workspace,
+    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
+        Box::pin(async { Err(WorkspaceCatalogError::QueryFailed) })
+    }
+
+    fn delete_workspace<'a>(
+        &'a self,
+        _id: &'a str,
+    ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>> {
+        Box::pin(async { Err(WorkspaceCatalogError::QueryFailed) })
+    }
+}
+
+fn validate_id(id: &str) -> Result<(), WorkspaceCatalogError> {
+    if is_blank(id) {
+        Err(WorkspaceCatalogError::Corrupt)
+    } else {
+        Ok(())
+    }
+}
+
+fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, WorkspaceCatalogError> {
+    let id = row
+        .try_get::<String, _>("id")
+        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
+    let workspace_json = row
+        .try_get::<String, _>("workspace_json")
+        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
+    let workspace: Workspace =
+        serde_json::from_str(&workspace_json).map_err(|_| WorkspaceCatalogError::Corrupt)?;
+
+    if workspace.id != id {
+        return Err(WorkspaceCatalogError::Corrupt);
+    }
+
+    Ok(workspace)
+}
+
+fn timestamp() -> Result<String, WorkspaceCatalogError> {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(|_| WorkspaceCatalogError::QueryFailed)
+}
+
+fn is_unique_constraint(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(error) => error
+            .code()
+            .is_some_and(|code| code.as_ref() == "1555" || code.as_ref() == "2067"),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         fs,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use crate::domain::{
+        placement::{
+            Capability, RemoteEndpointKeepAliveLimits, RemotePlacementCapabilities,
+            RemotePlacementPlan,
+        },
+        provider::GpuCloudProviderId,
+        runtime_contract::RuntimeContractReference,
+        workflow_preset::{
+            ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
+            RemoteRuntimeRequirements, WorkflowExecutionType, WorkflowPreset,
+        },
+        workspace::{
+            RemoteProvisioningState, RemoteProvisioningStatus, RemoteWorkspace,
+            RemoteWorkspaceResources, Workspace, WorkspaceRuntime,
+        },
     };
 
     use sqlx::Row;
@@ -88,6 +234,69 @@ mod tests {
             .fetch_optional(&pool)
             .await
             .expect("metadata version query should succeed")
+    }
+
+    fn workspace(id: &str) -> Workspace {
+        Workspace {
+            id: id.to_string(),
+            workflow_preset: WorkflowPreset {
+                id: "workflow-1".to_string(),
+                version: "1".to_string(),
+                name: "Workflow 1".to_string(),
+                execution_type: WorkflowExecutionType::T2i,
+                requires_hugging_face_api_key: false,
+                remote_runtime_requirements: RemoteRuntimeRequirements {
+                    required_base_volume_size_bytes: 1,
+                    provider_requirements: vec![RemoteProviderRuntimeRequirements {
+                        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                        endpoint_contract: RuntimeContractReference {
+                            id: "endpoint-contract".to_string(),
+                            version: "1".to_string(),
+                        },
+                        provisioner_contract: RuntimeContractReference {
+                            id: "provisioner-contract".to_string(),
+                            version: "1".to_string(),
+                        },
+                    }],
+                },
+                required_model_assets: vec![ModelAsset {
+                    id: "asset-1".to_string(),
+                    name: "Asset 1".to_string(),
+                    download_source: ModelAssetSource::Huggingface {
+                        repository_id: "owner/repository".to_string(),
+                        file_path: "model.safetensors".to_string(),
+                        revision: "main".to_string(),
+                    },
+                    install_comfyui_relative_path: "models/model.safetensors".to_string(),
+                }],
+            },
+            runtime: WorkspaceRuntime::Remote(RemoteWorkspace {
+                remote_placement: RemotePlacementPlan {
+                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                    datacenter_id: "datacenter-1".to_string(),
+                    gpu_id: "gpu-1".to_string(),
+                    remote_volume_size_bytes: 1,
+                    remote_capabilities: RemotePlacementCapabilities {
+                        remote_endpoint_keep_alive: Capability::Supported(
+                            RemoteEndpointKeepAliveLimits {
+                                default_seconds: 60,
+                                min_seconds: 0,
+                                max_seconds: 3600,
+                            },
+                        ),
+                    },
+                },
+                remote_provisioning: RemoteProvisioningState {
+                    status: RemoteProvisioningStatus::NotStarted,
+                    percent: None,
+                },
+                remote_resources: RemoteWorkspaceResources {
+                    remote_volume: None,
+                    remote_provisioner: None,
+                    remote_endpoint: None,
+                },
+            }),
+        }
     }
 
     #[tokio::test]
@@ -176,6 +385,79 @@ mod tests {
         assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
         assert_eq!(metadata_version(&path).await, None);
 
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn list_workspaces_returns_empty_catalog() {
+        let path = catalog_path("empty-catalog");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let catalog = repository
+            .list_workspaces()
+            .await
+            .expect("list should succeed");
+
+        assert!(catalog.workspaces.is_empty());
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn insert_list_and_find_round_trip_workspace() {
+        let path = catalog_path("round-trip");
+        let workspace = workspace("workspace-1");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+
+        let inserted = repository
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert should succeed");
+        let catalog = repository
+            .list_workspaces()
+            .await
+            .expect("list should succeed");
+        let found = repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("find should succeed");
+
+        assert_eq!(inserted, workspace);
+        assert_eq!(catalog.workspaces, vec![workspace.clone()]);
+        assert_eq!(found, Some(workspace));
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn duplicate_insert_returns_workspace_already_exists() {
+        let path = catalog_path("duplicate");
+        let workspace = workspace("workspace-1");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        repository
+            .insert_workspace(&workspace)
+            .await
+            .expect("first insert should succeed");
+
+        let error = repository
+            .insert_workspace(&workspace)
+            .await
+            .expect_err("duplicate insert should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::WorkspaceAlreadyExists);
+
+        drop(repository);
         let _ = fs::remove_file(path);
     }
 }
