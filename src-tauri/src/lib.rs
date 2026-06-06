@@ -3,7 +3,6 @@ use specta::Type;
 use tauri_specta::{collect_commands, Builder};
 
 pub mod domain;
-pub mod provider_api_key;
 pub mod remote_workspace;
 pub mod shared;
 pub mod workflow_catalog;

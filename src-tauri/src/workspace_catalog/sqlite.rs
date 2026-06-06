@@ -5,7 +5,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{
     domain::workspace::{Workspace, WorkspaceCatalog},
-    shared::{is_blank, AppFuture},
+    shared::AppFuture,
 };
 
 use super::{errors::WorkspaceCatalogError, repository::WorkspaceCatalogRepository, schema};
@@ -153,7 +153,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
 }
 
 fn validate_id(id: &str) -> Result<(), WorkspaceCatalogError> {
-    if is_blank(id) {
+    if id.trim().is_empty() {
         Err(WorkspaceCatalogError::Corrupt)
     } else {
         Ok(())

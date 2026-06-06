@@ -4,7 +4,6 @@ use crate::domain::{
     runtime_contract::RuntimeCatalog,
     workflow_preset::{ModelAssetSource, WorkflowPreset},
 };
-use crate::shared::{is_blank, is_safe_relative_path};
 
 use super::errors::WorkflowCatalogError;
 
@@ -17,7 +16,7 @@ pub(super) fn validate_runtime_catalog(
 
     let mut contract_ids = HashSet::new();
     for contract in &catalog.contracts {
-        if is_blank(&contract.id) || !contract_ids.insert(contract.id.as_str()) {
+        if contract.id.trim().is_empty() || !contract_ids.insert(contract.id.as_str()) {
             return Err(WorkflowCatalogError::ValidationFailed);
         }
 
@@ -27,9 +26,9 @@ pub(super) fn validate_runtime_catalog(
 
         let mut revision_versions = HashSet::new();
         for revision in &contract.revisions {
-            if is_blank(&revision.version)
+            if revision.version.trim().is_empty()
                 || !revision_versions.insert(revision.version.as_str())
-                || is_blank(&revision.image_ref)
+                || revision.image_ref.trim().is_empty()
             {
                 return Err(WorkflowCatalogError::ValidationFailed);
             }
@@ -50,10 +49,10 @@ pub(super) fn validate_workflows(
 
     let mut workflow_ids = HashSet::new();
     for workflow in workflows {
-        if is_blank(&workflow.id)
+        if workflow.id.trim().is_empty()
             || !workflow_ids.insert(workflow.id.as_str())
-            || is_blank(&workflow.version)
-            || is_blank(&workflow.name)
+            || workflow.version.trim().is_empty()
+            || workflow.name.trim().is_empty()
         {
             return Err(WorkflowCatalogError::ValidationFailed);
         }
@@ -78,10 +77,16 @@ pub(super) fn validate_workflows(
         }
 
         for asset in &workflow.required_model_assets {
-            if is_blank(&asset.id)
-                || is_blank(&asset.name)
-                || is_blank(&asset.install_comfyui_relative_path)
-                || !is_safe_relative_path(&asset.install_comfyui_relative_path)
+            let install_path = asset.install_comfyui_relative_path.trim();
+            if asset.id.trim().is_empty()
+                || asset.name.trim().is_empty()
+                || install_path.is_empty()
+                || install_path.starts_with('/')
+                || install_path.starts_with('\\')
+                || install_path.contains('\\')
+                || !install_path
+                    .split('/')
+                    .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
                 || !is_valid_model_asset_source(&asset.download_source)
             {
                 return Err(WorkflowCatalogError::ValidationFailed);
@@ -99,9 +104,16 @@ fn is_valid_model_asset_source(source: &ModelAssetSource) -> bool {
             file_path,
             revision,
         } => {
+            let file_path = file_path.trim();
             is_valid_hugging_face_repository_id(repository_id)
-                && is_safe_relative_path(file_path)
-                && !is_blank(revision)
+                && !file_path.is_empty()
+                && !file_path.starts_with('/')
+                && !file_path.starts_with('\\')
+                && !file_path.contains('\\')
+                && file_path
+                    .split('/')
+                    .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+                && !revision.trim().is_empty()
         }
     }
 }
@@ -117,7 +129,7 @@ fn is_valid_hugging_face_repository_id(repository_id: &str) -> bool {
 }
 
 fn is_safe_hugging_face_name(value: &str) -> bool {
-    !is_blank(value)
+    !value.trim().is_empty()
         && value
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
