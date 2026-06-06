@@ -287,6 +287,26 @@ mod tests {
         )
     }
 
+    async fn insert_workspace_row(
+        pool: &SqlitePool,
+        id: &str,
+        workspace_json: &str,
+        created_at: &str,
+        updated_at: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO workspaces (id, workspace_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(id)
+        .bind(workspace_json)
+        .bind(created_at)
+        .bind(updated_at)
+        .execute(pool)
+        .await
+        .expect("workspace row insert should succeed");
+    }
+
     fn workspace(id: &str) -> Workspace {
         Workspace {
             id: id.to_string(),
@@ -482,6 +502,160 @@ mod tests {
 
         assert_eq!(inserted, workspace);
         assert_eq!(catalog.workspaces, vec![workspace.clone()]);
+        assert_eq!(found, Some(workspace));
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn corrupt_workspace_json_returns_corrupt() {
+        let path = catalog_path("corrupt-json");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        insert_workspace_row(
+            &repository.pool,
+            "workspace-1",
+            "{",
+            "2026-06-06T00:00:01Z",
+            "2026-06-06T00:00:01Z",
+        )
+        .await;
+
+        let error = repository
+            .list_workspaces()
+            .await
+            .expect_err("corrupt workspace json should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn row_id_workspace_id_mismatch_returns_corrupt() {
+        let path = catalog_path("id-mismatch");
+        let workspace = serde_json::to_string(&workspace("workspace-json"))
+            .expect("workspace serialization should succeed");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        insert_workspace_row(
+            &repository.pool,
+            "workspace-row",
+            &workspace,
+            "2026-06-06T00:00:01Z",
+            "2026-06-06T00:00:01Z",
+        )
+        .await;
+
+        let error = repository
+            .find_workspace_by_id("workspace-row")
+            .await
+            .expect_err("row id and workspace json id mismatch should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn list_workspaces_returns_corrupt_on_row_id_workspace_id_mismatch() {
+        let path = catalog_path("list-id-mismatch");
+        let workspace = serde_json::to_string(&workspace("workspace-json"))
+            .expect("workspace serialization should succeed");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        insert_workspace_row(
+            &repository.pool,
+            "workspace-row",
+            &workspace,
+            "2026-06-06T00:00:01Z",
+            "2026-06-06T00:00:01Z",
+        )
+        .await;
+
+        let error = repository
+            .list_workspaces()
+            .await
+            .expect_err("row id and workspace json id mismatch should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn list_workspaces_orders_by_created_at() {
+        let path = catalog_path("created-at-order");
+        let workspace_1 = workspace("workspace-1");
+        let workspace_2 = workspace("workspace-2");
+        let workspace_1_json =
+            serde_json::to_string(&workspace_1).expect("workspace serialization should succeed");
+        let workspace_2_json =
+            serde_json::to_string(&workspace_2).expect("workspace serialization should succeed");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        insert_workspace_row(
+            &repository.pool,
+            "workspace-2",
+            &workspace_2_json,
+            "2026-06-06T00:00:02Z",
+            "2026-06-06T00:00:02Z",
+        )
+        .await;
+        insert_workspace_row(
+            &repository.pool,
+            "workspace-1",
+            &workspace_1_json,
+            "2026-06-06T00:00:01Z",
+            "2026-06-06T00:00:01Z",
+        )
+        .await;
+
+        let catalog = repository
+            .list_workspaces()
+            .await
+            .expect("list should succeed");
+
+        assert_eq!(catalog.workspaces, vec![workspace_1, workspace_2]);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn persisted_workspace_survives_reconnect() {
+        let path = catalog_path("reconnect");
+        let workspace = workspace("workspace-1");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        repository
+            .insert_workspace(&workspace)
+            .await
+            .expect("insert should succeed");
+        drop(repository);
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("reconnect should succeed");
+        let found = repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("find should succeed");
+
         assert_eq!(found, Some(workspace));
 
         drop(repository);
