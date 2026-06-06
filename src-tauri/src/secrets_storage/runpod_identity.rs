@@ -56,7 +56,7 @@ impl RunpodIdentityProvider {
             .await
             .map_err(|_| SecretsStorageError::IdentityResponseInvalid)?;
 
-        map_graphql_response(response)
+        map_graphql_response(secret.expose_secret(), response)
     }
 }
 
@@ -83,7 +83,6 @@ struct GraphQlResponse<T> {
 
 #[derive(Debug, Deserialize)]
 struct GraphQlError {
-    #[allow(dead_code)]
     message: String,
 }
 
@@ -119,10 +118,11 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
 }
 
 fn map_graphql_response(
+    submitted_secret: &str,
     response: GraphQlResponse<RunpodIdentityData>,
 ) -> Result<ApiKeyIdentity, SecretsStorageError> {
     if !response.errors.is_empty() {
-        return Err(SecretsStorageError::IdentityResponseInvalid);
+        return Err(classify_graphql_errors(&response.errors));
     }
 
     let identity = response
@@ -135,22 +135,61 @@ fn map_graphql_response(
         return Err(SecretsStorageError::IdentityResponseInvalid);
     }
 
-    let active_key = identity
-        .api_keys
-        .iter()
-        .find(|api_key| api_key.is_active)
-        .ok_or(SecretsStorageError::IdentityResponseInvalid)?;
+    let matched_key = match_api_key(submitted_secret, &identity.api_keys)?;
+    if !matched_key.is_active {
+        return Err(SecretsStorageError::Unauthorized);
+    }
 
     Ok(ApiKeyIdentity {
         email: Some(email.to_string()),
         username: None,
-        key_display_name: active_key
+        key_display_name: matched_key
             .id
             .as_ref()
             .map(|id| id.trim())
             .filter(|id| !id.is_empty())
             .map(ToOwned::to_owned),
     })
+}
+
+fn match_api_key<'a>(
+    submitted_secret: &str,
+    api_keys: &'a [RunpodApiKey],
+) -> Result<&'a RunpodApiKey, SecretsStorageError> {
+    let mut matches = api_keys
+        .iter()
+        .filter(|api_key| {
+            api_key
+                .id
+                .as_ref()
+                .is_some_and(|id| !id.trim().is_empty() && submitted_secret.starts_with(id.trim()))
+        })
+        .take(2);
+
+    let Some(first) = matches.next() else {
+        return Err(SecretsStorageError::IdentityResponseInvalid);
+    };
+
+    if matches.next().is_some() {
+        return Err(SecretsStorageError::IdentityResponseInvalid);
+    }
+
+    Ok(first)
+}
+
+fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
+    if errors.iter().any(|error| {
+        let message = error.message.to_ascii_lowercase();
+        message.contains("unauthorized")
+            || message.contains("forbidden")
+            || message.contains("unauthenticated")
+            || message.contains("authentication")
+            || message.contains("api key")
+    }) {
+        SecretsStorageError::Unauthorized
+    } else {
+        SecretsStorageError::IdentityResponseInvalid
+    }
 }
 
 #[cfg(test)]
@@ -183,7 +222,7 @@ mod tests {
         };
 
         assert_eq!(
-            map_graphql_response(response),
+            map_graphql_response("active-key-secret-value", response),
             Ok(ApiKeyIdentity {
                 email: Some("user@example.com".to_string()),
                 username: None,
@@ -193,7 +232,49 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_active_key() {
+    fn rejects_when_no_key_matches_submitted_secret() {
+        let response = GraphQlResponse {
+            data: Some(RunpodIdentityData {
+                myself: Some(RunpodIdentity {
+                    email: "user@example.com".to_string(),
+                    api_keys: vec![RunpodApiKey {
+                        id: Some("other-inactive-key".to_string()),
+                        is_active: false,
+                    }],
+                }),
+            }),
+            errors: Vec::new(),
+        };
+
+        assert_eq!(
+            map_graphql_response("submitted-key-secret-value", response),
+            Err(SecretsStorageError::IdentityResponseInvalid)
+        );
+    }
+
+    #[test]
+    fn rejects_missing_matching_key() {
+        let response = GraphQlResponse {
+            data: Some(RunpodIdentityData {
+                myself: Some(RunpodIdentity {
+                    email: "user@example.com".to_string(),
+                    api_keys: vec![RunpodApiKey {
+                        id: Some("different-key".to_string()),
+                        is_active: true,
+                    }],
+                }),
+            }),
+            errors: Vec::new(),
+        };
+
+        assert_eq!(
+            map_graphql_response("submitted-key-secret-value", response),
+            Err(SecretsStorageError::IdentityResponseInvalid)
+        );
+    }
+
+    #[test]
+    fn rejects_inactive_matching_key_as_unauthorized() {
         let response = GraphQlResponse {
             data: Some(RunpodIdentityData {
                 myself: Some(RunpodIdentity {
@@ -208,22 +289,64 @@ mod tests {
         };
 
         assert_eq!(
-            map_graphql_response(response),
+            map_graphql_response("inactive-key-secret-value", response),
+            Err(SecretsStorageError::Unauthorized)
+        );
+    }
+
+    #[test]
+    fn rejects_ambiguous_matching_keys() {
+        let response = GraphQlResponse {
+            data: Some(RunpodIdentityData {
+                myself: Some(RunpodIdentity {
+                    email: "user@example.com".to_string(),
+                    api_keys: vec![
+                        RunpodApiKey {
+                            id: Some("rp".to_string()),
+                            is_active: true,
+                        },
+                        RunpodApiKey {
+                            id: Some("rp_secret".to_string()),
+                            is_active: true,
+                        },
+                    ],
+                }),
+            }),
+            errors: Vec::new(),
+        };
+
+        assert_eq!(
+            map_graphql_response("rp_secret_value", response),
             Err(SecretsStorageError::IdentityResponseInvalid)
         );
     }
 
     #[test]
-    fn rejects_graphql_errors() {
+    fn classifies_auth_graphql_errors_as_unauthorized() {
         let response = GraphQlResponse::<RunpodIdentityData> {
             data: None,
             errors: vec![GraphQlError {
-                message: "invalid token".to_string(),
+                message: "API key is invalid".to_string(),
             }],
         };
 
         assert_eq!(
-            map_graphql_response(response),
+            map_graphql_response("submitted-key-secret-value", response),
+            Err(SecretsStorageError::Unauthorized)
+        );
+    }
+
+    #[test]
+    fn rejects_non_auth_graphql_errors_as_invalid_response() {
+        let response = GraphQlResponse::<RunpodIdentityData> {
+            data: None,
+            errors: vec![GraphQlError {
+                message: "Cannot query field unknown".to_string(),
+            }],
+        };
+
+        assert_eq!(
+            map_graphql_response("submitted-key-secret-value", response),
             Err(SecretsStorageError::IdentityResponseInvalid)
         );
     }
