@@ -1,4 +1,4 @@
-use crate::domain::workflow_preset::WorkflowPreset;
+use crate::domain::{runtime_contract::RuntimeCatalog, workflow_preset::WorkflowPreset};
 
 use super::{
     errors::WorkflowCatalogError,
@@ -33,17 +33,11 @@ where
         }
     }
 
-    pub fn get_workflows(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError> {
+    pub fn get_workflow_catalog(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError> {
         let workflows = self.workflow_reader.read_workflows()?;
-        let endpoint_contract_catalog = self
-            .endpoint_contract_reader
-            .read_endpoint_contract_catalog()?;
-        let provisioner_contract_catalog = self
-            .provisioner_contract_reader
-            .read_provisioner_contract_catalog()?;
+        let endpoint_contract_catalog = self.get_endpoint_contract_catalog()?;
+        let provisioner_contract_catalog = self.get_provisioner_contract_catalog()?;
 
-        validate_runtime_catalog(&endpoint_contract_catalog)?;
-        validate_runtime_catalog(&provisioner_contract_catalog)?;
         validate_workflows(
             &workflows,
             &endpoint_contract_catalog,
@@ -53,14 +47,24 @@ where
         Ok(workflows)
     }
 
-    pub fn get_workflow_by_id(
-        &self,
-        workflow_id: &str,
-    ) -> Result<Option<WorkflowPreset>, WorkflowCatalogError> {
-        Ok(self
-            .get_workflows()?
-            .into_iter()
-            .find(|workflow| workflow.id == workflow_id))
+    pub fn get_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
+        let catalog = self
+            .endpoint_contract_reader
+            .read_endpoint_contract_catalog()?;
+
+        validate_runtime_catalog(&catalog)?;
+
+        Ok(catalog)
+    }
+
+    pub fn get_provisioner_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
+        let catalog = self
+            .provisioner_contract_reader
+            .read_provisioner_contract_catalog()?;
+
+        validate_runtime_catalog(&catalog)?;
+
+        Ok(catalog)
     }
 }
 
@@ -189,9 +193,9 @@ mod tests {
     }
 
     #[test]
-    fn get_workflows_returns_valid_workflows() {
+    fn get_workflow_catalog_returns_valid_workflows() {
         let workflows = service()
-            .get_workflows()
+            .get_workflow_catalog()
             .expect("workflows should be valid");
 
         assert!(
@@ -203,57 +207,62 @@ mod tests {
     }
 
     #[test]
-    fn get_workflow_by_id_returns_matching_workflow() {
-        let workflow = service()
-            .get_workflow_by_id("comfyui-hidream-o1-dev")
-            .expect("workflows should be valid")
-            .expect("known workflow should be present");
+    fn get_endpoint_contract_catalog_returns_valid_catalog() {
+        let catalog = service()
+            .get_endpoint_contract_catalog()
+            .expect("endpoint contract catalog should be valid");
 
-        assert_eq!(workflow.id, "comfyui-hidream-o1-dev");
+        assert!(catalog
+            .contracts
+            .iter()
+            .any(|contract| contract.id == "comfyui-hidream-o1-dev"));
     }
 
     #[test]
-    fn get_workflow_by_id_returns_none_for_unknown_workflow() {
-        let workflow = service()
-            .get_workflow_by_id("unknown-workflow")
-            .expect("workflows should be valid");
+    fn get_provisioner_contract_catalog_returns_valid_catalog() {
+        let catalog = service()
+            .get_provisioner_contract_catalog()
+            .expect("provisioner contract catalog should be valid");
 
-        assert_eq!(workflow, None);
+        assert!(catalog
+            .contracts
+            .iter()
+            .any(|contract| contract.id == "luma-forge-provisioner"));
     }
 
     #[test]
-    fn get_workflows_rejects_invalid_workflow_catalog() {
+    fn get_workflow_catalog_rejects_invalid_workflow_catalog() {
         let mut workflow = valid_workflow("comfyui-hidream-o1-dev");
         workflow.name = " ".to_string();
 
         assert_eq!(
-            service_with_workflows(vec![workflow]).get_workflows(),
+            service_with_workflows(vec![workflow]).get_workflow_catalog(),
             Err(WorkflowCatalogError::ValidationFailed)
         );
     }
 
     #[test]
-    fn get_workflows_rejects_invalid_endpoint_contract_catalog() {
+    fn get_workflow_catalog_rejects_invalid_endpoint_contract_catalog() {
         assert_eq!(
             service_with_catalogs(
                 vec![valid_workflow("comfyui-hidream-o1-dev")],
                 RuntimeCatalog { contracts: vec![] },
                 runtime_catalog("luma-forge-provisioner", "1.0.6"),
             )
-            .get_workflows(),
+            .get_workflow_catalog(),
             Err(WorkflowCatalogError::ValidationFailed)
         );
     }
 
     #[test]
-    fn get_workflows_rejects_invalid_provisioner_contract_catalog() {
+    fn get_workflow_catalog_rejects_invalid_provisioner_contract_catalog() {
         assert_eq!(
             service_with_catalogs(
                 vec![valid_workflow("comfyui-hidream-o1-dev")],
                 runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
                 RuntimeCatalog { contracts: vec![] },
             )
-            .get_workflows(),
+            .get_workflow_catalog(),
             Err(WorkflowCatalogError::ValidationFailed)
         );
     }
