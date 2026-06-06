@@ -5,6 +5,7 @@ use std::{
 
 use crate::domain::{
     placement::RemotePlacementPlan,
+    runtime_contract::RuntimeContractReference,
     workflow_preset::WorkflowPreset,
     workspace::{
         RemoteProvisionerStatus, RemoteProvisioningError, RemoteProvisioningPhase,
@@ -12,6 +13,7 @@ use crate::domain::{
         RemoteWorkspaceResources, Workspace, WorkspaceRuntime,
     },
 };
+use crate::workflow_catalog::WorkflowCatalogService;
 
 use super::{
     errors::RemoteWorkspaceError,
@@ -27,9 +29,6 @@ use super::{
     registry::RemoteWorkspaceProviderRegistry,
 };
 
-const UNRESOLVED_PROVISIONER_IMAGE_REF: &str = "unresolved-provisioner-image";
-const UNRESOLVED_ENDPOINT_IMAGE_REF: &str = "unresolved-endpoint-image";
-
 pub struct SetupWorkspaceRequest {
     pub workspace_id: String,
     pub workflow_preset: WorkflowPreset,
@@ -38,13 +37,18 @@ pub struct SetupWorkspaceRequest {
 
 pub struct RemoteWorkspaceService {
     provider_registry: RemoteWorkspaceProviderRegistry,
+    workflow_catalog_service: WorkflowCatalogService,
     coordinator: RemoteWorkspaceProvisioningCoordinator,
 }
 
 impl RemoteWorkspaceService {
-    pub fn new(provider_registry: RemoteWorkspaceProviderRegistry) -> Self {
+    pub fn new(
+        provider_registry: RemoteWorkspaceProviderRegistry,
+        workflow_catalog_service: WorkflowCatalogService,
+    ) -> Self {
         Self {
             provider_registry,
+            workflow_catalog_service,
             coordinator: RemoteWorkspaceProvisioningCoordinator::default(),
         }
     }
@@ -237,6 +241,16 @@ impl RemoteWorkspaceService {
                 ));
             }
         };
+        let provisioner_image_ref = match self.resolve_provisioner_image_ref(workspace, remote) {
+            Ok(image_ref) => image_ref,
+            Err(error) => {
+                return Ok(with_provisioning_failure(
+                    workspace,
+                    Some(phase.clone()),
+                    error,
+                ));
+            }
+        };
 
         let remote_provisioner = match provider
             .start_provisioner(StartProvisionerParams {
@@ -244,7 +258,7 @@ impl RemoteWorkspaceService {
                 datacenter_id: remote.remote_placement.datacenter_id.clone(),
                 gpu_id: remote.remote_placement.gpu_id.clone(),
                 volume_id: remote_volume.id.clone(),
-                provisioner_image_ref: UNRESOLVED_PROVISIONER_IMAGE_REF.to_string(),
+                provisioner_image_ref,
                 mount_path: "/workspace".to_string(),
             })
             .await
@@ -458,13 +472,23 @@ impl RemoteWorkspaceService {
                 ));
             }
         };
+        let endpoint_image_ref = match self.resolve_endpoint_image_ref(workspace, remote) {
+            Ok(image_ref) => image_ref,
+            Err(error) => {
+                return Ok(with_provisioning_failure(
+                    workspace,
+                    Some(phase.clone()),
+                    error,
+                ));
+            }
+        };
         let remote_endpoint = match provider
             .create_endpoint(CreateEndpointParams {
                 workspace_id: workspace.id.clone(),
                 datacenter_id: remote.remote_placement.datacenter_id.clone(),
                 gpu_id: remote.remote_placement.gpu_id.clone(),
                 volume_id: remote_volume.id.clone(),
-                endpoint_image_ref: UNRESOLVED_ENDPOINT_IMAGE_REF.to_string(),
+                endpoint_image_ref,
                 mount_path: "/workspace".to_string(),
             })
             .await
@@ -603,6 +627,82 @@ impl RemoteWorkspaceService {
             phase: Some(phase.clone()),
         };
         Ok(workspace)
+    }
+
+    fn resolve_provisioner_image_ref(
+        &self,
+        workspace: &Workspace,
+        remote: &RemoteWorkspace,
+    ) -> Result<String, RemoteProvisioningError> {
+        let contract =
+            self.resolve_runtime_contract_reference(workspace, remote, |requirements| {
+                &requirements.provisioner_contract
+            })?;
+        let catalog = self
+            .workflow_catalog_service
+            .get_provisioner_contract_catalog()
+            .map_err(|error| RemoteProvisioningError::InvalidProvisioningState {
+                message: format!("provisioner contract catalog is invalid: {error:?}"),
+            })?;
+        let resolved = catalog.resolve(contract).ok_or_else(|| {
+            RemoteProvisioningError::InvalidProvisioningState {
+                message: format!(
+                    "provisioner contract is not bundled: {}@{}",
+                    contract.id, contract.version
+                ),
+            }
+        })?;
+
+        Ok(resolved.image_ref)
+    }
+
+    fn resolve_endpoint_image_ref(
+        &self,
+        workspace: &Workspace,
+        remote: &RemoteWorkspace,
+    ) -> Result<String, RemoteProvisioningError> {
+        let contract =
+            self.resolve_runtime_contract_reference(workspace, remote, |requirements| {
+                &requirements.endpoint_contract
+            })?;
+        let catalog = self
+            .workflow_catalog_service
+            .get_endpoint_contract_catalog()
+            .map_err(|error| RemoteProvisioningError::InvalidProvisioningState {
+                message: format!("endpoint contract catalog is invalid: {error:?}"),
+            })?;
+        let resolved = catalog.resolve(contract).ok_or_else(|| {
+            RemoteProvisioningError::InvalidProvisioningState {
+                message: format!(
+                    "endpoint contract is not bundled: {}@{}",
+                    contract.id, contract.version
+                ),
+            }
+        })?;
+
+        Ok(resolved.image_ref)
+    }
+
+    fn resolve_runtime_contract_reference<'a>(
+        &self,
+        workspace: &'a Workspace,
+        remote: &RemoteWorkspace,
+        contract: impl FnOnce(
+            &'a crate::domain::workflow_preset::RemoteProviderRuntimeRequirements,
+        ) -> &'a RuntimeContractReference,
+    ) -> Result<&'a RuntimeContractReference, RemoteProvisioningError> {
+        let provider_requirements = workspace
+            .workflow_preset
+            .remote_runtime_requirements
+            .resolve_provider_requirements(remote.remote_placement.gpu_cloud_provider_id)
+            .ok_or_else(|| RemoteProvisioningError::InvalidProvisioningState {
+                message: format!(
+                    "workflow preset has no runtime requirements for provider {:?}",
+                    remote.remote_placement.gpu_cloud_provider_id
+                ),
+            })?;
+
+        Ok(contract(provider_requirements))
     }
 
     pub fn execute_workspace(&self, workspace: &Workspace) -> Result<(), RemoteWorkspaceError> {
@@ -917,9 +1017,10 @@ mod tests {
     }
 
     fn service_with_state(state: Arc<Mutex<ProviderState>>) -> RemoteWorkspaceService {
-        RemoteWorkspaceService::new(RemoteWorkspaceProviderRegistry::new(vec![Box::new(
-            FakeProvider::new(state),
-        )]))
+        RemoteWorkspaceService::new(
+            RemoteWorkspaceProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
+            WorkflowCatalogService::new(),
+        )
     }
 
     fn workflow_preset() -> WorkflowPreset {
@@ -934,12 +1035,12 @@ mod tests {
                 provider_requirements: vec![RemoteProviderRuntimeRequirements {
                     gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
                     endpoint_contract: RuntimeContractReference {
-                        id: "endpoint".to_string(),
-                        version: "1".to_string(),
+                        id: "comfyui-hidream-o1-dev".to_string(),
+                        version: "1.0.15".to_string(),
                     },
                     provisioner_contract: RuntimeContractReference {
-                        id: "provisioner".to_string(),
-                        version: "1".to_string(),
+                        id: "luma-forge-provisioner".to_string(),
+                        version: "1.0.6".to_string(),
                     },
                 }],
             },
@@ -1280,7 +1381,10 @@ mod tests {
 
     #[test]
     fn provision_workspace_missing_provider_returns_error_without_failed_workspace() {
-        let service = RemoteWorkspaceService::new(RemoteWorkspaceProviderRegistry::empty());
+        let service = RemoteWorkspaceService::new(
+            RemoteWorkspaceProviderRegistry::empty(),
+            WorkflowCatalogService::new(),
+        );
         let workspace = draft_workspace(&service);
 
         let error = block_on(service.provision_workspace(&workspace))
@@ -1786,7 +1890,10 @@ mod tests {
 
     #[test]
     fn provision_workspace_cancelling_without_resources_resets_without_provider_lookup() {
-        let service = RemoteWorkspaceService::new(RemoteWorkspaceProviderRegistry::empty());
+        let service = RemoteWorkspaceService::new(
+            RemoteWorkspaceProviderRegistry::empty(),
+            WorkflowCatalogService::new(),
+        );
         let mut workspace = draft_workspace(&service);
         let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
         remote.remote_provisioning.status = RemoteProvisioningStatus::Cancelling {
@@ -1861,7 +1968,8 @@ mod tests {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 volume_id: "volume".to_string(),
-                provisioner_image_ref: UNRESOLVED_PROVISIONER_IMAGE_REF.to_string(),
+                provisioner_image_ref: "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
+                    .to_string(),
                 mount_path: "/workspace".to_string(),
             })
         );
@@ -2423,7 +2531,8 @@ mod tests {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 volume_id: "volume".to_string(),
-                endpoint_image_ref: UNRESOLVED_ENDPOINT_IMAGE_REF.to_string(),
+                endpoint_image_ref: "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:ac7b4ee14423f5e74f444a03c429dece830fc4f72b01847df18b2a5b960cdd1a"
+                    .to_string(),
                 mount_path: "/workspace".to_string(),
             })
         );
