@@ -4,6 +4,7 @@ use tauri_specta::{collect_commands, Builder};
 
 pub mod domain;
 pub mod remote_workspace;
+pub mod secrets_storage;
 pub mod shared;
 pub mod workflow_catalog;
 pub mod workspace_catalog;
