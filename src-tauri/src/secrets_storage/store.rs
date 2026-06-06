@@ -6,9 +6,10 @@ use crate::shared::AppFuture;
 use super::errors::SecretsStorageError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum SecretKey {
+    #[serde(rename = "runpod")]
     RunpodApiKey,
+    #[serde(rename = "hugging-face")]
     HuggingFaceApiKey,
 }
 
@@ -78,13 +79,13 @@ mod tests {
     }
 
     #[test]
-    fn secret_key_serializes_as_snake_case_identifier() {
+    fn secret_key_serializes_as_storage_account_identifier() {
         assert_eq!(
             serde_json::to_string(&SecretKey::RunpodApiKey).expect("secret key json"),
-            "\"runpod_api_key\""
+            "\"runpod\""
         );
         assert_eq!(
-            serde_json::from_str::<SecretKey>("\"hugging_face_api_key\"").expect("secret key"),
+            serde_json::from_str::<SecretKey>("\"hugging-face\"").expect("secret key"),
             SecretKey::HuggingFaceApiKey
         );
     }
