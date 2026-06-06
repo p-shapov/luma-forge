@@ -274,6 +274,19 @@ mod tests {
             .expect("metadata version query should succeed")
     }
 
+    async fn workspace_timestamps(pool: &SqlitePool, id: &str) -> (String, String) {
+        let row = sqlx::query("SELECT created_at, updated_at FROM workspaces WHERE id = ?1")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .expect("workspace timestamp query should succeed");
+
+        (
+            row.get::<String, _>("created_at"),
+            row.get::<String, _>("updated_at"),
+        )
+    }
+
     fn workspace(id: &str) -> Workspace {
         Workspace {
             id: id.to_string(),
@@ -545,6 +558,7 @@ mod tests {
             .insert_workspace(&workspace)
             .await
             .expect("insert should succeed");
+        let (created_at_before, _) = workspace_timestamps(&repository.pool, "workspace-1").await;
 
         workspace.workflow_preset.name = "Updated Workflow".to_string();
         let updated = repository
@@ -555,9 +569,11 @@ mod tests {
             .find_workspace_by_id("workspace-1")
             .await
             .expect("find should succeed");
+        let (created_at_after, _) = workspace_timestamps(&repository.pool, "workspace-1").await;
 
         assert_eq!(updated, workspace);
         assert_eq!(found, Some(workspace));
+        assert_eq!(created_at_after, created_at_before);
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -664,6 +680,53 @@ mod tests {
             .expect_err("blank id should fail");
 
         assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn update_sql_failure_returns_query_failed() {
+        let path = catalog_path("update-sql-failure");
+        let workspace = workspace("workspace-1");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        sqlx::query("DROP TABLE workspaces")
+            .execute(&repository.pool)
+            .await
+            .expect("drop table should succeed");
+
+        let error = repository
+            .update_workspace(&workspace)
+            .await
+            .expect_err("update should fail when workspaces table is missing");
+
+        assert_eq!(error, WorkspaceCatalogError::QueryFailed);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn delete_sql_failure_returns_query_failed() {
+        let path = catalog_path("delete-sql-failure");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        sqlx::query("DROP TABLE workspaces")
+            .execute(&repository.pool)
+            .await
+            .expect("drop table should succeed");
+
+        let error = repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect_err("delete should fail when workspaces table is missing");
+
+        assert_eq!(error, WorkspaceCatalogError::QueryFailed);
 
         drop(repository);
         let _ = fs::remove_file(path);
