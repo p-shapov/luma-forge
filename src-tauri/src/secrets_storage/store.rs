@@ -1,10 +1,12 @@
 use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
 
 use crate::shared::AppFuture;
 
 use super::errors::SecretsStorageError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SecretKey {
     RunpodApiKey,
     HuggingFaceApiKey,
@@ -73,5 +75,17 @@ mod tests {
         assert_eq!(debug, "ApiSecret([REDACTED])");
         assert!(!debug.contains("hf_secret_value"));
         assert_eq!(secret.expose_secret(), "hf_secret_value");
+    }
+
+    #[test]
+    fn secret_key_serializes_as_snake_case_identifier() {
+        assert_eq!(
+            serde_json::to_string(&SecretKey::RunpodApiKey).expect("secret key json"),
+            "\"runpod_api_key\""
+        );
+        assert_eq!(
+            serde_json::from_str::<SecretKey>("\"hugging_face_api_key\"").expect("secret key"),
+            SecretKey::HuggingFaceApiKey
+        );
     }
 }
