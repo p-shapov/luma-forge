@@ -7,6 +7,7 @@ pub mod provider_api_key;
 pub mod remote_workspace;
 pub mod shared;
 pub mod workflow_catalog;
+pub mod workspace_catalog;
 
 const REFACTOR_MESSAGE: &str = "Native backend refactor is in progress.";
 
