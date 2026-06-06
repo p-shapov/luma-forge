@@ -1,4 +1,4 @@
-use crate::domain::{runtime_contract::RuntimeCatalog, workflow_preset::WorkflowPreset};
+use crate::domain::{runtime_contract::RuntimeCatalog, workflow_preset::WorkflowCatalog};
 
 use super::{
     errors::WorkflowCatalogError,
@@ -21,18 +21,18 @@ impl WorkflowCatalogService {
         Self::default()
     }
 
-    pub fn get_workflow_catalog(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError> {
-        let workflows = self.workflow_reader.read_workflows()?;
+    pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
+        let catalog = self.workflow_reader.read_workflow_catalog()?;
         let endpoint_contract_catalog = self.get_endpoint_contract_catalog()?;
         let provisioner_contract_catalog = self.get_provisioner_contract_catalog()?;
 
         validate_workflows(
-            &workflows,
+            &catalog.workflow_presets,
             &endpoint_contract_catalog,
             &provisioner_contract_catalog,
         )?;
 
-        Ok(workflows)
+        Ok(catalog)
     }
 
     pub fn get_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
@@ -72,6 +72,7 @@ mod tests {
 
         assert!(
             workflows
+                .workflow_presets
                 .iter()
                 .any(|workflow| workflow.id == "comfyui-hidream-o1-dev"),
             "expected bundled HiDream workflow"

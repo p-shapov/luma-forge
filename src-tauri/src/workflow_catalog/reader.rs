@@ -1,6 +1,4 @@
-use serde::Deserialize;
-
-use crate::domain::{runtime_contract::RuntimeCatalog, workflow_preset::WorkflowPreset};
+use crate::domain::{runtime_contract::RuntimeCatalog, workflow_preset::WorkflowCatalog};
 
 use super::WorkflowCatalogError;
 
@@ -8,11 +6,6 @@ const WORKFLOW_CATALOG_JSON: &str = include_str!("../../../bundled/workflow-cata
 const ENDPOINT_CONTRACTS_JSON: &str = include_str!("../../../bundled/endpoint-contracts.json");
 const PROVISIONER_CONTRACTS_JSON: &str =
     include_str!("../../../bundled/provisioner-contracts.json");
-
-#[derive(Debug, Clone, Deserialize)]
-struct WorkflowCatalogJson {
-    workflow_presets: Vec<WorkflowPreset>,
-}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BundledWorkflowCatalogReader;
@@ -24,11 +17,8 @@ pub struct BundledEndpointContractCatalogReader;
 pub struct BundledProvisionerContractCatalogReader;
 
 impl BundledWorkflowCatalogReader {
-    pub fn read_workflows(&self) -> Result<Vec<WorkflowPreset>, WorkflowCatalogError> {
-        let catalog: WorkflowCatalogJson = serde_json::from_str(WORKFLOW_CATALOG_JSON)
-            .map_err(|_| WorkflowCatalogError::ParseFailed)?;
-
-        Ok(catalog.workflow_presets)
+    pub fn read_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
+        serde_json::from_str(WORKFLOW_CATALOG_JSON).map_err(|_| WorkflowCatalogError::ParseFailed)
     }
 }
 
@@ -57,11 +47,12 @@ mod tests {
     #[test]
     fn bundled_workflow_reader_deserializes_workflows() {
         let workflows = BundledWorkflowCatalogReader
-            .read_workflows()
+            .read_workflow_catalog()
             .expect("bundled workflows should deserialize");
 
         assert!(
             workflows
+                .workflow_presets
                 .iter()
                 .any(|workflow| workflow.id == "comfyui-hidream-o1-dev"),
             "expected bundled HiDream workflow"

@@ -60,3 +60,8 @@ pub struct WorkflowPreset {
     pub remote_runtime_requirements: RemoteRuntimeRequirements,
     pub required_model_assets: Vec<ModelAsset>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowCatalog {
+    pub workflow_presets: Vec<WorkflowPreset>,
+}
