@@ -75,19 +75,36 @@ mod tests {
 
     struct FakeRepository {
         calls: Arc<Mutex<Vec<&'static str>>>,
+        ids: Arc<Mutex<Vec<String>>>,
+        workspaces: Arc<Mutex<Vec<Workspace>>>,
         result: Result<(), WorkspaceCatalogError>,
     }
 
     impl FakeRepository {
         fn new(
             calls: Arc<Mutex<Vec<&'static str>>>,
+            ids: Arc<Mutex<Vec<String>>>,
+            workspaces: Arc<Mutex<Vec<Workspace>>>,
             result: Result<(), WorkspaceCatalogError>,
         ) -> Self {
-            Self { calls, result }
+            Self {
+                calls,
+                ids,
+                workspaces,
+                result,
+            }
         }
 
         fn record(&self, method: &'static str) {
             self.calls.lock().unwrap().push(method);
+        }
+
+        fn record_id(&self, id: &str) {
+            self.ids.lock().unwrap().push(id.to_string());
+        }
+
+        fn record_workspace(&self, workspace: &Workspace) {
+            self.workspaces.lock().unwrap().push(workspace.clone());
         }
 
         fn cloned_error<T>(&self) -> Option<Result<T, WorkspaceCatalogError>> {
@@ -117,6 +134,7 @@ mod tests {
         ) -> AppFuture<'a, Result<Option<Workspace>, WorkspaceCatalogError>> {
             Box::pin(async move {
                 self.record("find_workspace_by_id");
+                self.record_id(id);
                 if let Some(error) = self.cloned_error() {
                     return error;
                 }
@@ -131,6 +149,7 @@ mod tests {
         ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
             Box::pin(async move {
                 self.record("insert_workspace");
+                self.record_workspace(workspace);
                 if let Some(error) = self.cloned_error() {
                     return error;
                 }
@@ -145,6 +164,7 @@ mod tests {
         ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
             Box::pin(async move {
                 self.record("update_workspace");
+                self.record_workspace(workspace);
                 if let Some(error) = self.cloned_error() {
                     return error;
                 }
@@ -155,10 +175,11 @@ mod tests {
 
         fn delete_workspace<'a>(
             &'a self,
-            _id: &'a str,
+            id: &'a str,
         ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>> {
             Box::pin(async move {
                 self.record("delete_workspace");
+                self.record_id(id);
                 if let Some(error) = self.cloned_error() {
                     return error;
                 }
@@ -171,7 +192,14 @@ mod tests {
     #[tokio::test]
     async fn list_workspaces_delegates_to_repository() {
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let service = WorkspaceCatalogService::new(FakeRepository::new(calls.clone(), Ok(())));
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let workspaces = Arc::new(Mutex::new(Vec::new()));
+        let service = WorkspaceCatalogService::new(FakeRepository::new(
+            calls.clone(),
+            ids,
+            workspaces,
+            Ok(()),
+        ));
 
         let result = service.list_workspaces().await.unwrap();
 
@@ -185,13 +213,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn find_workspace_by_id_delegates_id_and_result() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let workspaces = Arc::new(Mutex::new(Vec::new()));
+        let service = WorkspaceCatalogService::new(FakeRepository::new(
+            calls.clone(),
+            ids.clone(),
+            workspaces,
+            Ok(()),
+        ));
+
+        let result = service.find_workspace_by_id("workspace-2").await.unwrap();
+
+        assert_eq!(result, Some(workspace("workspace-2")));
+        assert_eq!(*calls.lock().unwrap(), vec!["find_workspace_by_id"]);
+        assert_eq!(*ids.lock().unwrap(), vec!["workspace-2"]);
+    }
+
+    #[tokio::test]
+    async fn insert_workspace_delegates_workspace_and_result() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let workspaces = Arc::new(Mutex::new(Vec::new()));
+        let service = WorkspaceCatalogService::new(FakeRepository::new(
+            calls.clone(),
+            ids,
+            workspaces.clone(),
+            Ok(()),
+        ));
+        let workspace = workspace("workspace-3");
+
+        let result = service.insert_workspace(&workspace).await.unwrap();
+
+        assert_eq!(result, workspace);
+        assert_eq!(*calls.lock().unwrap(), vec!["insert_workspace"]);
+        assert_eq!(*workspaces.lock().unwrap(), vec![workspace]);
+    }
+
+    #[tokio::test]
+    async fn update_workspace_delegates_workspace_and_result() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let workspaces = Arc::new(Mutex::new(Vec::new()));
+        let service = WorkspaceCatalogService::new(FakeRepository::new(
+            calls.clone(),
+            ids,
+            workspaces.clone(),
+            Ok(()),
+        ));
+        let workspace = workspace("workspace-4");
+
+        let result = service.update_workspace(&workspace).await.unwrap();
+
+        assert_eq!(result, workspace);
+        assert_eq!(*calls.lock().unwrap(), vec!["update_workspace"]);
+        assert_eq!(*workspaces.lock().unwrap(), vec![workspace]);
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_delegates_id() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let workspaces = Arc::new(Mutex::new(Vec::new()));
+        let service = WorkspaceCatalogService::new(FakeRepository::new(
+            calls.clone(),
+            ids.clone(),
+            workspaces,
+            Ok(()),
+        ));
+
+        let result = service.delete_workspace("workspace-5").await;
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(*calls.lock().unwrap(), vec!["delete_workspace"]);
+        assert_eq!(*ids.lock().unwrap(), vec!["workspace-5"]);
+    }
+
+    #[tokio::test]
     async fn service_preserves_repository_errors() {
         let error = WorkspaceCatalogError::QueryFailed;
         let workspace = workspace("workspace-1");
 
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let service =
-            WorkspaceCatalogService::new(FakeRepository::new(calls.clone(), Err(error.clone())));
+        let ids = Arc::new(Mutex::new(Vec::new()));
+        let workspaces = Arc::new(Mutex::new(Vec::new()));
+        let service = WorkspaceCatalogService::new(FakeRepository::new(
+            calls.clone(),
+            ids,
+            workspaces,
+            Err(error.clone()),
+        ));
 
         assert_eq!(service.list_workspaces().await, Err(error.clone()));
         assert_eq!(
