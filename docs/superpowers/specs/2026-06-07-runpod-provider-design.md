@@ -22,11 +22,11 @@ src-tauri/src/remote_workspace/providers/runpod/
 - `RemoteEndpointProvider`
 - `RemoteWorkspaceProvider`
 
-Provider SDK and generated API types stay inside the RunPod adapter. Public provider trait methods continue to use parameter structs from `src-tauri/src/remote_workspace/provider.rs` and return LumaForge domain snapshots and errors. The implementation updates those provider parameter structs only where the provider boundary needs additional domain-safe input, such as passing `workflow_preset.requires_hugging_face_api_key` into `StartProvisionerParams`.
+Provider API details stay inside the RunPod adapter. Public provider trait methods continue to use parameter structs from `src-tauri/src/remote_workspace/provider.rs` and return LumaForge domain snapshots and errors. The implementation updates those provider parameter structs only where the provider boundary needs additional domain-safe input, such as passing `workflow_preset.requires_hugging_face_api_key` into `StartProvisionerParams`.
 
 The provider module is split by responsibility:
 
-- `api.rs`: wraps generated RunPod REST and GraphQL clients behind provider-sized methods.
+- `api.rs`: wraps handwritten typed RunPod REST and GraphQL HTTP calls behind provider-sized methods.
 - `provisioner_worker.rs`: calls the provisioner HTTP service and maps worker statuses and worker errors.
 - `mapping.rs`: converts RunPod and worker responses into LumaForge domain snapshots and UI-safe errors.
 - `config.rs`: owns RunPod provider constants, including default keep-alive limits and provider-owned request defaults.
@@ -42,36 +42,19 @@ async fn hmac_sha256_hex(&self, key: SecretKey, message: &str) -> Result<String,
 
 The method retrieves the secret internally, computes HMAC-SHA256 over the provided message, and returns a lowercase hex digest. Callers never receive the raw secret.
 
-## Generated Code
+## API Client Strategy
 
-Generated artifacts live under:
+RunPod code generation is removed from scope.
 
-```text
-src-tauri/src/generated/
-```
+GraphQL introspection is not available for RunPod production usage. RunPod documents `https://api.runpod.io/graphql` as the API endpoint, but schema introspection is disabled as a production security policy. The public `https://graphql-spec.runpod.io/` page is documentation, not an introspection endpoint. This matches the standard recommendation to disable production GraphQL introspection and means generated GraphQL bindings are not reliable for this project. References: `https://www.apollographql.com/blog/why-you-should-disable-graphql-introspection-in-production` and `https://www.answeroverflow.com/m/1379125332036157470`.
 
-RunPod generation is provider-scoped. A documented `generate:runpod` command regenerates both:
+REST/OpenAPI generation is also removed from scope. The RunPod REST OpenAPI document can still be used as reference material, but OpenAPI Generator adds local Java or container execution requirements and creates a large generated surface for a small provider boundary.
 
-- REST/OpenAPI code from `https://rest.runpod.io/v1/openapi.json` into `src-tauri/src/generated/runpod_rest`.
-- GraphQL typed code and schema artifacts into `src-tauri/src/generated/runpod_graphql`.
+The provider uses handwritten typed request and response structs with `serde` and `reqwest`. These structs cover only the REST endpoints and GraphQL placement query required by the current provider contract. Type safety comes from local request builders, response structs, serialization tests, and mapping tests rather than generated API clients.
 
-RunPod GraphQL operation files are maintained source files under:
+No `generate:runpod` command, generated RunPod modules, `.runpod.graphql` files, OpenAPI Generator configuration, or provider-specific generated code is added.
 
-```text
-src-tauri/src/remote_workspace/providers/runpod/graphql/
-```
-
-They use the suffix `*.runpod.graphql`, for example:
-
-```text
-placement_options.runpod.graphql
-```
-
-The suffix is required so provider-specific GraphQL operations are easy to identify in search and reviews. `generate:runpod` discovers RunPod GraphQL operation files by the `*.runpod.graphql` suffix, not by knowing provider service internals.
-
-`src-tauri/README.md` documents `generate:runpod` as the canonical regeneration command and updates the provider path to `src/remote_workspace/providers/<provider_name>/`. Future providers should get their own `generate:<provider>` commands and their own discoverable GraphQL operation suffixes instead of sharing one generic generator command.
-
-Generated REST and GraphQL types must not cross `remote_workspace/provider.rs`. Handwritten wrapper modules convert generated types into domain types. Any generator-specific allowances stay confined to `src-tauri/src/generated`, not handwritten provider modules.
+`src-tauri/README.md` is updated only to correct the provider path to `src/remote_workspace/providers/<provider_name>/`.
 
 ## Resource Lifecycle
 
@@ -270,10 +253,11 @@ Provider unit tests cover:
 
 Service-level tests cover worker-specific errors becoming `RemoteProvisioningStatus::Failed { error: RemoteProvisioningError::* }`.
 
-Generation verification covers:
+Typed API verification covers:
 
-- `generate:runpod` command documentation
-- generated REST and GraphQL modules compiling under `cargo test --manifest-path src-tauri/Cargo.toml`
-- `*.runpod.graphql` operation files matching generated bindings
+- request serialization for each REST operation
+- GraphQL placement query payload shape
+- response deserialization for REST and GraphQL responses used by the provider
+- compile verification under `cargo test --manifest-path src-tauri/Cargo.toml`
 
 Live RunPod integration tests may be added later behind explicit environment flags, but they are not part of the default verification path.

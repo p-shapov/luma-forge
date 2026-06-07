@@ -2,24 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the RunPod remote workspace provider with generated REST and GraphQL clients, secret-backed provisioner token derivation, and UI-safe provisioning error mapping.
+**Goal:** Implement the RunPod remote workspace provider with handwritten typed REST/GraphQL adapters, secret-backed provisioner token derivation, and UI-safe provisioning error mapping.
 
-**Architecture:** Keep orchestration in `RemoteWorkspaceService`; add a RunPod adapter under `src-tauri/src/remote_workspace/providers/runpod/` that wraps generated RunPod API types and returns existing domain snapshots. Generated code stays under `src-tauri/src/generated`, while maintained GraphQL operations live beside the provider and are discovered by the `*.runpod.graphql` suffix.
+**Architecture:** Keep orchestration in `RemoteWorkspaceService`; add a RunPod adapter under `src-tauri/src/remote_workspace/providers/runpod/` that owns all RunPod HTTP details and returns existing domain snapshots. No RunPod codegen is used: RunPod GraphQL introspection is disabled in production, and OpenAPI generation adds too much local tooling risk for the small provider boundary.
 
-**Tech Stack:** Rust 2021, Tauri native backend, `reqwest`, `serde`, `graphql_client_cli`, OpenAPI Generator Rust client, `hmac`, `sha2`, `hex`, existing `AppFuture` async trait pattern, Rust unit tests.
+**Tech Stack:** Rust 2021, Tauri native backend, `reqwest`, `serde`, `serde_json`, `hmac`, `sha2`, `hex`, existing `AppFuture` async trait pattern, Rust unit tests.
 
 ---
 
 ## File Structure
 
-- Create `scripts/generate-runpod.mjs`: provider-scoped generation script for RunPod REST and GraphQL artifacts.
-- Modify `package.json`: add `generate:runpod`.
-- Modify `src-tauri/README.md`: document provider path and `generate:runpod`.
-- Modify `src-tauri/Cargo.toml`: add HMAC and GraphQL dependencies.
-- Create `src-tauri/src/generated/mod.rs`: generated module entrypoint.
-- Create `src-tauri/src/generated/runpod_graphql/`: generated GraphQL schema and Rust modules.
-- Create `src-tauri/src/generated/runpod_rest/`: generated OpenAPI Rust client.
-- Modify `src-tauri/src/lib.rs`: expose `generated`.
+- Modify `src-tauri/README.md`: update the provider path only.
+- Modify `src-tauri/Cargo.toml`: add `hmac`, `sha2`, and `hex`.
 - Modify `src-tauri/src/secrets_storage/store.rs`: add `SecretKey::ProvisionerTokenSecret`.
 - Modify `src-tauri/src/secrets_storage/service.rs`: add `hmac_sha256_hex`.
 - Modify `src-tauri/src/remote_workspace/provider.rs`: add `requires_hugging_face_api_key` to `StartProvisionerParams`.
@@ -29,208 +23,32 @@
 - Create `src-tauri/src/remote_workspace/providers/mod.rs`: provider namespace.
 - Create `src-tauri/src/remote_workspace/providers/runpod/mod.rs`: `RunpodRemoteWorkspaceProvider` and trait implementations.
 - Create `src-tauri/src/remote_workspace/providers/runpod/config.rs`: constants and provider config.
-- Create `src-tauri/src/remote_workspace/providers/runpod/api.rs`: generated REST/GraphQL wrapper.
+- Create `src-tauri/src/remote_workspace/providers/runpod/api.rs`: handwritten typed RunPod REST and GraphQL HTTP wrapper.
 - Create `src-tauri/src/remote_workspace/providers/runpod/mapping.rs`: RunPod and worker response mapping.
 - Create `src-tauri/src/remote_workspace/providers/runpod/provisioner_worker.rs`: provisioner worker HTTP client.
-- Create `src-tauri/src/remote_workspace/providers/runpod/graphql/placement_options.runpod.graphql`: RunPod placement query.
+
+No files are created under `src-tauri/src/generated`. No `generate:runpod` command, OpenAPI Generator config, GraphQL schema file, or `.runpod.graphql` operation file is added.
 
 ---
 
-### Task 1: Add RunPod Generation Infrastructure
+### Task 1: Add Secret-Backed HMAC Token Derivation
 
 **Files:**
-- Create: `scripts/generate-runpod.mjs`
-- Modify: `package.json`
-- Modify: `src-tauri/README.md`
 - Modify: `src-tauri/Cargo.toml`
-- Create: `src-tauri/src/generated/mod.rs`
-- Modify: `src-tauri/src/lib.rs`
-- Create: `src-tauri/src/remote_workspace/providers/runpod/graphql/placement_options.runpod.graphql`
-
-- [ ] **Step 1: Add the RunPod GraphQL operation source**
-
-Create `src-tauri/src/remote_workspace/providers/runpod/graphql/placement_options.runpod.graphql`:
-
-```graphql
-query PlacementOptions {
-  dataCenters {
-    id
-    name
-    listed
-    storageSupport
-  }
-  gpuTypes {
-    id
-    displayName
-    memoryInGb
-  }
-  gpuTypesDatacenters {
-    dataCenterId
-    gpuTypeId
-    available
-    secureCloud
-    communityCloud
-  }
-}
-```
-
-- [ ] **Step 2: Add generated module entrypoint**
-
-Create `src-tauri/src/generated/mod.rs`:
-
-```rust
-pub mod runpod_graphql;
-pub mod runpod_rest;
-```
-
-Modify `src-tauri/src/lib.rs` to add:
-
-```rust
-pub mod generated;
-```
-
-- [ ] **Step 3: Add generation dependencies**
-
-In `src-tauri/Cargo.toml`, add these dependencies:
-
-```toml
-graphql_client = "0.16"
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
-```
-
-- [ ] **Step 4: Add `generate:runpod` script**
-
-Add this script to `package.json`:
-
-```json
-"generate:runpod": "bun scripts/generate-runpod.mjs"
-```
-
-Create `scripts/generate-runpod.mjs`:
-
-```javascript
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
-
-const root = dirname(fileURLToPath(import.meta.url)).replace(/\/scripts$/, '')
-const generatedRoot = join(root, 'src-tauri/src/generated')
-const restRoot = join(generatedRoot, 'runpod_rest')
-const graphqlRoot = join(generatedRoot, 'runpod_graphql')
-const graphqlOpsRoot = join(root, 'src-tauri/src/remote_workspace/providers/runpod/graphql')
-
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, stdio: 'inherit' })
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with status ${result.status}`)
-  }
-}
-
-function graphqlOperations(dir) {
-  return readdirSync(dir)
-    .filter((name) => name.endsWith('.runpod.graphql'))
-    .map((name) => join(dir, name))
-}
-
-rmSync(restRoot, { recursive: true, force: true })
-rmSync(graphqlRoot, { recursive: true, force: true })
-mkdirSync(restRoot, { recursive: true })
-mkdirSync(graphqlRoot, { recursive: true })
-
-const openapiPath = join(restRoot, 'openapi.json')
-const schemaPath = join(graphqlRoot, 'schema.json')
-
-run('curl', ['-fsSL', 'https://rest.runpod.io/v1/openapi.json', '-o', openapiPath])
-run('graphql-client', ['introspect-schema', 'https://graphql-spec.runpod.io/', '--output', schemaPath])
-
-run('bunx', [
-  '@openapitools/openapi-generator-cli',
-  'generate',
-  '-i',
-  openapiPath,
-  '-g',
-  'rust',
-  '-o',
-  restRoot,
-  '--additional-properties=packageName=runpod_rest,library=reqwest,avoidBoxedModels=true',
-])
-
-for (const operation of graphqlOperations(graphqlOpsRoot)) {
-  run('graphql-client', [
-    'generate',
-    '--schema-path',
-    schemaPath,
-    '--response-derives',
-    'Debug,Clone,PartialEq',
-    '--output-directory',
-    graphqlRoot,
-    operation,
-  ])
-}
-```
-
-- [ ] **Step 5: Document generation**
-
-In `src-tauri/README.md`, update the provider path bullet to:
-
-```markdown
-2. Add a provider-specific module under `src/remote_workspace/providers/<provider_name>/`.
-```
-
-Add this section after "Adding A Remote Provider":
-
-```markdown
-### Generated Provider Clients
-
-RunPod generated clients are regenerated with:
-
-```bash
-bun run generate:runpod
-```
-
-The command downloads the RunPod REST OpenAPI schema, introspects the RunPod GraphQL schema, generates Rust REST code under `src/generated/runpod_rest`, and generates GraphQL Rust bindings under `src/generated/runpod_graphql`.
-
-RunPod GraphQL operation files are maintained source files matching:
-
-```text
-src/remote_workspace/providers/runpod/graphql/*.runpod.graphql
-```
-
-The generation command discovers RunPod operations by that suffix. Generated files are replaceable output; provider wrapper code belongs under `src/remote_workspace/providers/runpod/`.
-```
-
-- [ ] **Step 6: Run generation and verify compile errors are generation-related**
-
-Run:
-
-```bash
-bun run generate:runpod
-cargo test --manifest-path src-tauri/Cargo.toml --no-run
-```
-
-Expected: generation completes. If `cargo test --no-run` fails because generated OpenAPI files require module-path fixes, make only generated-module containment fixes under `src-tauri/src/generated` and rerun until compilation reaches handwritten code.
-
-- [ ] **Step 7: Commit**
-
-Run:
-
-```bash
-git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/README.md scripts/generate-runpod.mjs src-tauri/src/generated src-tauri/src/lib.rs src-tauri/src/remote_workspace/providers/runpod/graphql/placement_options.runpod.graphql
-git commit -m "chore(runpod): add provider client generation"
-```
-
----
-
-### Task 2: Add Secret-Backed HMAC Token Derivation
-
-**Files:**
 - Modify: `src-tauri/src/secrets_storage/store.rs`
 - Modify: `src-tauri/src/secrets_storage/service.rs`
 
-- [ ] **Step 1: Add failing secret key serialization test**
+- [ ] **Step 1: Add HMAC dependencies**
+
+In `src-tauri/Cargo.toml`, add:
+
+```toml
+hex = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+```
+
+- [ ] **Step 2: Add failing secret key serialization test**
 
 In `src-tauri/src/secrets_storage/store.rs`, extend `SecretKey`:
 
@@ -248,7 +66,7 @@ assert_eq!(
 );
 ```
 
-- [ ] **Step 2: Add failing HMAC tests**
+- [ ] **Step 3: Add failing HMAC tests**
 
 In `src-tauri/src/secrets_storage/service.rs`, add tests:
 
@@ -291,7 +109,7 @@ async fn hmac_sha256_hex_returns_key_not_found_when_secret_missing() {
 }
 ```
 
-- [ ] **Step 3: Run tests and verify failure**
+- [ ] **Step 4: Run tests and verify failure**
 
 Run:
 
@@ -301,7 +119,7 @@ cargo test --manifest-path src-tauri/Cargo.toml secrets_storage
 
 Expected: FAIL because `hmac_sha256_hex` is not implemented.
 
-- [ ] **Step 4: Implement HMAC method**
+- [ ] **Step 5: Implement HMAC method**
 
 In `src-tauri/src/secrets_storage/service.rs`, add imports:
 
@@ -331,13 +149,13 @@ pub async fn hmac_sha256_hex(
 }
 ```
 
-- [ ] **Step 5: Run tests and commit**
+- [ ] **Step 6: Run tests and commit**
 
 Run:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml secrets_storage
-git add src-tauri/src/secrets_storage src-tauri/Cargo.toml src-tauri/Cargo.lock
+git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/secrets_storage
 git commit -m "feat(secrets): add hmac token derivation"
 ```
 
@@ -345,14 +163,14 @@ Expected: PASS.
 
 ---
 
-### Task 3: Preserve Provisioner Worker Errors In Provisioning Status
+### Task 2: Preserve Provisioner Worker Errors In Provisioning Status
 
 **Files:**
 - Modify: `src-tauri/src/remote_workspace/errors.rs`
 - Modify: `src-tauri/src/remote_workspace/service.rs`
 - Modify: `src-tauri/src/remote_workspace/provider.rs`
 
-- [ ] **Step 1: Add provider parameter field test pressure**
+- [ ] **Step 1: Add provider parameter field**
 
 In `src-tauri/src/remote_workspace/provider.rs`, add:
 
@@ -362,15 +180,9 @@ pub requires_hugging_face_api_key: bool,
 
 to `StartProvisionerParams`.
 
-In `src-tauri/src/remote_workspace/service.rs` fake provider tests, update recorded `StartProvisionerParams` expectations to include:
-
-```rust
-requires_hugging_face_api_key: workspace.workflow_preset.requires_hugging_face_api_key,
-```
-
 - [ ] **Step 2: Add worker error carrier**
 
-In `src-tauri/src/remote_workspace/errors.rs`, add this variant:
+In `src-tauri/src/remote_workspace/errors.rs`, import `RemoteProvisioningError` and add this variant:
 
 ```rust
 ProvisionerWorker(RemoteProvisioningError),
@@ -396,9 +208,11 @@ fn running_provisioner_worker_error_is_recorded_as_worker_error() {
         ..ProviderState::default()
     }));
     let service = service_with_state(state);
-    let mut workspace = remote_workspace_in_progress(RemoteProvisioningPhase::RunningRemoteProvisioner {
-        status: RemoteProvisionerStatus::Running,
-    });
+    let mut workspace = remote_workspace_in_progress(
+        RemoteProvisioningPhase::RunningRemoteProvisioner {
+            status: RemoteProvisionerStatus::Running,
+        },
+    );
     let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
     remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
         id: "provisioner".to_string(),
@@ -429,6 +243,8 @@ In `handle_starting_provisioner`, update `StartProvisionerParams` construction:
 requires_hugging_face_api_key: workspace.workflow_preset.requires_hugging_face_api_key,
 ```
 
+Update fake provider expectations that compare `StartProvisionerParams` to include the same field.
+
 - [ ] **Step 5: Run tests and commit**
 
 Run:
@@ -443,16 +259,27 @@ Expected: PASS.
 
 ---
 
-### Task 4: Add RunPod Provider Module Skeleton And Config
+### Task 3: Add RunPod Provider Module Skeleton And Config
 
 **Files:**
+- Modify: `src-tauri/README.md`
 - Modify: `src-tauri/src/remote_workspace/mod.rs`
 - Create: `src-tauri/src/remote_workspace/providers/mod.rs`
 - Create: `src-tauri/src/remote_workspace/providers/runpod/mod.rs`
 - Create: `src-tauri/src/remote_workspace/providers/runpod/config.rs`
 - Create: `src-tauri/src/remote_workspace/providers/runpod/mapping.rs`
 
-- [ ] **Step 1: Wire provider modules**
+- [ ] **Step 1: Update provider path docs**
+
+In `src-tauri/README.md`, update the provider path bullet to:
+
+```markdown
+2. Add a provider-specific module under `src/remote_workspace/providers/<provider_name>/`.
+```
+
+Do not add provider generation commands.
+
+- [ ] **Step 2: Wire provider modules**
 
 In `src-tauri/src/remote_workspace/mod.rs`, add:
 
@@ -466,7 +293,7 @@ Create `src-tauri/src/remote_workspace/providers/mod.rs`:
 pub mod runpod;
 ```
 
-- [ ] **Step 2: Add RunPod config constants**
+- [ ] **Step 3: Add RunPod config constants**
 
 Create `src-tauri/src/remote_workspace/providers/runpod/config.rs`:
 
@@ -474,7 +301,7 @@ Create `src-tauri/src/remote_workspace/providers/runpod/config.rs`:
 use crate::domain::placement::RemoteEndpointKeepAliveLimits;
 
 pub const RUNPOD_REST_BASE_URL: &str = "https://rest.runpod.io/v1";
-pub const RUNPOD_GRAPHQL_URL: &str = "https://graphql-spec.runpod.io/";
+pub const RUNPOD_GRAPHQL_URL: &str = "https://api.runpod.io/graphql";
 pub const NETWORK_VOLUME_MAX_SIZE_BYTES: u64 = 4_000 * 1_000_000_000;
 pub const WORKSPACE_MOUNT_PATH: &str = "/workspace";
 pub const PROVISIONER_PORT: u16 = 8000;
@@ -486,293 +313,63 @@ pub const DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS: RemoteEndpointKeepAliveLimits =
     };
 ```
 
-- [ ] **Step 3: Add minimal provider type**
+- [ ] **Step 4: Add skeleton provider type with explicit stubs**
 
-Create `src-tauri/src/remote_workspace/providers/runpod/mod.rs`:
-
-```rust
-mod config;
-mod mapping;
-
-use crate::domain::provider::GpuCloudProviderId;
-use crate::domain::workspace::{
-    RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-    RemoteVolumeSnapshot,
-};
-use crate::remote_workspace::errors::RemoteWorkspaceError;
-use crate::remote_workspace::provider::{
-    CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-    GetProvisionerStatusParams, RemoteEndpointProvider, RemotePlacementOptionsProvider,
-    RemoteProvisionerProvider, RemoteVolumeProvider, RemoteWorkspaceProvider,
-    StartProvisionerParams, TerminateProvisionerParams,
-};
-use crate::shared::AppFuture;
-
-pub struct RunpodRemoteWorkspaceProvider;
-
-impl RunpodRemoteWorkspaceProvider {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl RemotePlacementOptionsProvider for RunpodRemoteWorkspaceProvider {
-    fn get_provider_placement_options<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<crate::domain::placement::RemotePlacementOptions, RemoteWorkspaceError>>
-    {
-        Box::pin(async { Err(mapping::not_implemented("get_provider_placement_options")) })
-    }
-}
-
-impl RemoteVolumeProvider for RunpodRemoteWorkspaceProvider {
-    fn create_volume<'a>(
-        &'a self,
-        _params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("create_volume")) })
-    }
-
-    fn delete_volume<'a>(
-        &'a self,
-        _params: DeleteVolumeParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("delete_volume")) })
-    }
-}
-
-impl RemoteProvisionerProvider for RunpodRemoteWorkspaceProvider {
-    fn start_provisioner<'a>(
-        &'a self,
-        _params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("start_provisioner")) })
-    }
-
-    fn terminate_provisioner<'a>(
-        &'a self,
-        _params: TerminateProvisionerParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("terminate_provisioner")) })
-    }
-
-    fn get_provisioner_status<'a>(
-        &'a self,
-        _params: GetProvisionerStatusParams,
-    ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("get_provisioner_status")) })
-    }
-}
-
-impl RemoteEndpointProvider for RunpodRemoteWorkspaceProvider {
-    fn create_endpoint<'a>(
-        &'a self,
-        _params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("create_endpoint")) })
-    }
-
-    fn delete_endpoint<'a>(
-        &'a self,
-        _params: DeleteEndpointParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
-        Box::pin(async { Err(mapping::not_implemented("delete_endpoint")) })
-    }
-}
-
-impl RemoteWorkspaceProvider for RunpodRemoteWorkspaceProvider {
-    fn provider_id(&self) -> GpuCloudProviderId {
-        GpuCloudProviderId::Runpod
-    }
-}
-```
+Create `src-tauri/src/remote_workspace/providers/runpod/mod.rs` with `RunpodRemoteWorkspaceProvider`, `provider_id`, and all remote provider trait methods returning `mapping::not_implemented("operation")`.
 
 Create `src-tauri/src/remote_workspace/providers/runpod/mapping.rs`:
 
 ```rust
-use crate::remote_workspace::errors::RemoteWorkspaceError;
+use crate::{
+    domain::provider::ProviderApiError,
+    remote_workspace::errors::RemoteWorkspaceError,
+};
 
 pub fn not_implemented(operation: &str) -> RemoteWorkspaceError {
-    RemoteWorkspaceError::Provider(crate::domain::provider::ProviderApiError::RequestFailed {
+    RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
         message: format!("RunPod provider operation is not implemented: {operation}"),
     })
 }
 ```
 
-- [ ] **Step 4: Run compile and commit**
+- [ ] **Step 5: Run compile and commit**
 
 Run:
 
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --no-run
-git add src-tauri/src/remote_workspace
+git add src-tauri/README.md src-tauri/src/remote_workspace
 git commit -m "feat(runpod): add provider module skeleton"
-```
-
-Expected: compile passes with all RunPod resource methods returning explicit UI-safe not-implemented provider errors.
-
----
-
-### Task 5: Implement Provisioner Worker HTTP Client
-
-**Files:**
-- Create: `src-tauri/src/remote_workspace/providers/runpod/provisioner_worker.rs`
-- Modify: `src-tauri/src/remote_workspace/providers/runpod/mod.rs`
-- Modify: `src-tauri/src/remote_workspace/providers/runpod/mapping.rs`
-
-- [ ] **Step 1: Add worker response types and mapping tests**
-
-Create `src-tauri/src/remote_workspace/providers/runpod/provisioner_worker.rs` with tests:
-
-```rust
-use crate::domain::workspace::{RemoteProvisionerStatus, RemoteProvisioningError};
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct ProvisionerStatusResponse {
-    pub status: String,
-    pub error: Option<ProvisionerWorkerErrorResponse>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct ProvisionerWorkerErrorResponse {
-    pub code: String,
-    pub message: String,
-}
-
-pub fn map_status_response(
-    response: ProvisionerStatusResponse,
-) -> Result<RemoteProvisionerStatus, RemoteProvisioningError> {
-    match response.status.as_str() {
-        "idle" => Ok(RemoteProvisionerStatus::Pending),
-        "running" => Ok(RemoteProvisionerStatus::Running),
-        "succeeded" => Ok(RemoteProvisionerStatus::Succeeded),
-        "failed" => {
-            let error = response.error.ok_or(RemoteProvisioningError::ProvisionerWorkerResponseInvalid)?;
-            Ok(RemoteProvisionerStatus::Failed {
-                code: error.code,
-                message: error.message,
-            })
-        }
-        _ => Err(RemoteProvisioningError::ProvisionerWorkerResponseInvalid),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maps_idle_to_pending() {
-        assert_eq!(
-            map_status_response(ProvisionerStatusResponse {
-                status: "idle".to_string(),
-                error: None,
-            }),
-            Ok(RemoteProvisionerStatus::Pending)
-        );
-    }
-
-    #[test]
-    fn maps_failed_status_with_worker_error() {
-        assert_eq!(
-            map_status_response(ProvisionerStatusResponse {
-                status: "failed".to_string(),
-                error: Some(ProvisionerWorkerErrorResponse {
-                    code: "asset_download_failed".to_string(),
-                    message: "Hugging Face asset download failed".to_string(),
-                }),
-            }),
-            Ok(RemoteProvisionerStatus::Failed {
-                code: "asset_download_failed".to_string(),
-                message: "Hugging Face asset download failed".to_string(),
-            })
-        );
-    }
-}
-```
-
-- [ ] **Step 2: Add HTTP method**
-
-Add to the same file:
-
-```rust
-pub struct ProvisionerWorkerClient {
-    http: reqwest::Client,
-}
-
-impl ProvisionerWorkerClient {
-    pub fn new(http: reqwest::Client) -> Self {
-        Self { http }
-    }
-
-    pub async fn get_status(
-        &self,
-        status_url: &str,
-        bearer_token: &str,
-    ) -> Result<RemoteProvisionerStatus, RemoteProvisioningError> {
-        let response = self
-            .http
-            .get(status_url)
-            .bearer_auth(bearer_token)
-            .send()
-            .await
-            .map_err(|_| RemoteProvisioningError::ProvisionerWorkerUnavailable)?;
-
-        match response.status().as_u16() {
-            200 => {
-                let payload = response
-                    .json::<ProvisionerStatusResponse>()
-                    .await
-                    .map_err(|_| RemoteProvisioningError::ProvisionerWorkerResponseInvalid)?;
-                map_status_response(payload)
-            }
-            401 => Err(RemoteProvisioningError::ProvisionerWorkerUnauthorized),
-            409 => Err(RemoteProvisioningError::ProvisionerWorkerConflict),
-            _ => Err(RemoteProvisioningError::ProvisionerWorkerUnexpectedError),
-        }
-    }
-}
-```
-
-- [ ] **Step 3: Convert worker errors into `RemoteWorkspaceError` at provider boundary**
-
-In `src-tauri/src/remote_workspace/providers/runpod/mod.rs`, add:
-
-```rust
-mod provisioner_worker;
-```
-
-Provider methods that call `ProvisionerWorkerClient::get_status` must convert `Err(error)` to:
-
-```rust
-RemoteWorkspaceError::ProvisionerWorker(error)
-```
-
-- [ ] **Step 4: Run tests and commit**
-
-Run:
-
-```bash
-cargo test --manifest-path src-tauri/Cargo.toml runpod::provisioner_worker
-git add src-tauri/src/remote_workspace/providers/runpod
-git commit -m "feat(runpod): add provisioner worker client"
 ```
 
 Expected: PASS.
 
 ---
 
-### Task 6: Implement RunPod API Wrapper And Request Mapping
+### Task 4: Add Handwritten Typed RunPod API Wrapper
 
 **Files:**
 - Create: `src-tauri/src/remote_workspace/providers/runpod/api.rs`
 - Modify: `src-tauri/src/remote_workspace/providers/runpod/mod.rs`
 - Modify: `src-tauri/src/remote_workspace/providers/runpod/mapping.rs`
 
-- [ ] **Step 1: Add provider-sized request and response structs**
+- [ ] **Step 1: Add local request/response structs**
 
-Create `src-tauri/src/remote_workspace/providers/runpod/api.rs`:
+Create `src-tauri/src/remote_workspace/providers/runpod/api.rs` with local `serde` structs for:
+
+- `GraphqlRequest<V>`
+- `GraphqlResponse<T>`
+- placement query response types
+- network volume create/delete responses
+- pod create/delete responses
+- template create/delete responses
+- endpoint create/get/delete responses
+
+Keep these structs private unless tests need `pub(super)`.
+
+- [ ] **Step 2: Add provider-sized wrapper structs**
+
+In `api.rs`, add:
 
 ```rust
 use crate::domain::placement::RemoteEndpointKeepAliveLimits;
@@ -810,7 +407,7 @@ pub struct RunpodId {
 }
 ```
 
-- [ ] **Step 2: Add conversion helpers and tests**
+- [ ] **Step 3: Add conversion helpers and tests**
 
 In `mapping.rs`, add:
 
@@ -822,91 +419,90 @@ pub fn bytes_to_runpod_volume_gb(size_bytes: u64) -> u64 {
 pub fn workspace_resource_name(workspace_id: &str, suffix: &str) -> String {
     format!("luma-forge-{workspace_id}-{suffix}")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn volume_size_rounds_up_to_gb() {
-        assert_eq!(bytes_to_runpod_volume_gb(1), 1);
-        assert_eq!(bytes_to_runpod_volume_gb(1_000_000_000), 1);
-        assert_eq!(bytes_to_runpod_volume_gb(1_000_000_001), 2);
-    }
-
-    #[test]
-    fn workspace_resource_name_is_deterministic() {
-        assert_eq!(
-            workspace_resource_name("workspace-1", "volume"),
-            "luma-forge-workspace-1-volume"
-        );
-    }
-}
 ```
 
-- [ ] **Step 3: Add generated-client wrapper trait**
+Add tests for byte rounding and deterministic names.
 
-In `api.rs`, add a trait the provider can use in tests without live RunPod calls:
+- [ ] **Step 4: Add `RunpodApi` trait and `HttpRunpodApi`**
 
-```rust
-use crate::domain::placement::RemotePlacementOptions;
-use crate::remote_workspace::errors::RemoteWorkspaceError;
-use crate::shared::AppFuture;
+In `api.rs`, add a `RunpodApi` trait with methods for placement options, create/delete volume, create/delete provisioner pod, create endpoint, and delete endpoint plus template.
 
-pub trait RunpodApi: Send + Sync {
-    fn placement_options<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>>;
+Add `HttpRunpodApi { http: reqwest::Client, rest_base_url: String, graphql_url: String, api_key: String }`. It sends typed `reqwest` requests and maps responses to provider-sized structs and `RemoteWorkspaceError`.
 
-    fn create_network_volume<'a>(
-        &'a self,
-        request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<RunpodId, RemoteWorkspaceError>>;
+- [ ] **Step 5: Add request serialization tests**
 
-    fn delete_network_volume<'a>(
-        &'a self,
-        volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+Add unit tests proving:
 
-    fn create_provisioner_pod<'a>(
-        &'a self,
-        request: CreateProvisionerPodRequest,
-    ) -> AppFuture<'a, Result<(RunpodId, String), RemoteWorkspaceError>>;
+- network volume create serializes `dataCenterId`, name, and GB size
+- provisioner pod create serializes CPU compute, volume mount, port, and env
+- endpoint creation serializes template-before-endpoint request bodies
+- placement GraphQL request uses a constant query string and variables-free JSON payload
+- 401, 403, 429, timeout, operation-specific 404, and generic failures map to UI-safe errors
 
-    fn delete_pod<'a>(&'a self, pod_id: &'a str) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+No tests make live RunPod calls.
 
-    fn create_endpoint<'a>(
-        &'a self,
-        request: CreateEndpointRequest,
-    ) -> AppFuture<'a, Result<RunpodId, RemoteWorkspaceError>>;
-
-    fn delete_endpoint_and_template<'a>(
-        &'a self,
-        endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
-}
-```
-
-- [ ] **Step 4: Add generated REST implementation behind wrapper**
-
-Implement `GeneratedRunpodApi` in `api.rs` using the generated REST and GraphQL modules. Keep all references to `crate::generated::runpod_rest` and `crate::generated::runpod_graphql` inside this file. Map `401`, `403`, `429`, request timeouts, operation-specific `404`, and other failures to `RemoteWorkspaceError` as defined in the design spec.
-
-- [ ] **Step 5: Run mapping tests and commit**
+- [ ] **Step 6: Run tests and commit**
 
 Run:
 
 ```bash
+cargo test --manifest-path src-tauri/Cargo.toml runpod::api
 cargo test --manifest-path src-tauri/Cargo.toml runpod::mapping
-cargo test --manifest-path src-tauri/Cargo.toml --no-run
 git add src-tauri/src/remote_workspace/providers/runpod
-git commit -m "feat(runpod): add api wrapper mapping"
+git commit -m "feat(runpod): add typed api wrapper"
 ```
 
 Expected: PASS.
 
 ---
 
-### Task 7: Implement RunPod Provider Trait Methods
+### Task 5: Implement Provisioner Worker HTTP Client
+
+**Files:**
+- Create: `src-tauri/src/remote_workspace/providers/runpod/provisioner_worker.rs`
+- Modify: `src-tauri/src/remote_workspace/providers/runpod/mod.rs`
+
+- [ ] **Step 1: Add worker response mapping**
+
+Create `src-tauri/src/remote_workspace/providers/runpod/provisioner_worker.rs` with `ProvisionerStatusResponse`, `ProvisionerWorkerErrorResponse`, and `map_status_response`.
+
+Map:
+
+- `idle` to `RemoteProvisionerStatus::Pending`
+- `running` to `RemoteProvisionerStatus::Running`
+- `succeeded` to `RemoteProvisionerStatus::Succeeded`
+- `failed` with worker error to `RemoteProvisionerStatus::Failed { code, message }`
+- malformed responses to `RemoteProvisioningError::ProvisionerWorkerResponseInvalid`
+
+- [ ] **Step 2: Add HTTP method**
+
+Add `ProvisionerWorkerClient { http: reqwest::Client }` with:
+
+```rust
+pub async fn get_status(
+    &self,
+    status_url: &str,
+    bearer_token: &str,
+) -> Result<RemoteProvisionerStatus, RemoteProvisioningError>
+```
+
+Map connection failures to `ProvisionerWorkerUnavailable`, worker `401` to `ProvisionerWorkerUnauthorized`, worker `409` to `ProvisionerWorkerConflict`, invalid JSON to `ProvisionerWorkerResponseInvalid`, and other statuses to `ProvisionerWorkerUnexpectedError`.
+
+- [ ] **Step 3: Add tests and commit**
+
+Run:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml runpod::provisioner_worker
+git add src-tauri/src/remote_workspace/providers/runpod
+git commit -m "feat(runpod): add provisioner worker client"
+```
+
+Expected: PASS.
+
+---
+
+### Task 6: Implement RunPod Provider Trait Methods
 
 **Files:**
 - Modify: `src-tauri/src/remote_workspace/providers/runpod/mod.rs`
@@ -915,57 +511,26 @@ Expected: PASS.
 
 - [ ] **Step 1: Replace skeleton with dependency-injected provider**
 
-In `mod.rs`, change the provider struct to:
+Change `RunpodRemoteWorkspaceProvider` to accept:
 
-```rust
-use std::sync::Arc;
+- `Arc<dyn RunpodApi>`
+- `ProvisionerWorkerClient`
+- already-initialized `SecretsStorageService` for RunPod
+- already-initialized `SecretsStorageService` for Hugging Face
+- already-initialized `SecretsStorageService` for provisioner token derivation
 
-use crate::secrets_storage::{ApiKeyIdentityProvider, SecretKey, SecretStore, SecretsStorageService};
-
-use self::api::RunpodApi;
-use self::provisioner_worker::ProvisionerWorkerClient;
-
-pub struct RunpodRemoteWorkspaceProvider<R, H, P, RI, HI, PI>
-where
-    R: SecretStore,
-    H: SecretStore,
-    P: SecretStore,
-    RI: ApiKeyIdentityProvider,
-    HI: ApiKeyIdentityProvider,
-    PI: ApiKeyIdentityProvider,
-{
-    api: Arc<dyn RunpodApi>,
-    provisioner_worker: ProvisionerWorkerClient,
-    runpod_secrets: SecretsStorageService<R, RI>,
-    hugging_face_secrets: SecretsStorageService<H, HI>,
-    provisioner_secrets: SecretsStorageService<P, PI>,
-}
-```
-
-Add a `new(...)` constructor that accepts these dependencies. Do not initialize secret stores inside the provider.
+Do not initialize secret stores inside the provider.
 
 - [ ] **Step 2: Implement placement and volume traits**
-
-Implement:
-
-```rust
-RemotePlacementOptionsProvider for RunpodRemoteWorkspaceProvider<...>
-RemoteVolumeProvider for RunpodRemoteWorkspaceProvider<...>
-```
 
 Behavior:
 
 - placement delegates to `api.placement_options()`
+- placement sets `max_persistent_storage_volume_size_bytes` to `NETWORK_VOLUME_MAX_SIZE_BYTES`
 - create volume builds `CreateNetworkVolumeRequest`
 - delete volume delegates to `api.delete_network_volume`
 
 - [ ] **Step 3: Implement provisioner traits**
-
-Implement:
-
-```rust
-RemoteProvisionerProvider for RunpodRemoteWorkspaceProvider<...>
-```
 
 Behavior:
 
@@ -978,21 +543,15 @@ Behavior:
 
 - [ ] **Step 4: Implement endpoint traits**
 
-Implement:
-
-```rust
-RemoteEndpointProvider for RunpodRemoteWorkspaceProvider<...>
-```
-
 Behavior:
 
 - endpoint creation resolves `params.keep_alive_limits.unwrap_or(DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS)`
 - endpoint creation calls API template-before-endpoint wrapper
 - endpoint deletion delegates to `api.delete_endpoint_and_template`
 
-- [ ] **Step 5: Add provider unit tests with fake API and fake stores**
+- [ ] **Step 5: Add provider tests**
 
-In `mod.rs`, add tests named:
+Add tests named:
 
 ```rust
 create_volume_builds_network_volume_request
@@ -1002,8 +561,6 @@ get_provisioner_status_maps_worker_unauthorized_to_workspace_worker_error
 create_endpoint_uses_default_keep_alive_limits_when_missing
 delete_endpoint_delegates_endpoint_and_template_cleanup
 ```
-
-Use fake `RunpodApi`, fake `SecretStore`, and fake `ApiKeyIdentityProvider` following the existing fake patterns in `secrets_storage/service.rs` and `remote_workspace/service.rs`.
 
 - [ ] **Step 6: Run tests and commit**
 
@@ -1019,16 +576,15 @@ Expected: PASS.
 
 ---
 
-### Task 8: Register Provider And Final Verification
+### Task 7: Register Provider And Final Verification
 
 **Files:**
 - Modify: `src-tauri/src/remote_workspace/registry.rs`
 - Modify: `src-tauri/src/remote_workspace/providers/runpod/mod.rs`
-- Modify: `src-tauri/README.md`
 
 - [ ] **Step 1: Add registration constructor path**
 
-Add a constructor or factory for production provider registration. Because application-level secret service wiring is outside this scope, keep the registry API capable of receiving an already-built provider:
+Add:
 
 ```rust
 pub fn with_provider(provider: Box<dyn RemoteWorkspaceProvider>) -> Self {
@@ -1052,23 +608,12 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -
 
 Expected: all commands pass.
 
-- [ ] **Step 3: Run generated-client verification**
+- [ ] **Step 3: Commit**
 
 Run:
 
 ```bash
-bun run generate:runpod
-cargo test --manifest-path src-tauri/Cargo.toml --no-run
-```
-
-Expected: generation completes and native tests compile.
-
-- [ ] **Step 4: Commit**
-
-Run:
-
-```bash
-git add src-tauri/src/remote_workspace src-tauri/README.md src-tauri/src/generated package.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+git add src-tauri/src/remote_workspace src-tauri/Cargo.toml src-tauri/Cargo.lock
 git commit -m "feat(runpod): register remote workspace provider"
 ```
 
@@ -1076,6 +621,6 @@ git commit -m "feat(runpod): register remote workspace provider"
 
 ## Self-Review
 
-- Spec coverage: generation, `.runpod.graphql` discovery, provider module layout, secret-service injection, HMAC derivation, HF flag propagation, placement max volume, RunPod REST lifecycle, provisioner worker status/error mapping, default keep-alive limits, and verification are covered by tasks.
+- Spec coverage: no-codegen decision, provider module layout, typed REST/GraphQL wrappers, secret-service injection, HMAC derivation, HF flag propagation, placement max volume, RunPod REST lifecycle, provisioner worker status/error mapping, default keep-alive limits, and verification are covered by tasks.
 - Placeholder scan: the plan contains no deferred sections, no deferred error handling, and no live RunPod tests in the default path.
 - Type consistency: `SecretKey::ProvisionerTokenSecret`, `hmac_sha256_hex`, `StartProvisionerParams.requires_hugging_face_api_key`, `RemoteWorkspaceError::ProvisionerWorker`, and provider module paths are introduced before later tasks use them.
