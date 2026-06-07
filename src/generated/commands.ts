@@ -4,27 +4,188 @@ import { invoke as __TAURI_INVOKE } from "@tauri-apps/api/core";
 
 /** Commands */
 export const commands = {
-	getGpuCloudProviderSetup: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("get_gpu_cloud_provider_setup", { request })),
-	setupGpuCloudProvider: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("setup_gpu_cloud_provider", { request })),
-	deleteGpuCloudProviderSetup: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_gpu_cloud_provider_setup", { request })),
-	getHuggingFaceApiKeySetup: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("get_hugging_face_api_key_setup", { request })),
-	setupHuggingFaceApiKey: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("setup_hugging_face_api_key", { request })),
-	deleteHuggingFaceApiKeySetup: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_hugging_face_api_key_setup", { request })),
-	getWorkflowCatalog: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
-	getProviderPlacementOptions: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("get_provider_placement_options", { request })),
-	getWorkspaceCatalog: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
-	createWorkspace: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("create_workspace", { request })),
-	initiateWorkspaceProvisioning: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("initiate_workspace_provisioning", { request })),
-	syncWorkspaceProvisioning: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("sync_workspace_provisioning", { request })),
-	cancelWorkspaceProvisioning: (request: Record<string, never> | null) => typedError<null, NativeCommandError>(__TAURI_INVOKE("cancel_workspace_provisioning", { request })),
+	getWorkflowCatalog: () => typedError<WorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
+	getProviderPlacementOptions: (request: GetProviderPlacementOptionsRequest) => typedError<RemotePlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_provider_placement_options", { request })),
+	getWorkspaceCatalog: () => typedError<WorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
+	setupRunpodApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_runpod_api_key", { request })),
+	getRunpodApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("get_runpod_api_key_identity")),
+	deleteRunpodApiKey: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_runpod_api_key")),
+	setupHuggingFaceApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_hugging_face_api_key", { request })),
+	getHuggingFaceApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("get_hugging_face_api_key_identity")),
+	deleteHuggingFaceApiKey: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_hugging_face_api_key")),
+	createWorkspace: (request: CreateWorkspaceRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_workspace", { request })),
+	provisionWorkspace: (request: WorkspaceIdRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("provision_workspace", { request })),
+	cancelWorkspaceProvisioning: (request: WorkspaceIdRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("cancel_workspace_provisioning", { request })),
+	cleanupWorkspace: (request: WorkspaceIdRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("cleanup_workspace", { request })),
 };
 
 /* Types */
+export type ApiKeyIdentityResponse = {
+	email: string | null,
+	username: string | null,
+	keyDisplayName: string | null,
+};
+
+export type CreateWorkspaceRequest = {
+	workflowPresetId: string,
+	remotePlacement: RemotePlacementPlanInput,
+};
+
+export type GetProviderPlacementOptionsRequest = {
+	providerId: GpuCloudProviderIdDto,
+};
+
+export type GpuCloudProviderIdDto = "runpod";
+
+export type ModelAssetResponse = {
+	id: string,
+	name: string,
+	downloadSource: ModelAssetSourceResponse,
+	installComfyuiRelativePath: string,
+};
+
+export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
+
 export type NativeCommandError = {
 	message: string,
 };
 
-export type RefactorCommandRequest = Record<string, never>;
+export type RemoteDatacenterPlacementOptionResponse = {
+	id: string,
+	name: string,
+	gpuOptions: RemoteGpuPlacementOptionResponse[],
+};
+
+export type RemoteEndpointKeepAliveLimitsDto = {
+	defaultSeconds: number,
+	minSeconds: number,
+	maxSeconds: number,
+};
+
+export type RemoteEndpointSnapshotResponse = {
+	id: string,
+	url: string,
+};
+
+export type RemoteGpuPlacementOptionResponse = {
+	id: string,
+	name: string,
+	vramBytes: number,
+	availabilityScore: number,
+};
+
+export type RemotePlacementOptionsResponse = {
+	maxPersistentStorageVolumeSizeBytes: number | null,
+	datacenters: RemoteDatacenterPlacementOptionResponse[],
+};
+
+export type RemotePlacementPlanInput = {
+	gpuCloudProviderId: GpuCloudProviderIdDto,
+	datacenterId: string,
+	gpuId: string,
+	volumeSizeBytes: number,
+	keepAliveLimits: RemoteEndpointKeepAliveLimitsDto | null,
+};
+
+export type RemoteProviderRuntimeRequirementsResponse = {
+	gpuCloudProviderId: GpuCloudProviderIdDto,
+	endpointContract: RuntimeContractReferenceResponse,
+	provisionerContract: RuntimeContractReferenceResponse,
+};
+
+export type RemoteProvisionerSnapshotResponse = {
+	id: string,
+	statusUrl: string,
+};
+
+export type RemoteProvisionerStatusResponse = "pending" | "starting" | "running" | "cleaning_up" | "succeeded" | { failed: {
+	code: string,
+	message: string,
+} };
+
+export type RemoteProvisioningErrorResponse = "provider" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "cancellation_cleanup_failed" | { invalid_provisioning_state: {
+	message: string,
+} };
+
+export type RemoteProvisioningPhaseResponse = "creating_remote_volume" | "starting_remote_provisioner" | { running_remote_provisioner: {
+	status: RemoteProvisionerStatusResponse,
+} } | "creating_remote_endpoint";
+
+export type RemoteProvisioningStateResponse = {
+	status: RemoteProvisioningStatusResponse,
+	percent: number | null,
+};
+
+export type RemoteProvisioningStatusResponse = "not_started" | ({ in_progress: {
+	phase: RemoteProvisioningPhaseResponse,
+} }) & { cancelling?: never; failed?: never } | ({ cancelling: {
+	phase: RemoteProvisioningPhaseResponse | null,
+} }) & { failed?: never; in_progress?: never } | "completed" | ({ failed: {
+	phase: RemoteProvisioningPhaseResponse | null,
+	error: RemoteProvisioningErrorResponse,
+} }) & { cancelling?: never; in_progress?: never };
+
+export type RemoteRuntimeRequirementsResponse = {
+	requiredBaseVolumeSizeBytes: number,
+	providerRequirements: RemoteProviderRuntimeRequirementsResponse[],
+};
+
+export type RemoteVolumeSnapshotResponse = {
+	id: string,
+};
+
+export type RemoteWorkspaceResourcesResponse = {
+	remoteVolume: RemoteVolumeSnapshotResponse | null,
+	remoteProvisioner: RemoteProvisionerSnapshotResponse | null,
+	remoteEndpoint: RemoteEndpointSnapshotResponse | null,
+};
+
+export type RemoteWorkspaceResponse = {
+	remotePlacement: RemotePlacementPlanInput,
+	remoteProvisioning: RemoteProvisioningStateResponse,
+	remoteResources: RemoteWorkspaceResourcesResponse,
+};
+
+export type RuntimeContractReferenceResponse = {
+	id: string,
+	version: string,
+};
+
+export type SetupApiKeyRequest = {
+	apiKey: string,
+};
+
+export type WorkflowCatalogResponse = {
+	workflowPresets: WorkflowPresetResponse[],
+};
+
+export type WorkflowExecutionTypeDto = "t2i";
+
+export type WorkflowPresetResponse = {
+	id: string,
+	version: string,
+	name: string,
+	executionType: WorkflowExecutionTypeDto,
+	requiresHuggingFaceApiKey: boolean,
+	remoteRuntimeRequirements: RemoteRuntimeRequirementsResponse,
+	requiredModelAssets: ModelAssetResponse[],
+};
+
+export type WorkspaceCatalogResponse = {
+	workspaces: WorkspaceResponse[],
+};
+
+export type WorkspaceIdRequest = {
+	workspaceId: string,
+};
+
+export type WorkspaceResponse = {
+	id: string,
+	workflowPreset: WorkflowPresetResponse,
+	runtime: WorkspaceRuntimeResponse,
+};
+
+export type WorkspaceRuntimeResponse = { runtimeType: "remote" } & (RemoteWorkspaceResponse);
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

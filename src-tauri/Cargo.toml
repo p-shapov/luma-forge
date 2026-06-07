@@ -30,3 +30,4 @@ tauri-plugin-opener = "2"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
 time = { version = "0.3", features = ["formatting"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1", features = ["v4"] }

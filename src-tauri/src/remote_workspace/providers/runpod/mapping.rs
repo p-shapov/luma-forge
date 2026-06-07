@@ -327,11 +327,14 @@ fn provider_request_failed() -> RemoteWorkspaceError {
     .into()
 }
 
-pub(super) fn map_secret_error(_error: SecretsStorageError) -> RemoteWorkspaceError {
-    ProviderApiError::RequestFailed {
-        message: "required provider secret is unavailable".to_string(),
+pub(super) fn map_secret_error(error: SecretsStorageError) -> RemoteWorkspaceError {
+    match error {
+        SecretsStorageError::KeyNotFound => RemoteWorkspaceError::ProviderSecretUnavailable,
+        _ => ProviderApiError::RequestFailed {
+            message: "required provider secret is unavailable".to_string(),
+        }
+        .into(),
     }
-    .into()
 }
 
 pub(super) fn map_placement_response(
@@ -562,6 +565,16 @@ mod tests {
             map_transport_error(false),
             RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
                 message: "provider request failed".to_string()
+            })
+        );
+        assert_eq!(
+            map_secret_error(SecretsStorageError::KeyNotFound),
+            RemoteWorkspaceError::ProviderSecretUnavailable
+        );
+        assert_eq!(
+            map_secret_error(SecretsStorageError::StoreUnavailable),
+            RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
+                message: "required provider secret is unavailable".to_string()
             })
         );
     }

@@ -1,25 +1,13 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
 use tauri_specta::{collect_commands, Builder};
 
+pub mod app;
+pub mod commands;
 pub mod domain;
 pub mod remote_workspace;
 pub mod secrets_storage;
 pub mod shared;
 pub mod workflow_catalog;
 pub mod workspace_catalog;
-
-const REFACTOR_MESSAGE: &str = "Native backend refactor is in progress.";
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct NativeCommandError {
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct RefactorCommandRequest {}
-
-type CommandResult = Result<(), NativeCommandError>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -38,6 +26,11 @@ pub fn run() {
     app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
+            let app_handle = app.handle().clone();
+            let app_state =
+                tauri::async_runtime::block_on(app::bootstrap::build_app_state(&app_handle))
+                    .map_err(|error| Box::<dyn std::error::Error>::from(error.message))?;
+            tauri::Manager::manage(app, app_state);
             builder.mount_events(app);
             Ok(())
         })
@@ -47,19 +40,19 @@ pub fn run() {
 
 fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
-        get_gpu_cloud_provider_setup,
-        setup_gpu_cloud_provider,
-        delete_gpu_cloud_provider_setup,
-        get_hugging_face_api_key_setup,
-        setup_hugging_face_api_key,
-        delete_hugging_face_api_key_setup,
-        get_workflow_catalog,
-        get_provider_placement_options,
-        get_workspace_catalog,
-        create_workspace,
-        initiate_workspace_provisioning,
-        sync_workspace_provisioning,
-        cancel_workspace_provisioning
+        commands::catalog::get_workflow_catalog,
+        commands::catalog::get_provider_placement_options,
+        commands::catalog::get_workspace_catalog,
+        commands::secrets::setup_runpod_api_key,
+        commands::secrets::get_runpod_api_key_identity,
+        commands::secrets::delete_runpod_api_key,
+        commands::secrets::setup_hugging_face_api_key,
+        commands::secrets::get_hugging_face_api_key_identity,
+        commands::secrets::delete_hugging_face_api_key,
+        commands::workspaces::create_workspace,
+        commands::workspaces::provision_workspace,
+        commands::workspaces::cancel_workspace_provisioning,
+        commands::workspaces::cleanup_workspace
     ])
 }
 
@@ -70,90 +63,6 @@ fn export_typescript_bindings(builder: &Builder<tauri::Wry>) {
             "../src/generated/commands.ts",
         )
         .expect("failed to export TypeScript command bindings");
-}
-
-fn refactor_error() -> NativeCommandError {
-    NativeCommandError {
-        message: REFACTOR_MESSAGE.to_string(),
-    }
-}
-
-#[tauri::command]
-#[specta::specta]
-fn get_gpu_cloud_provider_setup(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn setup_gpu_cloud_provider(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn delete_gpu_cloud_provider_setup(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn get_hugging_face_api_key_setup(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn setup_hugging_face_api_key(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn delete_hugging_face_api_key_setup(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn get_workflow_catalog() -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn get_provider_placement_options(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn get_workspace_catalog() -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn create_workspace(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn initiate_workspace_provisioning(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn sync_workspace_provisioning(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
-}
-
-#[tauri::command]
-#[specta::specta]
-fn cancel_workspace_provisioning(_request: Option<RefactorCommandRequest>) -> CommandResult {
-    Err(refactor_error())
 }
 
 #[cfg(test)]

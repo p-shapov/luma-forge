@@ -300,11 +300,14 @@ fn provisioner_status_url(pod_id: &str) -> String {
     format!("https://{pod_id}-{PROVISIONER_PORT}.proxy.runpod.net/status")
 }
 
-fn map_secret_error(_error: SecretsStorageError) -> RemoteWorkspaceError {
-    ProviderApiError::RequestFailed {
-        message: "required provider secret is unavailable".to_string(),
+fn map_secret_error(error: SecretsStorageError) -> RemoteWorkspaceError {
+    match error {
+        SecretsStorageError::KeyNotFound => RemoteWorkspaceError::ProviderSecretUnavailable,
+        _ => ProviderApiError::RequestFailed {
+            message: "required provider secret is unavailable".to_string(),
+        }
+        .into(),
     }
-    .into()
 }
 
 #[cfg(test)]
