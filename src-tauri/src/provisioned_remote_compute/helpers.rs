@@ -4,12 +4,12 @@ use crate::domain::workspace::{
     ProvisionedRemoteComputeWorkspace, Workspace, WorkspaceRuntime,
 };
 
-use super::errors::RemoteWorkspaceError;
+use super::errors::ProvisionedRemoteComputeError;
 
 pub fn failed_workspace_from_result(
     workspace: &Workspace,
-    result: Result<(), RemoteWorkspaceError>,
-    ignored_error: RemoteWorkspaceError,
+    result: Result<(), ProvisionedRemoteComputeError>,
+    ignored_error: ProvisionedRemoteComputeError,
 ) -> Option<Workspace> {
     ignore_expected_error(result, ignored_error)
         .err()
@@ -23,9 +23,9 @@ pub fn failed_workspace_from_result(
 }
 
 pub fn ignore_expected_error(
-    result: Result<(), RemoteWorkspaceError>,
-    ignored_error: RemoteWorkspaceError,
-) -> Result<(), RemoteWorkspaceError> {
+    result: Result<(), ProvisionedRemoteComputeError>,
+    ignored_error: ProvisionedRemoteComputeError,
+) -> Result<(), ProvisionedRemoteComputeError> {
     match result {
         Ok(()) => Ok(()),
         Err(error) if error == ignored_error => Ok(()),
@@ -35,9 +35,9 @@ pub fn ignore_expected_error(
 
 pub fn remote_runtime(
     workspace: &Workspace,
-) -> Result<&ProvisionedRemoteComputeWorkspace, RemoteWorkspaceError> {
+) -> Result<&ProvisionedRemoteComputeWorkspace, ProvisionedRemoteComputeError> {
     // When WorkspaceRuntime gets non-remote variants, return an explicit
-    // RemoteWorkspaceError here instead of accepting them in this service.
+    // ProvisionedRemoteComputeError here instead of accepting them in this service.
     let WorkspaceRuntime::ProvisionedRemoteCompute(remote) = &workspace.runtime;
     Ok(remote)
 }
@@ -57,10 +57,10 @@ pub fn with_provisioning_failure(
 pub fn with_cleanup_failure(
     workspace: &Workspace,
     phase: Option<ProvisionedRemoteComputeProvisioningPhase>,
-    error: RemoteWorkspaceError,
+    error: ProvisionedRemoteComputeError,
 ) -> Workspace {
     let provisioning_error = match error {
-        RemoteWorkspaceError::Provider(error) => {
+        ProvisionedRemoteComputeError::Provider(error) => {
             ProvisionedRemoteComputeProvisioningError::Provider(error)
         }
         _ => ProvisionedRemoteComputeProvisioningError::CancellationCleanupFailed,

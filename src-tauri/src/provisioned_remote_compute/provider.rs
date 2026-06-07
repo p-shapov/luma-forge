@@ -8,7 +8,7 @@ use crate::domain::{
 };
 use crate::shared::AppFuture;
 
-use super::errors::RemoteWorkspaceError;
+use super::errors::ProvisionedRemoteComputeError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateVolumeParams {
@@ -66,58 +66,67 @@ pub struct DeleteEndpointParams {
     pub endpoint_id: String,
 }
 
-pub trait RemotePlacementOptionsProvider {
+pub trait ProvisionedRemoteComputePlacementOptionsProvider {
     fn get_provider_placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteComputeError>>;
 }
 
-pub trait RemoteVolumeProvider {
+pub trait ProvisionedRemoteComputeVolumeProvider {
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeError>>;
 
     fn delete_volume<'a>(
         &'a self,
         params: DeleteVolumeParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>>;
 }
 
-pub trait RemoteProvisionerProvider {
+pub trait ProvisionedRemoteComputeProvisionerProvider {
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<
+        'a,
+        Result<ProvisionedRemoteComputeProvisionerSnapshot, ProvisionedRemoteComputeError>,
+    >;
 
     fn terminate_provisioner<'a>(
         &'a self,
         params: TerminateProvisionerParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>>;
 
     fn get_provisioner_status<'a>(
         &'a self,
         params: GetProvisionerStatusParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerStatus, RemoteWorkspaceError>>;
+    ) -> AppFuture<
+        'a,
+        Result<ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeError>,
+    >;
 }
 
-pub trait RemoteEndpointProvider {
+pub trait ProvisionedRemoteComputeEndpointProvider {
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeEndpointSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<
+        'a,
+        Result<ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeError>,
+    >;
 
     fn delete_endpoint<'a>(
         &'a self,
         params: DeleteEndpointParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>>;
 }
 
-pub trait RemoteWorkspaceProvider:
-    RemotePlacementOptionsProvider
-    + RemoteVolumeProvider
-    + RemoteProvisionerProvider
-    + RemoteEndpointProvider
+pub trait ProvisionedRemoteComputeProvider:
+    ProvisionedRemoteComputePlacementOptionsProvider
+    + ProvisionedRemoteComputeVolumeProvider
+    + ProvisionedRemoteComputeProvisionerProvider
+    + ProvisionedRemoteComputeEndpointProvider
     + Send
     + Sync
 {

@@ -6,7 +6,7 @@ use crate::{
         placement::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
         workspace::ProvisionedRemoteComputeVolumeSnapshot,
     },
-    remote_workspace::errors::RemoteWorkspaceError,
+    provisioned_remote_compute::errors::ProvisionedRemoteComputeError,
     secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService},
     shared::AppFuture,
 };
@@ -22,37 +22,37 @@ use super::mapping::{
 pub trait RunpodApi: Send + Sync {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteComputeError>>;
 
     fn create_network_volume<'a>(
         &'a self,
         request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeError>>;
 
     fn delete_network_volume<'a>(
         &'a self,
         volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>>;
 
     fn create_provisioner_pod<'a>(
         &'a self,
         request: CreateProvisionerPodRequest,
-    ) -> AppFuture<'a, Result<RunpodId, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RunpodId, ProvisionedRemoteComputeError>>;
 
     fn delete_provisioner_pod<'a>(
         &'a self,
         pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>>;
 
     fn create_endpoint<'a>(
         &'a self,
         request: CreateEndpointRequest,
-    ) -> AppFuture<'a, Result<RunpodEndpoint, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<RunpodEndpoint, ProvisionedRemoteComputeError>>;
 
     fn delete_endpoint_and_template<'a>(
         &'a self,
         endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +130,7 @@ where
         path: &str,
         body: &B,
         operation: RunpodOperation,
-    ) -> Result<T, RemoteWorkspaceError>
+    ) -> Result<T, ProvisionedRemoteComputeError>
     where
         B: Serialize + ?Sized,
         T: for<'de> Deserialize<'de>,
@@ -152,7 +152,7 @@ where
         &self,
         path: &str,
         operation: RunpodOperation,
-    ) -> Result<(), RemoteWorkspaceError> {
+    ) -> Result<(), ProvisionedRemoteComputeError> {
         let api_key = self.api_key().await?;
         let response = self
             .http
@@ -169,7 +169,7 @@ where
         &self,
         path: &str,
         operation: RunpodOperation,
-    ) -> Result<T, RemoteWorkspaceError>
+    ) -> Result<T, ProvisionedRemoteComputeError>
     where
         T: for<'de> Deserialize<'de>,
     {
@@ -185,7 +185,7 @@ where
         parse_json_response(response, operation).await
     }
 
-    async fn api_key(&self) -> Result<String, RemoteWorkspaceError> {
+    async fn api_key(&self) -> Result<String, ProvisionedRemoteComputeError> {
         self.secrets
             .retrieve()
             .await
@@ -201,7 +201,7 @@ where
 {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             let api_key = self.api_key().await?;
             let response = self
@@ -223,7 +223,8 @@ where
     fn create_network_volume<'a>(
         &'a self,
         request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeError>>
+    {
         Box::pin(async move {
             let response: NetworkVolumeResponse = self
                 .post_rest(
@@ -240,7 +241,7 @@ where
     fn delete_network_volume<'a>(
         &'a self,
         volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             self.delete_rest(
                 &format!("/networkvolumes/{volume_id}"),
@@ -253,7 +254,7 @@ where
     fn create_provisioner_pod<'a>(
         &'a self,
         request: CreateProvisionerPodRequest,
-    ) -> AppFuture<'a, Result<RunpodId, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<RunpodId, ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             let response: PodResponse = self
                 .post_rest(
@@ -270,7 +271,7 @@ where
     fn delete_provisioner_pod<'a>(
         &'a self,
         pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             self.delete_rest(
                 &format!("/pods/{pod_id}"),
@@ -283,7 +284,7 @@ where
     fn create_endpoint<'a>(
         &'a self,
         request: CreateEndpointRequest,
-    ) -> AppFuture<'a, Result<RunpodEndpoint, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<RunpodEndpoint, ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             let template_response: TemplateResponse = self
                 .post_rest(
@@ -312,7 +313,7 @@ where
     fn delete_endpoint_and_template<'a>(
         &'a self,
         endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             let response: EndpointResponse = self
                 .get_rest(

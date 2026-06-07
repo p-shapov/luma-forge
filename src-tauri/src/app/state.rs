@@ -1,5 +1,5 @@
 use crate::{
-    remote_workspace::service::RemoteWorkspaceService,
+    provisioned_remote_compute::service::ProvisionedRemoteComputeService,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,
@@ -19,7 +19,7 @@ pub type HuggingFaceSecretsService =
 pub struct AppState {
     pub workflow_catalog: WorkflowCatalogService,
     pub workspace_catalog: WorkspaceCatalogAppService,
-    pub remote_workspace: RemoteWorkspaceService,
+    pub provisioned_remote_compute: ProvisionedRemoteComputeService,
     pub runpod_secrets: RunpodSecretsService,
     pub hugging_face_secrets: HuggingFaceSecretsService,
 }

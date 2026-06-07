@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    remote_workspace::errors::RemoteWorkspaceError, secrets_storage::SecretsStorageError,
-    workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
+    provisioned_remote_compute::errors::ProvisionedRemoteComputeError,
+    secrets_storage::SecretsStorageError, workflow_catalog::WorkflowCatalogError,
+    workspace_catalog::WorkspaceCatalogError,
 };
 
 pub type CommandResult<T> = Result<T, NativeCommandError>;
@@ -72,36 +73,46 @@ impl From<SecretsStorageError> for NativeCommandError {
     }
 }
 
-impl From<RemoteWorkspaceError> for NativeCommandError {
-    fn from(error: RemoteWorkspaceError) -> Self {
+impl From<ProvisionedRemoteComputeError> for NativeCommandError {
+    fn from(error: ProvisionedRemoteComputeError) -> Self {
         match error {
-            RemoteWorkspaceError::SetupWorkspaceInvalidRequest { message } => Self::new(message),
-            RemoteWorkspaceError::ProviderUnavailable { .. } => {
+            ProvisionedRemoteComputeError::SetupWorkspaceInvalidRequest { message } => {
+                Self::new(message)
+            }
+            ProvisionedRemoteComputeError::ProviderUnavailable { .. } => {
                 Self::new("remote provider is unavailable")
             }
-            RemoteWorkspaceError::ProviderSecretUnavailable => {
+            ProvisionedRemoteComputeError::ProviderSecretUnavailable => {
                 Self::new("api key is not configured")
             }
-            RemoteWorkspaceError::ProvisioningAlreadyRunning { .. } => {
+            ProvisionedRemoteComputeError::ProvisioningAlreadyRunning { .. } => {
                 Self::new("workspace provisioning is already running")
             }
-            RemoteWorkspaceError::Provider(_) => Self::new("remote provider request failed"),
-            RemoteWorkspaceError::RemoteVolumeNotFound => Self::new("remote volume was not found"),
-            RemoteWorkspaceError::RemoteProvisionerNotFound => {
+            ProvisionedRemoteComputeError::Provider(_) => {
+                Self::new("remote provider request failed")
+            }
+            ProvisionedRemoteComputeError::RemoteVolumeNotFound => {
+                Self::new("remote volume was not found")
+            }
+            ProvisionedRemoteComputeError::RemoteProvisionerNotFound => {
                 Self::new("remote provisioner was not found")
             }
-            RemoteWorkspaceError::RemoteEndpointNotFound => {
+            ProvisionedRemoteComputeError::RemoteEndpointNotFound => {
                 Self::new("remote endpoint was not found")
             }
-            RemoteWorkspaceError::ProvisionerWorker(_) => {
+            ProvisionedRemoteComputeError::ProvisionerWorker(_) => {
                 Self::new("remote provisioner worker failed")
             }
-            RemoteWorkspaceError::ExecuteWorkspaceNotReady => Self::new("workspace is not ready"),
-            RemoteWorkspaceError::ExecuteWorkspaceMissingEndpoint => {
+            ProvisionedRemoteComputeError::ExecuteWorkspaceNotReady => {
+                Self::new("workspace is not ready")
+            }
+            ProvisionedRemoteComputeError::ExecuteWorkspaceMissingEndpoint => {
                 Self::new("workspace endpoint is missing")
             }
-            RemoteWorkspaceError::ExecuteWorkspaceNotImplemented { message } => Self::new(message),
-            RemoteWorkspaceError::DeleteWorkspaceFailed { message } => Self::new(message),
+            ProvisionedRemoteComputeError::ExecuteWorkspaceNotImplemented { message } => {
+                Self::new(message)
+            }
+            ProvisionedRemoteComputeError::DeleteWorkspaceFailed { message } => Self::new(message),
         }
     }
 }

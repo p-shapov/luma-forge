@@ -3,7 +3,7 @@ use tauri_specta::{collect_commands, Builder};
 pub mod app;
 pub mod commands;
 pub mod domain;
-pub mod remote_workspace;
+pub mod provisioned_remote_compute;
 pub mod secrets_storage;
 pub mod shared;
 pub mod workflow_catalog;

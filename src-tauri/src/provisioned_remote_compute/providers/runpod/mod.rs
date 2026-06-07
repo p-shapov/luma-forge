@@ -14,12 +14,13 @@ use crate::{
             ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeVolumeSnapshot,
         },
     },
-    remote_workspace::{
-        errors::RemoteWorkspaceError,
+    provisioned_remote_compute::{
+        errors::ProvisionedRemoteComputeError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, RemoteEndpointProvider, RemotePlacementOptionsProvider,
-            RemoteProvisionerProvider, RemoteVolumeProvider, RemoteWorkspaceProvider,
+            GetProvisionerStatusParams, ProvisionedRemoteComputeEndpointProvider,
+            ProvisionedRemoteComputePlacementOptionsProvider, ProvisionedRemoteComputeProvider,
+            ProvisionedRemoteComputeProvisionerProvider, ProvisionedRemoteComputeVolumeProvider,
             StartProvisionerParams, TerminateProvisionerParams,
         },
     },
@@ -41,14 +42,14 @@ use self::{
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
 
-pub struct RunpodRemoteWorkspaceProvider<RS, RI, HS, HI> {
+pub struct RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI> {
     api: Arc<dyn RunpodApi>,
     provisioner_worker: Arc<dyn ProvisionerWorkerApi>,
     runpod_secrets: Arc<SecretsStorageService<RS, RI>>,
     hugging_face_secrets: SecretsStorageService<HS, HI>,
 }
 
-impl<RS, RI, HS, HI> RunpodRemoteWorkspaceProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore + 'static,
     RI: ApiKeyIdentityProvider + 'static,
@@ -103,8 +104,8 @@ where
     }
 }
 
-impl<RS, RI, HS, HI> RemotePlacementOptionsProvider
-    for RunpodRemoteWorkspaceProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> ProvisionedRemoteComputePlacementOptionsProvider
+    for RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
@@ -113,7 +114,7 @@ where
 {
     fn get_provider_placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             let mut options = self.api.placement_options().await?;
             options.max_persistent_storage_volume_size_bytes = Some(NETWORK_VOLUME_MAX_SIZE_BYTES);
@@ -122,7 +123,8 @@ where
     }
 }
 
-impl<RS, RI, HS, HI> RemoteVolumeProvider for RunpodRemoteWorkspaceProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> ProvisionedRemoteComputeVolumeProvider
+    for RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
@@ -132,7 +134,8 @@ where
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeError>>
+    {
         Box::pin(async move {
             self.api
                 .create_network_volume(CreateNetworkVolumeRequest {
@@ -147,12 +150,13 @@ where
     fn delete_volume<'a>(
         &'a self,
         params: DeleteVolumeParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
         Box::pin(async move { self.api.delete_network_volume(&params.volume_id).await })
     }
 }
 
-impl<RS, RI, HS, HI> RemoteProvisionerProvider for RunpodRemoteWorkspaceProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> ProvisionedRemoteComputeProvisionerProvider
+    for RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
@@ -162,8 +166,10 @@ where
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerSnapshot, RemoteWorkspaceError>>
-    {
+    ) -> AppFuture<
+        'a,
+        Result<ProvisionedRemoteComputeProvisionerSnapshot, ProvisionedRemoteComputeError>,
+    > {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -205,7 +211,7 @@ where
     fn terminate_provisioner<'a>(
         &'a self,
         params: TerminateProvisionerParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             self.api
                 .delete_provisioner_pod(&params.provisioner_id)
@@ -216,8 +222,10 @@ where
     fn get_provisioner_status<'a>(
         &'a self,
         params: GetProvisionerStatusParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerStatus, RemoteWorkspaceError>>
-    {
+    ) -> AppFuture<
+        'a,
+        Result<ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeError>,
+    > {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -228,12 +236,13 @@ where
             self.provisioner_worker
                 .get_status(&params.status_url, &bearer_token)
                 .await
-                .map_err(RemoteWorkspaceError::ProvisionerWorker)
+                .map_err(ProvisionedRemoteComputeError::ProvisionerWorker)
         })
     }
 }
 
-impl<RS, RI, HS, HI> RemoteEndpointProvider for RunpodRemoteWorkspaceProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> ProvisionedRemoteComputeEndpointProvider
+    for RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
@@ -243,7 +252,10 @@ where
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeEndpointSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<
+        'a,
+        Result<ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeError>,
+    > {
         Box::pin(async move {
             let endpoint = self
                 .api
@@ -277,7 +289,7 @@ where
     fn delete_endpoint<'a>(
         &'a self,
         params: DeleteEndpointParams,
-    ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
         Box::pin(async move {
             self.api
                 .delete_endpoint_and_template(&params.endpoint_id)
@@ -286,7 +298,8 @@ where
     }
 }
 
-impl<RS, RI, HS, HI> RemoteWorkspaceProvider for RunpodRemoteWorkspaceProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> ProvisionedRemoteComputeProvider
+    for RunpodProvisionedRemoteComputeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
@@ -302,9 +315,11 @@ fn provisioner_status_url(pod_id: &str) -> String {
     format!("https://{pod_id}-{PROVISIONER_PORT}.proxy.runpod.net/status")
 }
 
-fn map_secret_error(error: SecretsStorageError) -> RemoteWorkspaceError {
+fn map_secret_error(error: SecretsStorageError) -> ProvisionedRemoteComputeError {
     match error {
-        SecretsStorageError::KeyNotFound => RemoteWorkspaceError::ProviderSecretUnavailable,
+        SecretsStorageError::KeyNotFound => {
+            ProvisionedRemoteComputeError::ProviderSecretUnavailable
+        }
         _ => ProviderApiError::RequestFailed {
             message: "required provider secret is unavailable".to_string(),
         }
@@ -349,7 +364,7 @@ mod tests {
     impl RunpodApi for FakeApi {
         fn placement_options<'a>(
             &'a self,
-        ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteComputeError>> {
             Box::pin(async {
                 Ok(RemotePlacementOptions {
                     max_persistent_storage_volume_size_bytes: None,
@@ -370,8 +385,10 @@ mod tests {
         fn create_network_volume<'a>(
             &'a self,
             request: CreateNetworkVolumeRequest,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<
+            'a,
+            Result<ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeError>,
+        > {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -387,14 +404,14 @@ mod tests {
         fn delete_network_volume<'a>(
             &'a self,
             _volume_id: &'a str,
-        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn create_provisioner_pod<'a>(
             &'a self,
             request: CreateProvisionerPodRequest,
-        ) -> AppFuture<'a, Result<RunpodId, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RunpodId, ProvisionedRemoteComputeError>> {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -410,14 +427,14 @@ mod tests {
         fn delete_provisioner_pod<'a>(
             &'a self,
             _pod_id: &'a str,
-        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn create_endpoint<'a>(
             &'a self,
             request: CreateEndpointRequest,
-        ) -> AppFuture<'a, Result<RunpodEndpoint, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RunpodEndpoint, ProvisionedRemoteComputeError>> {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -435,7 +452,7 @@ mod tests {
         fn delete_endpoint_and_template<'a>(
             &'a self,
             endpoint_id: &'a str,
-        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -553,7 +570,7 @@ mod tests {
     fn provider(
         api_state: Arc<Mutex<ApiState>>,
         worker_state: Arc<Mutex<WorkerState>>,
-    ) -> RunpodRemoteWorkspaceProvider<
+    ) -> RunpodProvisionedRemoteComputeProvider<
         FakeStore,
         FakeIdentityProvider,
         FakeStore,
@@ -564,7 +581,7 @@ mod tests {
         let hugging_face_store = FakeStore::default();
         hugging_face_store.insert(SecretKey::HuggingFaceApiKey, "hf-secret");
 
-        RunpodRemoteWorkspaceProvider::with_clients(
+        RunpodProvisionedRemoteComputeProvider::with_clients(
             Arc::new(FakeApi { state: api_state }),
             Arc::new(FakeWorker {
                 state: worker_state,
@@ -687,7 +704,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(RemoteWorkspaceError::ProvisionerWorker(
+            Err(ProvisionedRemoteComputeError::ProvisionerWorker(
                 ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized
             ))
         );

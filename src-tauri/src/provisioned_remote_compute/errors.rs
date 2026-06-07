@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteWorkspaceError {
+pub enum ProvisionedRemoteComputeError {
     SetupWorkspaceInvalidRequest { message: String },
     ProviderUnavailable { provider_id: GpuCloudProviderId },
     ProviderSecretUnavailable,
@@ -22,19 +22,19 @@ pub enum RemoteWorkspaceError {
     DeleteWorkspaceFailed { message: String },
 }
 
-impl From<ProviderApiError> for RemoteWorkspaceError {
+impl From<ProviderApiError> for ProvisionedRemoteComputeError {
     fn from(error: ProviderApiError) -> Self {
         Self::Provider(error)
     }
 }
 
-impl From<RemoteWorkspaceError> for ProvisionedRemoteComputeProvisioningError {
-    fn from(error: RemoteWorkspaceError) -> Self {
+impl From<ProvisionedRemoteComputeError> for ProvisionedRemoteComputeProvisioningError {
+    fn from(error: ProvisionedRemoteComputeError) -> Self {
         match error {
-            RemoteWorkspaceError::Provider(error) => {
+            ProvisionedRemoteComputeError::Provider(error) => {
                 ProvisionedRemoteComputeProvisioningError::Provider(error)
             }
-            RemoteWorkspaceError::ProvisionerWorker(error) => error,
+            ProvisionedRemoteComputeError::ProvisionerWorker(error) => error,
             error => ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
                 message: format!("{error:?}"),
             },

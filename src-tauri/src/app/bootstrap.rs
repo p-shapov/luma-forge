@@ -4,9 +4,10 @@ use tauri::{AppHandle, Manager};
 
 use crate::{
     commands::NativeCommandError,
-    remote_workspace::{
-        providers::runpod::RunpodRemoteWorkspaceProvider,
-        registry::RemoteWorkspaceProviderRegistry, service::RemoteWorkspaceService,
+    provisioned_remote_compute::{
+        providers::runpod::RunpodProvisionedRemoteComputeProvider,
+        registry::ProvisionedRemoteComputeProviderRegistry,
+        service::ProvisionedRemoteComputeService,
     },
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
@@ -43,15 +44,19 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let provider_runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let provider_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
 
-    let runpod_provider =
-        RunpodRemoteWorkspaceProvider::new(provider_runpod_secrets, provider_hugging_face_secrets);
-    let provider_registry = RemoteWorkspaceProviderRegistry::new(vec![Box::new(runpod_provider)]);
-    let remote_workspace = RemoteWorkspaceService::new(provider_registry, workflow_catalog.clone());
+    let runpod_provider = RunpodProvisionedRemoteComputeProvider::new(
+        provider_runpod_secrets,
+        provider_hugging_face_secrets,
+    );
+    let provider_registry =
+        ProvisionedRemoteComputeProviderRegistry::new(vec![Box::new(runpod_provider)]);
+    let provisioned_remote_compute =
+        ProvisionedRemoteComputeService::new(provider_registry, workflow_catalog.clone());
 
     Ok(AppState {
         workflow_catalog,
         workspace_catalog,
-        remote_workspace,
+        provisioned_remote_compute,
         runpod_secrets,
         hugging_face_secrets,
     })

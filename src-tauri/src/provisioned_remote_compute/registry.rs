@@ -1,17 +1,17 @@
 use crate::domain::provider::GpuCloudProviderId;
 
-use super::{errors::RemoteWorkspaceError, provider::RemoteWorkspaceProvider};
+use super::{errors::ProvisionedRemoteComputeError, provider::ProvisionedRemoteComputeProvider};
 
-pub struct RemoteWorkspaceProviderRegistry {
-    providers: Vec<Box<dyn RemoteWorkspaceProvider>>,
+pub struct ProvisionedRemoteComputeProviderRegistry {
+    providers: Vec<Box<dyn ProvisionedRemoteComputeProvider>>,
 }
 
-impl RemoteWorkspaceProviderRegistry {
-    pub fn new(providers: Vec<Box<dyn RemoteWorkspaceProvider>>) -> Self {
+impl ProvisionedRemoteComputeProviderRegistry {
+    pub fn new(providers: Vec<Box<dyn ProvisionedRemoteComputeProvider>>) -> Self {
         Self { providers }
     }
 
-    pub fn with_provider(provider: Box<dyn RemoteWorkspaceProvider>) -> Self {
+    pub fn with_provider(provider: Box<dyn ProvisionedRemoteComputeProvider>) -> Self {
         Self {
             providers: vec![provider],
         }
@@ -26,12 +26,12 @@ impl RemoteWorkspaceProviderRegistry {
     pub fn for_provider(
         &self,
         provider_id: GpuCloudProviderId,
-    ) -> Result<&dyn RemoteWorkspaceProvider, RemoteWorkspaceError> {
+    ) -> Result<&dyn ProvisionedRemoteComputeProvider, ProvisionedRemoteComputeError> {
         self.providers
             .iter()
             .find(|provider| provider.provider_id() == provider_id)
             .map(|provider| provider.as_ref())
-            .ok_or(RemoteWorkspaceError::ProviderUnavailable { provider_id })
+            .ok_or(ProvisionedRemoteComputeError::ProviderUnavailable { provider_id })
     }
 }
 
@@ -49,15 +49,16 @@ mod tests {
     };
 
     use super::*;
-    use crate::remote_workspace::{
-        errors::RemoteWorkspaceError,
+    use crate::provisioned_remote_compute::{
+        errors::ProvisionedRemoteComputeError,
         provider::{
             CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, RemoteEndpointProvider, RemotePlacementOptionsProvider,
-            RemoteProvisionerProvider, RemoteVolumeProvider, StartProvisionerParams,
-            TerminateProvisionerParams,
+            GetProvisionerStatusParams, ProvisionedRemoteComputeEndpointProvider,
+            ProvisionedRemoteComputePlacementOptionsProvider,
+            ProvisionedRemoteComputeProvisionerProvider, ProvisionedRemoteComputeVolumeProvider,
+            StartProvisionerParams, TerminateProvisionerParams,
         },
-        providers::runpod::RunpodRemoteWorkspaceProvider,
+        providers::runpod::RunpodProvisionedRemoteComputeProvider,
     };
     use crate::secrets_storage::{
         ApiKeyIdentityProvider, ApiSecret, SecretKey, SecretStore, SecretsStorageError,
@@ -70,10 +71,10 @@ mod tests {
         provider_id: GpuCloudProviderId,
     }
 
-    impl RemotePlacementOptionsProvider for FakeProvider {
+    impl ProvisionedRemoteComputePlacementOptionsProvider for FakeProvider {
         fn get_provider_placement_options<'a>(
             &'a self,
-        ) -> AppFuture<'a, Result<RemotePlacementOptions, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteComputeError>> {
             Box::pin(async {
                 Ok(RemotePlacementOptions {
                     max_persistent_storage_volume_size_bytes: Some(10),
@@ -92,12 +93,14 @@ mod tests {
         }
     }
 
-    impl RemoteVolumeProvider for FakeProvider {
+    impl ProvisionedRemoteComputeVolumeProvider for FakeProvider {
         fn create_volume<'a>(
             &'a self,
             _params: CreateVolumeParams,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<
+            'a,
+            Result<ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeError>,
+        > {
             Box::pin(async {
                 Ok(ProvisionedRemoteComputeVolumeSnapshot {
                     id: "volume".to_string(),
@@ -108,17 +111,19 @@ mod tests {
         fn delete_volume<'a>(
             &'a self,
             _params: DeleteVolumeParams,
-        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
             Box::pin(async { Ok(()) })
         }
     }
 
-    impl RemoteProvisionerProvider for FakeProvider {
+    impl ProvisionedRemoteComputeProvisionerProvider for FakeProvider {
         fn start_provisioner<'a>(
             &'a self,
             _params: StartProvisionerParams,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerSnapshot, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<
+            'a,
+            Result<ProvisionedRemoteComputeProvisionerSnapshot, ProvisionedRemoteComputeError>,
+        > {
             Box::pin(async {
                 Ok(ProvisionedRemoteComputeProvisionerSnapshot {
                     id: "provisioner".to_string(),
@@ -130,25 +135,29 @@ mod tests {
         fn terminate_provisioner<'a>(
             &'a self,
             _params: TerminateProvisionerParams,
-        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn get_provisioner_status<'a>(
             &'a self,
             _params: GetProvisionerStatusParams,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerStatus, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<
+            'a,
+            Result<ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeError>,
+        > {
             Box::pin(async { Ok(ProvisionedRemoteComputeProvisionerStatus::Pending) })
         }
     }
 
-    impl RemoteEndpointProvider for FakeProvider {
+    impl ProvisionedRemoteComputeEndpointProvider for FakeProvider {
         fn create_endpoint<'a>(
             &'a self,
             _params: CreateEndpointParams,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeEndpointSnapshot, RemoteWorkspaceError>>
-        {
+        ) -> AppFuture<
+            'a,
+            Result<ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeError>,
+        > {
             Box::pin(async {
                 Ok(ProvisionedRemoteComputeEndpointSnapshot {
                     id: "endpoint".to_string(),
@@ -160,12 +169,12 @@ mod tests {
         fn delete_endpoint<'a>(
             &'a self,
             _params: DeleteEndpointParams,
-        ) -> AppFuture<'a, Result<(), RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteComputeError>> {
             Box::pin(async { Ok(()) })
         }
     }
 
-    impl RemoteWorkspaceProvider for FakeProvider {
+    impl ProvisionedRemoteComputeProvider for FakeProvider {
         fn provider_id(&self) -> GpuCloudProviderId {
             self.provider_id
         }
@@ -173,9 +182,10 @@ mod tests {
 
     #[test]
     fn lookup_returns_registered_provider() {
-        let registry = RemoteWorkspaceProviderRegistry::new(vec![Box::new(FakeProvider {
-            provider_id: GpuCloudProviderId::Runpod,
-        })]);
+        let registry =
+            ProvisionedRemoteComputeProviderRegistry::new(vec![Box::new(FakeProvider {
+                provider_id: GpuCloudProviderId::Runpod,
+            })]);
 
         let provider = registry
             .for_provider(GpuCloudProviderId::Runpod)
@@ -187,8 +197,8 @@ mod tests {
     #[test]
     fn with_provider_resolves_runpod_provider() {
         let store = FakeSecretStore::default();
-        let registry = RemoteWorkspaceProviderRegistry::with_provider(Box::new(
-            RunpodRemoteWorkspaceProvider::new(
+        let registry = ProvisionedRemoteComputeProviderRegistry::with_provider(Box::new(
+            RunpodProvisionedRemoteComputeProvider::new(
                 SecretsStorageService::new(
                     store.clone(),
                     FakeIdentityProvider,
@@ -210,8 +220,8 @@ mod tests {
     }
 
     #[test]
-    fn missing_provider_returns_explicit_error() {
-        let registry = RemoteWorkspaceProviderRegistry::empty();
+    fn missing_provisioned_remote_compute_provider_returns_explicit_error() {
+        let registry = ProvisionedRemoteComputeProviderRegistry::empty();
 
         let error = match registry.for_provider(GpuCloudProviderId::Runpod) {
             Ok(provider) => panic!(
@@ -223,7 +233,7 @@ mod tests {
 
         assert_eq!(
             error,
-            RemoteWorkspaceError::ProviderUnavailable {
+            ProvisionedRemoteComputeError::ProviderUnavailable {
                 provider_id: GpuCloudProviderId::Runpod
             }
         );

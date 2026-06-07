@@ -8,7 +8,7 @@ use crate::{
         },
         provider::ProviderApiError,
     },
-    remote_workspace::errors::RemoteWorkspaceError,
+    provisioned_remote_compute::errors::ProvisionedRemoteComputeError,
     secrets_storage::SecretsStorageError,
 };
 
@@ -33,8 +33,8 @@ const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
   }
 }"#;
 
-pub fn not_implemented(operation: &str) -> RemoteWorkspaceError {
-    RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
+pub fn not_implemented(operation: &str) -> ProvisionedRemoteComputeError {
+    ProvisionedRemoteComputeError::Provider(ProviderApiError::RequestFailed {
         message: format!("RunPod provider operation is not implemented: {operation}"),
     })
 }
@@ -267,7 +267,7 @@ pub(super) fn endpoint_create_body(
 pub(super) async fn parse_json_response<T>(
     response: reqwest::Response,
     operation: RunpodOperation,
-) -> Result<T, RemoteWorkspaceError>
+) -> Result<T, ProvisionedRemoteComputeError>
 where
     T: for<'de> Deserialize<'de>,
 {
@@ -281,7 +281,7 @@ where
 pub(super) fn map_empty_response(
     status: StatusCode,
     operation: RunpodOperation,
-) -> Result<(), RemoteWorkspaceError> {
+) -> Result<(), ProvisionedRemoteComputeError> {
     if status.is_success() {
         return Ok(());
     }
@@ -289,30 +289,35 @@ pub(super) fn map_empty_response(
     Err(map_status_error(status, operation))
 }
 
-fn map_status_error(status: StatusCode, operation: RunpodOperation) -> RemoteWorkspaceError {
+fn map_status_error(
+    status: StatusCode,
+    operation: RunpodOperation,
+) -> ProvisionedRemoteComputeError {
     match status {
         StatusCode::UNAUTHORIZED => ProviderApiError::Unauthorized.into(),
         StatusCode::FORBIDDEN => ProviderApiError::InsufficientPermissions.into(),
         StatusCode::TOO_MANY_REQUESTS => ProviderApiError::RateLimited.into(),
         StatusCode::NOT_FOUND => match operation {
-            RunpodOperation::DeleteNetworkVolume => RemoteWorkspaceError::RemoteVolumeNotFound,
+            RunpodOperation::DeleteNetworkVolume => {
+                ProvisionedRemoteComputeError::RemoteVolumeNotFound
+            }
             RunpodOperation::DeleteProvisionerPod => {
-                RemoteWorkspaceError::RemoteProvisionerNotFound
+                ProvisionedRemoteComputeError::RemoteProvisionerNotFound
             }
             RunpodOperation::DeleteEndpoint
             | RunpodOperation::DeleteTemplate
-            | RunpodOperation::GetEndpoint => RemoteWorkspaceError::RemoteEndpointNotFound,
+            | RunpodOperation::GetEndpoint => ProvisionedRemoteComputeError::RemoteEndpointNotFound,
             _ => provider_request_failed(),
         },
         _ => provider_request_failed(),
     }
 }
 
-pub(super) fn map_send_error(error: reqwest::Error) -> RemoteWorkspaceError {
+pub(super) fn map_send_error(error: reqwest::Error) -> ProvisionedRemoteComputeError {
     map_transport_error(error.is_timeout())
 }
 
-fn map_transport_error(is_timeout: bool) -> RemoteWorkspaceError {
+fn map_transport_error(is_timeout: bool) -> ProvisionedRemoteComputeError {
     if is_timeout {
         ProviderApiError::Timeout.into()
     } else {
@@ -320,16 +325,18 @@ fn map_transport_error(is_timeout: bool) -> RemoteWorkspaceError {
     }
 }
 
-fn provider_request_failed() -> RemoteWorkspaceError {
+fn provider_request_failed() -> ProvisionedRemoteComputeError {
     ProviderApiError::RequestFailed {
         message: "provider request failed".to_string(),
     }
     .into()
 }
 
-pub(super) fn map_secret_error(error: SecretsStorageError) -> RemoteWorkspaceError {
+pub(super) fn map_secret_error(error: SecretsStorageError) -> ProvisionedRemoteComputeError {
     match error {
-        SecretsStorageError::KeyNotFound => RemoteWorkspaceError::ProviderSecretUnavailable,
+        SecretsStorageError::KeyNotFound => {
+            ProvisionedRemoteComputeError::ProviderSecretUnavailable
+        }
         _ => ProviderApiError::RequestFailed {
             message: "required provider secret is unavailable".to_string(),
         }
@@ -339,7 +346,7 @@ pub(super) fn map_secret_error(error: SecretsStorageError) -> RemoteWorkspaceErr
 
 pub(super) fn map_placement_response(
     response: GraphqlResponse<PlacementQueryData>,
-) -> Result<RemotePlacementOptions, RemoteWorkspaceError> {
+) -> Result<RemotePlacementOptions, ProvisionedRemoteComputeError> {
     if !response.errors.is_empty() {
         return Err(provider_request_failed());
     }
@@ -523,57 +530,57 @@ mod tests {
     fn maps_ui_safe_http_and_transport_errors() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED, RunpodOperation::CreateEndpoint),
-            RemoteWorkspaceError::Provider(ProviderApiError::Unauthorized)
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::Unauthorized)
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN, RunpodOperation::CreateEndpoint),
-            RemoteWorkspaceError::Provider(ProviderApiError::InsufficientPermissions)
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::InsufficientPermissions)
         );
         assert_eq!(
             map_status_error(
                 StatusCode::TOO_MANY_REQUESTS,
                 RunpodOperation::CreateEndpoint
             ),
-            RemoteWorkspaceError::Provider(ProviderApiError::RateLimited)
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::RateLimited)
         );
         assert_eq!(
             map_transport_error(true),
-            RemoteWorkspaceError::Provider(ProviderApiError::Timeout)
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::Timeout)
         );
         assert_eq!(
             map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteNetworkVolume),
-            RemoteWorkspaceError::RemoteVolumeNotFound
+            ProvisionedRemoteComputeError::RemoteVolumeNotFound
         );
         assert_eq!(
             map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteProvisionerPod),
-            RemoteWorkspaceError::RemoteProvisionerNotFound
+            ProvisionedRemoteComputeError::RemoteProvisionerNotFound
         );
         assert_eq!(
             map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteEndpoint),
-            RemoteWorkspaceError::RemoteEndpointNotFound
+            ProvisionedRemoteComputeError::RemoteEndpointNotFound
         );
         assert_eq!(
             map_status_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 RunpodOperation::CreateEndpoint
             ),
-            RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::RequestFailed {
                 message: "provider request failed".to_string()
             })
         );
         assert_eq!(
             map_transport_error(false),
-            RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::RequestFailed {
                 message: "provider request failed".to_string()
             })
         );
         assert_eq!(
             map_secret_error(SecretsStorageError::KeyNotFound),
-            RemoteWorkspaceError::ProviderSecretUnavailable
+            ProvisionedRemoteComputeError::ProviderSecretUnavailable
         );
         assert_eq!(
             map_secret_error(SecretsStorageError::StoreUnavailable),
-            RemoteWorkspaceError::Provider(ProviderApiError::RequestFailed {
+            ProvisionedRemoteComputeError::Provider(ProviderApiError::RequestFailed {
                 message: "required provider secret is unavailable".to_string()
             })
         );

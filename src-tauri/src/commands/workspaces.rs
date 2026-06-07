@@ -8,7 +8,7 @@ use crate::{
         CommandResult, NativeCommandError,
     },
     domain::placement::RemotePlacementPlan,
-    remote_workspace::service::SetupWorkspaceRequest,
+    provisioned_remote_compute::service::SetupProvisionedRemoteComputeWorkspaceRequest,
 };
 
 const WORKSPACE_ID_RETRIES: usize = 3;
@@ -28,13 +28,13 @@ pub async fn create_workspace(
     let remote_placement: RemotePlacementPlan = request.remote_placement.into();
 
     for _ in 0..WORKSPACE_ID_RETRIES {
-        let workspace = state
-            .remote_workspace
-            .setup_workspace(SetupWorkspaceRequest {
+        let workspace = state.provisioned_remote_compute.setup_workspace(
+            SetupProvisionedRemoteComputeWorkspaceRequest {
                 workspace_id: Uuid::new_v4().to_string(),
                 workflow_preset: workflow_preset.clone(),
                 remote_placement: remote_placement.clone(),
-            })?;
+            },
+        )?;
 
         match state.workspace_catalog.insert_workspace(&workspace).await {
             Ok(workspace) => return Ok(workspace.into()),
@@ -56,7 +56,7 @@ pub async fn provision_workspace(
 ) -> CommandResult<WorkspaceResponse> {
     let workspace = load_workspace(&state, &request.workspace_id).await?;
     let workspace = state
-        .remote_workspace
+        .provisioned_remote_compute
         .provision_workspace(&workspace)
         .await?;
     let workspace = state.workspace_catalog.update_workspace(&workspace).await?;
@@ -71,7 +71,9 @@ pub async fn cancel_workspace_provisioning(
     request: WorkspaceIdRequest,
 ) -> CommandResult<WorkspaceResponse> {
     let workspace = load_workspace(&state, &request.workspace_id).await?;
-    let workspace = state.remote_workspace.cancel_workspace(&workspace)?;
+    let workspace = state
+        .provisioned_remote_compute
+        .cancel_workspace(&workspace)?;
     let workspace = state.workspace_catalog.update_workspace(&workspace).await?;
 
     Ok(workspace.into())
@@ -84,7 +86,10 @@ pub async fn cleanup_workspace(
     request: WorkspaceIdRequest,
 ) -> CommandResult<WorkspaceResponse> {
     let workspace = load_workspace(&state, &request.workspace_id).await?;
-    let workspace = state.remote_workspace.cleanup_workspace(&workspace).await?;
+    let workspace = state
+        .provisioned_remote_compute
+        .cleanup_workspace(&workspace)
+        .await?;
     let workspace = state.workspace_catalog.update_workspace(&workspace).await?;
 
     Ok(workspace.into())

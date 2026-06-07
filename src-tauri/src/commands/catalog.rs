@@ -27,7 +27,7 @@ pub async fn get_provider_placement_options(
     request: GetProviderPlacementOptionsRequest,
 ) -> CommandResult<RemotePlacementOptionsResponse> {
     let options = state
-        .remote_workspace
+        .provisioned_remote_compute
         .get_provider_placement_options(request.provider_id.into())
         .await?;
 
