@@ -11,6 +11,12 @@ impl RemoteWorkspaceProviderRegistry {
         Self { providers }
     }
 
+    pub fn with_provider(provider: Box<dyn RemoteWorkspaceProvider>) -> Self {
+        Self {
+            providers: vec![provider],
+        }
+    }
+
     pub fn empty() -> Self {
         Self {
             providers: Vec::new(),
@@ -51,8 +57,14 @@ mod tests {
             RemoteProvisionerProvider, RemoteVolumeProvider, StartProvisionerParams,
             TerminateProvisionerParams,
         },
+        providers::runpod::RunpodRemoteWorkspaceProvider,
+    };
+    use crate::secrets_storage::{
+        ApiKeyIdentityProvider, ApiSecret, SecretKey, SecretStore, SecretsStorageError,
+        SecretsStorageService,
     };
     use crate::shared::AppFuture;
+    use std::{collections::HashMap, sync::Arc};
 
     struct FakeProvider {
         provider_id: GpuCloudProviderId,
@@ -169,6 +181,31 @@ mod tests {
     }
 
     #[test]
+    fn with_provider_resolves_runpod_provider() {
+        let store = FakeSecretStore::default();
+        let registry = RemoteWorkspaceProviderRegistry::with_provider(Box::new(
+            RunpodRemoteWorkspaceProvider::new(
+                SecretsStorageService::new(
+                    store.clone(),
+                    FakeIdentityProvider,
+                    SecretKey::RunpodApiKey,
+                ),
+                SecretsStorageService::new(
+                    store,
+                    FakeIdentityProvider,
+                    SecretKey::HuggingFaceApiKey,
+                ),
+            ),
+        ));
+
+        let provider = registry
+            .for_provider(GpuCloudProviderId::Runpod)
+            .expect("runpod provider should resolve");
+
+        assert_eq!(provider.provider_id(), GpuCloudProviderId::Runpod);
+    }
+
+    #[test]
     fn missing_provider_returns_explicit_error() {
         let registry = RemoteWorkspaceProviderRegistry::empty();
 
@@ -186,5 +223,54 @@ mod tests {
                 provider_id: GpuCloudProviderId::Runpod
             }
         );
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeSecretStore {
+        secrets: Arc<HashMap<SecretKey, ApiSecret>>,
+    }
+
+    impl SecretStore for FakeSecretStore {
+        fn has<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<bool, SecretsStorageError>> {
+            Box::pin(async move { Ok(self.secrets.contains_key(&key)) })
+        }
+
+        fn write<'a>(
+            &'a self,
+            _key: SecretKey,
+            _secret: ApiSecret,
+        ) -> AppFuture<'a, Result<(), SecretsStorageError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn delete<'a>(&'a self, _key: SecretKey) -> AppFuture<'a, Result<(), SecretsStorageError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn read<'a>(
+            &'a self,
+            key: SecretKey,
+        ) -> AppFuture<'a, Result<Option<ApiSecret>, SecretsStorageError>> {
+            Box::pin(async move { Ok(self.secrets.get(&key).cloned()) })
+        }
+    }
+
+    #[derive(Clone)]
+    struct FakeIdentityProvider;
+
+    impl ApiKeyIdentityProvider for FakeIdentityProvider {
+        fn identity<'a>(
+            &'a self,
+            _secret: &'a ApiSecret,
+        ) -> AppFuture<'a, Result<crate::domain::secrets::ApiKeyIdentity, SecretsStorageError>>
+        {
+            Box::pin(async {
+                Ok(crate::domain::secrets::ApiKeyIdentity {
+                    email: None,
+                    username: None,
+                    key_display_name: None,
+                })
+            })
+        }
     }
 }

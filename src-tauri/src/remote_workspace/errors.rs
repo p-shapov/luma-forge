@@ -14,6 +14,7 @@ pub enum RemoteWorkspaceError {
     RemoteVolumeNotFound,
     RemoteProvisionerNotFound,
     RemoteEndpointNotFound,
+    ProvisionerWorker(RemoteProvisioningError),
     ExecuteWorkspaceNotReady,
     ExecuteWorkspaceMissingEndpoint,
     ExecuteWorkspaceNotImplemented { message: String },
@@ -30,6 +31,7 @@ impl From<RemoteWorkspaceError> for RemoteProvisioningError {
     fn from(error: RemoteWorkspaceError) -> Self {
         match error {
             RemoteWorkspaceError::Provider(error) => RemoteProvisioningError::Provider(error),
+            RemoteWorkspaceError::ProvisionerWorker(error) => error,
             error => RemoteProvisioningError::InvalidProvisioningState {
                 message: format!("{error:?}"),
             },

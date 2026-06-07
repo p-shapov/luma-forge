@@ -14,7 +14,6 @@
 
 - Modify `src-tauri/README.md`: update the provider path only.
 - Modify `src-tauri/Cargo.toml`: add `hmac`, `sha2`, and `hex`.
-- Modify `src-tauri/src/secrets_storage/store.rs`: add `SecretKey::ProvisionerTokenSecret`.
 - Modify `src-tauri/src/secrets_storage/service.rs`: add `hmac_sha256_hex`.
 - Modify `src-tauri/src/remote_workspace/provider.rs`: add `requires_hugging_face_api_key` to `StartProvisionerParams`.
 - Modify `src-tauri/src/remote_workspace/service.rs`: pass the workflow preset HF flag and preserve provisioner worker errors in `RemoteProvisioningStatus::Failed`.
@@ -35,7 +34,6 @@ No files are created under `src-tauri/src/generated`. No `generate:runpod` comma
 
 **Files:**
 - Modify: `src-tauri/Cargo.toml`
-- Modify: `src-tauri/src/secrets_storage/store.rs`
 - Modify: `src-tauri/src/secrets_storage/service.rs`
 
 - [ ] **Step 1: Add HMAC dependencies**
@@ -48,25 +46,7 @@ hmac = "0.12"
 sha2 = "0.10"
 ```
 
-- [ ] **Step 2: Add failing secret key serialization test**
-
-In `src-tauri/src/secrets_storage/store.rs`, extend `SecretKey`:
-
-```rust
-#[serde(rename = "provisioner-token")]
-ProvisionerTokenSecret,
-```
-
-Then add this assertion to `secret_key_serializes_as_storage_account_identifier`:
-
-```rust
-assert_eq!(
-    serde_json::to_string(&SecretKey::ProvisionerTokenSecret).expect("secret key json"),
-    "\"provisioner-token\""
-);
-```
-
-- [ ] **Step 3: Add failing HMAC tests**
+- [ ] **Step 2: Add failing HMAC tests**
 
 In `src-tauri/src/secrets_storage/service.rs`, add tests:
 
@@ -74,12 +54,12 @@ In `src-tauri/src/secrets_storage/service.rs`, add tests:
 #[tokio::test]
 async fn hmac_sha256_hex_returns_lowercase_hex_digest() {
     let store = FakeStore::default();
-    store.insert(SecretKey::ProvisionerTokenSecret, secret("secret"));
+    store.insert(SecretKey::RunpodApiKey, secret("secret"));
     let identity = FakeIdentityProvider::new(vec![]);
-    let service = SecretsStorageService::new(store.clone(), identity);
+    let service = SecretsStorageService::new(store.clone(), identity, SecretKey::RunpodApiKey);
 
     let digest = service
-        .hmac_sha256_hex(SecretKey::ProvisionerTokenSecret, "workspace-1")
+        .hmac_sha256_hex("workspace-1")
         .await
         .expect("digest should be returned");
 
@@ -91,7 +71,7 @@ async fn hmac_sha256_hex_returns_lowercase_hex_digest() {
     assert!(digest.chars().all(|character| character.is_ascii_hexdigit()));
     assert_eq!(
         store.calls(),
-        vec![StoreCall::Read(SecretKey::ProvisionerTokenSecret)]
+        vec![StoreCall::Read(SecretKey::RunpodApiKey)]
     );
 }
 
@@ -99,17 +79,17 @@ async fn hmac_sha256_hex_returns_lowercase_hex_digest() {
 async fn hmac_sha256_hex_returns_key_not_found_when_secret_missing() {
     let store = FakeStore::default();
     let identity = FakeIdentityProvider::new(vec![]);
-    let service = SecretsStorageService::new(store, identity);
+    let service = SecretsStorageService::new(store, identity, SecretKey::RunpodApiKey);
 
     let result = service
-        .hmac_sha256_hex(SecretKey::ProvisionerTokenSecret, "workspace-1")
+        .hmac_sha256_hex("workspace-1")
         .await;
 
     assert_eq!(result, Err(SecretsStorageError::KeyNotFound));
 }
 ```
 
-- [ ] **Step 4: Run tests and verify failure**
+- [ ] **Step 3: Run tests and verify failure**
 
 Run:
 
@@ -119,7 +99,7 @@ cargo test --manifest-path src-tauri/Cargo.toml secrets_storage
 
 Expected: FAIL because `hmac_sha256_hex` is not implemented.
 
-- [ ] **Step 5: Implement HMAC method**
+- [ ] **Step 4: Implement HMAC method**
 
 In `src-tauri/src/secrets_storage/service.rs`, add imports:
 
@@ -133,12 +113,11 @@ Add this method inside the `impl<S, I> SecretsStorageService<S, I> where S: Secr
 ```rust
 pub async fn hmac_sha256_hex(
     &self,
-    key: SecretKey,
     message: &str,
 ) -> Result<String, SecretsStorageError> {
     let secret = self
         .store
-        .read(key)
+        .read(self.key)
         .await?
         .ok_or(SecretsStorageError::KeyNotFound)?;
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.expose_secret().as_bytes())
@@ -149,7 +128,7 @@ pub async fn hmac_sha256_hex(
 }
 ```
 
-- [ ] **Step 6: Run tests and commit**
+- [ ] **Step 5: Run tests and commit**
 
 Run:
 
@@ -427,7 +406,7 @@ Add tests for byte rounding and deterministic names.
 
 In `api.rs`, add a `RunpodApi` trait with methods for placement options, create/delete volume, create/delete provisioner pod, create endpoint, and delete endpoint plus template.
 
-Add `HttpRunpodApi { http: reqwest::Client, rest_base_url: String, graphql_url: String, api_key: String }`. It sends typed `reqwest` requests and maps responses to provider-sized structs and `RemoteWorkspaceError`.
+Add `HttpRunpodApi { http: reqwest::Client, rest_base_url: String, graphql_url: String, secrets: Arc<SecretsStorageService<..>> }`. It retrieves the key-scoped RunPod API key internally, sends typed `reqwest` requests, and maps responses to provider-sized structs and `RemoteWorkspaceError`.
 
 - [ ] **Step 5: Add request serialization tests**
 
@@ -509,17 +488,14 @@ Expected: PASS.
 - Modify: `src-tauri/src/remote_workspace/providers/runpod/api.rs`
 - Modify: `src-tauri/src/remote_workspace/providers/runpod/config.rs`
 
-- [ ] **Step 1: Replace skeleton with dependency-injected provider**
+- [ ] **Step 1: Replace skeleton with provider-owned default clients**
 
-Change `RunpodRemoteWorkspaceProvider` to accept:
+Change `RunpodRemoteWorkspaceProvider::new` to accept:
 
-- `Arc<dyn RunpodApi>`
-- `ProvisionerWorkerClient`
 - already-initialized `SecretsStorageService` for RunPod
 - already-initialized `SecretsStorageService` for Hugging Face
-- already-initialized `SecretsStorageService` for provisioner token derivation
 
-Do not initialize secret stores inside the provider.
+The provider constructs its default `HttpRunpodApi` and `ProvisionerWorkerClient` internally from provider constants. Test-only constructors may inject fake API and worker clients. Do not initialize secret stores inside the provider.
 
 - [ ] **Step 2: Implement placement and volume traits**
 
@@ -534,7 +510,7 @@ Behavior:
 
 Behavior:
 
-- derive token with `provisioner_secrets.hmac_sha256_hex(SecretKey::ProvisionerTokenSecret, &params.workspace_id)`
+- derive token with `runpod_secrets.hmac_sha256_hex(&params.workspace_id)`
 - retrieve HF key only when `params.requires_hugging_face_api_key` is `true`
 - create pod through `api.create_provisioner_pod`
 - return `RemoteProvisionerSnapshot { id, status_url }`
@@ -623,4 +599,4 @@ git commit -m "feat(runpod): register remote workspace provider"
 
 - Spec coverage: no-codegen decision, provider module layout, typed REST/GraphQL wrappers, secret-service injection, HMAC derivation, HF flag propagation, placement max volume, RunPod REST lifecycle, provisioner worker status/error mapping, default keep-alive limits, and verification are covered by tasks.
 - Placeholder scan: the plan contains no deferred sections, no deferred error handling, and no live RunPod tests in the default path.
-- Type consistency: `SecretKey::ProvisionerTokenSecret`, `hmac_sha256_hex`, `StartProvisionerParams.requires_hugging_face_api_key`, `RemoteWorkspaceError::ProvisionerWorker`, and provider module paths are introduced before later tasks use them.
+- Type consistency: `hmac_sha256_hex`, `StartProvisionerParams.requires_hugging_face_api_key`, `RemoteWorkspaceError::ProvisionerWorker`, and provider module paths are introduced before later tasks use them.

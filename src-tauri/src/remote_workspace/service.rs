@@ -270,6 +270,9 @@ impl RemoteWorkspaceService {
                 volume_id: remote_volume.id.clone(),
                 provisioner_image_ref,
                 mount_path: "/workspace".to_string(),
+                requires_hugging_face_api_key: workspace
+                    .workflow_preset
+                    .requires_hugging_face_api_key,
             })
             .await
         {
@@ -322,6 +325,7 @@ impl RemoteWorkspaceService {
             .get_provisioner_status(GetProvisionerStatusParams {
                 workspace_id: workspace.id.clone(),
                 provisioner_id: remote_provisioner.id.clone(),
+                status_url: remote_provisioner.status_url.clone(),
             })
             .await
         {
@@ -422,6 +426,7 @@ impl RemoteWorkspaceService {
             .get_provisioner_status(GetProvisionerStatusParams {
                 workspace_id: workspace.id.clone(),
                 provisioner_id: remote_provisioner.id.clone(),
+                status_url: remote_provisioner.status_url.clone(),
             })
             .await
         {
@@ -2049,6 +2054,7 @@ mod tests {
                 provisioner_image_ref: "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
                     .to_string(),
                 mount_path: "/workspace".to_string(),
+                requires_hugging_face_api_key: false,
             })
         );
     }
@@ -2487,6 +2493,42 @@ mod tests {
                 error: RemoteProvisioningError::Provider(ProviderApiError::RequestFailed {
                     message: "status failed".to_string(),
                 }),
+            }
+        );
+    }
+
+    #[test]
+    fn running_provisioner_worker_error_is_recorded_as_worker_error() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![Err(RemoteWorkspaceError::ProvisionerWorker(
+                RemoteProvisioningError::ProvisionerWorkerUnauthorized,
+            ))],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(state);
+        let mut workspace = draft_workspace(&service);
+        let WorkspaceRuntime::Remote(remote) = &mut workspace.runtime;
+        remote.remote_resources.remote_provisioner = Some(RemoteProvisionerSnapshot {
+            id: "provisioner".to_string(),
+            status_url: "https://provisioner.example/status".to_string(),
+        });
+        remote.remote_provisioning.status = RemoteProvisioningStatus::InProgress {
+            phase: RemoteProvisioningPhase::RunningRemoteProvisioner {
+                status: RemoteProvisionerStatus::Running,
+            },
+        };
+
+        let result = block_on(service.provision_workspace(&workspace))
+            .expect("worker error should be converted into failed workspace");
+
+        let WorkspaceRuntime::Remote(remote) = result.runtime;
+        assert_eq!(
+            remote.remote_provisioning.status,
+            RemoteProvisioningStatus::Failed {
+                phase: Some(RemoteProvisioningPhase::RunningRemoteProvisioner {
+                    status: RemoteProvisionerStatus::Running,
+                }),
+                error: RemoteProvisioningError::ProvisionerWorkerUnauthorized,
             }
         );
     }

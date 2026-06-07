@@ -34,7 +34,7 @@ impl ApiSecret {
     }
 
     #[allow(dead_code)]
-    pub(in crate::secrets_storage) fn expose_secret(&self) -> &str {
+    pub(crate) fn expose_secret(&self) -> &str {
         self.0.expose_secret()
     }
 }

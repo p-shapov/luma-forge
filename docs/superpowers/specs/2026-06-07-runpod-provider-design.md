@@ -34,13 +34,13 @@ The provider module is split by responsibility:
 
 The provider does not receive raw Hugging Face tokens or RunPod secrets directly. It receives already-initialized `SecretsStorageService` instances for Hugging Face and RunPod, and uses the secrets-storage abstraction for provisioner worker token derivation. Initializing and wiring those services happens outside the provider and is not part of this implementation scope. Raw secret values only flow into outbound RunPod calls, provisioner calls, container environment creation, or secrets-module-local HMAC derivation. They must not appear in snapshots, generated frontend types, persisted workspace JSON, test fixtures, logs, or returned error messages.
 
-`SecretKey` gains a separate provisioner token secret key, for example `SecretKey::ProvisionerTokenSecret`. This key is not exposed to React as a readable credential. `SecretsStorageService` gains a method such as:
+`SecretsStorageService` is constructed for a single `SecretKey` and gains a method such as:
 
 ```rust
-async fn hmac_sha256_hex(&self, key: SecretKey, message: &str) -> Result<String, SecretsStorageError>
+async fn hmac_sha256_hex(&self, message: &str) -> Result<String, SecretsStorageError>
 ```
 
-The method retrieves the secret internally, computes HMAC-SHA256 over the provided message, and returns a lowercase hex digest. Callers never receive the raw secret.
+The method retrieves the service-scoped secret internally, computes HMAC-SHA256 over the provided message, and returns a lowercase hex digest. Callers never receive the raw secret.
 
 ## API Client Strategy
 
@@ -118,7 +118,7 @@ The environment includes:
 The provisioner bearer token is derived by calling the secret service with the workspace id:
 
 ```text
-secrets.hmac_sha256_hex(SecretKey::ProvisionerTokenSecret, workspace_id)
+runpod_secrets.hmac_sha256_hex(workspace_id)
 ```
 
 The token is encoded as lowercase hex so it is ASCII-only and satisfies the provisioner worker minimum bearer token length.

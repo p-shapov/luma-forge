@@ -33,6 +33,7 @@ pub struct StartProvisionerParams {
     pub volume_id: String,
     pub provisioner_image_ref: String,
     pub mount_path: String,
+    pub requires_hugging_face_api_key: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +46,7 @@ pub struct TerminateProvisionerParams {
 pub struct GetProvisionerStatusParams {
     pub workspace_id: String,
     pub provisioner_id: String,
+    pub status_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

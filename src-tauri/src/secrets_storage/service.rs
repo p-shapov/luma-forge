@@ -1,15 +1,22 @@
 use crate::domain::secrets::ApiKeyIdentity;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 use super::{ApiKeyIdentityProvider, ApiSecret, SecretKey, SecretStore, SecretsStorageError};
 
 pub struct SecretsStorageService<S, I> {
     store: S,
     identity: I,
+    key: SecretKey,
 }
 
 impl<S, I> SecretsStorageService<S, I> {
-    pub fn new(store: S, identity: I) -> Self {
-        Self { store, identity }
+    pub fn new(store: S, identity: I, key: SecretKey) -> Self {
+        Self {
+            store,
+            identity,
+            key,
+        }
     }
 }
 
@@ -18,44 +25,53 @@ where
     S: SecretStore,
     I: ApiKeyIdentityProvider,
 {
-    pub async fn write(
-        &self,
-        key: SecretKey,
-        secret: ApiSecret,
-    ) -> Result<ApiKeyIdentity, SecretsStorageError> {
-        if self.store.has(key).await? {
+    pub async fn write(&self, secret: ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError> {
+        if self.store.has(self.key).await? {
             return Err(SecretsStorageError::KeyAlreadyExists);
         }
 
         let identity = self.identity.identity(&secret).await?;
-        self.store.write(key, secret).await?;
+        self.store.write(self.key, secret).await?;
 
         Ok(identity)
     }
 
-    pub async fn identity(&self, key: SecretKey) -> Result<ApiKeyIdentity, SecretsStorageError> {
+    pub async fn identity(&self) -> Result<ApiKeyIdentity, SecretsStorageError> {
         let secret = self
             .store
-            .read(key)
+            .read(self.key)
             .await?
             .ok_or(SecretsStorageError::KeyNotFound)?;
 
         self.identity.identity(&secret).await
     }
 
-    pub async fn retrieve(&self, key: SecretKey) -> Result<ApiSecret, SecretsStorageError> {
+    pub async fn retrieve(&self) -> Result<ApiSecret, SecretsStorageError> {
         self.store
-            .read(key)
+            .read(self.key)
             .await?
             .ok_or(SecretsStorageError::KeyNotFound)
     }
 
-    pub async fn remove(&self, key: SecretKey) -> Result<(), SecretsStorageError> {
-        if !self.store.has(key).await? {
+    pub async fn hmac_sha256_hex(&self, message: &str) -> Result<String, SecretsStorageError> {
+        let secret = self
+            .store
+            .read(self.key)
+            .await?
+            .ok_or(SecretsStorageError::KeyNotFound)?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.expose_secret().as_bytes())
+            .map_err(|_| SecretsStorageError::StoreUnavailable)?;
+
+        mac.update(message.as_bytes());
+        Ok(hex::encode(mac.finalize().into_bytes()))
+    }
+
+    pub async fn remove(&self) -> Result<(), SecretsStorageError> {
+        if !self.store.has(self.key).await? {
             return Err(SecretsStorageError::KeyNotFound);
         }
 
-        self.store.delete(key).await
+        self.store.delete(self.key).await
     }
 }
 
@@ -221,11 +237,10 @@ mod tests {
         let store = FakeStore::default();
         store.insert(SecretKey::RunpodApiKey, secret("existing"));
         let identity = FakeIdentityProvider::new(vec![Ok(identity())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service
-            .write(SecretKey::RunpodApiKey, secret("replacement"))
-            .await;
+        let result = service.write(secret("replacement")).await;
 
         assert_eq!(result, Err(SecretsStorageError::KeyAlreadyExists));
         assert_eq!(store.calls(), vec![StoreCall::Has(SecretKey::RunpodApiKey)]);
@@ -241,11 +256,10 @@ mod tests {
         let store = FakeStore::default();
         let expected_identity = identity();
         let identity = FakeIdentityProvider::new(vec![Ok(expected_identity.clone())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service
-            .write(SecretKey::RunpodApiKey, secret("runpod-secret"))
-            .await;
+        let result = service.write(secret("runpod-secret")).await;
 
         assert_eq!(result, Ok(expected_identity));
         assert_eq!(
@@ -266,11 +280,10 @@ mod tests {
     async fn write_does_not_store_after_validation_failure() {
         let store = FakeStore::default();
         let identity = FakeIdentityProvider::new(vec![Err(ProviderApiError::Unauthorized.into())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service
-            .write(SecretKey::RunpodApiKey, secret("bad-secret"))
-            .await;
+        let result = service.write(secret("bad-secret")).await;
 
         assert_eq!(result, Err(ProviderApiError::Unauthorized.into()));
         assert_eq!(store.calls(), vec![StoreCall::Has(SecretKey::RunpodApiKey)]);
@@ -284,9 +297,10 @@ mod tests {
         store.insert(SecretKey::RunpodApiKey, secret("stored-secret"));
         let expected_identity = identity();
         let identity = FakeIdentityProvider::new(vec![Ok(expected_identity.clone())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service.identity(SecretKey::RunpodApiKey).await;
+        let result = service.identity().await;
 
         assert_eq!(result, Ok(expected_identity));
         assert_eq!(
@@ -300,9 +314,10 @@ mod tests {
     async fn identity_returns_not_found_when_secret_missing() {
         let store = FakeStore::default();
         let identity = FakeIdentityProvider::new(vec![Ok(identity())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service.identity(SecretKey::RunpodApiKey).await;
+        let result = service.identity().await;
 
         assert_eq!(result, Err(SecretsStorageError::KeyNotFound));
         assert_eq!(
@@ -317,9 +332,10 @@ mod tests {
         let store = FakeStore::default();
         store.insert(SecretKey::RunpodApiKey, secret("stored-secret"));
         let identity = FakeIdentityProvider::new(vec![Ok(identity())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service.retrieve(SecretKey::RunpodApiKey).await;
+        let result = service.retrieve().await;
 
         assert_eq!(
             result.map(|secret| secret.expose_secret().to_string()),
@@ -336,9 +352,10 @@ mod tests {
     async fn retrieve_returns_not_found_when_secret_missing() {
         let store = FakeStore::default();
         let identity = FakeIdentityProvider::new(vec![Ok(identity())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service.retrieve(SecretKey::RunpodApiKey).await;
+        let result = service.retrieve().await;
 
         assert_eq!(result.map(|_| ()), Err(SecretsStorageError::KeyNotFound));
         assert_eq!(
@@ -349,13 +366,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hmac_sha256_hex_returns_lowercase_hex_digest() {
+        let store = FakeStore::default();
+        store.insert(SecretKey::RunpodApiKey, secret("secret"));
+        let identity = FakeIdentityProvider::new(vec![]);
+        let service = SecretsStorageService::new(store.clone(), identity, SecretKey::RunpodApiKey);
+
+        let digest = service
+            .hmac_sha256_hex("workspace-1")
+            .await
+            .expect("digest should be returned");
+
+        assert_eq!(
+            digest,
+            "3a30dee134306692b7fc538c583821a2a5f9f5bc57b89c74a6e1148a177817f1"
+        );
+        assert_eq!(digest.len(), 64);
+        assert!(digest
+            .chars()
+            .all(|character| character.is_ascii_hexdigit()));
+        assert_eq!(
+            store.calls(),
+            vec![StoreCall::Read(SecretKey::RunpodApiKey)]
+        );
+    }
+
+    #[tokio::test]
+    async fn hmac_sha256_hex_returns_key_not_found_when_secret_missing() {
+        let store = FakeStore::default();
+        let identity = FakeIdentityProvider::new(vec![]);
+        let service = SecretsStorageService::new(store, identity, SecretKey::RunpodApiKey);
+
+        let result = service.hmac_sha256_hex("workspace-1").await;
+
+        assert_eq!(result, Err(SecretsStorageError::KeyNotFound));
+    }
+
+    #[tokio::test]
     async fn remove_deletes_existing_secret() {
         let store = FakeStore::default();
         store.insert(SecretKey::RunpodApiKey, secret("stored-secret"));
         let identity = FakeIdentityProvider::new(vec![Ok(identity())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service.remove(SecretKey::RunpodApiKey).await;
+        let result = service.remove().await;
 
         assert_eq!(result, Ok(()));
         assert_eq!(
@@ -373,9 +428,10 @@ mod tests {
     async fn remove_returns_not_found_when_secret_missing() {
         let store = FakeStore::default();
         let identity = FakeIdentityProvider::new(vec![Ok(identity())]);
-        let service = SecretsStorageService::new(store.clone(), identity.clone());
+        let service =
+            SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
-        let result = service.remove(SecretKey::RunpodApiKey).await;
+        let result = service.remove().await;
 
         assert_eq!(result, Err(SecretsStorageError::KeyNotFound));
         assert_eq!(store.calls(), vec![StoreCall::Has(SecretKey::RunpodApiKey)]);

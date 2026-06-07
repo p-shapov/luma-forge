@@ -21,7 +21,7 @@ Provider adapters must return only UI-safe errors and snapshots. Do not return r
 To add a provider:
 
 1. Add the provider id to `GpuCloudProviderId` in `src/domain/provider.rs`.
-2. Add a provider-specific module under `src/providers/<provider_name>/`.
+2. Add a provider-specific module under `src/remote_workspace/providers/<provider_name>/`.
 3. Implement the resource traits from `src/remote_workspace/provider.rs`:
    - `RemoteVolumeProvider`
    - `RemoteProvisionerProvider`
