@@ -1,3 +1,4 @@
+mod contracts;
 mod coordination;
 pub mod errors;
 mod helpers;

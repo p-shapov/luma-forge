@@ -1,7 +1,6 @@
 use crate::domain::{
     placement::{RemotePlacementOptions, RemotePlacementPlan},
     provider::GpuCloudProviderId,
-    runtime_contract::RuntimeContractReference,
     workflow_preset::WorkflowPreset,
     workspace::{
         ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeProvisioningError,
@@ -13,6 +12,7 @@ use crate::domain::{
 use crate::workflow_catalog::WorkflowCatalogService;
 
 use super::{
+    contracts::ProvisionedRemoteComputeContractResolver,
     coordination::ProvisionedRemoteComputeCoordinator,
     errors::ProvisionedRemoteComputeError,
     helpers::{
@@ -257,7 +257,9 @@ impl ProvisionedRemoteComputeService {
                 ));
             }
         };
-        let provisioner_image_ref = match self.resolve_provisioner_image_ref(workspace, remote) {
+        let resolver =
+            ProvisionedRemoteComputeContractResolver::new(&self.workflow_catalog_service);
+        let provisioner_image_ref = match resolver.provisioner_image_ref(workspace, remote) {
             Ok(image_ref) => image_ref,
             Err(error) => {
                 return Ok(with_provisioning_failure(
@@ -515,7 +517,9 @@ impl ProvisionedRemoteComputeService {
                 ));
             }
         };
-        let endpoint_image_ref = match self.resolve_endpoint_image_ref(workspace, remote) {
+        let resolver =
+            ProvisionedRemoteComputeContractResolver::new(&self.workflow_catalog_service);
+        let endpoint_image_ref = match resolver.endpoint_image_ref(workspace, remote) {
             Ok(image_ref) => image_ref,
             Err(error) => {
                 return Ok(with_provisioning_failure(
@@ -680,88 +684,6 @@ impl ProvisionedRemoteComputeService {
             phase: Some(phase.clone()),
         };
         Ok(workspace)
-    }
-
-    fn resolve_provisioner_image_ref(
-        &self,
-        workspace: &Workspace,
-        remote: &ProvisionedRemoteComputeWorkspace,
-    ) -> Result<String, ProvisionedRemoteComputeProvisioningError> {
-        let contract =
-            self.resolve_runtime_contract_reference(workspace, remote, |requirements| {
-                &requirements.provisioner_contract
-            })?;
-        let catalog = self
-            .workflow_catalog_service
-            .get_provisioner_contract_catalog()
-            .map_err(|error| {
-                ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
-                    message: format!("provisioner contract catalog is invalid: {error:?}"),
-                }
-            })?;
-        let resolved = catalog.resolve(contract).ok_or_else(|| {
-            ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
-                message: format!(
-                    "provisioner contract is not bundled: {}@{}",
-                    contract.id, contract.version
-                ),
-            }
-        })?;
-
-        Ok(resolved.image_ref)
-    }
-
-    fn resolve_endpoint_image_ref(
-        &self,
-        workspace: &Workspace,
-        remote: &ProvisionedRemoteComputeWorkspace,
-    ) -> Result<String, ProvisionedRemoteComputeProvisioningError> {
-        let contract =
-            self.resolve_runtime_contract_reference(workspace, remote, |requirements| {
-                &requirements.endpoint_contract
-            })?;
-        let catalog = self
-            .workflow_catalog_service
-            .get_endpoint_contract_catalog()
-            .map_err(|error| {
-                ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
-                    message: format!("endpoint contract catalog is invalid: {error:?}"),
-                }
-            })?;
-        let resolved = catalog.resolve(contract).ok_or_else(|| {
-            ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
-                message: format!(
-                    "endpoint contract is not bundled: {}@{}",
-                    contract.id, contract.version
-                ),
-            }
-        })?;
-
-        Ok(resolved.image_ref)
-    }
-
-    fn resolve_runtime_contract_reference<'a>(
-        &self,
-        workspace: &'a Workspace,
-        remote: &ProvisionedRemoteComputeWorkspace,
-        contract: impl FnOnce(
-            &'a crate::domain::workflow_preset::RemoteProviderRuntimeRequirements,
-        ) -> &'a RuntimeContractReference,
-    ) -> Result<&'a RuntimeContractReference, ProvisionedRemoteComputeProvisioningError> {
-        let provider_requirements = workspace
-            .workflow_preset
-            .remote_runtime_requirements
-            .resolve_provider_requirements(remote.remote_placement.gpu_cloud_provider_id)
-            .ok_or_else(
-                || ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
-                    message: format!(
-                        "workflow preset has no runtime requirements for provider {:?}",
-                        remote.remote_placement.gpu_cloud_provider_id
-                    ),
-                },
-            )?;
-
-        Ok(contract(provider_requirements))
     }
 
     pub fn execute_workspace(
