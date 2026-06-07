@@ -185,6 +185,7 @@ where
                 .api
                 .create_provisioner_pod(CreateProvisionerPodRequest {
                     datacenter_id: params.datacenter_id,
+                    name: mapping::workspace_resource_name(&params.workspace_id, "provisioner"),
                     image_ref: params.provisioner_image_ref,
                     network_volume_id: params.volume_id,
                     mount_path: params.mount_path,
@@ -247,6 +248,14 @@ where
                 .create_endpoint(CreateEndpointRequest {
                     datacenter_id: params.datacenter_id,
                     gpu_id: params.gpu_id,
+                    endpoint_name: mapping::workspace_resource_name(
+                        &params.workspace_id,
+                        "endpoint",
+                    ),
+                    template_name: mapping::workspace_resource_name(
+                        &params.workspace_id,
+                        "endpoint-template",
+                    ),
                     image_ref: params.endpoint_image_ref,
                     network_volume_id: params.volume_id,
                     mount_path: params.mount_path,
@@ -608,6 +617,7 @@ mod tests {
             .lock()
             .expect("api state")
             .provisioner_pod_requests[0];
+        assert_eq!(request.name, "luma-forge-workspace-provisioner");
         assert_eq!(request.hugging_face_api_key, Some("hf-secret".to_string()));
         assert_eq!(request.bearer_token.len(), 64);
     }
@@ -686,8 +696,14 @@ mod tests {
             .await
             .expect("endpoint");
 
+        let request = &api_state.lock().expect("api state").endpoint_requests[0];
+        assert_eq!(request.endpoint_name, "luma-forge-workspace-endpoint");
         assert_eq!(
-            api_state.lock().expect("api state").endpoint_requests[0].keep_alive_limits,
+            request.template_name,
+            "luma-forge-workspace-endpoint-template"
+        );
+        assert_eq!(
+            request.keep_alive_limits,
             RemoteEndpointKeepAliveLimits {
                 default_seconds: 300,
                 min_seconds: 0,
