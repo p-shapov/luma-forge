@@ -47,7 +47,63 @@ export type ModelAssetResponse = {
 export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
 
 export type NativeCommandError = {
+	code: NativeCommandErrorCode,
 	message: string,
+};
+
+export type NativeCommandErrorCode = "workflow_catalog_invalid" | "workspace_storage_unavailable" | "workspace_storage_query_failed" | "workspace_storage_corrupt" | "workspace_storage_schema_mismatch" | "workspace_already_exists" | "workspace_not_found" | "provider_unavailable" | "provider_secret_unavailable" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "provisioning_already_running" | "invalid_provisioning_state" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "command_not_implemented";
+
+export type ProvisionedRemoteComputeEndpointSnapshotResponse = {
+	id: string,
+	url: string,
+};
+
+export type ProvisionedRemoteComputeProvisionerSnapshotResponse = {
+	id: string,
+	statusUrl: string,
+};
+
+export type ProvisionedRemoteComputeProvisionerStatusResponse = "pending" | "starting" | "running" | "cleaning_up" | "succeeded" | { failed: {
+	code: string,
+	message: string,
+} };
+
+export type ProvisionedRemoteComputeProvisioningErrorResponse = "provider" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "cancellation_cleanup_failed" | { invalid_provisioning_state: {
+	message: string,
+} };
+
+export type ProvisionedRemoteComputeProvisioningPhaseResponse = "creating_remote_volume" | "starting_remote_provisioner" | { running_remote_provisioner: {
+	status: ProvisionedRemoteComputeProvisionerStatusResponse,
+} } | "creating_remote_endpoint";
+
+export type ProvisionedRemoteComputeProvisioningStateResponse = {
+	status: ProvisionedRemoteComputeProvisioningStatusResponse,
+	percent: number | null,
+};
+
+export type ProvisionedRemoteComputeProvisioningStatusResponse = "not_started" | ({ in_progress: {
+	phase: ProvisionedRemoteComputeProvisioningPhaseResponse,
+} }) & { cancelling?: never; failed?: never } | ({ cancelling: {
+	phase: ProvisionedRemoteComputeProvisioningPhaseResponse | null,
+} }) & { failed?: never; in_progress?: never } | "completed" | ({ failed: {
+	phase: ProvisionedRemoteComputeProvisioningPhaseResponse | null,
+	error: ProvisionedRemoteComputeProvisioningErrorResponse,
+} }) & { cancelling?: never; in_progress?: never };
+
+export type ProvisionedRemoteComputeResourcesResponse = {
+	volume: ProvisionedRemoteComputeVolumeSnapshotResponse | null,
+	provisioner: ProvisionedRemoteComputeProvisionerSnapshotResponse | null,
+	endpoint: ProvisionedRemoteComputeEndpointSnapshotResponse | null,
+};
+
+export type ProvisionedRemoteComputeVolumeSnapshotResponse = {
+	id: string,
+};
+
+export type ProvisionedRemoteComputeWorkspaceResponse = {
+	remotePlacement: RemotePlacementPlanInput,
+	provisioning: ProvisionedRemoteComputeProvisioningStateResponse,
+	resources: ProvisionedRemoteComputeResourcesResponse,
 };
 
 export type RemoteDatacenterPlacementOptionResponse = {
@@ -60,11 +116,6 @@ export type RemoteEndpointKeepAliveLimitsDto = {
 	defaultSeconds: number,
 	minSeconds: number,
 	maxSeconds: number,
-};
-
-export type RemoteEndpointSnapshotResponse = {
-	id: string,
-	url: string,
 };
 
 export type RemoteGpuPlacementOptionResponse = {
@@ -93,57 +144,9 @@ export type RemoteProviderRuntimeRequirementsResponse = {
 	provisionerContract: RuntimeContractReferenceResponse,
 };
 
-export type RemoteProvisionerSnapshotResponse = {
-	id: string,
-	statusUrl: string,
-};
-
-export type RemoteProvisionerStatusResponse = "pending" | "starting" | "running" | "cleaning_up" | "succeeded" | { failed: {
-	code: string,
-	message: string,
-} };
-
-export type RemoteProvisioningErrorResponse = "provider" | "provisioner_worker_token_missing" | "provisioner_worker_token_invalid" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "provisioner_worker_asset_download_failed" | "provisioner_worker_asset_auth_required" | "provisioner_worker_path_validation_failed" | "provisioner_worker_step_timeout" | "provisioner_worker_unexpected_error" | "cancellation_cleanup_failed" | { invalid_provisioning_state: {
-	message: string,
-} };
-
-export type RemoteProvisioningPhaseResponse = "creating_remote_volume" | "starting_remote_provisioner" | { running_remote_provisioner: {
-	status: RemoteProvisionerStatusResponse,
-} } | "creating_remote_endpoint";
-
-export type RemoteProvisioningStateResponse = {
-	status: RemoteProvisioningStatusResponse,
-	percent: number | null,
-};
-
-export type RemoteProvisioningStatusResponse = "not_started" | ({ in_progress: {
-	phase: RemoteProvisioningPhaseResponse,
-} }) & { cancelling?: never; failed?: never } | ({ cancelling: {
-	phase: RemoteProvisioningPhaseResponse | null,
-} }) & { failed?: never; in_progress?: never } | "completed" | ({ failed: {
-	phase: RemoteProvisioningPhaseResponse | null,
-	error: RemoteProvisioningErrorResponse,
-} }) & { cancelling?: never; in_progress?: never };
-
 export type RemoteRuntimeRequirementsResponse = {
 	requiredBaseVolumeSizeBytes: number,
 	providerRequirements: RemoteProviderRuntimeRequirementsResponse[],
-};
-
-export type RemoteVolumeSnapshotResponse = {
-	id: string,
-};
-
-export type RemoteWorkspaceResourcesResponse = {
-	remoteVolume: RemoteVolumeSnapshotResponse | null,
-	remoteProvisioner: RemoteProvisionerSnapshotResponse | null,
-	remoteEndpoint: RemoteEndpointSnapshotResponse | null,
-};
-
-export type RemoteWorkspaceResponse = {
-	remotePlacement: RemotePlacementPlanInput,
-	remoteProvisioning: RemoteProvisioningStateResponse,
-	remoteResources: RemoteWorkspaceResourcesResponse,
 };
 
 export type RuntimeContractReferenceResponse = {
@@ -185,7 +188,7 @@ export type WorkspaceResponse = {
 	runtime: WorkspaceRuntimeResponse,
 };
 
-export type WorkspaceRuntimeResponse = { runtimeType: "remote" } & (RemoteWorkspaceResponse);
+export type WorkspaceRuntimeResponse = { runtimeType: "provisioned_remote_compute" } & (ProvisionedRemoteComputeWorkspaceResponse);
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {
