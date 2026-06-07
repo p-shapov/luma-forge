@@ -3,26 +3,20 @@ use crate::domain::{
     provider::GpuCloudProviderId,
     workflow_preset::WorkflowPreset,
     workspace::{
-        ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeProvisioningError,
-        ProvisionedRemoteComputeProvisioningPhase, ProvisionedRemoteComputeProvisioningState,
-        ProvisionedRemoteComputeProvisioningStatus, ProvisionedRemoteComputeResources,
-        ProvisionedRemoteComputeWorkspace, Workspace, WorkspaceRuntime,
+        ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeProvisioningPhase,
+        ProvisionedRemoteComputeProvisioningState, ProvisionedRemoteComputeProvisioningStatus,
+        ProvisionedRemoteComputeResources, ProvisionedRemoteComputeWorkspace, Workspace,
+        WorkspaceRuntime,
     },
 };
 use crate::workflow_catalog::WorkflowCatalogService;
 
 use super::{
+    cleanup,
     coordination::ProvisionedRemoteComputeCoordinator,
     errors::ProvisionedRemoteComputeError,
     flow::{self, ProvisionedRemoteComputeFlowContext},
-    helpers::{
-        failed_workspace_from_result, ignore_expected_error, remote_runtime, reset_remote_state,
-        with_cleanup_failure, with_provisioning_failure, with_status_and_resources,
-    },
-    provider::{
-        DeleteEndpointParams, DeleteVolumeParams, ProvisionedRemoteComputeProvider,
-        TerminateProvisionerParams,
-    },
+    helpers::{remote_runtime, reset_remote_state},
     registry::ProvisionedRemoteComputeProviderRegistry,
 };
 
@@ -160,135 +154,16 @@ impl ProvisionedRemoteComputeService {
                 flow::handle_terminal_status(workspace)
             }
             ProvisionedRemoteComputeProvisioningStatus::Cancelling { phase } => {
-                self.handle_cancelling(workspace, remote, provider, phase.clone())
-                    .await
+                cleanup::handle_cancelling(workspace, remote, provider, phase.clone()).await
             }
         }
-    }
-
-    async fn handle_cancelling(
-        &self,
-        workspace: &Workspace,
-        remote: &ProvisionedRemoteComputeWorkspace,
-        provider: &dyn ProvisionedRemoteComputeProvider,
-        phase: Option<ProvisionedRemoteComputeProvisioningPhase>,
-    ) -> Result<Workspace, ProvisionedRemoteComputeError> {
-        if let Some(endpoint) = remote.resources.endpoint.as_ref() {
-            return match ignore_expected_error(
-                provider
-                    .delete_endpoint(DeleteEndpointParams {
-                        workspace_id: workspace.id.clone(),
-                        endpoint_id: endpoint.id.clone(),
-                    })
-                    .await,
-                ProvisionedRemoteComputeError::RemoteEndpointNotFound,
-            ) {
-                Ok(()) => Ok(with_status_and_resources(
-                    workspace,
-                    ProvisionedRemoteComputeProvisioningStatus::Cancelling {
-                        phase: Some(
-                            ProvisionedRemoteComputeProvisioningPhase::RunningRemoteProvisioner {
-                                status: ProvisionedRemoteComputeProvisionerStatus::CleaningUp,
-                            },
-                        ),
-                    },
-                    75,
-                    |resources| {
-                        resources.endpoint = None;
-                    },
-                )),
-                Err(error) => Ok(with_cleanup_failure(
-                    workspace,
-                    Some(ProvisionedRemoteComputeProvisioningPhase::CreatingRemoteEndpoint),
-                    error,
-                )),
-            };
-        }
-
-        if let Some(provisioner) = remote.resources.provisioner.as_ref() {
-            let attempted_phase = match phase {
-                Some(ProvisionedRemoteComputeProvisioningPhase::RunningRemoteProvisioner {
-                    status,
-                }) => Some(
-                    ProvisionedRemoteComputeProvisioningPhase::RunningRemoteProvisioner { status },
-                ),
-                _ => Some(
-                    ProvisionedRemoteComputeProvisioningPhase::RunningRemoteProvisioner {
-                        status: ProvisionedRemoteComputeProvisionerStatus::CleaningUp,
-                    },
-                ),
-            };
-            return match ignore_expected_error(
-                provider
-                    .terminate_provisioner(TerminateProvisionerParams {
-                        workspace_id: workspace.id.clone(),
-                        provisioner_id: provisioner.id.clone(),
-                    })
-                    .await,
-                ProvisionedRemoteComputeError::RemoteProvisionerNotFound,
-            ) {
-                Ok(()) => Ok(with_status_and_resources(
-                    workspace,
-                    ProvisionedRemoteComputeProvisioningStatus::Cancelling {
-                        phase: Some(
-                            ProvisionedRemoteComputeProvisioningPhase::StartingRemoteProvisioner,
-                        ),
-                    },
-                    25,
-                    |resources| {
-                        resources.provisioner = None;
-                    },
-                )),
-                Err(error) => Ok(with_cleanup_failure(workspace, attempted_phase, error)),
-            };
-        }
-
-        if let Some(volume) = remote.resources.volume.as_ref() {
-            return match ignore_expected_error(
-                provider
-                    .delete_volume(DeleteVolumeParams {
-                        workspace_id: workspace.id.clone(),
-                        volume_id: volume.id.clone(),
-                    })
-                    .await,
-                ProvisionedRemoteComputeError::RemoteVolumeNotFound,
-            ) {
-                Ok(()) => Ok(reset_remote_state(workspace)),
-                Err(error) => Ok(with_cleanup_failure(
-                    workspace,
-                    Some(ProvisionedRemoteComputeProvisioningPhase::StartingRemoteProvisioner),
-                    error,
-                )),
-            };
-        }
-
-        Ok(reset_remote_state(workspace))
     }
 
     pub fn cancel_workspace(
         &self,
         workspace: &Workspace,
     ) -> Result<Workspace, ProvisionedRemoteComputeError> {
-        let remote = remote_runtime(workspace)?;
-
-        let ProvisionedRemoteComputeProvisioningStatus::InProgress { phase } =
-            &remote.provisioning.status
-        else {
-            return Ok(with_provisioning_failure(
-                workspace,
-                None,
-                ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
-                    message: "only in-progress provisioning can be cancelled".to_string(),
-                },
-            ));
-        };
-
-        let mut workspace = workspace.clone();
-        let WorkspaceRuntime::ProvisionedRemoteCompute(remote) = &mut workspace.runtime;
-        remote.provisioning.status = ProvisionedRemoteComputeProvisioningStatus::Cancelling {
-            phase: Some(phase.clone()),
-        };
-        Ok(workspace)
+        cleanup::mark_cancelling(workspace)
     }
 
     pub fn execute_workspace(
@@ -321,61 +196,7 @@ impl ProvisionedRemoteComputeService {
         let provider_id = remote.remote_placement.gpu_cloud_provider_id;
         let provider = self.provider_registry.for_provider(provider_id)?;
 
-        let endpoint_cleanup = match &remote.resources.endpoint {
-            Some(endpoint) => failed_workspace_from_result(
-                workspace,
-                provider
-                    .delete_endpoint(DeleteEndpointParams {
-                        workspace_id: workspace.id.clone(),
-                        endpoint_id: endpoint.id.clone(),
-                    })
-                    .await,
-                ProvisionedRemoteComputeError::RemoteEndpointNotFound,
-            ),
-            None => None,
-        };
-
-        if let Some(failed_workspace) = endpoint_cleanup {
-            return Ok(failed_workspace);
-        }
-
-        let provisioner_cleanup = match &remote.resources.provisioner {
-            Some(provisioner) => failed_workspace_from_result(
-                workspace,
-                provider
-                    .terminate_provisioner(TerminateProvisionerParams {
-                        workspace_id: workspace.id.clone(),
-                        provisioner_id: provisioner.id.clone(),
-                    })
-                    .await,
-                ProvisionedRemoteComputeError::RemoteProvisionerNotFound,
-            ),
-            None => None,
-        };
-
-        if let Some(failed_workspace) = provisioner_cleanup {
-            return Ok(failed_workspace);
-        }
-
-        let volume_cleanup = match &remote.resources.volume {
-            Some(volume) => failed_workspace_from_result(
-                workspace,
-                provider
-                    .delete_volume(DeleteVolumeParams {
-                        workspace_id: workspace.id.clone(),
-                        volume_id: volume.id.clone(),
-                    })
-                    .await,
-                ProvisionedRemoteComputeError::RemoteVolumeNotFound,
-            ),
-            None => None,
-        };
-
-        if let Some(failed_workspace) = volume_cleanup {
-            return Ok(failed_workspace);
-        }
-
-        Ok(reset_remote_state(workspace))
+        cleanup::cleanup_workspace(workspace, remote, provider).await
     }
 }
 

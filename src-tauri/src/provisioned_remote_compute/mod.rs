@@ -1,3 +1,4 @@
+mod cleanup;
 mod contracts;
 mod coordination;
 pub mod errors;
