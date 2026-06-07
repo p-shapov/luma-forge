@@ -1,3 +1,4 @@
+mod coordination;
 pub mod errors;
 mod helpers;
 pub mod provider;

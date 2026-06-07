@@ -1,8 +1,3 @@
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
-
 use crate::domain::{
     placement::{RemotePlacementOptions, RemotePlacementPlan},
     provider::GpuCloudProviderId,
@@ -18,6 +13,7 @@ use crate::domain::{
 use crate::workflow_catalog::WorkflowCatalogService;
 
 use super::{
+    coordination::ProvisionedRemoteComputeCoordinator,
     errors::ProvisionedRemoteComputeError,
     helpers::{
         failed_workspace_from_result, ignore_expected_error, remote_runtime, reset_remote_state,
@@ -40,7 +36,7 @@ pub struct SetupProvisionedRemoteComputeWorkspaceRequest {
 pub struct ProvisionedRemoteComputeService {
     provider_registry: ProvisionedRemoteComputeProviderRegistry,
     workflow_catalog_service: WorkflowCatalogService,
-    coordinator: ProvisionedRemoteComputeProvisioningCoordinator,
+    coordinator: ProvisionedRemoteComputeCoordinator,
 }
 
 impl ProvisionedRemoteComputeService {
@@ -51,7 +47,7 @@ impl ProvisionedRemoteComputeService {
         Self {
             provider_registry,
             workflow_catalog_service,
-            coordinator: ProvisionedRemoteComputeProvisioningCoordinator::default(),
+            coordinator: ProvisionedRemoteComputeCoordinator::default(),
         }
     }
 
@@ -853,42 +849,6 @@ impl ProvisionedRemoteComputeService {
         }
 
         Ok(reset_remote_state(workspace))
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-struct ProvisionedRemoteComputeProvisioningCoordinator {
-    active_workspace_ids: Arc<Mutex<HashSet<String>>>,
-}
-
-impl ProvisionedRemoteComputeProvisioningCoordinator {
-    fn try_enter(&self, workspace_id: &str) -> Option<ProvisionedRemoteComputeProvisioningGuard> {
-        let mut active = self
-            .active_workspace_ids
-            .lock()
-            .expect("provisioned remote compute provisioning coordinator lock");
-        if !active.insert(workspace_id.to_string()) {
-            return None;
-        }
-
-        Some(ProvisionedRemoteComputeProvisioningGuard {
-            workspace_id: workspace_id.to_string(),
-            active_workspace_ids: Arc::clone(&self.active_workspace_ids),
-        })
-    }
-}
-
-struct ProvisionedRemoteComputeProvisioningGuard {
-    workspace_id: String,
-    active_workspace_ids: Arc<Mutex<HashSet<String>>>,
-}
-
-impl Drop for ProvisionedRemoteComputeProvisioningGuard {
-    fn drop(&mut self) {
-        self.active_workspace_ids
-            .lock()
-            .expect("provisioned remote compute provisioning coordinator lock")
-            .remove(&self.workspace_id);
     }
 }
 
