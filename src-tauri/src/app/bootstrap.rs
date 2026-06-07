@@ -3,7 +3,7 @@ use std::fs;
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    commands::NativeCommandError,
+    commands::{NativeCommandError, NativeCommandErrorCode},
     provisioned_remote_compute::{
         providers::runpod::RunpodProvisionedRemoteComputeProvider,
         registry::ProvisionedRemoteComputeProviderRegistry,
@@ -26,12 +26,18 @@ const WORKSPACE_CATALOG_DB_FILE: &str = "workspace-catalog.sqlite";
 
 pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeCommandError> {
     let app_identifier = app_handle.config().identifier.clone();
-    let app_data_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|_| NativeCommandError::new("app data directory is unavailable"))?;
-    fs::create_dir_all(&app_data_dir)
-        .map_err(|_| NativeCommandError::new("app data directory could not be created"))?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|_| {
+        NativeCommandError::new(
+            NativeCommandErrorCode::WorkspaceStorageUnavailable,
+            "app data directory is unavailable",
+        )
+    })?;
+    fs::create_dir_all(&app_data_dir).map_err(|_| {
+        NativeCommandError::new(
+            NativeCommandErrorCode::WorkspaceStorageUnavailable,
+            "app data directory could not be created",
+        )
+    })?;
 
     let workspace_repository =
         SqliteWorkspaceCatalogRepository::connect(app_data_dir.join(WORKSPACE_CATALOG_DB_FILE))

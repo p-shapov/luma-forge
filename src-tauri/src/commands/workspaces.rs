@@ -5,7 +5,7 @@ use crate::{
     app::state::AppState,
     commands::{
         types::workspace::{CreateWorkspaceRequest, WorkspaceIdRequest, WorkspaceResponse},
-        CommandResult, NativeCommandError,
+        CommandResult, NativeCommandError, NativeCommandErrorCode,
     },
     domain::placement::RemotePlacementPlan,
     provisioned_remote_compute::service::SetupProvisionedRemoteComputeWorkspaceRequest,
@@ -24,7 +24,12 @@ pub async fn create_workspace(
         .workflow_presets
         .into_iter()
         .find(|preset| preset.id == request.workflow_preset_id)
-        .ok_or_else(|| NativeCommandError::new("workflow preset was not found"))?;
+        .ok_or_else(|| {
+            NativeCommandError::new(
+                NativeCommandErrorCode::WorkflowCatalogInvalid,
+                "workflow preset was not found",
+            )
+        })?;
     let remote_placement: RemotePlacementPlan = request.remote_placement.into();
 
     for _ in 0..WORKSPACE_ID_RETRIES {
@@ -44,6 +49,7 @@ pub async fn create_workspace(
     }
 
     Err(NativeCommandError::new(
+        NativeCommandErrorCode::WorkspaceStorageUnavailable,
         "workspace id could not be generated",
     ))
 }
@@ -103,5 +109,10 @@ async fn load_workspace(
         .workspace_catalog
         .find_workspace_by_id(workspace_id)
         .await?
-        .ok_or_else(|| NativeCommandError::new("workspace was not found"))
+        .ok_or_else(|| {
+            NativeCommandError::new(
+                NativeCommandErrorCode::WorkspaceNotFound,
+                "workspace was not found",
+            )
+        })
 }
