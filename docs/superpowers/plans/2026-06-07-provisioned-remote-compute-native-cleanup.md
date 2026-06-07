@@ -44,7 +44,7 @@ Modify:
 Do not modify:
 
 - Worker code.
-- Persistence schema.
+- SQLite table schema, persistence versioning, or migration behavior. Persisted workspace JSON follows the current domain contract in this pre-v1 refactor, so old local development workspace rows may need to be recreated.
 - Endpoint execution behavior.
 - RunPod endpoint cleanup strategy.
 
@@ -1251,7 +1251,7 @@ git diff --stat HEAD
 git status --short
 ```
 
-Expected: only native/runtime/frontend generated files changed by the plan are present. No worker, persistence schema, endpoint execution, or unrelated README changes.
+Expected: only native/runtime/frontend generated files changed by the plan are present. No worker, SQLite table schema, persistence migration/versioning, endpoint execution, or unrelated README changes.
 
 - [ ] **Step 6: Final commit if verification fixes changed files**
 
