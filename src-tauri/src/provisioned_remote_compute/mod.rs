@@ -8,3 +8,5 @@ pub mod provider;
 pub mod providers;
 pub mod registry;
 pub mod service;
+#[cfg(test)]
+mod test_support;
