@@ -1,6 +1,9 @@
+pub mod hugging_face;
+pub mod runpod;
+
 use crate::{domain::secrets::ApiKeyIdentity, shared::AppFuture};
 
-use super::{errors::SecretsStorageError, store::ApiSecret};
+use super::{errors::SecretsStorageError, stores::ApiSecret};
 
 pub trait ApiKeyIdentityProvider: Send + Sync {
     fn identity<'a>(

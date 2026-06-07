@@ -1,3 +1,5 @@
+pub mod keyring;
+
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 

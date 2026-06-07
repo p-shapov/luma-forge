@@ -8,7 +8,9 @@ use crate::{
     shared::AppFuture,
 };
 
-use super::{errors::SecretsStorageError, identity::ApiKeyIdentityProvider, store::ApiSecret};
+use crate::secrets_storage::{
+    errors::SecretsStorageError, identities::ApiKeyIdentityProvider, stores::ApiSecret,
+};
 
 const HUGGING_FACE_WHOAMI_ENDPOINT: &str = "https://huggingface.co/api/whoami-v2";
 const HUGGING_FACE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);

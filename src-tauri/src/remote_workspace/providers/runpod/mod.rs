@@ -1,7 +1,7 @@
 pub mod api;
 pub mod config;
 pub mod mapping;
-pub mod provisioner_worker;
+pub mod provisioner;
 
 use std::sync::Arc;
 
@@ -38,7 +38,7 @@ use self::{
         DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, NETWORK_VOLUME_MAX_SIZE_BYTES, PROVISIONER_PORT,
         RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
-    provisioner_worker::{ProvisionerWorkerApi, ProvisionerWorkerClient},
+    provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
 
 pub struct RunpodRemoteWorkspaceProvider<RS, RI, HS, HI> {

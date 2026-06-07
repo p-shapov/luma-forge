@@ -1,12 +1,9 @@
 pub mod errors;
-pub mod hugging_face_identity;
-pub mod identity;
-pub mod keyring_store;
-pub mod runpod_identity;
+pub mod identities;
 pub mod service;
-pub mod store;
+pub mod stores;
 
 pub use errors::SecretsStorageError;
-pub use identity::ApiKeyIdentityProvider;
+pub use identities::ApiKeyIdentityProvider;
 pub use service::SecretsStorageService;
-pub use store::{ApiSecret, SecretKey, SecretStore};
+pub use stores::{ApiSecret, SecretKey, SecretStore};
