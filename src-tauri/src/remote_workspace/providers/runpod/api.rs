@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::{
     domain::{
         placement::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
-        workspace::RemoteVolumeSnapshot,
+        workspace::ProvisionedRemoteComputeVolumeSnapshot,
     },
     remote_workspace::errors::RemoteWorkspaceError,
     secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService},
@@ -27,7 +27,7 @@ pub trait RunpodApi: Send + Sync {
     fn create_network_volume<'a>(
         &'a self,
         request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>;
 
     fn delete_network_volume<'a>(
         &'a self,
@@ -223,7 +223,7 @@ where
     fn create_network_volume<'a>(
         &'a self,
         request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>> {
         Box::pin(async move {
             let response: NetworkVolumeResponse = self
                 .post_rest(
@@ -233,7 +233,7 @@ where
                 )
                 .await?;
 
-            Ok(RemoteVolumeSnapshot { id: response.id })
+            Ok(ProvisionedRemoteComputeVolumeSnapshot { id: response.id })
         })
     }
 

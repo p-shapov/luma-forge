@@ -43,8 +43,8 @@ mod tests {
         },
         provider::GpuCloudProviderId,
         workspace::{
-            RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-            RemoteVolumeSnapshot,
+            ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeProvisionerSnapshot,
+            ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeVolumeSnapshot,
         },
     };
 
@@ -96,9 +96,10 @@ mod tests {
         fn create_volume<'a>(
             &'a self,
             _params: CreateVolumeParams,
-        ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>
+        {
             Box::pin(async {
-                Ok(RemoteVolumeSnapshot {
+                Ok(ProvisionedRemoteComputeVolumeSnapshot {
                     id: "volume".to_string(),
                 })
             })
@@ -116,9 +117,10 @@ mod tests {
         fn start_provisioner<'a>(
             &'a self,
             _params: StartProvisionerParams,
-        ) -> AppFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerSnapshot, RemoteWorkspaceError>>
+        {
             Box::pin(async {
-                Ok(RemoteProvisionerSnapshot {
+                Ok(ProvisionedRemoteComputeProvisionerSnapshot {
                     id: "provisioner".to_string(),
                     status_url: "https://status.example".to_string(),
                 })
@@ -135,8 +137,9 @@ mod tests {
         fn get_provisioner_status<'a>(
             &'a self,
             _params: GetProvisionerStatusParams,
-        ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
-            Box::pin(async { Ok(RemoteProvisionerStatus::Pending) })
+        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerStatus, RemoteWorkspaceError>>
+        {
+            Box::pin(async { Ok(ProvisionedRemoteComputeProvisionerStatus::Pending) })
         }
     }
 
@@ -144,9 +147,10 @@ mod tests {
         fn create_endpoint<'a>(
             &'a self,
             _params: CreateEndpointParams,
-        ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeEndpointSnapshot, RemoteWorkspaceError>>
+        {
             Box::pin(async {
-                Ok(RemoteEndpointSnapshot {
+                Ok(ProvisionedRemoteComputeEndpointSnapshot {
                     id: "endpoint".to_string(),
                     url: "https://endpoint.example".to_string(),
                 })

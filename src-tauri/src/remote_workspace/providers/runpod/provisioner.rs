@@ -2,7 +2,9 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::workspace::{RemoteProvisionerStatus, RemoteProvisioningError},
+    domain::workspace::{
+        ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeProvisioningError,
+    },
     shared::AppFuture,
 };
 
@@ -11,7 +13,13 @@ pub trait ProvisionerWorkerApi: Send + Sync {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteProvisioningError>>;
+    ) -> AppFuture<
+        'a,
+        Result<
+            ProvisionedRemoteComputeProvisionerStatus,
+            ProvisionedRemoteComputeProvisioningError,
+        >,
+    >;
 }
 
 #[derive(Clone)]
@@ -30,7 +38,13 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteProvisioningError>> {
+    ) -> AppFuture<
+        'a,
+        Result<
+            ProvisionedRemoteComputeProvisionerStatus,
+            ProvisionedRemoteComputeProvisioningError,
+        >,
+    > {
         Box::pin(async move {
             let response = self
                 .http
@@ -38,13 +52,17 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
                 .bearer_auth(bearer_token)
                 .send()
                 .await
-                .map_err(|_| RemoteProvisioningError::ProvisionerWorkerUnavailable)?;
+                .map_err(|_| {
+                    ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnavailable
+                })?;
 
             map_http_status(response.status())?;
             let status = response
                 .json::<ProvisionerStatusResponse>()
                 .await
-                .map_err(|_| RemoteProvisioningError::ProvisionerWorkerResponseInvalid)?;
+                .map_err(|_| {
+                    ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid
+                })?;
 
             map_status_response(status)
         })
@@ -65,30 +83,34 @@ pub struct ProvisionerWorkerErrorResponse {
 
 pub fn map_status_response(
     response: ProvisionerStatusResponse,
-) -> Result<RemoteProvisionerStatus, RemoteProvisioningError> {
+) -> Result<ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeProvisioningError> {
     match response.status.as_str() {
-        "idle" => Ok(RemoteProvisionerStatus::Pending),
-        "running" => Ok(RemoteProvisionerStatus::Running),
-        "succeeded" => Ok(RemoteProvisionerStatus::Succeeded),
+        "idle" => Ok(ProvisionedRemoteComputeProvisionerStatus::Pending),
+        "running" => Ok(ProvisionedRemoteComputeProvisionerStatus::Running),
+        "succeeded" => Ok(ProvisionedRemoteComputeProvisionerStatus::Succeeded),
         "failed" => {
-            let error = response
-                .error
-                .ok_or(RemoteProvisioningError::ProvisionerWorkerResponseInvalid)?;
-            Ok(RemoteProvisionerStatus::Failed {
+            let error = response.error.ok_or(
+                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid,
+            )?;
+            Ok(ProvisionedRemoteComputeProvisionerStatus::Failed {
                 code: error.code,
                 message: error.message,
             })
         }
-        _ => Err(RemoteProvisioningError::ProvisionerWorkerResponseInvalid),
+        _ => Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid),
     }
 }
 
-fn map_http_status(status: StatusCode) -> Result<(), RemoteProvisioningError> {
+fn map_http_status(status: StatusCode) -> Result<(), ProvisionedRemoteComputeProvisioningError> {
     match status {
         status if status.is_success() => Ok(()),
-        StatusCode::UNAUTHORIZED => Err(RemoteProvisioningError::ProvisionerWorkerUnauthorized),
-        StatusCode::CONFLICT => Err(RemoteProvisioningError::ProvisionerWorkerConflict),
-        _ => Err(RemoteProvisioningError::ProvisionerWorkerUnexpectedError),
+        StatusCode::UNAUTHORIZED => {
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized)
+        }
+        StatusCode::CONFLICT => {
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerConflict)
+        }
+        _ => Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnexpectedError),
     }
 }
 
@@ -103,21 +125,21 @@ mod tests {
                 status: "idle".to_string(),
                 error: None,
             }),
-            Ok(RemoteProvisionerStatus::Pending)
+            Ok(ProvisionedRemoteComputeProvisionerStatus::Pending)
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "running".to_string(),
                 error: None,
             }),
-            Ok(RemoteProvisionerStatus::Running)
+            Ok(ProvisionedRemoteComputeProvisionerStatus::Running)
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "succeeded".to_string(),
                 error: None,
             }),
-            Ok(RemoteProvisionerStatus::Succeeded)
+            Ok(ProvisionedRemoteComputeProvisionerStatus::Succeeded)
         );
     }
 
@@ -131,7 +153,7 @@ mod tests {
                     message: "download failed".to_string(),
                 }),
             }),
-            Ok(RemoteProvisionerStatus::Failed {
+            Ok(ProvisionedRemoteComputeProvisionerStatus::Failed {
                 code: "asset_download_failed".to_string(),
                 message: "download failed".to_string(),
             })
@@ -145,14 +167,14 @@ mod tests {
                 status: "failed".to_string(),
                 error: None,
             }),
-            Err(RemoteProvisioningError::ProvisionerWorkerResponseInvalid)
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid)
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "other".to_string(),
                 error: None,
             }),
-            Err(RemoteProvisioningError::ProvisionerWorkerResponseInvalid)
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid)
         );
     }
 
@@ -161,15 +183,15 @@ mod tests {
         assert_eq!(map_http_status(StatusCode::OK), Ok(()));
         assert_eq!(
             map_http_status(StatusCode::UNAUTHORIZED),
-            Err(RemoteProvisioningError::ProvisionerWorkerUnauthorized)
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized)
         );
         assert_eq!(
             map_http_status(StatusCode::CONFLICT),
-            Err(RemoteProvisioningError::ProvisionerWorkerConflict)
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerConflict)
         );
         assert_eq!(
             map_http_status(StatusCode::INTERNAL_SERVER_ERROR),
-            Err(RemoteProvisioningError::ProvisionerWorkerUnexpectedError)
+            Err(ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnexpectedError)
         );
     }
 }

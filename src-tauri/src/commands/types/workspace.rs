@@ -2,10 +2,12 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::domain::workspace::{
-    RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-    RemoteProvisioningError, RemoteProvisioningPhase, RemoteProvisioningState,
-    RemoteProvisioningStatus, RemoteVolumeSnapshot, RemoteWorkspace, RemoteWorkspaceResources,
-    Workspace, WorkspaceCatalog, WorkspaceRuntime,
+    ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeProvisionerSnapshot,
+    ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeProvisioningError,
+    ProvisionedRemoteComputeProvisioningPhase, ProvisionedRemoteComputeProvisioningState,
+    ProvisionedRemoteComputeProvisioningStatus, ProvisionedRemoteComputeResources,
+    ProvisionedRemoteComputeVolumeSnapshot, ProvisionedRemoteComputeWorkspace, Workspace,
+    WorkspaceCatalog, WorkspaceRuntime,
 };
 
 use super::{catalog::WorkflowPresetResponse, placement::RemotePlacementPlanInput};
@@ -27,55 +29,55 @@ pub struct WorkspaceResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "runtimeType", rename_all = "snake_case")]
 pub enum WorkspaceRuntimeResponse {
-    Remote(RemoteWorkspaceResponse),
+    ProvisionedRemoteCompute(ProvisionedRemoteComputeWorkspaceResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteWorkspaceResponse {
+pub struct ProvisionedRemoteComputeWorkspaceResponse {
     pub remote_placement: RemotePlacementPlanInput,
-    pub remote_provisioning: RemoteProvisioningStateResponse,
-    pub remote_resources: RemoteWorkspaceResourcesResponse,
+    pub provisioning: ProvisionedRemoteComputeProvisioningStateResponse,
+    pub resources: ProvisionedRemoteComputeResourcesResponse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteProvisioningStateResponse {
-    pub status: RemoteProvisioningStatusResponse,
+pub struct ProvisionedRemoteComputeProvisioningStateResponse {
+    pub status: ProvisionedRemoteComputeProvisioningStatusResponse,
     pub percent: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisioningStatusResponse {
+pub enum ProvisionedRemoteComputeProvisioningStatusResponse {
     NotStarted,
     InProgress {
-        phase: RemoteProvisioningPhaseResponse,
+        phase: ProvisionedRemoteComputeProvisioningPhaseResponse,
     },
     Cancelling {
-        phase: Option<RemoteProvisioningPhaseResponse>,
+        phase: Option<ProvisionedRemoteComputeProvisioningPhaseResponse>,
     },
     Completed,
     Failed {
-        phase: Option<RemoteProvisioningPhaseResponse>,
-        error: RemoteProvisioningErrorResponse,
+        phase: Option<ProvisionedRemoteComputeProvisioningPhaseResponse>,
+        error: ProvisionedRemoteComputeProvisioningErrorResponse,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisioningPhaseResponse {
+pub enum ProvisionedRemoteComputeProvisioningPhaseResponse {
     CreatingRemoteVolume,
     StartingRemoteProvisioner,
     RunningRemoteProvisioner {
-        status: RemoteProvisionerStatusResponse,
+        status: ProvisionedRemoteComputeProvisionerStatusResponse,
     },
     CreatingRemoteEndpoint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisionerStatusResponse {
+pub enum ProvisionedRemoteComputeProvisionerStatusResponse {
     Pending,
     Starting,
     Running,
@@ -86,7 +88,7 @@ pub enum RemoteProvisionerStatusResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisioningErrorResponse {
+pub enum ProvisionedRemoteComputeProvisioningErrorResponse {
     Provider,
     ProvisionerWorkerTokenMissing,
     ProvisionerWorkerTokenInvalid,
@@ -106,28 +108,28 @@ pub enum RemoteProvisioningErrorResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteWorkspaceResourcesResponse {
-    pub remote_volume: Option<RemoteVolumeSnapshotResponse>,
-    pub remote_provisioner: Option<RemoteProvisionerSnapshotResponse>,
-    pub remote_endpoint: Option<RemoteEndpointSnapshotResponse>,
+pub struct ProvisionedRemoteComputeResourcesResponse {
+    pub volume: Option<ProvisionedRemoteComputeVolumeSnapshotResponse>,
+    pub provisioner: Option<ProvisionedRemoteComputeProvisionerSnapshotResponse>,
+    pub endpoint: Option<ProvisionedRemoteComputeEndpointSnapshotResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteVolumeSnapshotResponse {
+pub struct ProvisionedRemoteComputeVolumeSnapshotResponse {
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteProvisionerSnapshotResponse {
+pub struct ProvisionedRemoteComputeProvisionerSnapshotResponse {
     pub id: String,
     pub status_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteEndpointSnapshotResponse {
+pub struct ProvisionedRemoteComputeEndpointSnapshotResponse {
     pub id: String,
     pub url: String,
 }
@@ -166,23 +168,27 @@ impl From<Workspace> for WorkspaceResponse {
 impl From<WorkspaceRuntime> for WorkspaceRuntimeResponse {
     fn from(value: WorkspaceRuntime) -> Self {
         match value {
-            WorkspaceRuntime::Remote(remote) => Self::Remote(remote.into()),
+            WorkspaceRuntime::ProvisionedRemoteCompute(remote) => {
+                Self::ProvisionedRemoteCompute(remote.into())
+            }
         }
     }
 }
 
-impl From<RemoteWorkspace> for RemoteWorkspaceResponse {
-    fn from(value: RemoteWorkspace) -> Self {
+impl From<ProvisionedRemoteComputeWorkspace> for ProvisionedRemoteComputeWorkspaceResponse {
+    fn from(value: ProvisionedRemoteComputeWorkspace) -> Self {
         Self {
             remote_placement: value.remote_placement.into(),
-            remote_provisioning: value.remote_provisioning.into(),
-            remote_resources: value.remote_resources.into(),
+            provisioning: value.provisioning.into(),
+            resources: value.resources.into(),
         }
     }
 }
 
-impl From<RemoteProvisioningState> for RemoteProvisioningStateResponse {
-    fn from(value: RemoteProvisioningState) -> Self {
+impl From<ProvisionedRemoteComputeProvisioningState>
+    for ProvisionedRemoteComputeProvisioningStateResponse
+{
+    fn from(value: ProvisionedRemoteComputeProvisioningState) -> Self {
         Self {
             status: value.status.into(),
             percent: value.percent,
@@ -190,18 +196,20 @@ impl From<RemoteProvisioningState> for RemoteProvisioningStateResponse {
     }
 }
 
-impl From<RemoteProvisioningStatus> for RemoteProvisioningStatusResponse {
-    fn from(value: RemoteProvisioningStatus) -> Self {
+impl From<ProvisionedRemoteComputeProvisioningStatus>
+    for ProvisionedRemoteComputeProvisioningStatusResponse
+{
+    fn from(value: ProvisionedRemoteComputeProvisioningStatus) -> Self {
         match value {
-            RemoteProvisioningStatus::NotStarted => Self::NotStarted,
-            RemoteProvisioningStatus::InProgress { phase } => Self::InProgress {
+            ProvisionedRemoteComputeProvisioningStatus::NotStarted => Self::NotStarted,
+            ProvisionedRemoteComputeProvisioningStatus::InProgress { phase } => Self::InProgress {
                 phase: phase.into(),
             },
-            RemoteProvisioningStatus::Cancelling { phase } => Self::Cancelling {
+            ProvisionedRemoteComputeProvisioningStatus::Cancelling { phase } => Self::Cancelling {
                 phase: phase.map(Into::into),
             },
-            RemoteProvisioningStatus::Completed => Self::Completed,
-            RemoteProvisioningStatus::Failed { phase, error } => Self::Failed {
+            ProvisionedRemoteComputeProvisioningStatus::Completed => Self::Completed,
+            ProvisionedRemoteComputeProvisioningStatus::Failed { phase, error } => Self::Failed {
                 phase: phase.map(Into::into),
                 error: error.into(),
             },
@@ -209,96 +217,120 @@ impl From<RemoteProvisioningStatus> for RemoteProvisioningStatusResponse {
     }
 }
 
-impl From<RemoteProvisioningPhase> for RemoteProvisioningPhaseResponse {
-    fn from(value: RemoteProvisioningPhase) -> Self {
+impl From<ProvisionedRemoteComputeProvisioningPhase>
+    for ProvisionedRemoteComputeProvisioningPhaseResponse
+{
+    fn from(value: ProvisionedRemoteComputeProvisioningPhase) -> Self {
         match value {
-            RemoteProvisioningPhase::CreatingRemoteVolume => Self::CreatingRemoteVolume,
-            RemoteProvisioningPhase::StartingRemoteProvisioner => Self::StartingRemoteProvisioner,
-            RemoteProvisioningPhase::RunningRemoteProvisioner { status } => {
+            ProvisionedRemoteComputeProvisioningPhase::CreatingRemoteVolume => {
+                Self::CreatingRemoteVolume
+            }
+            ProvisionedRemoteComputeProvisioningPhase::StartingRemoteProvisioner => {
+                Self::StartingRemoteProvisioner
+            }
+            ProvisionedRemoteComputeProvisioningPhase::RunningRemoteProvisioner { status } => {
                 Self::RunningRemoteProvisioner {
                     status: status.into(),
                 }
             }
-            RemoteProvisioningPhase::CreatingRemoteEndpoint => Self::CreatingRemoteEndpoint,
+            ProvisionedRemoteComputeProvisioningPhase::CreatingRemoteEndpoint => {
+                Self::CreatingRemoteEndpoint
+            }
         }
     }
 }
 
-impl From<RemoteProvisionerStatus> for RemoteProvisionerStatusResponse {
-    fn from(value: RemoteProvisionerStatus) -> Self {
+impl From<ProvisionedRemoteComputeProvisionerStatus>
+    for ProvisionedRemoteComputeProvisionerStatusResponse
+{
+    fn from(value: ProvisionedRemoteComputeProvisionerStatus) -> Self {
         match value {
-            RemoteProvisionerStatus::Pending => Self::Pending,
-            RemoteProvisionerStatus::Starting => Self::Starting,
-            RemoteProvisionerStatus::Running => Self::Running,
-            RemoteProvisionerStatus::CleaningUp => Self::CleaningUp,
-            RemoteProvisionerStatus::Succeeded => Self::Succeeded,
-            RemoteProvisionerStatus::Failed { code, message } => Self::Failed { code, message },
+            ProvisionedRemoteComputeProvisionerStatus::Pending => Self::Pending,
+            ProvisionedRemoteComputeProvisionerStatus::Starting => Self::Starting,
+            ProvisionedRemoteComputeProvisionerStatus::Running => Self::Running,
+            ProvisionedRemoteComputeProvisionerStatus::CleaningUp => Self::CleaningUp,
+            ProvisionedRemoteComputeProvisionerStatus::Succeeded => Self::Succeeded,
+            ProvisionedRemoteComputeProvisionerStatus::Failed { code, message } => {
+                Self::Failed { code, message }
+            }
         }
     }
 }
 
-impl From<RemoteProvisioningError> for RemoteProvisioningErrorResponse {
-    fn from(value: RemoteProvisioningError) -> Self {
+impl From<ProvisionedRemoteComputeProvisioningError>
+    for ProvisionedRemoteComputeProvisioningErrorResponse
+{
+    fn from(value: ProvisionedRemoteComputeProvisioningError) -> Self {
         match value {
-            RemoteProvisioningError::Provider(_) => Self::Provider,
-            RemoteProvisioningError::ProvisionerWorkerTokenMissing => {
+            ProvisionedRemoteComputeProvisioningError::Provider(_) => Self::Provider,
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerTokenMissing => {
                 Self::ProvisionerWorkerTokenMissing
             }
-            RemoteProvisioningError::ProvisionerWorkerTokenInvalid => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerTokenInvalid => {
                 Self::ProvisionerWorkerTokenInvalid
             }
-            RemoteProvisioningError::ProvisionerWorkerUnauthorized => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized => {
                 Self::ProvisionerWorkerUnauthorized
             }
-            RemoteProvisioningError::ProvisionerWorkerUnavailable => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnavailable => {
                 Self::ProvisionerWorkerUnavailable
             }
-            RemoteProvisioningError::ProvisionerWorkerConflict => Self::ProvisionerWorkerConflict,
-            RemoteProvisioningError::ProvisionerWorkerResponseInvalid => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerConflict => {
+                Self::ProvisionerWorkerConflict
+            }
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid => {
                 Self::ProvisionerWorkerResponseInvalid
             }
-            RemoteProvisioningError::ProvisionerWorkerFailed => Self::ProvisionerWorkerFailed,
-            RemoteProvisioningError::ProvisionerWorkerAssetDownloadFailed => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerFailed => {
+                Self::ProvisionerWorkerFailed
+            }
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerAssetDownloadFailed => {
                 Self::ProvisionerWorkerAssetDownloadFailed
             }
-            RemoteProvisioningError::ProvisionerWorkerAssetAuthRequired => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerAssetAuthRequired => {
                 Self::ProvisionerWorkerAssetAuthRequired
             }
-            RemoteProvisioningError::ProvisionerWorkerPathValidationFailed => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerPathValidationFailed => {
                 Self::ProvisionerWorkerPathValidationFailed
             }
-            RemoteProvisioningError::ProvisionerWorkerStepTimeout => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerStepTimeout => {
                 Self::ProvisionerWorkerStepTimeout
             }
-            RemoteProvisioningError::ProvisionerWorkerUnexpectedError => {
+            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnexpectedError => {
                 Self::ProvisionerWorkerUnexpectedError
             }
-            RemoteProvisioningError::CancellationCleanupFailed => Self::CancellationCleanupFailed,
-            RemoteProvisioningError::InvalidProvisioningState { message } => {
+            ProvisionedRemoteComputeProvisioningError::CancellationCleanupFailed => {
+                Self::CancellationCleanupFailed
+            }
+            ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState { message } => {
                 Self::InvalidProvisioningState { message }
             }
         }
     }
 }
 
-impl From<RemoteWorkspaceResources> for RemoteWorkspaceResourcesResponse {
-    fn from(value: RemoteWorkspaceResources) -> Self {
+impl From<ProvisionedRemoteComputeResources> for ProvisionedRemoteComputeResourcesResponse {
+    fn from(value: ProvisionedRemoteComputeResources) -> Self {
         Self {
-            remote_volume: value.remote_volume.map(Into::into),
-            remote_provisioner: value.remote_provisioner.map(Into::into),
-            remote_endpoint: value.remote_endpoint.map(Into::into),
+            volume: value.volume.map(Into::into),
+            provisioner: value.provisioner.map(Into::into),
+            endpoint: value.endpoint.map(Into::into),
         }
     }
 }
 
-impl From<RemoteVolumeSnapshot> for RemoteVolumeSnapshotResponse {
-    fn from(value: RemoteVolumeSnapshot) -> Self {
+impl From<ProvisionedRemoteComputeVolumeSnapshot>
+    for ProvisionedRemoteComputeVolumeSnapshotResponse
+{
+    fn from(value: ProvisionedRemoteComputeVolumeSnapshot) -> Self {
         Self { id: value.id }
     }
 }
 
-impl From<RemoteProvisionerSnapshot> for RemoteProvisionerSnapshotResponse {
-    fn from(value: RemoteProvisionerSnapshot) -> Self {
+impl From<ProvisionedRemoteComputeProvisionerSnapshot>
+    for ProvisionedRemoteComputeProvisionerSnapshotResponse
+{
+    fn from(value: ProvisionedRemoteComputeProvisionerSnapshot) -> Self {
         Self {
             id: value.id,
             status_url: value.status_url,
@@ -306,11 +338,53 @@ impl From<RemoteProvisionerSnapshot> for RemoteProvisionerSnapshotResponse {
     }
 }
 
-impl From<RemoteEndpointSnapshot> for RemoteEndpointSnapshotResponse {
-    fn from(value: RemoteEndpointSnapshot) -> Self {
+impl From<ProvisionedRemoteComputeEndpointSnapshot>
+    for ProvisionedRemoteComputeEndpointSnapshotResponse
+{
+    fn from(value: ProvisionedRemoteComputeEndpointSnapshot) -> Self {
         Self {
             id: value.id,
             url: value.url,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ProvisionedRemoteComputeProvisioningStateResponse,
+        ProvisionedRemoteComputeProvisioningStatusResponse,
+        ProvisionedRemoteComputeResourcesResponse, ProvisionedRemoteComputeWorkspaceResponse,
+        WorkspaceRuntimeResponse,
+    };
+
+    #[test]
+    fn workspace_runtime_response_serializes_provisioned_remote_compute_variant() {
+        let response = WorkspaceRuntimeResponse::ProvisionedRemoteCompute(
+            ProvisionedRemoteComputeWorkspaceResponse {
+                remote_placement: crate::commands::types::placement::RemotePlacementPlanInput {
+                    gpu_cloud_provider_id:
+                        crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
+                    datacenter_id: "dc".to_string(),
+                    gpu_id: "gpu".to_string(),
+                    volume_size_bytes: 1,
+                    keep_alive_limits: None,
+                },
+                provisioning: ProvisionedRemoteComputeProvisioningStateResponse {
+                    status: ProvisionedRemoteComputeProvisioningStatusResponse::NotStarted,
+                    percent: None,
+                },
+                resources: ProvisionedRemoteComputeResourcesResponse {
+                    volume: None,
+                    provisioner: None,
+                    endpoint: None,
+                },
+            },
+        );
+
+        let json = serde_json::to_string(&response).expect("runtime json");
+
+        assert!(json.contains(r#""runtimeType":"provisioned_remote_compute""#));
+        assert!(!json.contains("remote_provisioner"));
     }
 }

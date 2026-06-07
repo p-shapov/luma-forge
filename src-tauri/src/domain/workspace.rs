@@ -6,7 +6,7 @@ use super::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisioningError {
+pub enum ProvisionedRemoteComputeProvisioningError {
     Provider(ProviderApiError),
     ProvisionerWorkerTokenMissing,
     ProvisionerWorkerTokenInvalid,
@@ -25,25 +25,25 @@ pub enum RemoteProvisioningError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteVolumeSnapshot {
+pub struct ProvisionedRemoteComputeVolumeSnapshot {
     pub id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteProvisionerSnapshot {
+pub struct ProvisionedRemoteComputeProvisionerSnapshot {
     pub id: String,
     pub status_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteEndpointSnapshot {
+pub struct ProvisionedRemoteComputeEndpointSnapshot {
     pub id: String,
     pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisionerStatus {
+pub enum ProvisionedRemoteComputeProvisionerStatus {
     Pending,
     Starting,
     Running,
@@ -54,54 +54,56 @@ pub enum RemoteProvisionerStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisioningPhase {
+pub enum ProvisionedRemoteComputeProvisioningPhase {
     CreatingRemoteVolume,
     StartingRemoteProvisioner,
-    RunningRemoteProvisioner { status: RemoteProvisionerStatus },
+    RunningRemoteProvisioner {
+        status: ProvisionedRemoteComputeProvisionerStatus,
+    },
     CreatingRemoteEndpoint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RemoteProvisioningStatus {
+pub enum ProvisionedRemoteComputeProvisioningStatus {
     NotStarted,
     InProgress {
-        phase: RemoteProvisioningPhase,
+        phase: ProvisionedRemoteComputeProvisioningPhase,
     },
     Cancelling {
-        phase: Option<RemoteProvisioningPhase>,
+        phase: Option<ProvisionedRemoteComputeProvisioningPhase>,
     },
     Completed,
     Failed {
-        phase: Option<RemoteProvisioningPhase>,
-        error: RemoteProvisioningError,
+        phase: Option<ProvisionedRemoteComputeProvisioningPhase>,
+        error: ProvisionedRemoteComputeProvisioningError,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteProvisioningState {
-    pub status: RemoteProvisioningStatus,
+pub struct ProvisionedRemoteComputeProvisioningState {
+    pub status: ProvisionedRemoteComputeProvisioningStatus,
     pub percent: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteWorkspaceResources {
-    pub remote_volume: Option<RemoteVolumeSnapshot>,
-    pub remote_provisioner: Option<RemoteProvisionerSnapshot>,
-    pub remote_endpoint: Option<RemoteEndpointSnapshot>,
+pub struct ProvisionedRemoteComputeResources {
+    pub volume: Option<ProvisionedRemoteComputeVolumeSnapshot>,
+    pub provisioner: Option<ProvisionedRemoteComputeProvisionerSnapshot>,
+    pub endpoint: Option<ProvisionedRemoteComputeEndpointSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteWorkspace {
+pub struct ProvisionedRemoteComputeWorkspace {
     pub remote_placement: RemotePlacementPlan,
-    pub remote_provisioning: RemoteProvisioningState,
-    pub remote_resources: RemoteWorkspaceResources,
+    pub provisioning: ProvisionedRemoteComputeProvisioningState,
+    pub resources: ProvisionedRemoteComputeResources,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "runtime_type", rename_all = "snake_case")]
 pub enum WorkspaceRuntime {
-    Remote(RemoteWorkspace),
+    ProvisionedRemoteCompute(ProvisionedRemoteComputeWorkspace),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

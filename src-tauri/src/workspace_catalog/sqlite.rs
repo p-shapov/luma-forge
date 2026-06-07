@@ -209,8 +209,9 @@ mod tests {
             RemoteRuntimeRequirements, WorkflowExecutionType, WorkflowPreset,
         },
         workspace::{
-            RemoteProvisioningState, RemoteProvisioningStatus, RemoteWorkspace,
-            RemoteWorkspaceResources, Workspace, WorkspaceRuntime,
+            ProvisionedRemoteComputeProvisioningState, ProvisionedRemoteComputeProvisioningStatus,
+            ProvisionedRemoteComputeResources, ProvisionedRemoteComputeWorkspace, Workspace,
+            WorkspaceRuntime,
         },
     };
 
@@ -338,28 +339,30 @@ mod tests {
                     install_comfyui_relative_path: "models/model.safetensors".to_string(),
                 }],
             },
-            runtime: WorkspaceRuntime::Remote(RemoteWorkspace {
-                remote_placement: RemotePlacementPlan {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                    datacenter_id: "datacenter-1".to_string(),
-                    gpu_id: "gpu-1".to_string(),
-                    volume_size_bytes: 1,
-                    keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
-                        default_seconds: 60,
-                        min_seconds: 0,
-                        max_seconds: 3600,
-                    }),
+            runtime: WorkspaceRuntime::ProvisionedRemoteCompute(
+                ProvisionedRemoteComputeWorkspace {
+                    remote_placement: RemotePlacementPlan {
+                        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                        datacenter_id: "datacenter-1".to_string(),
+                        gpu_id: "gpu-1".to_string(),
+                        volume_size_bytes: 1,
+                        keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+                            default_seconds: 60,
+                            min_seconds: 0,
+                            max_seconds: 3600,
+                        }),
+                    },
+                    provisioning: ProvisionedRemoteComputeProvisioningState {
+                        status: ProvisionedRemoteComputeProvisioningStatus::NotStarted,
+                        percent: None,
+                    },
+                    resources: ProvisionedRemoteComputeResources {
+                        volume: None,
+                        provisioner: None,
+                        endpoint: None,
+                    },
                 },
-                remote_provisioning: RemoteProvisioningState {
-                    status: RemoteProvisioningStatus::NotStarted,
-                    percent: None,
-                },
-                remote_resources: RemoteWorkspaceResources {
-                    remote_volume: None,
-                    remote_provisioner: None,
-                    remote_endpoint: None,
-                },
-            }),
+            ),
         }
     }
 

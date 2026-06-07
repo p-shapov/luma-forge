@@ -1,6 +1,6 @@
 use crate::domain::{
     provider::{GpuCloudProviderId, ProviderApiError},
-    workspace::RemoteProvisioningError,
+    workspace::ProvisionedRemoteComputeProvisioningError,
 };
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub enum RemoteWorkspaceError {
     RemoteVolumeNotFound,
     RemoteProvisionerNotFound,
     RemoteEndpointNotFound,
-    ProvisionerWorker(RemoteProvisioningError),
+    ProvisionerWorker(ProvisionedRemoteComputeProvisioningError),
     ExecuteWorkspaceNotReady,
     ExecuteWorkspaceMissingEndpoint,
     ExecuteWorkspaceNotImplemented { message: String },
@@ -28,12 +28,14 @@ impl From<ProviderApiError> for RemoteWorkspaceError {
     }
 }
 
-impl From<RemoteWorkspaceError> for RemoteProvisioningError {
+impl From<RemoteWorkspaceError> for ProvisionedRemoteComputeProvisioningError {
     fn from(error: RemoteWorkspaceError) -> Self {
         match error {
-            RemoteWorkspaceError::Provider(error) => RemoteProvisioningError::Provider(error),
+            RemoteWorkspaceError::Provider(error) => {
+                ProvisionedRemoteComputeProvisioningError::Provider(error)
+            }
             RemoteWorkspaceError::ProvisionerWorker(error) => error,
-            error => RemoteProvisioningError::InvalidProvisioningState {
+            error => ProvisionedRemoteComputeProvisioningError::InvalidProvisioningState {
                 message: format!("{error:?}"),
             },
         }

@@ -2,8 +2,8 @@ use crate::domain::{
     placement::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
     provider::GpuCloudProviderId,
     workspace::{
-        RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-        RemoteVolumeSnapshot,
+        ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeProvisionerSnapshot,
+        ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeVolumeSnapshot,
     },
 };
 use crate::shared::AppFuture;
@@ -76,7 +76,7 @@ pub trait RemoteVolumeProvider {
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>;
 
     fn delete_volume<'a>(
         &'a self,
@@ -88,7 +88,7 @@ pub trait RemoteProvisionerProvider {
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerSnapshot, RemoteWorkspaceError>>;
 
     fn terminate_provisioner<'a>(
         &'a self,
@@ -98,14 +98,14 @@ pub trait RemoteProvisionerProvider {
     fn get_provisioner_status<'a>(
         &'a self,
         params: GetProvisionerStatusParams,
-    ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerStatus, RemoteWorkspaceError>>;
 }
 
 pub trait RemoteEndpointProvider {
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeEndpointSnapshot, RemoteWorkspaceError>>;
 
     fn delete_endpoint<'a>(
         &'a self,

@@ -10,8 +10,8 @@ use crate::{
         placement::RemotePlacementOptions,
         provider::{GpuCloudProviderId, ProviderApiError},
         workspace::{
-            RemoteEndpointSnapshot, RemoteProvisionerSnapshot, RemoteProvisionerStatus,
-            RemoteVolumeSnapshot,
+            ProvisionedRemoteComputeEndpointSnapshot, ProvisionedRemoteComputeProvisionerSnapshot,
+            ProvisionedRemoteComputeProvisionerStatus, ProvisionedRemoteComputeVolumeSnapshot,
         },
     },
     remote_workspace::{
@@ -132,7 +132,7 @@ where
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>> {
         Box::pin(async move {
             self.api
                 .create_network_volume(CreateNetworkVolumeRequest {
@@ -162,7 +162,8 @@ where
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<RemoteProvisionerSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerSnapshot, RemoteWorkspaceError>>
+    {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -194,7 +195,7 @@ where
                 })
                 .await?;
 
-            Ok(RemoteProvisionerSnapshot {
+            Ok(ProvisionedRemoteComputeProvisionerSnapshot {
                 status_url: provisioner_status_url(&pod.id),
                 id: pod.id,
             })
@@ -215,7 +216,8 @@ where
     fn get_provisioner_status<'a>(
         &'a self,
         params: GetProvisionerStatusParams,
-    ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeProvisionerStatus, RemoteWorkspaceError>>
+    {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -241,7 +243,7 @@ where
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<RemoteEndpointSnapshot, RemoteWorkspaceError>> {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteComputeEndpointSnapshot, RemoteWorkspaceError>> {
         Box::pin(async move {
             let endpoint = self
                 .api
@@ -265,7 +267,7 @@ where
                 })
                 .await?;
 
-            Ok(RemoteEndpointSnapshot {
+            Ok(ProvisionedRemoteComputeEndpointSnapshot {
                 id: endpoint.id,
                 url: endpoint.url,
             })
@@ -324,7 +326,7 @@ mod tests {
                 RemoteGpuPlacementOption,
             },
             secrets::ApiKeyIdentity,
-            workspace::RemoteProvisioningError,
+            workspace::ProvisionedRemoteComputeProvisioningError,
         },
         secrets_storage::{ApiSecret, SecretKey, SecretStore},
     };
@@ -368,14 +370,15 @@ mod tests {
         fn create_network_volume<'a>(
             &'a self,
             request: CreateNetworkVolumeRequest,
-        ) -> AppFuture<'a, Result<RemoteVolumeSnapshot, RemoteWorkspaceError>> {
+        ) -> AppFuture<'a, Result<ProvisionedRemoteComputeVolumeSnapshot, RemoteWorkspaceError>>
+        {
             Box::pin(async move {
                 self.state
                     .lock()
                     .expect("api state")
                     .create_volume_requests
                     .push(request);
-                Ok(RemoteVolumeSnapshot {
+                Ok(ProvisionedRemoteComputeVolumeSnapshot {
                     id: "volume".to_string(),
                 })
             })
@@ -447,7 +450,12 @@ mod tests {
     #[derive(Default)]
     struct WorkerState {
         calls: Vec<(String, String)>,
-        result: Option<Result<RemoteProvisionerStatus, RemoteProvisioningError>>,
+        result: Option<
+            Result<
+                ProvisionedRemoteComputeProvisionerStatus,
+                ProvisionedRemoteComputeProvisioningError,
+            >,
+        >,
     }
 
     struct FakeWorker {
@@ -459,7 +467,13 @@ mod tests {
             &'a self,
             status_url: &'a str,
             bearer_token: &'a str,
-        ) -> AppFuture<'a, Result<RemoteProvisionerStatus, RemoteProvisioningError>> {
+        ) -> AppFuture<
+            'a,
+            Result<
+                ProvisionedRemoteComputeProvisionerStatus,
+                ProvisionedRemoteComputeProvisioningError,
+            >,
+        > {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("worker state");
                 state
@@ -468,7 +482,7 @@ mod tests {
                 state
                     .result
                     .clone()
-                    .unwrap_or(Ok(RemoteProvisionerStatus::Running))
+                    .unwrap_or(Ok(ProvisionedRemoteComputeProvisionerStatus::Running))
             })
         }
     }
@@ -611,7 +625,7 @@ mod tests {
 
         assert_eq!(
             snapshot,
-            RemoteProvisionerSnapshot {
+            ProvisionedRemoteComputeProvisionerSnapshot {
                 id: "pod".to_string(),
                 status_url: "https://pod-8000.proxy.runpod.net/status".to_string(),
             }
@@ -656,7 +670,9 @@ mod tests {
     #[tokio::test]
     async fn get_provisioner_status_maps_worker_unauthorized_to_workspace_worker_error() {
         let worker_state = Arc::new(Mutex::new(WorkerState {
-            result: Some(Err(RemoteProvisioningError::ProvisionerWorkerUnauthorized)),
+            result: Some(Err(
+                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized,
+            )),
             ..WorkerState::default()
         }));
         let provider = provider(Arc::default(), Arc::clone(&worker_state));
@@ -672,7 +688,7 @@ mod tests {
         assert_eq!(
             result,
             Err(RemoteWorkspaceError::ProvisionerWorker(
-                RemoteProvisioningError::ProvisionerWorkerUnauthorized
+                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized
             ))
         );
         assert_eq!(
