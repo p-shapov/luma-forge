@@ -35,8 +35,6 @@ The runtime-specific boundary becomes:
 ```text
 src-tauri/src/provisioned_remote/
   mod.rs
-  domain.rs
-  operation.rs
   errors.rs
   service.rs
   flow.rs
@@ -54,7 +52,7 @@ src-tauri/src/provisioned_remote/
     sqlite.rs
     schema.rs
 
-  workspace_store/
+  store/
     mod.rs
     repository.rs
     sqlite.rs
@@ -70,11 +68,17 @@ src-tauri/src/provisioned_remote/
       provisioner.rs
 ```
 
+Provisioned remote runtime domain types live under the existing domain module:
+
+```text
+src-tauri/src/domain/provisioned_remote.rs
+```
+
 The generic workspace domain stays small:
 
 ```rust
 pub enum WorkspaceRuntime {
-    ProvisionedRemote(ProvisionedRemoteWorkspace),
+    ProvisionedRemote(ProvisionedRemoteRuntime),
 }
 
 pub struct Workspace {
@@ -84,9 +88,7 @@ pub struct Workspace {
 }
 ```
 
-Provisioned remote-specific workspace state moves into `provisioned_remote/domain.rs`.
-
-Operation-specific types live in `provisioned_remote/operation.rs`.
+Provisioned remote-specific runtime state and operation domain types move into `domain/provisioned_remote.rs`.
 
 ## SQLite Boundary
 
@@ -105,7 +107,7 @@ Schema bootstrap calls:
 
 ```text
 workspace_catalog::schema::bootstrap(pool)
-provisioned_remote::workspace_store::schema::bootstrap(pool)
+provisioned_remote::store::schema::bootstrap(pool)
 provisioned_remote::journal::schema::bootstrap(pool)
 ```
 
@@ -127,7 +129,7 @@ workspaces
 Provisioned remote runtime data lives in its own table:
 
 ```text
-provisioned_remote_workspaces
+provisioned_remote_runtimes
 - workspace_id
 - runtime_json
 - active_operation_id nullable
@@ -177,7 +179,7 @@ Detailed safe payloads stay in JSON. The journal must not store raw provider req
 Useful constraints and indexes:
 
 ```text
-provisioned_remote_workspaces.workspace_id primary key
+provisioned_remote_runtimes.workspace_id primary key
 provisioned_remote_operations.workspace_id index
 provisioned_remote_operations.status index
 provisioned_remote_operation_steps.operation_id index
@@ -188,18 +190,18 @@ The service owns invariants that cross tables.
 
 ## Domain Model
 
-Replace the existing `ProvisionedRemoteComputeProvisioningState`, `ProvisionedRemoteComputeProvisioningStatus`, and `ProvisionedRemoteComputeProvisioningPhase` concepts with smaller app-facing workspace status plus detailed operation steps.
+Replace the existing `ProvisionedRemoteComputeProvisioningState`, `ProvisionedRemoteComputeProvisioningStatus`, and `ProvisionedRemoteComputeProvisioningPhase` concepts with smaller app-facing runtime status plus detailed operation steps.
 
-Workspace status:
+Runtime status:
 
 ```rust
-pub enum ProvisionedRemoteWorkspaceStatus {
+pub enum ProvisionedRemoteRuntimeStatus {
     NotProvisioned,
     Provisioning { summary: ProvisionedRemoteProgressSummary },
     Ready,
     CleaningUp { summary: ProvisionedRemoteProgressSummary },
     CleanupRequired { reason: ProvisionedRemoteCleanupRequiredReason },
-    Failed { error: ProvisionedRemoteWorkspaceError },
+    Invalid { error: ProvisionedRemoteRuntimeError },
 }
 ```
 
@@ -268,8 +270,8 @@ There is no `Cancelling` state in the new model.
 
 `ProvisionedRemoteService` is the behavior owner for the provisioned remote runtime. It coordinates:
 
-- workspace root repository
-- provisioned remote workspace store
+- workspace root repository and root-row persistence
+- provisioned remote runtime store
 - operation journal repository
 - workflow catalog
 - provider registry
@@ -284,6 +286,34 @@ Commands remain adapters:
 
 Provider adapters remain under `provisioned_remote/providers/runpod/` and return only UI-safe snapshots and errors.
 
+## Create Workspace Flow
+
+`create_workspace(request)` creates both the generic workspace root row and the provisioned remote runtime row.
+
+Flow:
+
+```text
+1. Resolve the workflow preset from the workflow catalog.
+2. Build the initial ProvisionedRemoteRuntime state with status=NotProvisioned and empty resources.
+3. Start transaction.
+4. Insert workspaces root row:
+   - id
+   - runtime_type=provisioned_remote
+   - workflow_preset_json
+   - created_at
+   - updated_at
+5. Insert provisioned_remote_runtimes runtime row:
+   - workspace_id
+   - runtime_json
+   - active_operation_id=null
+   - created_at
+   - updated_at
+6. Commit transaction.
+7. Return the assembled Workspace.
+```
+
+Workspace root persistence is part of the provisioned remote service flow because creating this runtime requires writing both the root aggregate data and the runtime-owned row atomically.
+
 ## Provision Flow
 
 `provision_workspace(workspace_id)` runs synchronously in this refactor.
@@ -295,18 +325,19 @@ Flow:
 2. Load workspace root and provisioned remote runtime row.
 3. Reject if active_operation_id is set or a running operation exists.
 4. Create operation: kind=provision, status=running.
-5. Set active_operation_id on provisioned_remote_workspaces.
+5. Set active_operation_id on provisioned_remote_runtimes.
 6. Set runtime status=Provisioning(summary).
-7. Commit transaction.
-8. Execute steps synchronously:
+7. Update the generic workspaces.updated_at timestamp because the workspace aggregate changed.
+8. Commit transaction.
+9. Execute steps synchronously:
    - CreateVolume
    - StartProvisioner
    - PollProvisioner
    - TerminateProvisioner
    - CreateEndpoint
-9. Before each provider call or poll, insert a running step.
-10. After provider success or failure, transactionally update the step, operation, runtime row, and active_operation_id when needed.
-11. Return the assembled Workspace.
+10. Before each provider call or poll, insert a running step.
+11. After provider success or failure, transactionally update the step, operation, provisioned remote runtime row, active_operation_id, and workspaces.updated_at when needed.
+12. Return the assembled Workspace.
 ```
 
 Provider calls happen outside database transactions.
@@ -326,16 +357,17 @@ Flow:
 4. Create operation: kind=cleanup, status=running.
 5. Set active_operation_id.
 6. Set runtime status=CleaningUp(summary).
-7. Commit transaction.
-8. Execute cleanup steps:
+7. Update the generic workspaces.updated_at timestamp because the workspace aggregate changed.
+8. Commit transaction.
+9. Execute cleanup steps:
    - DeleteEndpoint if endpoint exists.
    - TerminateProvisioner if provisioner exists.
    - DeleteVolume if volume exists.
-9. Insert a running step before each provider call.
-10. Treat expected not-found provider errors as successful cleanup for that resource.
-11. On success, clear resources, set status=NotProvisioned, clear active_operation_id, and mark operation completed.
-12. On failure, preserve remaining resource snapshots, clear active_operation_id, mark operation failed, and set workspace status to CleanupRequired when any remote resource snapshot remains. If no remote resource snapshot remains, set workspace status to Failed.
-13. Return the assembled Workspace.
+10. Insert a running step before each provider call.
+11. Treat expected not-found provider errors as successful cleanup for that resource.
+12. On success, transactionally clear resources, set status=NotProvisioned, clear active_operation_id, mark operation completed, and update workspaces.updated_at.
+13. On failure, transactionally preserve remaining resource snapshots, clear active_operation_id, mark operation failed, and update workspaces.updated_at. Set runtime status to CleanupRequired when any remote resource snapshot remains. If no remote resource snapshot remains, set runtime status to Invalid.
+14. Return the assembled Workspace.
 ```
 
 ## Startup Stale Handling
@@ -349,7 +381,8 @@ During app bootstrap, after database connection and schema bootstrap:
    - mark running step rows status=Failed with an OperationInterrupted error in step_json
    - load the related provisioned remote runtime row
    - clear active_operation_id
-   - set runtime status to Failed(OperationInterrupted) or CleanupRequired if resource snapshots remain
+   - set runtime status to Invalid(OperationInterrupted) or CleanupRequired if resource snapshots remain
+   - update workspaces.updated_at
 3. Commit updates transactionally per affected workspace/operation.
 ```
 
@@ -404,7 +437,7 @@ ProvisionerWorkerUnavailable
 ProvisionerWorkerResponseInvalid
 ```
 
-Detailed safe failure information may be preserved in operation or step JSON payloads and in workspace runtime status. It must not leak secrets or raw provider payloads.
+Detailed safe failure information may be preserved in operation or step JSON payloads and in workspace runtime status. Runtime invalidity is represented as `ProvisionedRemoteRuntimeStatus::Invalid`, while operation and step execution failures remain represented as `Failed`. No failure payload may leak secrets or raw provider payloads.
 
 ## Command Boundary
 
@@ -427,7 +460,7 @@ Responses should use the renamed runtime language:
 
 ```text
 WorkspaceRuntimeResponse::ProvisionedRemote(...)
-ProvisionedRemoteWorkspaceStatusResponse
+ProvisionedRemoteRuntimeStatusResponse
 ProvisionedRemoteProgressSummaryResponse
 ```
 
@@ -443,12 +476,13 @@ Add or update native tests for:
 - provision step sequencing
 - cleanup step sequencing
 - provider failure marking step and operation failed
-- workspace runtime failure or cleanup-required state
+- workspace runtime invalid or cleanup-required state
 - preserving resources after cleanup failure
 - treating expected not-found cleanup errors as success
 - startup stale handling
 - no provider calls during startup stale handling
 - SQLite schema bootstrap for root workspace, provisioned remote runtime, operations, and steps
+- create workspace writes root and provisioned remote runtime rows transactionally
 - workspace root plus provisioned remote runtime row round trips
 - missing runtime row treated as corrupt or schema invalid
 - running operation query without JSON parsing
@@ -475,7 +509,7 @@ bun run lint
 
 ## Implementation Constraints
 
-- Use direct composition with the provisioned remote workspace store; do not add a generic runtime store registry yet.
+- Use direct composition with the provisioned remote store; do not add a generic runtime store registry yet.
 - Keep provider trait redesign narrow. Rename existing traits to `ProvisionedRemote*`, but do not generalize for a second provider.
 - Existing pre-v1 workspace database contents can be discarded rather than migrated.
 - Service-owned transactions should coordinate cross-table consistency. Repositories should support transaction-aware methods where atomic multi-table updates are required.
