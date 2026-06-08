@@ -409,6 +409,7 @@ The service receives an injected event sink that accepts domain events, for exam
 ```rust
 pub enum ProvisionedRemoteEvent {
     WorkspaceChanged { workspace: Workspace },
+    WorkspaceDeleted { workspace_id: String },
 }
 ```
 
@@ -440,6 +441,60 @@ Future cancellation should build on the background executor by adding:
 - cleanup or cleanup-required transitions after cancellation
 
 The operation journal stores durable operation state independently of the in-memory task registry.
+
+## Delete Workspace Flow
+
+`delete_workspace(workspace_id)` removes remote resources and then removes the local workspace records.
+
+This differs from `cleanup_workspace(workspace_id)`: cleanup leaves the workspace in the catalog with status `NotProvisioned`, while delete removes the workspace from the catalog after cleanup succeeds.
+
+Flow:
+
+```text
+1. Start transaction.
+2. Load workspace root and provisioned remote runtime row.
+3. Reject if active_operation_id is set.
+4. If no resource snapshots remain:
+   - delete provisioned remote operation journal rows for the workspace
+   - delete the provisioned_remote_runtimes row
+   - delete the workspaces root row
+   - commit transaction
+   - emit WorkspaceDeleted
+   - return DeleteWorkspaceResponse
+5. If resource snapshots remain, create operation: kind=cleanup, status=running.
+6. Set active_operation_id.
+7. Set runtime status=CleaningUp(summary).
+8. Update workspaces.updated_at.
+9. Commit transaction.
+10. Execute cleanup steps:
+   - DeleteEndpoint if endpoint exists.
+   - TerminateProvisioner if provisioner exists.
+   - DeleteVolume if volume exists.
+11. Insert a running step before each provider call.
+12. Treat expected not-found provider errors as successful cleanup for that resource.
+13. On cleanup success, transactionally:
+   - mark operation completed
+   - delete provisioned remote operation journal rows for the workspace
+   - delete the provisioned_remote_runtimes row
+   - delete the workspaces root row
+14. Emit WorkspaceDeleted.
+15. Return DeleteWorkspaceResponse.
+16. On cleanup failure, preserve remaining resource snapshots, clear active_operation_id, mark operation failed, update workspaces.updated_at, and set runtime status to CleanupRequired when any remote resource snapshot remains. If no remote resource snapshot remains, set runtime status to Invalid.
+17. Emit WorkspaceChanged with the failed cleanup state.
+18. Return an error.
+```
+
+Provider calls happen outside database transactions.
+
+Delete removes the provisioned remote operation journal rows for the workspace. The journal exists for native lifecycle correctness, not as user-facing history, and deleted workspaces do not need retained operation history in this pre-v1 refactor.
+
+Delete response:
+
+```rust
+pub struct DeleteWorkspaceResponse {
+    pub workspace_id: String,
+}
+```
 
 ## Error Handling
 
@@ -483,6 +538,7 @@ Target workspace commands:
 create_workspace
 start_provision_workspace
 cleanup_workspace
+delete_workspace
 get_workspace
 get_workspace_catalog
 ```
@@ -514,8 +570,13 @@ Add or update native tests for:
 - background provision step sequencing
 - background provision success marking runtime Ready and clearing active_operation_id
 - cleanup step sequencing
+- delete workspace removes remote resources before deleting local workspace records
+- delete workspace without resource snapshots deletes local workspace records directly
+- delete workspace removes provisioned remote operation journal rows
 - provider failure marking step and operation failed
 - background provider failure emitting a workspace event and preserving durable failed state
+- delete workspace cleanup failure preserves the workspace and emits WorkspaceChanged
+- delete workspace success emits WorkspaceDeleted
 - workspace runtime invalid or cleanup-required state
 - preserving resources after cleanup failure
 - treating expected not-found cleanup errors as success
@@ -530,8 +591,9 @@ Add or update native tests for:
 - transactional workspace/runtime/operation updates
 - runtime-agnostic event sink receives domain workspace events after committed runtime updates
 - mutating commands reject while active_operation_id is set
+- delete_workspace rejects while active_operation_id is set
 - command error mappings to granular stable codes
-- generated bindings reflect `ProvisionedRemote` naming, `start_provision_workspace`, `get_workspace`, and no cancellation command
+- generated bindings reflect `ProvisionedRemote` naming, `start_provision_workspace`, `delete_workspace`, `get_workspace`, and no cancellation command
 
 Verification commands:
 
