@@ -15,7 +15,8 @@ This refactor stabilizes the provisioned remote lifecycle before adding more pro
 - Keep commands thin adapters over native services.
 - Remove the current cancellation model from this refactor.
 - Preserve granular native errors through specific error codes, without adding a generic error context object.
-- Keep the design compatible with future background operations without implementing them now.
+- Run provision operations through a native background executor.
+- Keep progress notifications runtime-agnostic inside the service layer.
 
 ## Non-Goals
 
@@ -24,9 +25,10 @@ This refactor stabilizes the provisioned remote lifecycle before adding more pro
 - No second provider support.
 - No automatic retries.
 - No mid-flight cancellation.
-- No background task runner in this refactor.
 - No compatibility migration for existing pre-v1 persisted workspace data.
 - No frontend UI redesign.
+- No operation resume after app restart.
+- No automatic provider cleanup during app startup.
 
 ## Module Structure
 
@@ -40,10 +42,12 @@ src-tauri/src/provisioned_remote/
   flow.rs
   cleanup.rs
   contracts.rs
+  events.rs
   helpers.rs
   coordination.rs
   provider.rs
   registry.rs
+  tasks.rs
   test_support.rs
 
   journal/
@@ -276,6 +280,8 @@ There is no `Cancelling` state in the new model.
 - workflow catalog
 - provider registry
 - provider flow and cleanup helpers
+- background task registry keyed by operation ID
+- runtime-agnostic event sink for domain workspace updates
 
 Commands remain adapters:
 
@@ -283,6 +289,7 @@ Commands remain adapters:
 - call the service
 - map returned domain state to binding-safe responses
 - map service errors to `NativeCommandError`
+- map domain workspace events to frontend events
 
 Provider adapters remain under `provisioned_remote/providers/runpod/` and return only UI-safe snapshots and errors.
 
@@ -316,7 +323,7 @@ Workspace root persistence is part of the provisioned remote service flow becaus
 
 ## Provision Flow
 
-`provision_workspace(workspace_id)` runs synchronously in this refactor.
+`start_provision_workspace(workspace_id)` starts provisioning in a native background task and returns the started workspace immediately.
 
 Flow:
 
@@ -329,20 +336,25 @@ Flow:
 6. Set runtime status=Provisioning(summary).
 7. Update the generic workspaces.updated_at timestamp because the workspace aggregate changed.
 8. Commit transaction.
-9. Execute steps synchronously:
+9. Assemble the started Workspace with status=Provisioning(summary).
+10. Register and spawn a background task keyed by operation_id.
+11. Return the started Workspace.
+12. Execute steps in the background task:
    - CreateVolume
    - StartProvisioner
    - PollProvisioner
    - TerminateProvisioner
    - CreateEndpoint
-10. Before each provider call or poll, insert a running step.
-11. After provider success or failure, transactionally update the step, operation, provisioned remote runtime row, active_operation_id, and workspaces.updated_at when needed.
-12. Return the assembled Workspace.
+13. Before each provider call or poll, insert a running step.
+14. After provider success or failure, transactionally update the step, operation, provisioned remote runtime row, active_operation_id, and workspaces.updated_at when needed.
+15. After each committed runtime update, emit a best-effort domain workspace event through the service event sink.
 ```
 
 Provider calls happen outside database transactions.
 
 `TerminateProvisioner` remains part of the provision operation because the provisioner pod is transient and must be cleaned up after provisioning succeeds or fails.
+
+The background task registry is in-memory. It prevents duplicate in-process execution for an operation, but durable correctness comes from `active_operation_id`, the operation journal, and startup stale handling.
 
 ## Cleanup Flow
 
@@ -388,22 +400,46 @@ During app bootstrap, after database connection and schema bootstrap:
 
 No provider calls happen during startup.
 
-## Cancellation And Future Background Operations
+## Event Boundary
+
+Provisioned remote services must not depend on Tauri runtime APIs.
+
+The service receives an injected event sink that accepts domain events, for example:
+
+```rust
+pub enum ProvisionedRemoteEvent {
+    WorkspaceChanged { workspace: Workspace },
+}
+```
+
+The service emits events only after the corresponding runtime state has been durably committed. Event delivery is best effort. Durable SQLite state remains the source of truth if an event is missed.
+
+The Tauri adapter maps domain events to frontend events. Frontend event payloads may use binding-safe response types, for example `WorkspaceResponse`, but those response types must not leak into the provisioned remote service.
+
+Frontend behavior:
+
+```text
+1. Call start_provision_workspace(workspace_id).
+2. Receive a WorkspaceResponse whose runtime status is Provisioning(summary).
+3. Listen for workspace snapshot events.
+4. Treat event payloads as authoritative snapshots, or call get_workspace(workspace_id) to refresh explicitly.
+5. Do not call progress commands to advance provider work.
+```
+
+## Background Execution And Cancellation
 
 The new model removes `cancel_workspace_provisioning` from the current command surface.
 
-Mid-flight cancellation is deferred because synchronous command execution does not provide a clean cancellation mechanism. If a user needs to stop after a failed, stale, or partial provision, the app should call `cleanup_workspace`.
+Mid-flight cancellation is deferred. If a user needs to stop after a failed, stale, or partial provision, the app should call `cleanup_workspace`.
 
-Future cancellation requires introducing a background operation executor. That future work should add:
+Future cancellation should build on the background executor by adding:
 
-- background task registry keyed by operation ID
 - cancellation tokens
-- command API split into start/status/cancel
-- event emission or polling
-- background-safe transaction boundaries
-- startup reconciliation for interrupted background tasks
+- explicit cancellation checkpoints between provider calls and poll cycles
+- command API for canceling an active operation
+- cleanup or cleanup-required transitions after cancellation
 
-The operation journal is intentionally compatible with that future. It stores durable operation state independently of whether the executor is synchronous or background.
+The operation journal stores durable operation state independently of the in-memory task registry.
 
 ## Error Handling
 
@@ -445,8 +481,9 @@ Target workspace commands:
 
 ```text
 create_workspace
-provision_workspace
+start_provision_workspace
 cleanup_workspace
+get_workspace
 get_workspace_catalog
 ```
 
@@ -473,9 +510,12 @@ Add or update native tests for:
 - provisioned remote domain status transitions
 - operation creation
 - duplicate running-operation rejection
-- provision step sequencing
+- start_provision_workspace returning a started workspace with Provisioning(summary)
+- background provision step sequencing
+- background provision success marking runtime Ready and clearing active_operation_id
 - cleanup step sequencing
 - provider failure marking step and operation failed
+- background provider failure emitting a workspace event and preserving durable failed state
 - workspace runtime invalid or cleanup-required state
 - preserving resources after cleanup failure
 - treating expected not-found cleanup errors as success
@@ -488,8 +528,10 @@ Add or update native tests for:
 - running operation query without JSON parsing
 - step ordering by sequence
 - transactional workspace/runtime/operation updates
+- runtime-agnostic event sink receives domain workspace events after committed runtime updates
+- mutating commands reject while active_operation_id is set
 - command error mappings to granular stable codes
-- generated bindings reflect `ProvisionedRemote` naming and no cancellation command
+- generated bindings reflect `ProvisionedRemote` naming, `start_provision_workspace`, `get_workspace`, and no cancellation command
 
 Verification commands:
 
