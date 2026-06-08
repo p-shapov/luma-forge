@@ -39,16 +39,20 @@ src-tauri/src/provisioned_remote/
   mod.rs
   errors.rs
   service.rs
-  flow.rs
-  cleanup.rs
   contracts.rs
   events.rs
-  helpers.rs
-  coordination.rs
   provider.rs
   registry.rs
-  tasks.rs
   test_support.rs
+
+  lifecycle/
+    mod.rs
+    provision.rs
+    cleanup.rs
+    delete.rs
+    background.rs
+    coordination.rs
+    helpers.rs
 
   journal/
     mod.rs
@@ -93,6 +97,8 @@ pub struct Workspace {
 ```
 
 Provisioned remote-specific runtime state and operation domain types move into `domain/provisioned_remote.rs`.
+
+The `lifecycle/` submodule owns provision, cleanup, delete, and background operation execution. Keep the term "job" available for future `execute_workspace` workflow execution concepts, such as generated image jobs and worker job payloads.
 
 ## SQLite Boundary
 
@@ -280,7 +286,7 @@ There is no `Cancelling` state in the new model.
 - workflow catalog
 - provider registry
 - provider flow and cleanup helpers
-- background task registry keyed by operation ID
+- background operation registry keyed by operation ID
 - runtime-agnostic event sink for domain workspace updates
 
 Commands remain adapters:
@@ -323,7 +329,7 @@ Workspace root persistence is part of the provisioned remote service flow becaus
 
 ## Provision Flow
 
-`start_provision_workspace(workspace_id)` starts provisioning in a native background task and returns the started workspace immediately.
+`start_provision_workspace(workspace_id)` starts provisioning in a native background operation runner and returns the started workspace immediately.
 
 Flow:
 
@@ -337,9 +343,9 @@ Flow:
 7. Update the generic workspaces.updated_at timestamp because the workspace aggregate changed.
 8. Commit transaction.
 9. Assemble the started Workspace with status=Provisioning(summary).
-10. Register and spawn a background task keyed by operation_id.
+10. Register and spawn a background operation runner keyed by operation_id.
 11. Return the started Workspace.
-12. Execute steps in the background task:
+12. Execute steps in the background operation runner:
    - CreateVolume
    - StartProvisioner
    - PollProvisioner
@@ -354,7 +360,7 @@ Provider calls happen outside database transactions.
 
 `TerminateProvisioner` remains part of the provision operation because the provisioner pod is transient and must be cleaned up after provisioning succeeds or fails.
 
-The background task registry is in-memory. It prevents duplicate in-process execution for an operation, but durable correctness comes from `active_operation_id`, the operation journal, and startup stale handling.
+The background operation registry is in-memory. It prevents duplicate in-process execution for an operation, but durable correctness comes from `active_operation_id`, the operation journal, and startup stale handling.
 
 ## Cleanup Flow
 
@@ -440,7 +446,7 @@ Future cancellation should build on the background executor by adding:
 - command API for canceling an active operation
 - cleanup or cleanup-required transitions after cancellation
 
-The operation journal stores durable operation state independently of the in-memory task registry.
+The operation journal stores durable operation state independently of the in-memory background operation registry.
 
 ## Delete Workspace Flow
 
