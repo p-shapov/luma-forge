@@ -475,18 +475,19 @@ mod tests {
         )
     }
 
-    async fn insert_workspace_row(
-        pool: &SqlitePool,
-        id: &str,
-        runtime_type: &str,
-        provider_id: &str,
-        state: &str,
-        state_reason: Option<&str>,
-        workflow_preset_json: &str,
-        runtime_json: &str,
-        created_at: &str,
-        updated_at: &str,
-    ) {
+    struct WorkspaceRowInsert<'a> {
+        id: &'a str,
+        runtime_type: &'a str,
+        provider_id: &'a str,
+        state: &'a str,
+        state_reason: Option<&'a str>,
+        workflow_preset_json: &'a str,
+        runtime_json: &'a str,
+        created_at: &'a str,
+        updated_at: &'a str,
+    }
+
+    async fn insert_workspace_row(pool: &SqlitePool, row: WorkspaceRowInsert<'_>) {
         sqlx::query(
             "INSERT INTO workspaces (
                 id,
@@ -501,15 +502,15 @@ mod tests {
             )
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )
-        .bind(id)
-        .bind(runtime_type)
-        .bind(provider_id)
-        .bind(state)
-        .bind(state_reason)
-        .bind(workflow_preset_json)
-        .bind(runtime_json)
-        .bind(created_at)
-        .bind(updated_at)
+        .bind(row.id)
+        .bind(row.runtime_type)
+        .bind(row.provider_id)
+        .bind(row.state)
+        .bind(row.state_reason)
+        .bind(row.workflow_preset_json)
+        .bind(row.runtime_json)
+        .bind(row.created_at)
+        .bind(row.updated_at)
         .execute(pool)
         .await
         .expect("workspace row insert should succeed");
@@ -923,7 +924,15 @@ mod tests {
             serde_json::from_str(&runtime_json).expect("runtime json should parse");
         assert!(runtime_value.get("resources").is_some());
         assert!(runtime_value.get("state").is_none());
-        assert!(runtime_value.get("provisioning").is_none());
+        assert_eq!(
+            runtime_value
+                .as_object()
+                .expect("runtime json should be object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["placement".to_string(), "resources".to_string()]
+        );
     }
 
     #[tokio::test]
@@ -1047,9 +1056,7 @@ mod tests {
         let workspace = workspace("workspace-1");
         let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
             .expect("workflow preset serialization should succeed");
-        let runtime = match workspace.runtime {
-            WorkspaceRuntime::ProvisionedRemote(runtime) => runtime,
-        };
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace.runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1070,15 +1077,17 @@ mod tests {
         ] {
             insert_workspace_row(
                 &repository.pool,
-                id,
-                "provisioned_remote",
-                "runpod",
-                state,
-                state_reason,
-                &workflow_preset_json,
-                &runtime_json,
-                "2026-06-06T00:00:01Z",
-                "2026-06-06T00:00:01Z",
+                WorkspaceRowInsert {
+                    id,
+                    runtime_type: "provisioned_remote",
+                    provider_id: "runpod",
+                    state,
+                    state_reason,
+                    workflow_preset_json: &workflow_preset_json,
+                    runtime_json: &runtime_json,
+                    created_at: "2026-06-06T00:00:01Z",
+                    updated_at: "2026-06-06T00:00:01Z",
+                },
             )
             .await;
 
@@ -1097,9 +1106,7 @@ mod tests {
     #[tokio::test]
     async fn corrupt_workflow_preset_json_returns_corrupt() {
         let path = catalog_path("corrupt-workflow-preset-json");
-        let runtime = match workspace("workspace-1").runtime {
-            WorkspaceRuntime::ProvisionedRemote(runtime) => runtime,
-        };
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace("workspace-1").runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1108,15 +1115,17 @@ mod tests {
             .expect("connect should succeed");
         insert_workspace_row(
             &repository.pool,
-            "workspace-1",
-            "provisioned_remote",
-            "runpod",
-            "not_provisioned",
-            None,
-            "{",
-            &runtime_json,
-            "2026-06-06T00:00:01Z",
-            "2026-06-06T00:00:01Z",
+            WorkspaceRowInsert {
+                id: "workspace-1",
+                runtime_type: "provisioned_remote",
+                provider_id: "runpod",
+                state: "not_provisioned",
+                state_reason: None,
+                workflow_preset_json: "{",
+                runtime_json: &runtime_json,
+                created_at: "2026-06-06T00:00:01Z",
+                updated_at: "2026-06-06T00:00:01Z",
+            },
         )
         .await;
 
@@ -1143,15 +1152,17 @@ mod tests {
             .expect("connect should succeed");
         insert_workspace_row(
             &repository.pool,
-            "workspace-1",
-            "provisioned_remote",
-            "runpod",
-            "not_provisioned",
-            None,
-            &workflow_preset_json,
-            "{",
-            "2026-06-06T00:00:01Z",
-            "2026-06-06T00:00:01Z",
+            WorkspaceRowInsert {
+                id: "workspace-1",
+                runtime_type: "provisioned_remote",
+                provider_id: "runpod",
+                state: "not_provisioned",
+                state_reason: None,
+                workflow_preset_json: &workflow_preset_json,
+                runtime_json: "{",
+                created_at: "2026-06-06T00:00:01Z",
+                updated_at: "2026-06-06T00:00:01Z",
+            },
         )
         .await;
 
@@ -1172,9 +1183,7 @@ mod tests {
         let workspace = workspace("workspace-1");
         let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
             .expect("workflow preset serialization should succeed");
-        let runtime = match workspace.runtime {
-            WorkspaceRuntime::ProvisionedRemote(runtime) => runtime,
-        };
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace.runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1183,15 +1192,17 @@ mod tests {
             .expect("connect should succeed");
         insert_workspace_row(
             &repository.pool,
-            "workspace-1",
-            "unknown",
-            "runpod",
-            "not_provisioned",
-            None,
-            &workflow_preset_json,
-            &runtime_json,
-            "2026-06-06T00:00:01Z",
-            "2026-06-06T00:00:01Z",
+            WorkspaceRowInsert {
+                id: "workspace-1",
+                runtime_type: "unknown",
+                provider_id: "runpod",
+                state: "not_provisioned",
+                state_reason: None,
+                workflow_preset_json: &workflow_preset_json,
+                runtime_json: &runtime_json,
+                created_at: "2026-06-06T00:00:01Z",
+                updated_at: "2026-06-06T00:00:01Z",
+            },
         )
         .await;
 
@@ -1227,28 +1238,32 @@ mod tests {
             .expect("connect should succeed");
         insert_workspace_row(
             &repository.pool,
-            "workspace-2",
-            "provisioned_remote",
-            "runpod",
-            "not_provisioned",
-            None,
-            &workflow_preset_2_json,
-            &runtime_2_json,
-            "2026-06-06T00:00:02Z",
-            "2026-06-06T00:00:02Z",
+            WorkspaceRowInsert {
+                id: "workspace-2",
+                runtime_type: "provisioned_remote",
+                provider_id: "runpod",
+                state: "not_provisioned",
+                state_reason: None,
+                workflow_preset_json: &workflow_preset_2_json,
+                runtime_json: &runtime_2_json,
+                created_at: "2026-06-06T00:00:02Z",
+                updated_at: "2026-06-06T00:00:02Z",
+            },
         )
         .await;
         insert_workspace_row(
             &repository.pool,
-            "workspace-1",
-            "provisioned_remote",
-            "runpod",
-            "not_provisioned",
-            None,
-            &workflow_preset_1_json,
-            &runtime_1_json,
-            "2026-06-06T00:00:01Z",
-            "2026-06-06T00:00:01Z",
+            WorkspaceRowInsert {
+                id: "workspace-1",
+                runtime_type: "provisioned_remote",
+                provider_id: "runpod",
+                state: "not_provisioned",
+                state_reason: None,
+                workflow_preset_json: &workflow_preset_1_json,
+                runtime_json: &runtime_1_json,
+                created_at: "2026-06-06T00:00:01Z",
+                updated_at: "2026-06-06T00:00:01Z",
+            },
         )
         .await;
 

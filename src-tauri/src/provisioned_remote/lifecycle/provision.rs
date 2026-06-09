@@ -335,7 +335,7 @@ where
         .map_err(map_workspace_catalog_error)?;
     event_sink.emit(ProvisionedRemoteEvent::WorkspaceChanged {
         workspace_id: workspace.id.clone(),
-        workspace: workspace.clone(),
+        workspace: Box::new(workspace.clone()),
     });
     Ok(workspace)
 }

@@ -89,11 +89,19 @@ mod tests {
         assert_eq!(json["state"], "not_provisioned");
         assert_eq!(json["runtime"]["runtime_type"], "provisioned_remote");
         assert!(json["runtime"]["resources"].is_object());
-        let runtime = json["runtime"]
-            .as_object()
-            .expect("runtime should be object");
-        assert!(!runtime.contains_key("provisioning"));
-        assert!(!runtime.contains_key("percent"));
+        assert_eq!(
+            json["runtime"]
+                .as_object()
+                .expect("runtime should be object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                "placement".to_string(),
+                "resources".to_string(),
+                "runtime_type".to_string()
+            ]
+        );
     }
 
     #[test]

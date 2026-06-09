@@ -535,8 +535,7 @@ mod tests {
     };
 
     #[test]
-    fn workspace_runtime_response_serializes_provisioned_remote_variant_without_provisioning_status(
-    ) {
+    fn workspace_runtime_response_serializes_provisioned_remote_variant() {
         let response =
             WorkspaceRuntimeResponse::ProvisionedRemote(ProvisionedRemoteWorkspaceResponse {
                 placement: crate::commands::types::placement::RemotePlacementPlanInput {
@@ -558,14 +557,23 @@ mod tests {
                 },
             });
 
-        let json = serde_json::to_string(&response).expect("runtime json");
+        let json = serde_json::to_value(&response).expect("runtime json");
 
-        assert!(json.contains(r#""runtimeType":"provisioned_remote""#));
-        assert!(json.contains(r#""templateId":"template""#));
-        assert!(!json.contains("provisioned_remote_compute"));
-        assert!(!json.contains("provisioning"));
-        assert!(!json.contains("percent"));
-        assert!(!json.contains("cancelling"));
+        assert_eq!(json["runtimeType"], "provisioned_remote");
+        assert_eq!(json["placement"]["gpuCloudProviderId"], "runpod");
+        assert_eq!(json["resources"]["endpoint"]["templateId"], "template");
+        assert_eq!(
+            json.as_object()
+                .expect("runtime response should be object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                "placement".to_string(),
+                "resources".to_string(),
+                "runtimeType".to_string()
+            ]
+        );
     }
 
     #[test]
