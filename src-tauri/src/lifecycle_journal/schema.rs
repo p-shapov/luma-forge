@@ -2,8 +2,12 @@ use sqlx::{Row, SqlitePool};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LifecycleJournalError {
-    SchemaMismatch,
+    OperationNotFound,
+    RunningOperationExists,
     StorageUnavailable,
+    QueryFailed,
+    Corrupt,
+    SchemaMismatch,
 }
 
 struct ExpectedColumn {
