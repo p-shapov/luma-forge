@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use crate::{
     domain::{
+        lifecycle_operation::{
+            LifecycleOperation, LifecycleOperationPayload,
+            ProvisionedRemoteLifecycleOperationPayload,
+        },
         placement::{RemotePlacementOptions, RemotePlacementPlan},
         provider::GpuCloudProviderId,
         provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
@@ -14,6 +18,14 @@ use crate::{
 use super::{
     errors::ProvisionedRemoteError,
     events::{NoopProvisionedRemoteEventSink, ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
+    lifecycle::{
+        background::spawn_lifecycle_task,
+        coordination::LifecycleOperationRegistry,
+        helpers::{
+            interrupted_state_for_resources, is_delete_payload, map_lifecycle_journal_error,
+            payload_with_app_interrupted_error,
+        },
+    },
     registry::ProvisionedRemoteProviderRegistry,
 };
 
@@ -32,6 +44,7 @@ where
     workspace_repository: W,
     lifecycle_journal: L,
     provider_registry: ProvisionedRemoteProviderRegistry,
+    lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn ProvisionedRemoteEventSink>,
 }
 
@@ -49,6 +62,7 @@ where
             workspace_repository,
             lifecycle_journal,
             provider_registry,
+            lifecycle_operation_registry: LifecycleOperationRegistry::default(),
             event_sink: Arc::new(NoopProvisionedRemoteEventSink),
         }
     }
@@ -110,6 +124,242 @@ where
             .get_provider_placement_options()
             .await
     }
+
+    pub async fn provision_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<ProvisionWorkspaceResponse, ProvisionedRemoteError> {
+        let payload = LifecycleOperationPayload::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayload::Provision {
+                step: None,
+                error: None,
+            },
+        );
+        let (workspace, operation) = self
+            .start_lifecycle_operation(workspace_id, &payload)
+            .await?;
+        self.spawn_provision_runner(&operation);
+
+        Ok(ProvisionWorkspaceResponse {
+            workspace,
+            operation,
+        })
+    }
+
+    pub async fn cleanup_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<CleanupWorkspaceResponse, ProvisionedRemoteError> {
+        let payload = LifecycleOperationPayload::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayload::Cleanup {
+                step: None,
+                error: None,
+            },
+        );
+        let (workspace, operation) = self
+            .start_lifecycle_operation(workspace_id, &payload)
+            .await?;
+        self.spawn_cleanup_runner(&operation);
+
+        Ok(CleanupWorkspaceResponse {
+            workspace,
+            operation,
+        })
+    }
+
+    pub async fn delete_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<DeleteWorkspaceResponse, ProvisionedRemoteError> {
+        let payload = LifecycleOperationPayload::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayload::Delete {
+                step: None,
+                error: None,
+            },
+        );
+        let (_, operation) = self
+            .start_lifecycle_operation(workspace_id, &payload)
+            .await?;
+        self.spawn_delete_runner(&operation);
+
+        Ok(DeleteWorkspaceResponse {
+            workspace_id: workspace_id.to_string(),
+            operation,
+        })
+    }
+
+    pub async fn get_running_lifecycle_operations(
+        &self,
+    ) -> Result<Vec<LifecycleOperation>, ProvisionedRemoteError> {
+        self.lifecycle_journal
+            .list_running()
+            .await
+            .map_err(|error| map_lifecycle_journal_error(error, &String::new()))
+    }
+
+    pub async fn get_latest_lifecycle_operation(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<LifecycleOperation>, ProvisionedRemoteError> {
+        let workspace_id = workspace_id.to_string();
+        self.lifecycle_journal
+            .latest_for_workspace(&workspace_id)
+            .await
+            .map_err(|error| map_lifecycle_journal_error(error, &workspace_id))
+    }
+
+    pub async fn find_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Option<Workspace>, ProvisionedRemoteError> {
+        self.workspace_repository
+            .find_workspace_by_id(workspace_id)
+            .await
+            .map_err(map_workspace_catalog_error)
+    }
+
+    pub async fn mark_running_operations_stale(&self) -> Result<(), ProvisionedRemoteError> {
+        let operations = self.get_running_lifecycle_operations().await?;
+
+        for operation in operations {
+            let payload = payload_with_app_interrupted_error(&operation.payload);
+
+            let workspace = match self.find_workspace(&operation.workspace_id).await? {
+                Some(mut workspace) => {
+                    let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+                    workspace.state = interrupted_state_for_resources(&runtime.resources);
+                    Some(
+                        self.workspace_repository
+                            .update_workspace(&workspace)
+                            .await
+                            .map_err(map_workspace_catalog_error)?,
+                    )
+                }
+                None if is_delete_payload(&operation.payload) => None,
+                None => return Err(ProvisionedRemoteError::WorkspaceNotFound),
+            };
+
+            let stale_operation = self
+                .lifecycle_journal
+                .mark_state(
+                    &operation.operation_id,
+                    crate::domain::lifecycle_operation::LifecycleOperationState::Stale,
+                    &payload,
+                )
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+
+            self.event_sink
+                .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
+                    workspace_id: stale_operation.workspace_id.clone(),
+                    operation_id: stale_operation.operation_id.clone(),
+                    operation: stale_operation,
+                });
+            if let Some(workspace) = workspace {
+                self.event_sink
+                    .emit(ProvisionedRemoteEvent::WorkspaceChanged {
+                        workspace_id: workspace.id.clone(),
+                        workspace,
+                    });
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn start_lifecycle_operation(
+        &self,
+        workspace_id: &str,
+        payload: &LifecycleOperationPayload,
+    ) -> Result<(Workspace, LifecycleOperation), ProvisionedRemoteError> {
+        let workspace = self.load_workspace_required(workspace_id).await?;
+        let workspace_id = workspace.id.clone();
+
+        if self
+            .lifecycle_journal
+            .find_running_by_workspace(&workspace_id)
+            .await
+            .map_err(|error| map_lifecycle_journal_error(error, &workspace_id))?
+            .is_some()
+        {
+            return Err(ProvisionedRemoteError::LifecycleOperationAlreadyRunning { workspace_id });
+        }
+
+        let operation = self
+            .lifecycle_journal
+            .create_operation(&workspace_id, payload)
+            .await
+            .map_err(|error| map_lifecycle_journal_error(error, &workspace_id))?;
+
+        self.event_sink
+            .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
+                workspace_id: operation.workspace_id.clone(),
+                operation_id: operation.operation_id.clone(),
+                operation: operation.clone(),
+            });
+
+        Ok((workspace, operation))
+    }
+
+    async fn load_workspace_required(
+        &self,
+        workspace_id: &str,
+    ) -> Result<Workspace, ProvisionedRemoteError> {
+        self.find_workspace(workspace_id)
+            .await?
+            .ok_or(ProvisionedRemoteError::WorkspaceNotFound)
+    }
+
+    fn spawn_provision_runner(&self, operation: &LifecycleOperation) {
+        let operation_id = operation.operation_id.clone();
+        if self
+            .lifecycle_operation_registry
+            .try_register(&operation.operation_id)
+        {
+            let registry = self.lifecycle_operation_registry.clone();
+            spawn_lifecycle_task(super::lifecycle::provision::run(operation_id, registry));
+        }
+    }
+
+    fn spawn_cleanup_runner(&self, operation: &LifecycleOperation) {
+        let operation_id = operation.operation_id.clone();
+        if self
+            .lifecycle_operation_registry
+            .try_register(&operation.operation_id)
+        {
+            let registry = self.lifecycle_operation_registry.clone();
+            spawn_lifecycle_task(super::lifecycle::cleanup::run(operation_id, registry));
+        }
+    }
+
+    fn spawn_delete_runner(&self, operation: &LifecycleOperation) {
+        let operation_id = operation.operation_id.clone();
+        if self
+            .lifecycle_operation_registry
+            .try_register(&operation.operation_id)
+        {
+            let registry = self.lifecycle_operation_registry.clone();
+            spawn_lifecycle_task(super::lifecycle::delete::run(operation_id, registry));
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProvisionWorkspaceResponse {
+    pub workspace: Workspace,
+    pub operation: LifecycleOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CleanupWorkspaceResponse {
+    pub workspace: Workspace,
+    pub operation: LifecycleOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteWorkspaceResponse {
+    pub workspace_id: String,
+    pub operation: LifecycleOperation,
 }
 
 fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> ProvisionedRemoteError {
@@ -130,10 +380,18 @@ fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> ProvisionedRemot
 mod tests {
     use crate::{
         domain::{
+            lifecycle_operation::{
+                LifecycleOperationPayload, LifecycleOperationState,
+                ProvisionedRemoteLifecycleOperationPayload,
+            },
             provider::GpuCloudProviderId,
-            provisioned_remote::ProvisionedRemoteRuntime,
-            workspace::{WorkspaceRuntime, WorkspaceState},
+            provisioned_remote::{
+                ProvisionedRemoteLifecycleError, ProvisionedRemoteRuntime,
+                ProvisionedRemoteVolumeSnapshot,
+            },
+            workspace::{WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceState},
         },
+        lifecycle_journal::LifecycleJournalRepository,
         provisioned_remote::test_support::{
             block_on, draft_create_request, placement_options, service_with_state, ProviderState,
         },
@@ -219,5 +477,346 @@ mod tests {
             state.lock().expect("state lock").calls,
             vec!["get_provider_placement_options"]
         );
+    }
+
+    #[tokio::test]
+    async fn provision_workspace_creates_running_operation_and_keeps_workspace_state_unchanged() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let workspace = service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+
+        let response = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start");
+
+        assert_eq!(response.workspace, workspace);
+        assert_eq!(response.operation.workspace_id, "workspace-1");
+        assert_eq!(response.operation.state, LifecycleOperationState::Running);
+        assert_eq!(
+            response.operation.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: None,
+                    error: None,
+                }
+            )
+        );
+        let persisted = service
+            .workspace_repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(persisted.state, WorkspaceState::NotProvisioned);
+    }
+
+    #[tokio::test]
+    async fn provision_workspace_rejects_when_running_operation_exists() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("first provision should start");
+
+        let error = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect_err("second provision should be rejected");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::LifecycleOperationAlreadyRunning {
+                workspace_id: "workspace-1".to_string()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_workspace_creates_cleanup_operation_without_changing_workspace_state() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let workspace = service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+
+        let response = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start");
+
+        assert_eq!(response.workspace, workspace);
+        assert_eq!(
+            response.operation.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Cleanup {
+                    step: None,
+                    error: None,
+                }
+            )
+        );
+        let persisted = service
+            .workspace_repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(persisted.state, WorkspaceState::NotProvisioned);
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_creates_delete_operation_without_deleting_immediately() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+
+        let response = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should start");
+
+        assert_eq!(response.workspace_id, "workspace-1");
+        assert_eq!(
+            response.operation.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Delete {
+                    step: None,
+                    error: None,
+                }
+            )
+        );
+        assert!(service
+            .workspace_repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed")
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn get_running_lifecycle_operations_returns_started_operations() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start")
+            .operation;
+
+        let operations = service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("running operations should load");
+
+        assert_eq!(operations, vec![operation]);
+    }
+
+    #[tokio::test]
+    async fn get_latest_lifecycle_operation_returns_latest_for_workspace() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let first = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation;
+        service
+            .lifecycle_journal
+            .mark_state(
+                &first.operation_id,
+                LifecycleOperationState::Completed,
+                &first.payload,
+            )
+            .await
+            .expect("operation should complete");
+        let latest = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start")
+            .operation;
+
+        let operation = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("latest operation should load")
+            .expect("latest operation should exist");
+
+        assert_eq!(operation.operation_id, latest.operation_id);
+    }
+
+    #[tokio::test]
+    async fn mark_running_operations_stale_marks_workspace_invalid_when_no_resources_exist() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation;
+
+        service
+            .mark_running_operations_stale()
+            .await
+            .expect("running operations should be marked stale");
+
+        let stale = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(stale.state, LifecycleOperationState::Stale);
+        assert_eq!(
+            stale.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: None,
+                    error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
+                }
+            )
+        );
+        assert_eq!(stale.operation_id, operation.operation_id);
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::Invalid {
+                reason:
+                    crate::domain::workspace::WorkspaceRuntimeInvalidReason::OperationInterrupted,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_running_operations_stale_marks_workspace_cleanup_required_when_resources_exist() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let mut workspace = service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
+        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
+            id: "volume-1".to_string(),
+        });
+        service
+            .workspace_repository
+            .update_workspace(&workspace)
+            .await
+            .expect("workspace update should persist");
+        service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start");
+
+        service
+            .mark_running_operations_stale()
+            .await
+            .expect("running operations should be marked stale");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::CleanupRequired {
+                reason: WorkspaceCleanupRequiredReason::OperationInterrupted,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_running_operations_stale_marks_delete_stale_when_workspace_is_missing() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should start")
+            .operation;
+        service
+            .workspace_repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect("workspace should be removed");
+
+        service
+            .mark_running_operations_stale()
+            .await
+            .expect("missing delete workspace should still mark operation stale");
+
+        let stale = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(stale.operation_id, operation.operation_id);
+        assert_eq!(stale.state, LifecycleOperationState::Stale);
+        assert_eq!(
+            stale.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Delete {
+                    step: None,
+                    error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
+                }
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn mark_running_operations_stale_keeps_provision_running_when_workspace_is_missing() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation;
+        service
+            .workspace_repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect("workspace should be removed");
+
+        let error = service
+            .mark_running_operations_stale()
+            .await
+            .expect_err("missing provision workspace should fail");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::WorkspaceNotFound
+        );
+        let running = service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("running operations should load");
+        assert_eq!(running, vec![operation]);
     }
 }
