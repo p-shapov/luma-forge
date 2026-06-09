@@ -273,6 +273,13 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
                 .operations
                 .lock()
                 .expect("operation lock should succeed");
+            if operations.values().any(|operation| {
+                operation.workspace_id == *workspace_id
+                    && operation.state == LifecycleOperationState::Running
+            }) {
+                return Err(LifecycleJournalError::RunningOperationExists);
+            }
+
             let operation = LifecycleOperation {
                 operation_id: format!("operation-{}", operations.len() + 1),
                 workspace_id: workspace_id.clone(),
@@ -309,14 +316,20 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
         &'a self,
     ) -> AppFuture<'a, Result<Vec<LifecycleOperation>, LifecycleJournalError>> {
         Box::pin(async move {
-            Ok(self
+            let mut operations = self
                 .operations
                 .lock()
                 .expect("operation lock should succeed")
                 .values()
                 .filter(|operation| operation.state == LifecycleOperationState::Running)
                 .cloned()
-                .collect())
+                .collect::<Vec<_>>();
+            operations.sort_by(|left, right| {
+                left.created_at
+                    .cmp(&right.created_at)
+                    .then_with(|| left.operation_id.cmp(&right.operation_id))
+            });
+            Ok(operations)
         })
     }
 
@@ -331,7 +344,12 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
                 .expect("operation lock should succeed")
                 .values()
                 .filter(|operation| operation.workspace_id == *workspace_id)
-                .max_by_key(|operation| operation.updated_at)
+                .max_by(|left, right| {
+                    left.created_at
+                        .cmp(&right.created_at)
+                        .then_with(|| left.updated_at.cmp(&right.updated_at))
+                        .then_with(|| left.operation_id.cmp(&right.operation_id))
+                })
                 .cloned())
         })
     }
@@ -368,6 +386,10 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
             let operation = operations
                 .get_mut(operation_id)
                 .ok_or(LifecycleJournalError::OperationNotFound)?;
+            if operation.state != LifecycleOperationState::Running {
+                return Err(LifecycleJournalError::OperationNotFound);
+            }
+
             operation.state = state;
             operation.payload = payload.clone();
             operation.updated_at = OffsetDateTime::now_utc();
@@ -474,6 +496,15 @@ mod tests {
     use super::*;
     use crate::domain::provisioned_remote::ProvisionedRemoteLifecycleOperationPayload;
 
+    fn provision_payload() -> LifecycleOperationPayload {
+        LifecycleOperationPayload::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayload::Provision {
+                step: None,
+                error: None,
+            },
+        )
+    }
+
     #[test]
     fn update_operation_returns_not_found_for_missing_operation() {
         let repository = InMemoryLifecycleJournalRepository::default();
@@ -481,12 +512,7 @@ mod tests {
             operation_id: "missing-operation".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Running,
-            payload: LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: None,
-                    error: None,
-                },
-            ),
+            payload: provision_payload(),
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
             finished_at: None,
@@ -496,5 +522,98 @@ mod tests {
             .expect_err("missing operation should not be upserted");
 
         assert_eq!(error, LifecycleJournalError::OperationNotFound);
+    }
+
+    #[test]
+    fn mark_state_returns_not_found_for_terminal_operation() {
+        let repository = InMemoryLifecycleJournalRepository::default();
+        let payload = provision_payload();
+        let operation = block_on(repository.create_operation(&"workspace-1".to_string(), &payload))
+            .expect("operation should be created");
+        block_on(repository.mark_state(
+            &operation.operation_id,
+            LifecycleOperationState::Completed,
+            &payload,
+        ))
+        .expect("operation should complete");
+
+        let error = block_on(repository.mark_state(
+            &operation.operation_id,
+            LifecycleOperationState::Stale,
+            &payload,
+        ))
+        .expect_err("terminal operation should not be marked again");
+
+        assert_eq!(error, LifecycleJournalError::OperationNotFound);
+    }
+
+    #[test]
+    fn list_running_returns_created_at_then_operation_id_order() {
+        let repository = InMemoryLifecycleJournalRepository::default();
+        let payload = provision_payload();
+        let second = block_on(repository.create_operation(&"workspace-2".to_string(), &payload))
+            .expect("operation should be created");
+        let first = LifecycleOperation {
+            operation_id: "operation-0".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            state: LifecycleOperationState::Running,
+            payload: payload.clone(),
+            created_at: second.created_at,
+            updated_at: second.updated_at,
+            finished_at: None,
+        };
+        block_on(repository.update_operation(&first)).expect_err("missing operation should fail");
+        repository
+            .operations
+            .lock()
+            .expect("operation lock should succeed")
+            .insert(first.operation_id.clone(), first.clone());
+
+        let operations = block_on(repository.list_running()).expect("operations should load");
+
+        assert_eq!(
+            operations
+                .iter()
+                .map(|operation| operation.operation_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["operation-0", second.operation_id.as_str()]
+        );
+    }
+
+    #[test]
+    fn latest_for_workspace_prefers_created_at_updated_at_then_operation_id_descending() {
+        let repository = InMemoryLifecycleJournalRepository::default();
+        let payload = provision_payload();
+        let older = LifecycleOperation {
+            operation_id: "operation-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            state: LifecycleOperationState::Completed,
+            payload: payload.clone(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            finished_at: Some(OffsetDateTime::UNIX_EPOCH),
+        };
+        let latest = LifecycleOperation {
+            operation_id: "operation-2".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            state: LifecycleOperationState::Failed,
+            payload,
+            created_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1),
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            finished_at: Some(OffsetDateTime::UNIX_EPOCH),
+        };
+        let mut operations = repository
+            .operations
+            .lock()
+            .expect("operation lock should succeed");
+        operations.insert(older.operation_id.clone(), older);
+        operations.insert(latest.operation_id.clone(), latest.clone());
+        drop(operations);
+
+        let operation = block_on(repository.latest_for_workspace(&"workspace-1".to_string()))
+            .expect("operation should load")
+            .expect("operation should exist");
+
+        assert_eq!(operation.operation_id, latest.operation_id);
     }
 }
