@@ -29,6 +29,11 @@ pub trait LifecycleJournalRepository: Send + Sync {
         workspace_id: &'a WorkspaceId,
     ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>>;
 
+    fn delete_for_workspace<'a>(
+        &'a self,
+        workspace_id: &'a WorkspaceId,
+    ) -> AppFuture<'a, Result<(), LifecycleJournalError>>;
+
     fn update_operation<'a>(
         &'a self,
         operation: &'a LifecycleOperation,

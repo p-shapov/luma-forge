@@ -134,6 +134,23 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
         })
     }
 
+    fn delete_for_workspace<'a>(
+        &'a self,
+        workspace_id: &'a WorkspaceId,
+    ) -> AppFuture<'a, Result<(), LifecycleJournalError>> {
+        Box::pin(async move {
+            validate_workspace_id(workspace_id)?;
+
+            sqlx::query("DELETE FROM lifecycle_operations WHERE workspace_id = ?1")
+                .bind(workspace_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|_| LifecycleJournalError::QueryFailed)?;
+
+            Ok(())
+        })
+    }
+
     fn update_operation<'a>(
         &'a self,
         operation: &'a LifecycleOperation,
@@ -585,6 +602,44 @@ pub mod tests {
         assert!(running
             .iter()
             .any(|operation| operation.operation_id == second.operation_id));
+    }
+
+    #[tokio::test]
+    async fn delete_for_workspace_removes_only_matching_rows() {
+        let repository = repository("delete-for-workspace").await;
+        let payload = provision_payload(None, None);
+        let workspace_1 = "workspace-1".to_string();
+        let workspace_2 = "workspace-2".to_string();
+        repository
+            .create_operation(&workspace_1, &payload)
+            .await
+            .expect("first operation should be created");
+        let remaining = repository
+            .create_operation(&workspace_2, &payload)
+            .await
+            .expect("second operation should be created");
+
+        repository
+            .delete_for_workspace(&workspace_1)
+            .await
+            .expect("workspace operations should delete");
+
+        assert_eq!(
+            repository
+                .latest_for_workspace(&workspace_1)
+                .await
+                .expect("latest should load"),
+            None
+        );
+        assert_eq!(
+            repository
+                .latest_for_workspace(&workspace_2)
+                .await
+                .expect("latest should load")
+                .expect("remaining operation should exist")
+                .operation_id,
+            remaining.operation_id
+        );
     }
 
     #[tokio::test]
