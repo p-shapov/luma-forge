@@ -95,7 +95,7 @@ export type NativeCommandError = {
 	message: string,
 };
 
-export type NativeCommandErrorCode = "workflow_catalog_invalid" | "workspace_storage_unavailable" | "workspace_storage_query_failed" | "workspace_storage_corrupt" | "workspace_storage_schema_mismatch" | "workspace_already_exists" | "workspace_not_found" | "provider_unavailable" | "provider_secret_unavailable" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "provisioning_already_running" | "invalid_provisioning_state" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "command_not_implemented";
+export type NativeCommandErrorCode = "workflow_catalog_invalid" | "workspace_storage_unavailable" | "workspace_storage_query_failed" | "workspace_storage_corrupt" | "workspace_storage_schema_mismatch" | "workspace_already_exists" | "workspace_not_found" | "provider_unavailable" | "provider_secret_unavailable" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "command_not_implemented";
 
 export type ProvisionWorkspaceResponse = {
 	workspace: WorkspaceResponse,

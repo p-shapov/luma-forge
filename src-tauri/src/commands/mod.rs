@@ -31,8 +31,8 @@ pub enum NativeCommandErrorCode {
     ProviderRateLimited,
     ProviderTimeout,
     ProviderRequestFailed,
-    ProvisioningAlreadyRunning,
-    InvalidProvisioningState,
+    LifecycleOperationAlreadyRunning,
+    InvalidRuntimeState,
     ProvisionerWorkerUnauthorized,
     ProvisionerWorkerUnavailable,
     ProvisionerWorkerConflict,
@@ -154,7 +154,7 @@ impl From<ProvisionedRemoteError> for NativeCommandError {
                 "workspace already exists",
             ),
             ProvisionedRemoteError::LifecycleOperationAlreadyRunning { .. } => Self::new(
-                NativeCommandErrorCode::ProvisioningAlreadyRunning,
+                NativeCommandErrorCode::LifecycleOperationAlreadyRunning,
                 "workspace lifecycle operation is already running",
             ),
             ProvisionedRemoteError::ProviderAdapterUnavailable => Self::new(
@@ -214,7 +214,7 @@ impl From<ProvisionedRemoteError> for NativeCommandError {
                 "remote provisioner worker failed",
             ),
             ProvisionedRemoteError::InvalidRuntimeState => Self::new(
-                NativeCommandErrorCode::InvalidProvisioningState,
+                NativeCommandErrorCode::InvalidRuntimeState,
                 "workspace runtime state is invalid",
             ),
             ProvisionedRemoteError::StorageUnavailable => Self::new(
@@ -242,6 +242,21 @@ mod tests {
             json,
             r#"{"code":"workspace_not_found","message":"workspace was not found"}"#
         );
+    }
+
+    #[test]
+    fn lifecycle_command_error_codes_use_current_vocabulary() {
+        let codes = [
+            NativeCommandErrorCode::LifecycleOperationAlreadyRunning,
+            NativeCommandErrorCode::InvalidRuntimeState,
+        ];
+
+        let json = serde_json::to_string(&codes).expect("command error code json");
+
+        assert!(json.contains("lifecycle_operation_already_running"));
+        assert!(json.contains("invalid_runtime_state"));
+        assert!(!json.contains("provisioning_already_running"));
+        assert!(!json.contains("invalid_provisioning_state"));
     }
 
     #[test]
@@ -282,7 +297,7 @@ mod tests {
     fn delete_workspace_failed_uses_fixed_ui_safe_message() {
         let error = NativeCommandError::from(ProvisionedRemoteError::InvalidRuntimeState);
 
-        assert_eq!(error.code, NativeCommandErrorCode::InvalidProvisioningState);
+        assert_eq!(error.code, NativeCommandErrorCode::InvalidRuntimeState);
         assert_eq!(error.message, "workspace runtime state is invalid");
     }
 }
