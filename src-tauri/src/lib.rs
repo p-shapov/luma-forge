@@ -3,9 +3,12 @@ use tauri_specta::{collect_commands, Builder};
 pub mod app;
 pub mod commands;
 pub mod domain;
+pub mod lifecycle_journal;
+pub mod provisioned_remote;
 pub mod provisioned_remote_compute;
 pub mod secrets_storage;
 pub mod shared;
+pub mod sqlite;
 pub mod workflow_catalog;
 pub mod workspace_catalog;
 
