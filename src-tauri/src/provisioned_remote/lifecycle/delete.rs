@@ -192,6 +192,34 @@ where
 
     match result {
         Ok(()) => {
+            if let Err(error) = workspace_repository
+                .delete_workspace(&workspace.id)
+                .await
+                .map_err(map_workspace_catalog_error)
+            {
+                let lifecycle_error = lifecycle_error_for(&error);
+                let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
+                workspace.state = if runtime.resources.is_empty() {
+                    WorkspaceState::Invalid {
+                        reason: WorkspaceRuntimeInvalidReason::DeleteFailed,
+                    }
+                } else {
+                    WorkspaceState::CleanupRequired {
+                        reason: WorkspaceCleanupRequiredReason::DeleteFailed,
+                    }
+                };
+                persist_workspace(workspace_repository, event_sink, &workspace).await?;
+                mark_operation_state(
+                    lifecycle_journal,
+                    event_sink,
+                    &operation,
+                    LifecycleOperationState::Failed,
+                    failed_step.clone(),
+                    Some(lifecycle_error),
+                )
+                .await?;
+                return Err(error);
+            }
             mark_operation_state(
                 lifecycle_journal,
                 event_sink,
@@ -201,10 +229,6 @@ where
                 None,
             )
             .await?;
-            workspace_repository
-                .delete_workspace(&workspace.id)
-                .await
-                .map_err(map_workspace_catalog_error)?;
             lifecycle_journal
                 .delete_for_workspace(&operation.workspace_id)
                 .await
