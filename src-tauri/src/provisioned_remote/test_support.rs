@@ -416,6 +416,19 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
         })
     }
 
+    fn delete_for_workspace<'a>(
+        &'a self,
+        workspace_id: &'a WorkspaceId,
+    ) -> AppFuture<'a, Result<(), LifecycleJournalError>> {
+        Box::pin(async move {
+            self.operations
+                .lock()
+                .expect("operation lock should succeed")
+                .retain(|_, operation| operation.workspace_id != *workspace_id);
+            Ok(())
+        })
+    }
+
     fn update_operation<'a>(
         &'a self,
         operation: &'a LifecycleOperation,
@@ -677,5 +690,31 @@ mod tests {
             .expect("operation should exist");
 
         assert_eq!(operation.operation_id, latest.operation_id);
+    }
+
+    #[test]
+    fn delete_for_workspace_removes_only_matching_operations() {
+        let repository = InMemoryLifecycleJournalRepository::default();
+        let payload = provision_payload();
+        block_on(repository.create_operation(&"workspace-1".to_string(), &payload))
+            .expect("first operation should be created");
+        let remaining = block_on(repository.create_operation(&"workspace-2".to_string(), &payload))
+            .expect("second operation should be created");
+
+        block_on(repository.delete_for_workspace(&"workspace-1".to_string()))
+            .expect("workspace operations should delete");
+
+        assert_eq!(
+            block_on(repository.latest_for_workspace(&"workspace-1".to_string()))
+                .expect("latest should load"),
+            None
+        );
+        assert_eq!(
+            block_on(repository.latest_for_workspace(&"workspace-2".to_string()))
+                .expect("latest should load")
+                .expect("remaining operation should exist")
+                .operation_id,
+            remaining.operation_id
+        );
     }
 }

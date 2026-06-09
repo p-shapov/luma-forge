@@ -63,6 +63,10 @@ where
                 None,
             )
             .await?;
+            lifecycle_journal
+                .delete_for_workspace(&operation.workspace_id)
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
             return Ok(());
         }
         Err(_) => {
@@ -182,13 +186,6 @@ where
             None,
         )
         .await?;
-        workspace_repository
-            .delete_workspace(&workspace.id)
-            .await
-            .map_err(map_workspace_catalog_error)?;
-        event_sink.emit(ProvisionedRemoteEvent::WorkspaceDeleted {
-            workspace_id: workspace.id.clone(),
-        });
         Ok::<(), ProvisionedRemoteError>(())
     }
     .await;
@@ -204,6 +201,17 @@ where
                 None,
             )
             .await?;
+            lifecycle_journal
+                .delete_for_workspace(&operation.workspace_id)
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+            workspace_repository
+                .delete_workspace(&workspace.id)
+                .await
+                .map_err(map_workspace_catalog_error)?;
+            event_sink.emit(ProvisionedRemoteEvent::WorkspaceDeleted {
+                workspace_id: workspace.id.clone(),
+            });
         }
         Err(error) => {
             let lifecycle_error = lifecycle_error_for(&error);
