@@ -201,14 +201,14 @@ where
                 None,
             )
             .await?;
-            lifecycle_journal
-                .delete_for_workspace(&operation.workspace_id)
-                .await
-                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
             workspace_repository
                 .delete_workspace(&workspace.id)
                 .await
                 .map_err(map_workspace_catalog_error)?;
+            lifecycle_journal
+                .delete_for_workspace(&operation.workspace_id)
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
             event_sink.emit(ProvisionedRemoteEvent::WorkspaceDeleted {
                 workspace_id: workspace.id.clone(),
             });

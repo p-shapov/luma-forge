@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     domain::{
@@ -48,6 +48,9 @@ where
     provider_registry: ProvisionedRemoteProviderRegistry,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn ProvisionedRemoteEventSink>,
+    provisioner_poll_interval: Duration,
+    #[cfg(test)]
+    spawn_lifecycle_runners: bool,
 }
 
 impl<W, L> ProvisionedRemoteService<W, L>
@@ -66,12 +69,26 @@ where
             provider_registry,
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
             event_sink: Arc::new(NoopProvisionedRemoteEventSink),
+            provisioner_poll_interval: Duration::from_secs(5),
+            #[cfg(test)]
+            spawn_lifecycle_runners: true,
         }
     }
 
     pub fn with_event_sink(mut self, event_sink: Arc<dyn ProvisionedRemoteEventSink>) -> Self {
         self.event_sink = event_sink;
         self
+    }
+
+    #[cfg(test)]
+    pub fn without_lifecycle_spawning(mut self) -> Self {
+        self.spawn_lifecycle_runners = false;
+        self
+    }
+
+    #[cfg(test)]
+    pub fn provisioner_poll_interval(&self) -> Duration {
+        self.provisioner_poll_interval
     }
 
     pub async fn create_workspace(
@@ -209,14 +226,14 @@ where
                     operation: completed_operation.clone(),
                 });
 
-            self.lifecycle_journal
-                .delete_for_workspace(&workspace.id)
-                .await
-                .map_err(|error| map_lifecycle_journal_error(error, &workspace.id))?;
             self.workspace_repository
                 .delete_workspace(&workspace.id)
                 .await
                 .map_err(map_workspace_catalog_error)?;
+            self.lifecycle_journal
+                .delete_for_workspace(&workspace.id)
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &workspace.id))?;
             self.event_sink
                 .emit(ProvisionedRemoteEvent::WorkspaceDeleted {
                     workspace_id: workspace.id.clone(),
@@ -363,11 +380,19 @@ where
             .lifecycle_operation_registry
             .try_register(&operation.operation_id)
         {
+            #[cfg(test)]
+            if !self.spawn_lifecycle_runners {
+                self.lifecycle_operation_registry
+                    .complete(&operation.operation_id);
+                return;
+            }
+
             let registry = self.lifecycle_operation_registry.clone();
             let workspace_repository = self.workspace_repository.clone();
             let lifecycle_journal = self.lifecycle_journal.clone();
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
+            let provisioner_poll_interval = self.provisioner_poll_interval;
             spawn_lifecycle_task(async move {
                 let result = super::lifecycle::provision::run_once(
                     &operation_id,
@@ -375,6 +400,7 @@ where
                     &lifecycle_journal,
                     &provider_registry,
                     &event_sink,
+                    provisioner_poll_interval,
                 )
                 .await;
                 complete_background_runner(&registry, &operation_id, result);
@@ -388,6 +414,13 @@ where
             .lifecycle_operation_registry
             .try_register(&operation.operation_id)
         {
+            #[cfg(test)]
+            if !self.spawn_lifecycle_runners {
+                self.lifecycle_operation_registry
+                    .complete(&operation.operation_id);
+                return;
+            }
+
             let registry = self.lifecycle_operation_registry.clone();
             let workspace_repository = self.workspace_repository.clone();
             let lifecycle_journal = self.lifecycle_journal.clone();
@@ -413,6 +446,13 @@ where
             .lifecycle_operation_registry
             .try_register(&operation.operation_id)
         {
+            #[cfg(test)]
+            if !self.spawn_lifecycle_runners {
+                self.lifecycle_operation_registry
+                    .complete(&operation.operation_id);
+                return;
+            }
+
             let registry = self.lifecycle_operation_registry.clone();
             let workspace_repository = self.workspace_repository.clone();
             let lifecycle_journal = self.lifecycle_journal.clone();
@@ -444,6 +484,7 @@ where
             &self.lifecycle_journal,
             &self.provider_registry,
             &self.event_sink,
+            Duration::ZERO,
         )
         .await;
         self.lifecycle_operation_registry.complete(&operation_id);
@@ -549,11 +590,16 @@ mod tests {
         },
         lifecycle_journal::LifecycleJournalRepository,
         provisioned_remote::test_support::{
-            block_on, draft_create_request, placement_options, service_with_state, ProviderState,
+            block_on, draft_create_request, placement_options, service_with_state,
+            service_with_state_and_workspace_repository, service_without_lifecycle_spawning,
+            InMemoryWorkspaceRepository, ProviderState, WorkspaceRepositoryState,
         },
         workspace_catalog::WorkspaceCatalogRepository,
     };
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     #[test]
     fn create_workspace_persists_not_provisioned_workspace_without_provider_calls() {
@@ -635,9 +681,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn service_uses_nonzero_production_provisioner_poll_interval() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+
+        assert_eq!(service.provisioner_poll_interval(), Duration::from_secs(5));
+    }
+
     #[tokio::test]
     async fn provision_workspace_creates_running_operation_and_keeps_workspace_state_unchanged() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         let workspace = service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -671,7 +725,8 @@ mod tests {
 
     #[tokio::test]
     async fn provision_workspace_rejects_when_running_operation_exists() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -703,7 +758,7 @@ mod tests {
             ],
             ..ProviderState::default()
         }));
-        let service = service_with_state(state.clone());
+        let service = service_without_lifecycle_spawning(state.clone());
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -772,7 +827,7 @@ mod tests {
             ),
             ..ProviderState::default()
         }));
-        let service = service_with_state(state);
+        let service = service_without_lifecycle_spawning(state);
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -835,7 +890,7 @@ mod tests {
             provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Failed],
             ..ProviderState::default()
         }));
-        let service = service_with_state(state.clone());
+        let service = service_without_lifecycle_spawning(state.clone());
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -906,10 +961,7 @@ mod tests {
     #[tokio::test]
     async fn provision_workspace_spawned_runner_executes_provider_flow() {
         let state = Arc::new(Mutex::new(ProviderState {
-            provisioner_status_results: vec![
-                ProvisionedRemoteProvisionerStatus::Running,
-                ProvisionedRemoteProvisionerStatus::Succeeded,
-            ],
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
             ..ProviderState::default()
         }));
         let service = service_with_state(state.clone());
@@ -954,7 +1006,6 @@ mod tests {
                 "create_volume",
                 "start_provisioner",
                 "get_provisioner_status",
-                "get_provisioner_status",
                 "terminate_provisioner",
                 "create_endpoint",
             ]
@@ -963,7 +1014,8 @@ mod tests {
 
     #[tokio::test]
     async fn provision_runner_marks_failed_when_workspace_missing_after_operation_created() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1011,7 +1063,8 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_workspace_creates_cleanup_operation_without_changing_workspace_state() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         let workspace = service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1043,7 +1096,8 @@ mod tests {
 
     #[tokio::test]
     async fn cleanup_runner_marks_failed_when_workspace_missing_after_operation_created() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1128,6 +1182,46 @@ mod tests {
                 .expect("operation read should succeed"),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_without_resources_preserves_lifecycle_row_when_workspace_delete_fails(
+    ) {
+        let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
+        let service = service_with_state_and_workspace_repository(
+            Arc::new(Mutex::new(ProviderState::default())),
+            InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
+        );
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        workspace_state
+            .lock()
+            .expect("workspace state lock should succeed")
+            .delete_workspace_error =
+            Some(crate::workspace_catalog::WorkspaceCatalogError::QueryFailed);
+
+        let error = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect_err("delete should fail when workspace delete fails");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::StorageUnavailable
+        );
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_some());
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation lookup should succeed")
+            .expect("operation should remain for diagnosis");
+        assert_eq!(latest.state, LifecycleOperationState::Completed);
     }
 
     #[tokio::test]
@@ -1228,8 +1322,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_runner_preserves_lifecycle_row_when_workspace_delete_fails() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
+        let service = service_with_state_and_workspace_repository(
+            state,
+            InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
+        );
+        let mut workspace = service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
+        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
+            id: "volume".to_string(),
+        });
+        service
+            .workspace_repository
+            .update_workspace(&workspace)
+            .await
+            .expect("workspace should update");
+        let payload = LifecycleOperationPayload::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayload::Delete {
+                step: None,
+                error: None,
+            },
+        );
+        let operation_id = service
+            .lifecycle_journal
+            .create_operation(&"workspace-1".to_string(), &payload)
+            .await
+            .expect("delete operation should be created")
+            .operation_id;
+        workspace_state
+            .lock()
+            .expect("workspace state lock should succeed")
+            .delete_workspace_error =
+            Some(crate::workspace_catalog::WorkspaceCatalogError::QueryFailed);
+
+        let error = service
+            .run_delete_once_for_test(&operation_id)
+            .await
+            .expect_err("delete runner should fail when workspace delete fails");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::StorageUnavailable
+        );
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_some());
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation lookup should succeed")
+            .expect("operation should remain for diagnosis");
+        assert_eq!(latest.state, LifecycleOperationState::Completed);
+    }
+
+    #[tokio::test]
     async fn get_running_lifecycle_operations_returns_started_operations() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1250,7 +1406,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_latest_lifecycle_operation_returns_latest_for_workspace() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1286,7 +1443,8 @@ mod tests {
 
     #[tokio::test]
     async fn mark_running_operations_stale_marks_workspace_invalid_when_no_resources_exist() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1334,7 +1492,8 @@ mod tests {
 
     #[tokio::test]
     async fn mark_running_operations_stale_marks_workspace_cleanup_required_when_resources_exist() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         let mut workspace = service
             .create_workspace(draft_create_request("workspace-1"))
             .await
@@ -1420,7 +1579,8 @@ mod tests {
 
     #[tokio::test]
     async fn mark_running_operations_stale_marks_provision_stale_when_workspace_is_missing() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        let service =
+            service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
             .create_workspace(draft_create_request("workspace-1"))
             .await
