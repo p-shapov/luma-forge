@@ -52,16 +52,13 @@ mod tests {
         domain::{
             placement::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
             provider::GpuCloudProviderId,
+            provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
             runtime_contract::RuntimeContractReference,
             workflow_preset::{
                 ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
                 RemoteRuntimeRequirements, WorkflowExecutionType, WorkflowPreset,
             },
-            workspace::{
-                ProvisionedRemoteComputeProvisioningState,
-                ProvisionedRemoteComputeProvisioningStatus, ProvisionedRemoteComputeResources,
-                ProvisionedRemoteComputeWorkspace, Workspace, WorkspaceCatalog, WorkspaceRuntime,
-            },
+            workspace::{Workspace, WorkspaceCatalog, WorkspaceRuntime, WorkspaceState},
         },
         shared::AppFuture,
     };
@@ -333,7 +330,7 @@ mod tests {
         Workspace {
             id: id.to_string(),
             workflow_preset: WorkflowPreset {
-                id: "workflow-1".to_string(),
+                id: "preset".to_string(),
                 version: "1".to_string(),
                 name: "Workflow 1".to_string(),
                 execution_type: WorkflowExecutionType::T2i,
@@ -363,30 +360,25 @@ mod tests {
                     install_comfyui_relative_path: "models/model.safetensors".to_string(),
                 }],
             },
-            runtime: WorkspaceRuntime::ProvisionedRemoteCompute(
-                ProvisionedRemoteComputeWorkspace {
-                    remote_placement: RemotePlacementPlan {
-                        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                        datacenter_id: "datacenter-1".to_string(),
-                        gpu_id: "gpu-1".to_string(),
-                        volume_size_bytes: 1,
-                        keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
-                            default_seconds: 60,
-                            min_seconds: 0,
-                            max_seconds: 3600,
-                        }),
-                    },
-                    provisioning: ProvisionedRemoteComputeProvisioningState {
-                        status: ProvisionedRemoteComputeProvisioningStatus::NotStarted,
-                        percent: None,
-                    },
-                    resources: ProvisionedRemoteComputeResources {
-                        volume: None,
-                        provisioner: None,
-                        endpoint: None,
-                    },
+            state: WorkspaceState::NotProvisioned,
+            runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
+                placement: RemotePlacementPlan {
+                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                    datacenter_id: "datacenter-1".to_string(),
+                    gpu_id: "gpu-1".to_string(),
+                    volume_size_bytes: 1,
+                    keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+                        default_seconds: 60,
+                        min_seconds: 0,
+                        max_seconds: 3600,
+                    }),
                 },
-            ),
+                resources: ProvisionedRemoteResources {
+                    volume: None,
+                    provisioner: None,
+                    endpoint: None,
+                },
+            }),
         }
     }
 }
