@@ -1,119 +1,147 @@
 use serde::{Deserialize, Serialize};
 
-use super::{
-    placement::RemotePlacementPlan, provider::ProviderApiError, workflow_preset::WorkflowPreset,
-};
+use super::{provisioned_remote::ProvisionedRemoteRuntime, workflow_preset::WorkflowPreset};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteComputeProvisioningError {
-    Provider(ProviderApiError),
-    ProvisionerWorkerTokenMissing,
-    ProvisionerWorkerTokenInvalid,
-    ProvisionerWorkerUnauthorized,
-    ProvisionerWorkerUnavailable,
-    ProvisionerWorkerConflict,
-    ProvisionerWorkerResponseInvalid,
-    ProvisionerWorkerFailed,
-    ProvisionerWorkerAssetDownloadFailed,
-    ProvisionerWorkerAssetAuthRequired,
-    ProvisionerWorkerPathValidationFailed,
-    ProvisionerWorkerStepTimeout,
-    ProvisionerWorkerUnexpectedError,
-    CancellationCleanupFailed,
-    InvalidProvisioningState { message: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteComputeVolumeSnapshot {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteComputeProvisionerSnapshot {
-    pub id: String,
-    pub status_url: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteComputeEndpointSnapshot {
-    pub id: String,
-    pub url: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteComputeProvisionerStatus {
-    Pending,
-    Starting,
-    Running,
-    CleaningUp,
-    Succeeded,
-    Failed { code: String, message: String },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteComputeProvisioningPhase {
-    CreatingRemoteVolume,
-    StartingRemoteProvisioner,
-    RunningRemoteProvisioner {
-        status: ProvisionedRemoteComputeProvisionerStatus,
+pub enum WorkspaceState {
+    NotProvisioned,
+    Ready,
+    CleanupRequired {
+        reason: WorkspaceCleanupRequiredReason,
     },
-    CreatingRemoteEndpoint,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteComputeProvisioningStatus {
-    NotStarted,
-    InProgress {
-        phase: ProvisionedRemoteComputeProvisioningPhase,
-    },
-    Cancelling {
-        phase: Option<ProvisionedRemoteComputeProvisioningPhase>,
-    },
-    Completed,
-    Failed {
-        phase: Option<ProvisionedRemoteComputeProvisioningPhase>,
-        error: ProvisionedRemoteComputeProvisioningError,
+    Invalid {
+        reason: WorkspaceRuntimeInvalidReason,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteComputeProvisioningState {
-    pub status: ProvisionedRemoteComputeProvisioningStatus,
-    pub percent: Option<u8>,
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceCleanupRequiredReason {
+    ProvisionFailed,
+    CleanupFailed,
+    DeleteFailed,
+    OperationInterrupted,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteComputeResources {
-    pub volume: Option<ProvisionedRemoteComputeVolumeSnapshot>,
-    pub provisioner: Option<ProvisionedRemoteComputeProvisionerSnapshot>,
-    pub endpoint: Option<ProvisionedRemoteComputeEndpointSnapshot>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteComputeWorkspace {
-    pub remote_placement: RemotePlacementPlan,
-    pub provisioning: ProvisionedRemoteComputeProvisioningState,
-    pub resources: ProvisionedRemoteComputeResources,
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceRuntimeInvalidReason {
+    OperationInterrupted,
+    ProvisionFailed,
+    CleanupFailed,
+    DeleteFailed,
+    CorruptRuntimeState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "runtime_type", rename_all = "snake_case")]
 pub enum WorkspaceRuntime {
-    ProvisionedRemoteCompute(ProvisionedRemoteComputeWorkspace),
+    ProvisionedRemote(ProvisionedRemoteRuntime),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub workflow_preset: WorkflowPreset,
+    pub state: WorkspaceState,
     pub runtime: WorkspaceRuntime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceCatalog {
     pub workspaces: Vec<Workspace>,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::{
+        placement::RemotePlacementPlan,
+        provider::GpuCloudProviderId,
+        provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
+        runtime_contract::RuntimeContractReference,
+        workflow_preset::{
+            RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
+            WorkflowPreset,
+        },
+    };
+
+    use super::{Workspace, WorkspaceRuntime, WorkspaceState};
+
+    #[test]
+    fn workspace_serializes_stable_state_separately_from_runtime() {
+        let workspace = Workspace {
+            id: "workspace-1".to_string(),
+            workflow_preset: workflow_preset(),
+            state: WorkspaceState::NotProvisioned,
+            runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
+                placement: placement(),
+                resources: ProvisionedRemoteResources {
+                    volume: None,
+                    provisioner: None,
+                    endpoint: None,
+                },
+            }),
+        };
+
+        let json = serde_json::to_value(&workspace).expect("workspace should serialize");
+
+        assert_eq!(json["state"], "not_provisioned");
+        assert_eq!(json["runtime"]["runtime_type"], "provisioned_remote");
+        assert!(json["runtime"]["resources"].is_object());
+        let runtime = json["runtime"]
+            .as_object()
+            .expect("runtime should be object");
+        assert!(!runtime.contains_key("provisioning"));
+        assert!(!runtime.contains_key("percent"));
+    }
+
+    #[test]
+    fn provisioned_remote_runtime_derives_provider_identity_from_placement() {
+        let runtime = ProvisionedRemoteRuntime {
+            placement: placement(),
+            resources: ProvisionedRemoteResources {
+                volume: None,
+                provisioner: None,
+                endpoint: None,
+            },
+        };
+
+        assert_eq!(runtime.provider_id(), GpuCloudProviderId::Runpod);
+    }
+
+    fn placement() -> RemotePlacementPlan {
+        RemotePlacementPlan {
+            gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+            datacenter_id: "dc".to_string(),
+            gpu_id: "gpu".to_string(),
+            volume_size_bytes: 1,
+            keep_alive_limits: None,
+        }
+    }
+
+    fn workflow_preset() -> WorkflowPreset {
+        WorkflowPreset {
+            id: "preset".to_string(),
+            version: "1.0.0".to_string(),
+            name: "Preset".to_string(),
+            execution_type: WorkflowExecutionType::T2i,
+            requires_hugging_face_api_key: false,
+            remote_runtime_requirements: RemoteRuntimeRequirements {
+                required_base_volume_size_bytes: 1,
+                provider_requirements: vec![RemoteProviderRuntimeRequirements {
+                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
+                    endpoint_contract: RuntimeContractReference {
+                        id: "endpoint".to_string(),
+                        version: "1.0.0".to_string(),
+                    },
+                    provisioner_contract: RuntimeContractReference {
+                        id: "provisioner".to_string(),
+                        version: "1.0.0".to_string(),
+                    },
+                }],
+            },
+            required_model_assets: Vec::new(),
+        }
+    }
 }
