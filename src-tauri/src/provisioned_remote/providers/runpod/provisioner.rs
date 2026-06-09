@@ -86,7 +86,9 @@ pub fn map_status_response(
 fn map_http_status(status: StatusCode) -> Result<(), ProvisionedRemoteLifecycleError> {
     match status {
         status if status.is_success() => Ok(()),
-        StatusCode::UNAUTHORIZED => Err(ProvisionedRemoteLifecycleError::ProviderSecretUnavailable),
+        StatusCode::UNAUTHORIZED => {
+            Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)
+        }
         StatusCode::CONFLICT => Err(ProvisionedRemoteLifecycleError::ProvisionerFailed),
         _ => Err(ProvisionedRemoteLifecycleError::ProvisionerUnavailable),
     }
@@ -158,7 +160,7 @@ mod tests {
         assert_eq!(map_http_status(StatusCode::OK), Ok(()));
         assert_eq!(
             map_http_status(StatusCode::UNAUTHORIZED),
-            Err(ProvisionedRemoteLifecycleError::ProviderSecretUnavailable)
+            Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)
         );
         assert_eq!(
             map_http_status(StatusCode::CONFLICT),

@@ -171,8 +171,6 @@ pub(super) struct EndpointCreateBody {
 pub(super) struct EndpointResponse {
     pub(super) id: String,
     pub(super) url: String,
-    #[serde(rename = "templateId")]
-    pub(super) template_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -191,7 +189,6 @@ pub(super) enum RunpodOperation {
     CreateTemplate,
     DeleteTemplate,
     CreateEndpoint,
-    GetEndpoint,
     DeleteEndpoint,
 }
 
@@ -298,9 +295,9 @@ fn map_status_error(status: StatusCode, operation: RunpodOperation) -> Provision
             RunpodOperation::DeleteProvisionerPod => {
                 ProvisionedRemoteError::RemoteProvisionerNotFound
             }
-            RunpodOperation::DeleteEndpoint
-            | RunpodOperation::DeleteTemplate
-            | RunpodOperation::GetEndpoint => ProvisionedRemoteError::RemoteEndpointNotFound,
+            RunpodOperation::DeleteEndpoint | RunpodOperation::DeleteTemplate => {
+                ProvisionedRemoteError::RemoteEndpointNotFound
+            }
             _ => provider_request_failed(),
         },
         _ => provider_request_failed(),

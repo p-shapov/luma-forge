@@ -52,6 +52,7 @@ pub trait RunpodApi: Send + Sync {
     fn delete_endpoint_and_template<'a>(
         &'a self,
         endpoint_id: &'a str,
+        template_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
 }
 
@@ -165,26 +166,6 @@ where
         map_empty_response(response.status(), operation)
     }
 
-    async fn get_rest<T>(
-        &self,
-        path: &str,
-        operation: RunpodOperation,
-    ) -> Result<T, ProvisionedRemoteError>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let api_key = self.api_key().await?;
-        let response = self
-            .http
-            .get(format!("{}{}", self.rest_base_url, path))
-            .bearer_auth(&api_key)
-            .send()
-            .await
-            .map_err(map_send_error)?;
-
-        parse_json_response(response, operation).await
-    }
-
     async fn api_key(&self) -> Result<String, ProvisionedRemoteError> {
         self.secrets
             .retrieve()
@@ -293,13 +274,25 @@ where
                 )
                 .await?;
 
-            let endpoint_response: EndpointResponse = self
+            let endpoint_response: EndpointResponse = match self
                 .post_rest(
                     "/endpoints",
                     &endpoint_create_body(&request, &template_response.id),
                     RunpodOperation::CreateEndpoint,
                 )
-                .await?;
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    let _ = self
+                        .delete_rest(
+                            &format!("/templates/{}", template_response.id),
+                            RunpodOperation::DeleteTemplate,
+                        )
+                        .await;
+                    return Err(error);
+                }
+            };
 
             Ok(RunpodEndpoint {
                 id: endpoint_response.id,
@@ -312,26 +305,30 @@ where
     fn delete_endpoint_and_template<'a>(
         &'a self,
         endpoint_id: &'a str,
+        template_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
         Box::pin(async move {
-            let response: EndpointResponse = self
-                .get_rest(
+            match self
+                .delete_rest(
                     &format!("/endpoints/{endpoint_id}"),
-                    RunpodOperation::GetEndpoint,
+                    RunpodOperation::DeleteEndpoint,
                 )
-                .await?;
+                .await
+            {
+                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {}
+                Err(error) => return Err(error),
+            }
 
-            self.delete_rest(
-                &format!("/endpoints/{endpoint_id}"),
-                RunpodOperation::DeleteEndpoint,
-            )
-            .await?;
-
-            self.delete_rest(
-                &format!("/templates/{}", response.template_id),
-                RunpodOperation::DeleteTemplate,
-            )
-            .await
+            match self
+                .delete_rest(
+                    &format!("/templates/{template_id}"),
+                    RunpodOperation::DeleteTemplate,
+                )
+                .await
+            {
+                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => Ok(()),
+                Err(error) => Err(error),
+            }
         })
     }
 }

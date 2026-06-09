@@ -272,6 +272,7 @@ where
             Ok(ProvisionedRemoteEndpointSnapshot {
                 id: endpoint.id,
                 url: endpoint.url,
+                template_id: endpoint.template_id,
             })
         })
     }
@@ -282,7 +283,7 @@ where
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
         Box::pin(async move {
             self.api
-                .delete_endpoint_and_template(&params.endpoint_id)
+                .delete_endpoint_and_template(&params.endpoint_id, &params.template_id)
                 .await
         })
     }
@@ -339,6 +340,7 @@ mod tests {
         provisioner_pod_requests: Vec<CreateProvisionerPodRequest>,
         endpoint_requests: Vec<CreateEndpointRequest>,
         deleted_endpoints: Vec<String>,
+        deleted_templates: Vec<String>,
     }
 
     struct FakeApi {
@@ -434,13 +436,12 @@ mod tests {
         fn delete_endpoint_and_template<'a>(
             &'a self,
             endpoint_id: &'a str,
+            template_id: &'a str,
         ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
             Box::pin(async move {
-                self.state
-                    .lock()
-                    .expect("api state")
-                    .deleted_endpoints
-                    .push(endpoint_id.to_string());
+                let mut state = self.state.lock().expect("api state");
+                state.deleted_endpoints.push(endpoint_id.to_string());
+                state.deleted_templates.push(template_id.to_string());
                 Ok(())
             })
         }
@@ -659,10 +660,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_provisioner_status_maps_worker_unauthorized_to_workspace_worker_error() {
+    async fn get_provisioner_status_maps_worker_auth_failure_to_provisioner_error() {
         let worker_state = Arc::new(Mutex::new(WorkerState {
             result: Some(Err(
-                ProvisionedRemoteLifecycleError::ProviderSecretUnavailable,
+                ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid,
             )),
             ..WorkerState::default()
         }));
@@ -678,7 +679,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(ProvisionedRemoteError::ProviderSecretUnavailable)
+            Err(ProvisionedRemoteError::ProvisionerResponseInvalid)
         );
         assert_eq!(
             worker_state.lock().expect("worker state").calls[0].0,
@@ -691,7 +692,7 @@ mod tests {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
-        provider
+        let endpoint = provider
             .create_endpoint(CreateEndpointParams {
                 workspace_id: "workspace".to_string(),
                 datacenter_id: "dc".to_string(),
@@ -704,6 +705,7 @@ mod tests {
             .await
             .expect("endpoint");
 
+        assert_eq!(endpoint.template_id, "template");
         let request = &api_state.lock().expect("api state").endpoint_requests[0];
         assert_eq!(request.endpoint_name, "luma-forge-workspace-endpoint");
         assert_eq!(
@@ -729,13 +731,13 @@ mod tests {
             .delete_endpoint(DeleteEndpointParams {
                 workspace_id: "workspace".to_string(),
                 endpoint_id: "endpoint".to_string(),
+                template_id: "template".to_string(),
             })
             .await
             .expect("delete endpoint");
 
-        assert_eq!(
-            api_state.lock().expect("api state").deleted_endpoints,
-            vec!["endpoint".to_string()]
-        );
+        let state = api_state.lock().expect("api state");
+        assert_eq!(state.deleted_endpoints, vec!["endpoint".to_string()]);
+        assert_eq!(state.deleted_templates, vec!["template".to_string()]);
     }
 }
