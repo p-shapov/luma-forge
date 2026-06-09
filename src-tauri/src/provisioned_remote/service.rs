@@ -209,6 +209,70 @@ where
                     error: None,
                 },
             );
+            let running_operation = self
+                .lifecycle_journal
+                .mark_state(
+                    &operation.operation_id,
+                    crate::domain::lifecycle_operation::LifecycleOperationState::Running,
+                    &payload,
+                )
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+            self.event_sink
+                .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
+                    workspace_id: running_operation.workspace_id.clone(),
+                    operation_id: running_operation.operation_id.clone(),
+                    operation: running_operation,
+                });
+
+            if let Err(error) = self
+                .workspace_repository
+                .delete_workspace(&workspace.id)
+                .await
+                .map_err(map_workspace_catalog_error)
+            {
+                let mut workspace = workspace;
+                workspace.state = WorkspaceState::Invalid {
+                    reason: crate::domain::workspace::WorkspaceRuntimeInvalidReason::DeleteFailed,
+                };
+                let workspace = self
+                    .workspace_repository
+                    .update_workspace(&workspace)
+                    .await
+                    .map_err(map_workspace_catalog_error)?;
+                self.event_sink
+                    .emit(ProvisionedRemoteEvent::WorkspaceChanged {
+                        workspace_id: workspace.id.clone(),
+                        workspace,
+                    });
+
+                let failed_payload = LifecycleOperationPayload::ProvisionedRemote(
+                    ProvisionedRemoteLifecycleOperationPayload::Delete {
+                        step: Some(ProvisionedRemoteDeleteStep::DeleteLocalWorkspace),
+                        error: Some(
+                            crate::domain::provisioned_remote::ProvisionedRemoteLifecycleError::InvalidRuntimeState,
+                        ),
+                    },
+                );
+                let failed_operation = self
+                    .lifecycle_journal
+                    .mark_state(
+                        &operation.operation_id,
+                        crate::domain::lifecycle_operation::LifecycleOperationState::Failed,
+                        &failed_payload,
+                    )
+                    .await
+                    .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+                self.event_sink
+                    .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
+                        workspace_id: failed_operation.workspace_id.clone(),
+                        operation_id: failed_operation.operation_id.clone(),
+                        operation: failed_operation,
+                    });
+
+                return Err(error);
+            }
+
             let completed_operation = self
                 .lifecycle_journal
                 .mark_state(
@@ -218,7 +282,6 @@ where
                 )
                 .await
                 .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-
             self.event_sink
                 .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
                     workspace_id: completed_operation.workspace_id.clone(),
@@ -226,10 +289,6 @@ where
                     operation: completed_operation.clone(),
                 });
 
-            self.workspace_repository
-                .delete_workspace(&workspace.id)
-                .await
-                .map_err(map_workspace_catalog_error)?;
             self.lifecycle_journal
                 .delete_for_workspace(&workspace.id)
                 .await
@@ -1221,7 +1280,18 @@ mod tests {
             .await
             .expect("operation lookup should succeed")
             .expect("operation should remain for diagnosis");
-        assert_eq!(latest.state, LifecycleOperationState::Completed);
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Delete {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteLocalWorkspace
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                }
+            )
+        );
     }
 
     #[tokio::test]
@@ -1379,7 +1449,18 @@ mod tests {
             .await
             .expect("operation lookup should succeed")
             .expect("operation should remain for diagnosis");
-        assert_eq!(latest.state, LifecycleOperationState::Completed);
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Delete {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteLocalWorkspace
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                }
+            )
+        );
     }
 
     #[tokio::test]
