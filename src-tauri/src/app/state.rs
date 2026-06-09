@@ -1,5 +1,6 @@
 use crate::{
-    provisioned_remote_compute::service::ProvisionedRemoteComputeService,
+    lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
+    provisioned_remote::service::ProvisionedRemoteService,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,
@@ -12,6 +13,8 @@ use crate::{
 };
 
 pub type WorkspaceCatalogAppService = WorkspaceCatalogService<SqliteWorkspaceCatalogRepository>;
+pub type ProvisionedRemoteAppService =
+    ProvisionedRemoteService<SqliteWorkspaceCatalogRepository, SqliteLifecycleJournalRepository>;
 pub type RunpodSecretsService = SecretsStorageService<KeyringSecretStore, RunpodIdentityProvider>;
 pub type HuggingFaceSecretsService =
     SecretsStorageService<KeyringSecretStore, HuggingFaceIdentityProvider>;
@@ -19,7 +22,7 @@ pub type HuggingFaceSecretsService =
 pub struct AppState {
     pub workflow_catalog: WorkflowCatalogService,
     pub workspace_catalog: WorkspaceCatalogAppService,
-    pub provisioned_remote_compute: ProvisionedRemoteComputeService,
+    pub provisioned_remote: ProvisionedRemoteAppService,
     pub runpod_secrets: RunpodSecretsService,
     pub hugging_face_secrets: HuggingFaceSecretsService,
 }

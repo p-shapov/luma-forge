@@ -10,6 +10,9 @@ pub mod lifecycle {
     pub mod provision;
 }
 pub mod provider;
+pub mod providers {
+    pub mod runpod;
+}
 pub mod registry;
 pub mod service;
 

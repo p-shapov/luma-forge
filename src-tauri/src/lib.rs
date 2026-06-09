@@ -1,11 +1,10 @@
-use tauri_specta::{collect_commands, Builder};
+use tauri_specta::{collect_commands, collect_events, Builder};
 
 pub mod app;
 pub mod commands;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod provisioned_remote;
-pub mod provisioned_remote_compute;
 pub mod secrets_storage;
 pub mod shared;
 pub mod sqlite;
@@ -42,21 +41,29 @@ pub fn run() {
 }
 
 fn command_builder() -> Builder<tauri::Wry> {
-    Builder::<tauri::Wry>::new().commands(collect_commands![
-        commands::catalog::get_workflow_catalog,
-        commands::catalog::get_provider_placement_options,
-        commands::catalog::get_workspace_catalog,
-        commands::secrets::setup_runpod_api_key,
-        commands::secrets::get_runpod_api_key_identity,
-        commands::secrets::delete_runpod_api_key,
-        commands::secrets::setup_hugging_face_api_key,
-        commands::secrets::get_hugging_face_api_key_identity,
-        commands::secrets::delete_hugging_face_api_key,
-        commands::workspaces::create_workspace,
-        commands::workspaces::provision_workspace,
-        commands::workspaces::cancel_workspace_provisioning,
-        commands::workspaces::cleanup_workspace
-    ])
+    Builder::<tauri::Wry>::new()
+        .commands(collect_commands![
+            commands::catalog::get_workflow_catalog,
+            commands::catalog::get_provider_placement_options,
+            commands::catalog::get_workspace_catalog,
+            commands::secrets::setup_runpod_api_key,
+            commands::secrets::get_runpod_api_key_identity,
+            commands::secrets::delete_runpod_api_key,
+            commands::secrets::setup_hugging_face_api_key,
+            commands::secrets::get_hugging_face_api_key_identity,
+            commands::secrets::delete_hugging_face_api_key,
+            commands::workspaces::create_workspace,
+            commands::workspaces::provision_workspace,
+            commands::workspaces::cleanup_workspace,
+            commands::workspaces::delete_workspace,
+            commands::workspaces::get_running_lifecycle_operations,
+            commands::workspaces::get_latest_lifecycle_operation
+        ])
+        .events(collect_events![
+            commands::types::workspace::LifecycleOperationChangedEvent,
+            commands::types::workspace::WorkspaceChangedEvent,
+            commands::types::workspace::WorkspaceDeletedEvent
+        ])
 }
 
 fn export_typescript_bindings(builder: &Builder<tauri::Wry>) {
