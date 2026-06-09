@@ -4,14 +4,16 @@ use uuid::Uuid;
 use crate::{
     app::state::AppState,
     commands::{
-        types::workspace::{CreateWorkspaceRequest, WorkspaceIdRequest, WorkspaceResponse},
+        types::workspace::{
+            CleanupWorkspaceResponse, CreateWorkspaceRequest, DeleteWorkspaceResponse,
+            LatestLifecycleOperationResponse, ProvisionWorkspaceResponse,
+            RunningLifecycleOperationsResponse, WorkspaceIdRequest, WorkspaceResponse,
+        },
         CommandResult, NativeCommandError, NativeCommandErrorCode,
     },
     domain::placement::RemotePlacementPlan,
-    provisioned_remote_compute::service::SetupProvisionedRemoteComputeWorkspaceRequest,
+    provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
 };
-
-const WORKSPACE_ID_RETRIES: usize = 3;
 
 #[tauri::command]
 #[specta::specta]
@@ -32,26 +34,16 @@ pub async fn create_workspace(
         })?;
     let remote_placement: RemotePlacementPlan = request.remote_placement.into();
 
-    for _ in 0..WORKSPACE_ID_RETRIES {
-        let workspace = state.provisioned_remote_compute.setup_workspace(
-            SetupProvisionedRemoteComputeWorkspaceRequest {
-                workspace_id: Uuid::new_v4().to_string(),
-                workflow_preset: workflow_preset.clone(),
-                remote_placement: remote_placement.clone(),
-            },
-        )?;
+    let workspace = state
+        .provisioned_remote
+        .create_workspace(CreateProvisionedRemoteWorkspaceRequest {
+            workspace_id: Uuid::new_v4().to_string(),
+            workflow_preset,
+            remote_placement,
+        })
+        .await?;
 
-        match state.workspace_catalog.insert_workspace(&workspace).await {
-            Ok(workspace) => return Ok(workspace.into()),
-            Err(crate::workspace_catalog::WorkspaceCatalogError::WorkspaceAlreadyExists) => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-
-    Err(NativeCommandError::new(
-        NativeCommandErrorCode::WorkspaceStorageUnavailable,
-        "workspace id could not be generated",
-    ))
+    Ok(workspace.into())
 }
 
 #[tauri::command]
@@ -59,30 +51,13 @@ pub async fn create_workspace(
 pub async fn provision_workspace(
     state: State<'_, AppState>,
     request: WorkspaceIdRequest,
-) -> CommandResult<WorkspaceResponse> {
-    let workspace = load_workspace(&state, &request.workspace_id).await?;
-    let workspace = state
-        .provisioned_remote_compute
-        .provision_workspace(&workspace)
+) -> CommandResult<ProvisionWorkspaceResponse> {
+    let response = state
+        .provisioned_remote
+        .provision_workspace(&request.workspace_id)
         .await?;
-    let workspace = state.workspace_catalog.update_workspace(&workspace).await?;
 
-    Ok(workspace.into())
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn cancel_workspace_provisioning(
-    state: State<'_, AppState>,
-    request: WorkspaceIdRequest,
-) -> CommandResult<WorkspaceResponse> {
-    let workspace = load_workspace(&state, &request.workspace_id).await?;
-    let workspace = state
-        .provisioned_remote_compute
-        .cancel_workspace(&workspace)?;
-    let workspace = state.workspace_catalog.update_workspace(&workspace).await?;
-
-    Ok(workspace.into())
+    Ok(response.into())
 }
 
 #[tauri::command]
@@ -90,29 +65,56 @@ pub async fn cancel_workspace_provisioning(
 pub async fn cleanup_workspace(
     state: State<'_, AppState>,
     request: WorkspaceIdRequest,
-) -> CommandResult<WorkspaceResponse> {
-    let workspace = load_workspace(&state, &request.workspace_id).await?;
-    let workspace = state
-        .provisioned_remote_compute
-        .cleanup_workspace(&workspace)
+) -> CommandResult<CleanupWorkspaceResponse> {
+    let response = state
+        .provisioned_remote
+        .cleanup_workspace(&request.workspace_id)
         .await?;
-    let workspace = state.workspace_catalog.update_workspace(&workspace).await?;
 
-    Ok(workspace.into())
+    Ok(response.into())
 }
 
-async fn load_workspace(
-    state: &State<'_, AppState>,
-    workspace_id: &str,
-) -> CommandResult<crate::domain::workspace::Workspace> {
-    state
-        .workspace_catalog
-        .find_workspace_by_id(workspace_id)
+#[tauri::command]
+#[specta::specta]
+pub async fn delete_workspace(
+    state: State<'_, AppState>,
+    request: WorkspaceIdRequest,
+) -> CommandResult<DeleteWorkspaceResponse> {
+    let response = state
+        .provisioned_remote
+        .delete_workspace(&request.workspace_id)
+        .await?;
+
+    Ok(response.into())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_running_lifecycle_operations(
+    state: State<'_, AppState>,
+) -> CommandResult<RunningLifecycleOperationsResponse> {
+    let operations = state
+        .provisioned_remote
+        .get_running_lifecycle_operations()
         .await?
-        .ok_or_else(|| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkspaceNotFound,
-                "workspace was not found",
-            )
-        })
+        .into_iter()
+        .map(Into::into)
+        .collect();
+
+    Ok(RunningLifecycleOperationsResponse { operations })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn get_latest_lifecycle_operation(
+    state: State<'_, AppState>,
+    request: WorkspaceIdRequest,
+) -> CommandResult<LatestLifecycleOperationResponse> {
+    let operation = state
+        .provisioned_remote
+        .get_latest_lifecycle_operation(&request.workspace_id)
+        .await?
+        .map(Into::into);
+
+    Ok(LatestLifecycleOperationResponse { operation })
 }

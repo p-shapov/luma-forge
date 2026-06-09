@@ -114,10 +114,7 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
 }
 
 fn provider_request_failed() -> SecretsStorageError {
-    ProviderApiError::RequestFailed {
-        message: "provider request failed".to_string(),
-    }
-    .into()
+    ProviderApiError::RequestFailed.into()
 }
 
 fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, SecretsStorageError> {

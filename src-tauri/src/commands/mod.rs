@@ -7,10 +7,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    domain::{provider::ProviderApiError, workspace::ProvisionedRemoteComputeProvisioningError},
-    provisioned_remote_compute::errors::ProvisionedRemoteComputeError,
-    secrets_storage::SecretsStorageError,
-    workflow_catalog::WorkflowCatalogError,
+    domain::provider::ProviderApiError, provisioned_remote::errors::ProvisionedRemoteError,
+    secrets_storage::SecretsStorageError, workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
@@ -144,102 +142,84 @@ impl From<SecretsStorageError> for NativeCommandError {
     }
 }
 
-impl From<ProvisionedRemoteComputeError> for NativeCommandError {
-    fn from(error: ProvisionedRemoteComputeError) -> Self {
+impl From<ProvisionedRemoteError> for NativeCommandError {
+    fn from(error: ProvisionedRemoteError) -> Self {
         match error {
-            ProvisionedRemoteComputeError::SetupWorkspaceInvalidRequest { message } => {
-                Self::new(NativeCommandErrorCode::InvalidProvisioningState, message)
-            }
-            ProvisionedRemoteComputeError::ProviderUnavailable { .. } => Self::new(
+            ProvisionedRemoteError::WorkspaceNotFound => Self::new(
+                NativeCommandErrorCode::WorkspaceNotFound,
+                "workspace was not found",
+            ),
+            ProvisionedRemoteError::WorkspaceAlreadyExists => Self::new(
+                NativeCommandErrorCode::WorkspaceAlreadyExists,
+                "workspace already exists",
+            ),
+            ProvisionedRemoteError::LifecycleOperationAlreadyRunning { .. } => Self::new(
+                NativeCommandErrorCode::ProvisioningAlreadyRunning,
+                "workspace lifecycle operation is already running",
+            ),
+            ProvisionedRemoteError::ProviderAdapterUnavailable => Self::new(
                 NativeCommandErrorCode::ProviderUnavailable,
                 "remote provider is unavailable",
             ),
-            ProvisionedRemoteComputeError::ProviderSecretUnavailable => Self::new(
+            ProvisionedRemoteError::ProviderSecretUnavailable => Self::new(
                 NativeCommandErrorCode::ProviderSecretUnavailable,
                 "api key is not configured",
             ),
-            ProvisionedRemoteComputeError::ProvisioningAlreadyRunning { .. } => Self::new(
-                NativeCommandErrorCode::ProvisioningAlreadyRunning,
-                "workspace provisioning is already running",
-            ),
-            ProvisionedRemoteComputeError::Provider(ProviderApiError::Unauthorized) => Self::new(
+            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::Unauthorized) => Self::new(
                 NativeCommandErrorCode::ProviderUnauthorized,
                 "remote provider request failed",
             ),
-            ProvisionedRemoteComputeError::Provider(ProviderApiError::InsufficientPermissions) => {
-                Self::new(
-                    NativeCommandErrorCode::ProviderInsufficientPermissions,
-                    "remote provider request failed",
-                )
-            }
-            ProvisionedRemoteComputeError::Provider(ProviderApiError::RateLimited) => Self::new(
+            ProvisionedRemoteError::ProviderApiFailed(
+                ProviderApiError::InsufficientPermissions,
+            ) => Self::new(
+                NativeCommandErrorCode::ProviderInsufficientPermissions,
+                "remote provider request failed",
+            ),
+            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RateLimited) => Self::new(
                 NativeCommandErrorCode::ProviderRateLimited,
                 "remote provider request failed",
             ),
-            ProvisionedRemoteComputeError::Provider(ProviderApiError::Timeout) => Self::new(
+            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::Timeout) => Self::new(
                 NativeCommandErrorCode::ProviderTimeout,
                 "remote provider request failed",
             ),
-            ProvisionedRemoteComputeError::Provider(ProviderApiError::RequestFailed { .. }) => {
+            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RequestFailed) => {
                 Self::new(
                     NativeCommandErrorCode::ProviderRequestFailed,
                     "remote provider request failed",
                 )
             }
-            ProvisionedRemoteComputeError::RemoteVolumeNotFound => Self::new(
+            ProvisionedRemoteError::RemoteVolumeNotFound => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote volume was not found",
             ),
-            ProvisionedRemoteComputeError::RemoteProvisionerNotFound => Self::new(
+            ProvisionedRemoteError::RemoteProvisionerNotFound => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote provisioner was not found",
             ),
-            ProvisionedRemoteComputeError::RemoteEndpointNotFound => Self::new(
+            ProvisionedRemoteError::RemoteEndpointNotFound => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote endpoint was not found",
             ),
-            ProvisionedRemoteComputeError::ProvisionerWorker(
-                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnauthorized,
-            ) => Self::new(
-                NativeCommandErrorCode::ProvisionerWorkerUnauthorized,
-                "remote provisioner worker failed",
-            ),
-            ProvisionedRemoteComputeError::ProvisionerWorker(
-                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerUnavailable,
-            ) => Self::new(
+            ProvisionedRemoteError::ProvisionerUnavailable => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerUnavailable,
                 "remote provisioner worker failed",
             ),
-            ProvisionedRemoteComputeError::ProvisionerWorker(
-                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerConflict,
-            ) => Self::new(
-                NativeCommandErrorCode::ProvisionerWorkerConflict,
-                "remote provisioner worker failed",
-            ),
-            ProvisionedRemoteComputeError::ProvisionerWorker(
-                ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerResponseInvalid,
-            ) => Self::new(
+            ProvisionedRemoteError::ProvisionerResponseInvalid => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerResponseInvalid,
                 "remote provisioner worker failed",
             ),
-            ProvisionedRemoteComputeError::ProvisionerWorker(_) => Self::new(
+            ProvisionedRemoteError::ProvisionerFailed => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerFailed,
                 "remote provisioner worker failed",
             ),
-            ProvisionedRemoteComputeError::ExecuteWorkspaceNotReady => Self::new(
+            ProvisionedRemoteError::InvalidRuntimeState => Self::new(
                 NativeCommandErrorCode::InvalidProvisioningState,
-                "workspace is not ready",
+                "workspace runtime state is invalid",
             ),
-            ProvisionedRemoteComputeError::ExecuteWorkspaceMissingEndpoint => Self::new(
-                NativeCommandErrorCode::InvalidProvisioningState,
-                "workspace endpoint is missing",
-            ),
-            ProvisionedRemoteComputeError::ExecuteWorkspaceNotImplemented { message } => {
-                Self::new(NativeCommandErrorCode::CommandNotImplemented, message)
-            }
-            ProvisionedRemoteComputeError::DeleteWorkspaceFailed { .. } => Self::new(
-                NativeCommandErrorCode::ProviderRequestFailed,
-                "workspace could not be deleted",
+            ProvisionedRemoteError::StorageUnavailable => Self::new(
+                NativeCommandErrorCode::WorkspaceStorageUnavailable,
+                "workspace storage is unavailable",
             ),
         }
     }
@@ -282,7 +262,7 @@ mod tests {
 
     #[test]
     fn provider_unauthorized_maps_to_stable_code_without_provider_details() {
-        let error = NativeCommandError::from(ProvisionedRemoteComputeError::Provider(
+        let error = NativeCommandError::from(ProvisionedRemoteError::ProviderApiFailed(
             ProviderApiError::Unauthorized,
         ));
 
@@ -292,25 +272,17 @@ mod tests {
 
     #[test]
     fn provisioner_worker_conflict_maps_to_stable_code_without_worker_details() {
-        let error = NativeCommandError::from(ProvisionedRemoteComputeError::ProvisionerWorker(
-            ProvisionedRemoteComputeProvisioningError::ProvisionerWorkerConflict,
-        ));
+        let error = NativeCommandError::from(ProvisionedRemoteError::ProvisionerFailed);
 
-        assert_eq!(
-            error.code,
-            NativeCommandErrorCode::ProvisionerWorkerConflict
-        );
+        assert_eq!(error.code, NativeCommandErrorCode::ProvisionerWorkerFailed);
         assert_eq!(error.message, "remote provisioner worker failed");
     }
 
     #[test]
     fn delete_workspace_failed_uses_fixed_ui_safe_message() {
-        let error =
-            NativeCommandError::from(ProvisionedRemoteComputeError::DeleteWorkspaceFailed {
-                message: "provider leaked detail".to_string(),
-            });
+        let error = NativeCommandError::from(ProvisionedRemoteError::InvalidRuntimeState);
 
-        assert_eq!(error.code, NativeCommandErrorCode::ProviderRequestFailed);
-        assert_eq!(error.message, "workspace could not be deleted");
+        assert_eq!(error.code, NativeCommandErrorCode::InvalidProvisioningState);
+        assert_eq!(error.message, "workspace runtime state is invalid");
     }
 }

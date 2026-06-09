@@ -1,19 +1,21 @@
-use std::fs;
+use std::{fs, sync::Arc};
 
 use tauri::{AppHandle, Manager};
 
 use crate::{
+    app::events::TauriProvisionedRemoteEventSink,
     commands::{NativeCommandError, NativeCommandErrorCode},
-    provisioned_remote_compute::{
-        providers::runpod::RunpodProvisionedRemoteComputeProvider,
-        registry::ProvisionedRemoteComputeProviderRegistry,
-        service::ProvisionedRemoteComputeService,
+    lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
+    provisioned_remote::{
+        providers::runpod::RunpodProvisionedRemoteProvider,
+        registry::ProvisionedRemoteProviderRegistry, service::ProvisionedRemoteService,
     },
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::{keyring::KeyringSecretStore, SecretKey},
         SecretsStorageService,
     },
+    sqlite::database::SqliteNativeDatabase,
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::{
         service::WorkspaceCatalogService, sqlite::SqliteWorkspaceCatalogRepository,
@@ -22,7 +24,7 @@ use crate::{
 
 use super::state::AppState;
 
-const WORKSPACE_CATALOG_DB_FILE: &str = "workspace-catalog.sqlite";
+const NATIVE_DB_FILE: &str = "native.sqlite";
 
 pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeCommandError> {
     let app_identifier = app_handle.config().identifier.clone();
@@ -39,10 +41,18 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         )
     })?;
 
-    let workspace_repository =
-        SqliteWorkspaceCatalogRepository::connect(app_data_dir.join(WORKSPACE_CATALOG_DB_FILE))
-            .await?;
-    let workspace_catalog = WorkspaceCatalogService::new(workspace_repository);
+    let database = SqliteNativeDatabase::connect(app_data_dir.join(NATIVE_DB_FILE))
+        .await
+        .map_err(|_| {
+            NativeCommandError::new(
+                NativeCommandErrorCode::WorkspaceStorageUnavailable,
+                "workspace storage could not be initialized",
+            )
+        })?;
+    let pool = database.pool();
+    let workspace_repository = SqliteWorkspaceCatalogRepository::from_pool(pool.clone());
+    let lifecycle_journal = SqliteLifecycleJournalRepository::new(pool);
+    let workspace_catalog = WorkspaceCatalogService::new(workspace_repository.clone());
     let workflow_catalog = WorkflowCatalogService::new();
 
     let runpod_secrets = build_runpod_secrets(&app_identifier)?;
@@ -50,19 +60,31 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let provider_runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let provider_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
 
-    let runpod_provider = RunpodProvisionedRemoteComputeProvider::new(
+    let runpod_provider = RunpodProvisionedRemoteProvider::new(
         provider_runpod_secrets,
         provider_hugging_face_secrets,
     );
-    let provider_registry =
-        ProvisionedRemoteComputeProviderRegistry::new(vec![Box::new(runpod_provider)]);
-    let provisioned_remote_compute =
-        ProvisionedRemoteComputeService::new(provider_registry, workflow_catalog.clone());
+    let provider_registry = ProvisionedRemoteProviderRegistry::new(vec![Box::new(runpod_provider)]);
+    let provisioned_remote =
+        ProvisionedRemoteService::new(workspace_repository, lifecycle_journal, provider_registry)
+            .with_event_sink(Arc::new(TauriProvisionedRemoteEventSink::new(
+                app_handle.clone(),
+            )));
+
+    provisioned_remote
+        .mark_running_operations_stale()
+        .await
+        .map_err(|_| {
+            NativeCommandError::new(
+                NativeCommandErrorCode::WorkspaceStorageUnavailable,
+                "workspace lifecycle state could not be restored",
+            )
+        })?;
 
     Ok(AppState {
         workflow_catalog,
         workspace_catalog,
-        provisioned_remote_compute,
+        provisioned_remote,
         runpod_secrets,
         hugging_face_secrets,
     })
