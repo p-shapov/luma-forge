@@ -1,19 +1,24 @@
+use std::sync::Arc;
+
 use crate::domain::provider::GpuCloudProviderId;
 
 use super::{errors::ProvisionedRemoteError, provider::ProvisionedRemoteProvider};
 
+#[derive(Clone)]
 pub struct ProvisionedRemoteProviderRegistry {
-    providers: Vec<Box<dyn ProvisionedRemoteProvider>>,
+    providers: Vec<Arc<dyn ProvisionedRemoteProvider>>,
 }
 
 impl ProvisionedRemoteProviderRegistry {
     pub fn new(providers: Vec<Box<dyn ProvisionedRemoteProvider>>) -> Self {
-        Self { providers }
+        Self {
+            providers: providers.into_iter().map(Arc::from).collect(),
+        }
     }
 
     pub fn with_provider(provider: Box<dyn ProvisionedRemoteProvider>) -> Self {
         Self {
-            providers: vec![provider],
+            providers: vec![Arc::from(provider)],
         }
     }
 
