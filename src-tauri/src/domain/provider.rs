@@ -13,5 +13,5 @@ pub enum ProviderApiError {
     InsufficientPermissions,
     RateLimited,
     Timeout,
-    RequestFailed { message: String },
+    RequestFailed,
 }
