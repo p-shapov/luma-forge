@@ -53,12 +53,15 @@ where
         .await
         .map_err(map_workspace_catalog_error)?
         .ok_or(ProvisionedRemoteError::WorkspaceNotFound)?;
-    let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-    let provider = provider_registry.for_provider(runtime.provider_id())?;
     let mut failed_step = ProvisionedRemoteDeleteStep::DeleteEndpoint;
 
     let result = async {
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let provider = if runtime.resources.is_empty() {
+            None
+        } else {
+            Some(provider_registry.for_provider(runtime.provider_id())?)
+        };
         if let Some(endpoint) = runtime.resources.endpoint.clone() {
             failed_step = ProvisionedRemoteDeleteStep::DeleteEndpoint;
             mark_step(
@@ -70,6 +73,7 @@ where
             )
             .await?;
             match provider
+                .expect("provider should exist when endpoint exists")
                 .delete_endpoint(DeleteEndpointParams {
                     workspace_id: workspace.id.clone(),
                     endpoint_id: endpoint.id,
@@ -98,6 +102,7 @@ where
             )
             .await?;
             match provider
+                .expect("provider should exist when provisioner exists")
                 .terminate_provisioner(TerminateProvisionerParams {
                     workspace_id: workspace.id.clone(),
                     provisioner_id: provisioner.id,
@@ -126,6 +131,7 @@ where
             )
             .await?;
             match provider
+                .expect("provider should exist when volume exists")
                 .delete_volume(DeleteVolumeParams {
                     workspace_id: workspace.id.clone(),
                     volume_id: volume.id,

@@ -56,14 +56,15 @@ where
         .await
         .map_err(map_workspace_catalog_error)?
         .ok_or(ProvisionedRemoteError::WorkspaceNotFound)?;
-    let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-    let runtime_snapshot = runtime.clone();
-    let contracts = ProvisionedRemoteContractResolver::resolve(&workspace, &runtime_snapshot)?;
-    let provider = provider_registry.for_provider(runtime_snapshot.provider_id())?;
 
     let mut failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
     let result = async {
         failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let runtime_snapshot = runtime.clone();
+        let contracts = ProvisionedRemoteContractResolver::resolve(&workspace, &runtime_snapshot)?;
+        let provider = provider_registry.for_provider(runtime_snapshot.provider_id())?;
+
         mark_step(
             lifecycle_journal,
             event_sink,

@@ -50,8 +50,8 @@ where
 
 impl<W, L> ProvisionedRemoteService<W, L>
 where
-    W: WorkspaceCatalogRepository,
-    L: crate::lifecycle_journal::LifecycleJournalRepository,
+    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
+    L: crate::lifecycle_journal::LifecycleJournalRepository + Clone + Send + Sync + 'static,
 {
     pub fn new(
         workspace_repository: W,
@@ -317,7 +317,21 @@ where
             .try_register(&operation.operation_id)
         {
             let registry = self.lifecycle_operation_registry.clone();
-            spawn_lifecycle_task(super::lifecycle::provision::run(operation_id, registry));
+            let workspace_repository = self.workspace_repository.clone();
+            let lifecycle_journal = self.lifecycle_journal.clone();
+            let provider_registry = self.provider_registry.clone();
+            let event_sink = self.event_sink.clone();
+            spawn_lifecycle_task(async move {
+                let _ = super::lifecycle::provision::run_once(
+                    &operation_id,
+                    &workspace_repository,
+                    &lifecycle_journal,
+                    &provider_registry,
+                    &event_sink,
+                )
+                .await;
+                registry.complete(&operation_id);
+            });
         }
     }
 
@@ -328,7 +342,21 @@ where
             .try_register(&operation.operation_id)
         {
             let registry = self.lifecycle_operation_registry.clone();
-            spawn_lifecycle_task(super::lifecycle::cleanup::run(operation_id, registry));
+            let workspace_repository = self.workspace_repository.clone();
+            let lifecycle_journal = self.lifecycle_journal.clone();
+            let provider_registry = self.provider_registry.clone();
+            let event_sink = self.event_sink.clone();
+            spawn_lifecycle_task(async move {
+                let _ = super::lifecycle::cleanup::run_once(
+                    &operation_id,
+                    &workspace_repository,
+                    &lifecycle_journal,
+                    &provider_registry,
+                    &event_sink,
+                )
+                .await;
+                registry.complete(&operation_id);
+            });
         }
     }
 
@@ -339,7 +367,21 @@ where
             .try_register(&operation.operation_id)
         {
             let registry = self.lifecycle_operation_registry.clone();
-            spawn_lifecycle_task(super::lifecycle::delete::run(operation_id, registry));
+            let workspace_repository = self.workspace_repository.clone();
+            let lifecycle_journal = self.lifecycle_journal.clone();
+            let provider_registry = self.provider_registry.clone();
+            let event_sink = self.event_sink.clone();
+            spawn_lifecycle_task(async move {
+                let _ = super::lifecycle::delete::run_once(
+                    &operation_id,
+                    &workspace_repository,
+                    &lifecycle_journal,
+                    &provider_registry,
+                    &event_sink,
+                )
+                .await;
+                registry.complete(&operation_id);
+            });
         }
     }
 
@@ -724,6 +766,64 @@ mod tests {
                     error: Some(ProvisionedRemoteLifecycleError::ProvisionerUnavailable),
                 }
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_workspace_spawned_runner_executes_provider_flow() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![
+                ProvisionedRemoteProvisionerStatus::Running,
+                ProvisionedRemoteProvisionerStatus::Succeeded,
+            ],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+
+        service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start");
+
+        let mut latest = None;
+        for _ in 0..20 {
+            latest = service
+                .get_latest_lifecycle_operation("workspace-1")
+                .await
+                .expect("operation read should succeed");
+            if latest
+                .as_ref()
+                .is_some_and(|operation| operation.state == LifecycleOperationState::Completed)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+
+        assert_eq!(
+            latest.expect("operation should exist").state,
+            LifecycleOperationState::Completed
+        );
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(workspace.state, WorkspaceState::Ready);
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "create_volume",
+                "start_provisioner",
+                "get_provisioner_status",
+                "get_provisioner_status",
+                "terminate_provisioner",
+                "create_endpoint",
+            ]
         );
     }
 
