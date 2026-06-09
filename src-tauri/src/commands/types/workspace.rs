@@ -105,6 +105,7 @@ pub struct ProvisionedRemoteProvisionerSnapshotResponse {
 pub struct ProvisionedRemoteEndpointSnapshotResponse {
     pub id: String,
     pub url: String,
+    pub template_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -365,6 +366,7 @@ impl From<ProvisionedRemoteEndpointSnapshot> for ProvisionedRemoteEndpointSnapsh
         Self {
             id: value.id,
             url: value.url,
+            template_id: value.template_id,
         }
     }
 }
@@ -526,9 +528,10 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LifecycleOperationPayloadResponse, ProvisionedRemoteLifecycleOperationPayloadResponse,
-        ProvisionedRemoteProvisionStepResponse, ProvisionedRemoteResourcesResponse,
-        ProvisionedRemoteWorkspaceResponse, WorkspaceRuntimeResponse,
+        LifecycleOperationPayloadResponse, ProvisionedRemoteEndpointSnapshotResponse,
+        ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
+        ProvisionedRemoteResourcesResponse, ProvisionedRemoteWorkspaceResponse,
+        WorkspaceRuntimeResponse,
     };
 
     #[test]
@@ -547,13 +550,18 @@ mod tests {
                 resources: ProvisionedRemoteResourcesResponse {
                     volume: None,
                     provisioner: None,
-                    endpoint: None,
+                    endpoint: Some(ProvisionedRemoteEndpointSnapshotResponse {
+                        id: "endpoint".to_string(),
+                        url: "https://endpoint.example".to_string(),
+                        template_id: "template".to_string(),
+                    }),
                 },
             });
 
         let json = serde_json::to_string(&response).expect("runtime json");
 
         assert!(json.contains(r#""runtimeType":"provisioned_remote""#));
+        assert!(json.contains(r#""templateId":"template""#));
         assert!(!json.contains("provisioned_remote_compute"));
         assert!(!json.contains("provisioning"));
         assert!(!json.contains("percent"));

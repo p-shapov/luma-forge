@@ -640,7 +640,7 @@ mod tests {
                 LifecycleOperationPayload, LifecycleOperationState,
                 ProvisionedRemoteLifecycleOperationPayload,
             },
-            provider::GpuCloudProviderId,
+            provider::{GpuCloudProviderId, ProviderApiError},
             provisioned_remote::{
                 ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus,
                 ProvisionedRemoteRuntime, ProvisionedRemoteVolumeSnapshot,
@@ -1200,6 +1200,62 @@ mod tests {
                 }
             )
         );
+    }
+
+    #[tokio::test]
+    async fn cleanup_runner_preserves_endpoint_snapshot_when_endpoint_cleanup_fails() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let provision_operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        service
+            .run_provision_once_for_test(&provision_operation_id)
+            .await
+            .expect("provision should complete");
+
+        state.lock().expect("state lock").delete_endpoint_error =
+            Some(ProviderApiError::RequestFailed.into());
+        let cleanup_operation_id = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start")
+            .operation
+            .operation_id;
+        service
+            .run_cleanup_once_for_test(&cleanup_operation_id)
+            .await
+            .expect("cleanup runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::CleanupRequired {
+                reason: WorkspaceCleanupRequiredReason::CleanupFailed
+            }
+        );
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let endpoint = runtime
+            .resources
+            .endpoint
+            .as_ref()
+            .expect("endpoint snapshot should be preserved for retry");
+        assert_eq!(endpoint.id, "endpoint");
+        assert_eq!(endpoint.template_id, "template");
     }
 
     #[tokio::test]

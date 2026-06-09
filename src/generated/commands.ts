@@ -109,6 +109,7 @@ export type ProvisionedRemoteDeleteStepResponse = "delete_endpoint" | "terminate
 export type ProvisionedRemoteEndpointSnapshotResponse = {
 	id: string,
 	url: string,
+	templateId: string,
 };
 
 export type ProvisionedRemoteLifecycleErrorResponse = "app_interrupted" | "provider_adapter_unavailable" | "provider_secret_unavailable" | "provider_api_failed" | "provisioner_unavailable" | "provisioner_response_invalid" | "provisioner_failed" | "remote_volume_not_found" | "remote_provisioner_not_found" | "remote_endpoint_not_found" | "invalid_runtime_state";
