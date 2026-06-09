@@ -50,6 +50,14 @@ pub(crate) struct ProviderState {
     pub(crate) calls: Vec<&'static str>,
     pub(crate) placement_options_result:
         Option<Result<RemotePlacementOptions, ProvisionedRemoteError>>,
+    pub(crate) provisioner_status_results: Vec<ProvisionedRemoteProvisionerStatus>,
+    pub(crate) create_volume_error: Option<ProvisionedRemoteError>,
+    pub(crate) start_provisioner_error: Option<ProvisionedRemoteError>,
+    pub(crate) terminate_provisioner_error: Option<ProvisionedRemoteError>,
+    pub(crate) get_provisioner_status_error: Option<ProvisionedRemoteError>,
+    pub(crate) create_endpoint_error: Option<ProvisionedRemoteError>,
+    pub(crate) delete_endpoint_error: Option<ProvisionedRemoteError>,
+    pub(crate) delete_volume_error: Option<ProvisionedRemoteError>,
 }
 
 pub(crate) fn placement_options() -> RemotePlacementOptions {
@@ -99,7 +107,13 @@ impl ProvisionedRemoteVolumeProvider for FakeProvider {
         &'a self,
         _params: CreateVolumeParams,
     ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>> {
-        Box::pin(async {
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("create_volume");
+            if let Some(error) = state.create_volume_error.clone() {
+                return Err(error);
+            }
+
             Ok(ProvisionedRemoteVolumeSnapshot {
                 id: "volume".to_string(),
             })
@@ -110,7 +124,15 @@ impl ProvisionedRemoteVolumeProvider for FakeProvider {
         &'a self,
         _params: DeleteVolumeParams,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("delete_volume");
+            if let Some(error) = state.delete_volume_error.clone() {
+                return Err(error);
+            }
+
+            Ok(())
+        })
     }
 }
 
@@ -119,7 +141,13 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
         &'a self,
         _params: StartProvisionerParams,
     ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerSnapshot, ProvisionedRemoteError>> {
-        Box::pin(async {
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("start_provisioner");
+            if let Some(error) = state.start_provisioner_error.clone() {
+                return Err(error);
+            }
+
             Ok(ProvisionedRemoteProvisionerSnapshot {
                 id: "provisioner".to_string(),
                 status_url: "https://status.example".to_string(),
@@ -131,14 +159,34 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
         &'a self,
         _params: TerminateProvisionerParams,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("terminate_provisioner");
+            if let Some(error) = state.terminate_provisioner_error.clone() {
+                return Err(error);
+            }
+
+            Ok(())
+        })
     }
 
     fn get_provisioner_status<'a>(
         &'a self,
         _params: GetProvisionerStatusParams,
     ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>> {
-        Box::pin(async { Ok(ProvisionedRemoteProvisionerStatus::Pending) })
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("get_provisioner_status");
+            if let Some(error) = state.get_provisioner_status_error.clone() {
+                return Err(error);
+            }
+
+            if state.provisioner_status_results.is_empty() {
+                Ok(ProvisionedRemoteProvisionerStatus::Pending)
+            } else {
+                Ok(state.provisioner_status_results.remove(0))
+            }
+        })
     }
 }
 
@@ -147,7 +195,13 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
         &'a self,
         _params: CreateEndpointParams,
     ) -> AppFuture<'a, Result<ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteError>> {
-        Box::pin(async {
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("create_endpoint");
+            if let Some(error) = state.create_endpoint_error.clone() {
+                return Err(error);
+            }
+
             Ok(ProvisionedRemoteEndpointSnapshot {
                 id: "endpoint".to_string(),
                 url: "https://endpoint.example".to_string(),
@@ -159,7 +213,15 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
         &'a self,
         _params: DeleteEndpointParams,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("delete_endpoint");
+            if let Some(error) = state.delete_endpoint_error.clone() {
+                return Err(error);
+            }
+
+            Ok(())
+        })
     }
 }
 

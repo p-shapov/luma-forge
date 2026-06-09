@@ -11,6 +11,9 @@ pub enum ProvisionedRemoteError {
     ProvisionerUnavailable,
     ProvisionerResponseInvalid,
     ProvisionerFailed,
+    RemoteVolumeNotFound,
+    RemoteProvisionerNotFound,
+    RemoteEndpointNotFound,
     InvalidRuntimeState,
     StorageUnavailable,
 }
