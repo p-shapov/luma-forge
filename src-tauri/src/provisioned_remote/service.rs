@@ -342,6 +342,60 @@ where
             spawn_lifecycle_task(super::lifecycle::delete::run(operation_id, registry));
         }
     }
+
+    #[cfg(test)]
+    pub async fn run_provision_once_for_test(
+        &self,
+        operation_id: &str,
+    ) -> Result<(), ProvisionedRemoteError> {
+        let operation_id = operation_id.to_string();
+        let result = super::lifecycle::provision::run_once(
+            &operation_id,
+            &self.workspace_repository,
+            &self.lifecycle_journal,
+            &self.provider_registry,
+            &self.event_sink,
+        )
+        .await;
+        self.lifecycle_operation_registry.complete(&operation_id);
+        result
+    }
+
+    #[cfg(test)]
+    pub async fn run_cleanup_once_for_test(
+        &self,
+        operation_id: &str,
+    ) -> Result<(), ProvisionedRemoteError> {
+        let operation_id = operation_id.to_string();
+        let result = super::lifecycle::cleanup::run_once(
+            &operation_id,
+            &self.workspace_repository,
+            &self.lifecycle_journal,
+            &self.provider_registry,
+            &self.event_sink,
+        )
+        .await;
+        self.lifecycle_operation_registry.complete(&operation_id);
+        result
+    }
+
+    #[cfg(test)]
+    pub async fn run_delete_once_for_test(
+        &self,
+        operation_id: &str,
+    ) -> Result<(), ProvisionedRemoteError> {
+        let operation_id = operation_id.to_string();
+        let result = super::lifecycle::delete::run_once(
+            &operation_id,
+            &self.workspace_repository,
+            &self.lifecycle_journal,
+            &self.provider_registry,
+            &self.event_sink,
+        )
+        .await;
+        self.lifecycle_operation_registry.complete(&operation_id);
+        result
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,7 +416,7 @@ pub struct DeleteWorkspaceResponse {
     pub operation: LifecycleOperation,
 }
 
-fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> ProvisionedRemoteError {
+pub(super) fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> ProvisionedRemoteError {
     match error {
         WorkspaceCatalogError::WorkspaceAlreadyExists => {
             ProvisionedRemoteError::WorkspaceAlreadyExists
@@ -386,8 +440,8 @@ mod tests {
             },
             provider::GpuCloudProviderId,
             provisioned_remote::{
-                ProvisionedRemoteLifecycleError, ProvisionedRemoteRuntime,
-                ProvisionedRemoteVolumeSnapshot,
+                ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus,
+                ProvisionedRemoteRuntime, ProvisionedRemoteVolumeSnapshot,
             },
             workspace::{WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceState},
         },
@@ -535,6 +589,141 @@ mod tests {
             crate::provisioned_remote::errors::ProvisionedRemoteError::LifecycleOperationAlreadyRunning {
                 workspace_id: "workspace-1".to_string()
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_runner_marks_steps_updates_resources_and_completes_workspace() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![
+                ProvisionedRemoteProvisionerStatus::Running,
+                ProvisionedRemoteProvisionerStatus::Succeeded,
+            ],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("provision runner should complete");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(workspace.state, WorkspaceState::Ready);
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        assert_eq!(
+            runtime
+                .resources
+                .volume
+                .as_ref()
+                .map(|volume| volume.id.as_str()),
+            Some("volume")
+        );
+        assert_eq!(runtime.resources.provisioner, None);
+        assert_eq!(
+            runtime
+                .resources
+                .endpoint
+                .as_ref()
+                .map(|endpoint| endpoint.id.as_str()),
+            Some("endpoint")
+        );
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation read should succeed")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Completed);
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "create_volume",
+                "start_provisioner",
+                "get_provisioner_status",
+                "get_provisioner_status",
+                "terminate_provisioner",
+                "create_endpoint",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_runner_failure_preserves_resources_and_sets_cleanup_required() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            start_provisioner_error: Some(
+                crate::provisioned_remote::errors::ProvisionedRemoteError::ProvisionerUnavailable,
+            ),
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(state);
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("provision runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::CleanupRequired {
+                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
+            }
+        );
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        assert_eq!(
+            runtime
+                .resources
+                .volume
+                .as_ref()
+                .map(|volume| volume.id.as_str()),
+            Some("volume")
+        );
+        assert_eq!(runtime.resources.provisioner, None);
+        assert_eq!(runtime.resources.endpoint, None);
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation read should succeed")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: Some(crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::StartProvisioner),
+                    error: Some(ProvisionedRemoteLifecycleError::ProvisionerUnavailable),
+                }
+            )
         );
     }
 
