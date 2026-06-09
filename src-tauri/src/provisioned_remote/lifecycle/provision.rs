@@ -126,6 +126,7 @@ where
         runtime.resources.provisioner = Some(provisioner.clone());
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
+        let mut provisioner_failed = false;
         loop {
             failed_step = ProvisionedRemoteProvisionStep::PollProvisioner;
             mark_step(
@@ -149,7 +150,8 @@ where
                 | ProvisionedRemoteProvisionerStatus::Running => {}
                 ProvisionedRemoteProvisionerStatus::Succeeded => break,
                 ProvisionedRemoteProvisionerStatus::Failed => {
-                    return Err(ProvisionedRemoteError::ProvisionerFailed);
+                    provisioner_failed = true;
+                    break;
                 }
             }
         }
@@ -172,6 +174,10 @@ where
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
         runtime.resources.provisioner = None;
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
+
+        if provisioner_failed {
+            return Err(ProvisionedRemoteError::ProvisionerFailed);
+        }
 
         failed_step = ProvisionedRemoteProvisionStep::CreateEndpoint;
         mark_step(
