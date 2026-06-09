@@ -39,7 +39,7 @@ impl ProvisionedRemoteEventSink for TauriProvisionedRemoteEventSink {
             } => {
                 let _ = WorkspaceChangedEvent {
                     workspace_id,
-                    workspace: workspace.into(),
+                    workspace: (*workspace).into(),
                 }
                 .emit(&self.app_handle);
             }

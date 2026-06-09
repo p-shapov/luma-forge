@@ -128,7 +128,7 @@ where
         self.event_sink
             .emit(ProvisionedRemoteEvent::WorkspaceChanged {
                 workspace_id: workspace.id.clone(),
-                workspace: workspace.clone(),
+                workspace: Box::new(workspace.clone()),
             });
 
         Ok(workspace)
@@ -243,7 +243,7 @@ where
                 self.event_sink
                     .emit(ProvisionedRemoteEvent::WorkspaceChanged {
                         workspace_id: workspace.id.clone(),
-                        workspace,
+                        workspace: Box::new(workspace),
                     });
 
                 let failed_payload = LifecycleOperationPayload::ProvisionedRemote(
@@ -382,7 +382,7 @@ where
                 self.event_sink
                     .emit(ProvisionedRemoteEvent::WorkspaceChanged {
                         workspace_id: workspace.id.clone(),
-                        workspace,
+                        workspace: Box::new(workspace),
                     });
             }
         }

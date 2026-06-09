@@ -245,18 +245,21 @@ mod tests {
     }
 
     #[test]
-    fn lifecycle_command_error_codes_use_current_vocabulary() {
+    fn lifecycle_command_error_codes_serialize_stable_values() {
         let codes = [
             NativeCommandErrorCode::LifecycleOperationAlreadyRunning,
             NativeCommandErrorCode::InvalidRuntimeState,
         ];
 
-        let json = serde_json::to_string(&codes).expect("command error code json");
+        let json = serde_json::to_value(codes).expect("command error code json");
 
-        assert!(json.contains("lifecycle_operation_already_running"));
-        assert!(json.contains("invalid_runtime_state"));
-        assert!(!json.contains("provisioning_already_running"));
-        assert!(!json.contains("invalid_provisioning_state"));
+        assert_eq!(
+            json,
+            serde_json::json!([
+                "lifecycle_operation_already_running",
+                "invalid_runtime_state"
+            ])
+        );
     }
 
     #[test]

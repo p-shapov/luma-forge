@@ -9,7 +9,7 @@ pub enum ProvisionedRemoteEvent {
     },
     WorkspaceChanged {
         workspace_id: String,
-        workspace: Workspace,
+        workspace: Box<Workspace>,
     },
     WorkspaceDeleted {
         workspace_id: String,
