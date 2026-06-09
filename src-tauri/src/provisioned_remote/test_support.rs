@@ -60,6 +60,11 @@ pub(crate) struct ProviderState {
     pub(crate) delete_volume_error: Option<ProvisionedRemoteError>,
 }
 
+#[derive(Clone, Default)]
+pub(crate) struct WorkspaceRepositoryState {
+    pub(crate) delete_workspace_error: Option<WorkspaceCatalogError>,
+}
+
 pub(crate) fn placement_options() -> RemotePlacementOptions {
     RemotePlacementOptions {
         max_persistent_storage_volume_size_bytes: Some(10),
@@ -234,6 +239,16 @@ impl ProvisionedRemoteProvider for FakeProvider {
 #[derive(Clone, Default)]
 pub(crate) struct InMemoryWorkspaceRepository {
     workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
+    state: Arc<Mutex<WorkspaceRepositoryState>>,
+}
+
+impl InMemoryWorkspaceRepository {
+    pub(crate) fn with_state(state: Arc<Mutex<WorkspaceRepositoryState>>) -> Self {
+        Self {
+            workspaces: Arc::new(Mutex::new(HashMap::new())),
+            state,
+        }
+    }
 }
 
 impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
@@ -308,6 +323,16 @@ impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
         id: &'a str,
     ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>> {
         Box::pin(async move {
+            if let Some(error) = self
+                .state
+                .lock()
+                .expect("workspace state lock should succeed")
+                .delete_workspace_error
+                .clone()
+            {
+                return Err(error);
+            }
+
             self.workspaces
                 .lock()
                 .expect("workspace lock should succeed")
@@ -491,6 +516,23 @@ pub(crate) fn service_with_state(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
+    )
+}
+
+pub(crate) fn service_without_lifecycle_spawning(
+    state: Arc<Mutex<ProviderState>>,
+) -> ProvisionedRemoteService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
+    service_with_state(state).without_lifecycle_spawning()
+}
+
+pub(crate) fn service_with_state_and_workspace_repository(
+    provider_state: Arc<Mutex<ProviderState>>,
+    workspace_repository: InMemoryWorkspaceRepository,
+) -> ProvisionedRemoteService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
+    ProvisionedRemoteService::new(
+        workspace_repository,
+        InMemoryLifecycleJournalRepository::default(),
+        ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(provider_state))]),
     )
 }
 

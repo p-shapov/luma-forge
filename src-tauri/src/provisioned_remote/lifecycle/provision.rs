@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     domain::{
@@ -45,6 +45,7 @@ pub async fn run_once<W, L>(
     lifecycle_journal: &L,
     provider_registry: &ProvisionedRemoteProviderRegistry,
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
+    provisioner_poll_interval: Duration,
 ) -> Result<(), ProvisionedRemoteError>
 where
     W: WorkspaceCatalogRepository,
@@ -147,7 +148,11 @@ where
             match status {
                 ProvisionedRemoteProvisionerStatus::Pending
                 | ProvisionedRemoteProvisionerStatus::Starting
-                | ProvisionedRemoteProvisionerStatus::Running => {}
+                | ProvisionedRemoteProvisionerStatus::Running => {
+                    if !provisioner_poll_interval.is_zero() {
+                        tokio::time::sleep(provisioner_poll_interval).await;
+                    }
+                }
                 ProvisionedRemoteProvisionerStatus::Succeeded => break,
                 ProvisionedRemoteProvisionerStatus::Failed => {
                     provisioner_failed = true;
