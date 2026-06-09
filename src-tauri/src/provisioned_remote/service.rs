@@ -322,7 +322,7 @@ where
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
             spawn_lifecycle_task(async move {
-                let _ = super::lifecycle::provision::run_once(
+                let result = super::lifecycle::provision::run_once(
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
@@ -330,7 +330,7 @@ where
                     &event_sink,
                 )
                 .await;
-                registry.complete(&operation_id);
+                complete_background_runner(&registry, &operation_id, result);
             });
         }
     }
@@ -347,7 +347,7 @@ where
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
             spawn_lifecycle_task(async move {
-                let _ = super::lifecycle::cleanup::run_once(
+                let result = super::lifecycle::cleanup::run_once(
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
@@ -355,7 +355,7 @@ where
                     &event_sink,
                 )
                 .await;
-                registry.complete(&operation_id);
+                complete_background_runner(&registry, &operation_id, result);
             });
         }
     }
@@ -372,7 +372,7 @@ where
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
             spawn_lifecycle_task(async move {
-                let _ = super::lifecycle::delete::run_once(
+                let result = super::lifecycle::delete::run_once(
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
@@ -380,7 +380,7 @@ where
                     &event_sink,
                 )
                 .await;
-                registry.complete(&operation_id);
+                complete_background_runner(&registry, &operation_id, result);
             });
         }
     }
@@ -470,6 +470,19 @@ pub(super) fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> Provi
         | WorkspaceCatalogError::QueryFailed
         | WorkspaceCatalogError::SchemaMismatch => ProvisionedRemoteError::StorageUnavailable,
     }
+}
+
+fn complete_background_runner(
+    registry: &LifecycleOperationRegistry,
+    operation_id: &str,
+    result: Result<(), ProvisionedRemoteError>,
+) {
+    // run_once records provider/domain failures in the lifecycle journal once the
+    // operation is loaded. Remaining errors are journal/storage failures where a
+    // durable terminal write could not be guaranteed; the persisted Running row
+    // continues to block future starts until stale-operation recovery handles it.
+    let _unrecoverable = result;
+    registry.complete(&operation_id.to_string());
 }
 
 #[cfg(test)]
@@ -828,6 +841,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provision_runner_marks_failed_when_workspace_missing_after_operation_created() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        service
+            .workspace_repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect("workspace should be deleted");
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("runner should terminalize operation");
+
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateVolume
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                }
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn cleanup_workspace_creates_cleanup_operation_without_changing_workspace_state() {
         let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
         let workspace = service
@@ -860,6 +921,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_runner_marks_failed_when_workspace_missing_after_operation_created() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start")
+            .operation
+            .operation_id;
+        service
+            .workspace_repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect("workspace should be deleted");
+
+        service
+            .run_cleanup_once_for_test(&operation_id)
+            .await
+            .expect("runner should terminalize operation");
+
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Cleanup {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteCleanupStep::DeleteEndpoint
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                }
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn delete_workspace_creates_delete_operation_without_deleting_immediately() {
         let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
         service
@@ -888,6 +997,54 @@ mod tests {
             .await
             .expect("repository read should succeed")
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn delete_runner_completes_when_workspace_missing_after_operation_created() {
+        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should start")
+            .operation
+            .operation_id;
+        service
+            .workspace_repository
+            .delete_workspace("workspace-1")
+            .await
+            .expect("workspace should be deleted");
+
+        service
+            .run_delete_once_for_test(&operation_id)
+            .await
+            .expect("runner should terminalize operation");
+
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Completed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Delete {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteLocalWorkspace
+                    ),
+                    error: None,
+                }
+            )
+        );
     }
 
     #[tokio::test]
