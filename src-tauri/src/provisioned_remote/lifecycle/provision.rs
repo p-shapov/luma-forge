@@ -51,11 +51,24 @@ where
     L: LifecycleJournalRepository,
 {
     let operation = load_running_operation(lifecycle_journal, operation_id).await?;
-    let mut workspace = workspace_repository
+    let mut workspace = match workspace_repository
         .find_workspace_by_id(&operation.workspace_id)
         .await
-        .map_err(map_workspace_catalog_error)?
-        .ok_or(ProvisionedRemoteError::WorkspaceNotFound)?;
+    {
+        Ok(Some(workspace)) => workspace,
+        Ok(None) | Err(_) => {
+            mark_operation_state(
+                lifecycle_journal,
+                event_sink,
+                &operation,
+                LifecycleOperationState::Failed,
+                ProvisionedRemoteProvisionStep::CreateVolume,
+                Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+            )
+            .await?;
+            return Ok(());
+        }
+    };
 
     let mut failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
     let result = async {
