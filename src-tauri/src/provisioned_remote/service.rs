@@ -783,6 +783,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provision_runner_failed_status_terminates_provisioner_without_endpoint() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Failed],
+            ..ProviderState::default()
+        }));
+        let service = service_with_state(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("provision runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::CleanupRequired {
+                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
+            }
+        );
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        assert_eq!(
+            runtime
+                .resources
+                .volume
+                .as_ref()
+                .map(|volume| volume.id.as_str()),
+            Some("volume")
+        );
+        assert_eq!(runtime.resources.provisioner, None);
+        assert_eq!(runtime.resources.endpoint, None);
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation read should succeed")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::TerminateProvisioner
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::ProvisionerFailed),
+                }
+            )
+        );
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "create_volume",
+                "start_provisioner",
+                "get_provisioner_status",
+                "terminate_provisioner",
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn provision_workspace_spawned_runner_executes_provider_flow() {
         let state = Arc::new(Mutex::new(ProviderState {
             provisioner_status_results: vec![
