@@ -29,6 +29,7 @@ const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
     gpuAvailability {
       gpuTypeId
       available
+      stockStatus
     }
   }
 }"#;
@@ -95,6 +96,8 @@ struct PlacementGpuAvailability {
     #[serde(rename = "gpuTypeId")]
     gpu_type_id: String,
     available: bool,
+    #[serde(rename = "stockStatus")]
+    stock_status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -368,12 +371,13 @@ pub(super) fn map_placement_response(
                     data.gpu_types
                         .iter()
                         .find(|gpu| gpu.id == availability.gpu_type_id)
+                        .map(|gpu| (availability, gpu))
                 })
-                .map(|gpu| RemoteGpuPlacementOption {
+                .map(|(availability, gpu)| RemoteGpuPlacementOption {
                     id: gpu.id.clone(),
                     name: gpu.display_name.clone(),
                     vram_bytes: gpu.memory_gb * 1_000_000_000,
-                    availability_score: 100,
+                    availability_score: stock_status_score(availability.stock_status.as_deref()),
                 })
                 .collect();
 
@@ -389,6 +393,15 @@ pub(super) fn map_placement_response(
         max_persistent_storage_volume_size_bytes: None,
         datacenters,
     })
+}
+
+fn stock_status_score(stock_status: Option<&str>) -> u8 {
+    match stock_status {
+        Some("High") => 100,
+        Some("Medium") => 50,
+        Some("Low") => 25,
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
@@ -623,6 +636,7 @@ mod tests {
                     gpu_availability: vec![PlacementGpuAvailability {
                         gpu_type_id: "gpu-1".to_string(),
                         available: true,
+                        stock_status: Some("Low".to_string()),
                     }],
                 }],
             }),
@@ -642,7 +656,7 @@ mod tests {
                         id: "gpu-1".to_string(),
                         name: "RTX 4090".to_string(),
                         vram_bytes: 24_000_000_000,
-                        availability_score: 100,
+                        availability_score: 25,
                     }],
                 }],
             }
