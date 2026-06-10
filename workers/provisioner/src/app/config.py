@@ -1,11 +1,14 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+import json
 import ipaddress
 import math
 import os
 from pathlib import Path
 import re
 
+from app.schemas import StartRequest, parse_start_request
+from app.errors import ValidationError
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
@@ -18,6 +21,9 @@ MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 MIN_BEARER_TOKEN_LENGTH = 32
 
 BEARER_TOKEN_ENV = "LUMA_FORGE_PROVISIONER_BEARER_TOKEN"
+JOB_ID_ENV = "LUMA_FORGE_PROVISIONER_JOB_ID"
+REQUIRES_HUGGING_FACE_API_KEY_ENV = "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY"
+REQUIRED_MODEL_ASSETS_ENV = "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"
 HOST_ENV = "LUMA_FORGE_PROVISIONER_HOST"
 PORT_ENV = "LUMA_FORGE_PROVISIONER_PORT"
 MAX_REQUEST_BYTES_ENV = "LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES"
@@ -48,6 +54,7 @@ class WorkerConfig:
     host: str
     port: int
     bearer_token: str
+    start_request: StartRequest
     max_request_bytes: int
     download_timeout_seconds: float
     workspace_mount_path: Path
@@ -66,6 +73,7 @@ class WorkerConfig:
                 maximum=65535,
             ),
             bearer_token=_parse_bearer_token(source),
+            start_request=_parse_start_request(source),
             max_request_bytes=_parse_int(
                 source,
                 MAX_REQUEST_BYTES_ENV,
@@ -117,6 +125,21 @@ def _parse_bearer_token(env: Mapping[str, str]) -> str:
             "value must contain only ASCII characters",
         )
     return token
+
+
+def _parse_start_request(env: Mapping[str, str]) -> StartRequest:
+    payload = {
+        "job_id": _required_configured_value(env, JOB_ID_ENV),
+        "requires_hugging_face_api_key": _parse_bool_env(
+            env,
+            REQUIRES_HUGGING_FACE_API_KEY_ENV,
+        ),
+        "required_model_assets": _parse_required_model_assets(env),
+    }
+    try:
+        return parse_start_request(payload)
+    except ValidationError as error:
+        raise ConfigurationError(REQUIRED_MODEL_ASSETS_ENV, "invalid_request", error.message) from error
 
 
 def _parse_host(env: Mapping[str, str]) -> str:
@@ -194,8 +217,37 @@ def _parse_float(
             name,
             "number_out_of_range",
             f"value must be greater than {minimum:g} and at most {maximum:g}",
-        )
+    )
     return parsed
+
+
+def _parse_bool_env(env: Mapping[str, str], name: str) -> bool:
+    raw = _required_configured_value(env, name)
+    normalized = raw.lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    raise ConfigurationError(name, "invalid_request", "value must be true or false")
+
+
+def _parse_required_model_assets(env: Mapping[str, str]) -> list[dict[str, object]]:
+    raw = _required_configured_value(env, REQUIRED_MODEL_ASSETS_ENV)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ConfigurationError(
+            REQUIRED_MODEL_ASSETS_ENV,
+            "invalid_json",
+            "value must be valid JSON",
+        ) from error
+    if not isinstance(payload, list):
+        raise ConfigurationError(
+            REQUIRED_MODEL_ASSETS_ENV,
+            "invalid_request",
+            "value must be an array",
+        )
+    return payload
 
 
 def _configured_or_default(env: Mapping[str, str], name: str, default: str) -> str:

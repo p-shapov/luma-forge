@@ -4,6 +4,7 @@ import sys
 
 from api.handler import ProvisionerRequestHandler
 from app.config import ConfigurationError, WorkerConfig
+from app.errors import WorkerError
 from orchestration.preparation_job import JobManager
 from orchestration.preparer import Provisioner
 
@@ -12,7 +13,7 @@ def main() -> None:
     try:
         config = WorkerConfig.from_env()
         server = create_server(config)
-    except ConfigurationError as error:
+    except (ConfigurationError, WorkerError) as error:
         print(json.dumps(error.to_dict()), file=sys.stderr, flush=True)
         raise SystemExit(78) from error
 
@@ -22,6 +23,9 @@ def main() -> None:
 
 def create_server(config: WorkerConfig) -> ThreadingHTTPServer:
     handler = build_request_handler(config)
+    # Start provisioning immediately because the control-plane expects worker progress on first poll.
+    handler.manager.start(config.start_request)
+
     return ThreadingHTTPServer((config.host, config.port), handler)
 
 

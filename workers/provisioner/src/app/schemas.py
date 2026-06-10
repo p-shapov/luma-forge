@@ -27,42 +27,25 @@ class ModelAsset:
 
 
 @dataclass(frozen=True)
-class WorkflowPreset:
+class StartRequest:
+    job_id: str
     requires_hugging_face_api_key: bool
     required_model_assets: list[ModelAsset]
 
 
-@dataclass(frozen=True)
-class StartRequest:
-    job_id: str
-    workflow_preset: WorkflowPreset
-
-
 def parse_start_request(payload: Any) -> StartRequest:
     data = _object(payload, "request")
-    _require_keys(data, {"job_id", "workflow_preset"}, "request")
+    _require_keys(data, {"job_id", "requires_hugging_face_api_key", "required_model_assets"}, "request")
     return StartRequest(
         job_id=_non_empty_string(data.get("job_id"), "job_id"),
-        workflow_preset=_parse_workflow_preset(data.get("workflow_preset")),
-    )
-
-
-def _parse_workflow_preset(payload: Any) -> WorkflowPreset:
-    data = _object(payload, "workflow_preset")
-    _require_keys(
-        data,
-        {"requires_hugging_face_api_key", "required_model_assets"},
-        "workflow_preset",
-    )
-    return WorkflowPreset(
         requires_hugging_face_api_key=_bool(
             data.get("requires_hugging_face_api_key"),
-            "workflow_preset.requires_hugging_face_api_key",
+            "requires_hugging_face_api_key",
         ),
         required_model_assets=[
-            _parse_model_asset(item, f"workflow_preset.required_model_assets[{index}]")
+            _parse_model_asset(item, f"required_model_assets[{index}]")
             for index, item in enumerate(
-                _list(data.get("required_model_assets"), "workflow_preset.required_model_assets")
+                _list(data.get("required_model_assets"), "required_model_assets")
             )
         ],
     )

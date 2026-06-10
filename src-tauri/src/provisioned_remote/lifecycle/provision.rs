@@ -30,6 +30,9 @@ use super::{
     helpers::{load_running_operation, mark_operation_state, mark_running_step, persist_workspace},
 };
 
+// Keep polling until the worker container is reachable; 12 * 5s = 60s warm-up window.
+const MAX_PROVISIONER_STARTUP_PROBE_ATTEMPTS: u32 = 12;
+
 pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
     workspace_repository: &W,
@@ -112,6 +115,7 @@ where
                 requires_hugging_face_api_key: workspace
                     .workflow_preset
                     .requires_hugging_face_api_key,
+                required_model_assets: workspace.workflow_preset.required_model_assets.clone(),
             })
             .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
@@ -119,6 +123,8 @@ where
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
         let mut provisioner_failed = false;
+        let mut has_seen_initial_status = false;
+        let mut startup_probe_attempts = 0u32;
         loop {
             failed_step = ProvisionedRemoteProvisionStep::PollProvisioner;
             mark_running_step(
@@ -135,20 +141,36 @@ where
                     provisioner_id: provisioner.id.clone(),
                     status_url: provisioner.status_url.clone(),
                 })
-                .await?;
+                .await;
             match status {
-                ProvisionedRemoteProvisionerStatus::Pending
-                | ProvisionedRemoteProvisionerStatus::Starting
-                | ProvisionedRemoteProvisionerStatus::Running => {
-                    if !provisioner_poll_interval.is_zero() {
-                        tokio::time::sleep(provisioner_poll_interval).await;
+                Ok(status) => {
+                    has_seen_initial_status = true;
+                    startup_probe_attempts = 0;
+                    match status {
+                        ProvisionedRemoteProvisionerStatus::Pending
+                        | ProvisionedRemoteProvisionerStatus::Starting
+                        | ProvisionedRemoteProvisionerStatus::Running => {
+                            if !provisioner_poll_interval.is_zero() {
+                                tokio::time::sleep(provisioner_poll_interval).await;
+                            }
+                        }
+                        ProvisionedRemoteProvisionerStatus::Succeeded => break,
+                        ProvisionedRemoteProvisionerStatus::Failed => {
+                            provisioner_failed = true;
+                            break;
+                        }
                     }
                 }
-                ProvisionedRemoteProvisionerStatus::Succeeded => break,
-                ProvisionedRemoteProvisionerStatus::Failed => {
-                    provisioner_failed = true;
-                    break;
+                Err(ProvisionedRemoteError::ProvisionerUnavailable)
+                    if !has_seen_initial_status
+                        && !provisioner_poll_interval.is_zero()
+                        && startup_probe_attempts < MAX_PROVISIONER_STARTUP_PROBE_ATTEMPTS =>
+                {
+                    startup_probe_attempts += 1;
+                    tokio::time::sleep(provisioner_poll_interval).await;
+                    continue;
                 }
+                Err(error) => return Err(error),
             }
         }
 

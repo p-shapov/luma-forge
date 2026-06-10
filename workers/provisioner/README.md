@@ -7,6 +7,9 @@ Container-side worker that prepares a mounted ComfyUI workspace after the native
 ```bash
 cd workers/provisioner
 LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
+LUMA_FORGE_PROVISIONER_JOB_ID=workspace-id \
+LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY=false \
+LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   PYTHONPATH=src python -m app
 ```
 
@@ -44,6 +47,9 @@ cd workers/provisioner
 docker build -t luma-forge-provisioner:local -f Dockerfile ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
+  -e LUMA_FORGE_PROVISIONER_JOB_ID=workspace-id \
+  -e LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY=false \
+  -e LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   -p 8000:8000 \
   -v "$PWD/tmp-workspace:/workspace" \
   luma-forge-provisioner:local
@@ -81,6 +87,9 @@ The error record never includes configured environment values or secrets.
 | Variable | Default | Validation |
 | --- | --- | --- |
 | `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
+| `LUMA_FORGE_PROVISIONER_JOB_ID` | Required | Non-empty string. |
+| `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY` | Required | Boolean text: `true` or `false`. |
+| `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | Required | JSON array of valid `ModelAsset` objects. |
 | `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
 | `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
 | `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` | `1048576` | Positive integer up to `104857600`. |
@@ -103,21 +112,20 @@ The workspace mount path is read from `LUMA_FORGE_WORKSPACE_MOUNT_PATH` and defa
 ```json
 {
   "job_id": "workspace-id",
-  "workflow_preset": {
-    "required_model_assets": [
-      {
-        "id": "model",
-        "name": "Model",
-        "download_source": {
-          "source_type": "huggingface",
-          "repository_id": "owner/model",
-          "file_path": "model.safetensors",
-          "revision": "main"
-        },
-        "install_comfyui_relative_path": "models/checkpoints/model.safetensors"
-      }
-    ]
-  }
+  "requires_hugging_face_api_key": false,
+  "required_model_assets": [
+    {
+      "id": "model",
+      "name": "Model",
+      "download_source": {
+        "source_type": "huggingface",
+        "repository_id": "owner/model",
+        "file_path": "model.safetensors",
+        "revision": "main"
+      },
+      "install_comfyui_relative_path": "models/checkpoints/model.safetensors"
+    }
+  ]
 }
 ```
 

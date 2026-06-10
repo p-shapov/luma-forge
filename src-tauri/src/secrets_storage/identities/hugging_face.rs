@@ -97,6 +97,14 @@ struct WhoamiFineGrainedPermissions {
     can_read_gated_repos: Option<bool>,
     #[serde(default)]
     global: Vec<String>,
+    #[serde(default)]
+    scoped: Vec<WhoamiFineGrainedRepoPermissions>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WhoamiFineGrainedRepoPermissions {
+    #[serde(default)]
+    permissions: Vec<String>,
 }
 
 fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
@@ -144,7 +152,7 @@ fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, Se
                     ))?;
 
             if !fine_grained.can_read_gated_repos.unwrap_or(false)
-                || !fine_grained.has_global_repo_content_read()
+                || !fine_grained.has_repo_content_read_permission()
             {
                 return Err(ProviderApiError::InsufficientPermissions.into());
             }
@@ -165,10 +173,19 @@ fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, Se
 }
 
 impl WhoamiFineGrainedPermissions {
-    fn has_global_repo_content_read(&self) -> bool {
+    fn has_repo_content_read_permission(&self) -> bool {
         self.global
             .iter()
             .any(|permission| permission == "repo.content.read")
+            || self
+                .scoped
+                .iter()
+                .any(|repo_permission| {
+                    repo_permission
+                        .permissions
+                        .iter()
+                        .any(|permission| permission == "repo.content.read")
+                })
     }
 }
 
@@ -253,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_fine_grained_token_with_only_scoped_permissions() {
+    fn accepts_fine_grained_token_with_scoped_permissions() {
         let response = json!({
             "auth": {
                 "accessToken": {
@@ -274,7 +291,11 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderApiError::InsufficientPermissions.into())
+            Ok(ApiKeyIdentity {
+                email: None,
+                username: Some("hf-user".to_string()),
+                key_display_name: Some("LumaForge fine token".to_string()),
+            })
         );
     }
 

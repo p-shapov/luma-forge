@@ -70,6 +70,9 @@ pub struct CreateProvisionerPodRequest {
     pub network_volume_id: String,
     pub mount_path: String,
     pub bearer_token: String,
+    pub job_id: String,
+    pub requires_hugging_face_api_key: String,
+    pub required_model_assets: String,
     pub hugging_face_api_key: Option<String>,
 }
 
@@ -314,7 +317,7 @@ where
 
             Ok(RunpodEndpoint {
                 id: endpoint_response.id,
-                url: endpoint_response.url,
+                url: endpoint_response.url.unwrap_or_default(),
             })
         })
     }

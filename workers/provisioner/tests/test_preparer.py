@@ -124,8 +124,12 @@ class PreparerTests(unittest.TestCase):
             cases = [
                 (
                     "model_asset.id",
-                    lambda payload: payload["workflow_preset"].update(
-                        {"required_model_assets": [model_asset(id=unsafe_value)]}
+                    lambda payload: payload["required_model_assets"].__setitem__(
+                        0,
+                        {
+                            **payload["required_model_assets"][0],
+                            "id": unsafe_value,
+                        },
                     ),
                 ),
             ]
@@ -143,20 +147,20 @@ class PreparerTests(unittest.TestCase):
         for file_path in ["/tmp/model.safetensors", "../model.safetensors", "models/../model.safetensors"]:
             with self.subTest(file_path=file_path):
                 payload = start_payload()
-                payload["workflow_preset"]["required_model_assets"][0]["download_source"]["file_path"] = file_path
+                payload["required_model_assets"][0]["download_source"]["file_path"] = file_path
 
                 with self.assertRaises(ValidationError):
                     parse_start_request(payload)
 
     def test_rejects_missing_or_invalid_workflow_auth_requirement_flag(self):
         cases = [
-            lambda preset: preset.pop("requires_hugging_face_api_key"),
-            lambda preset: preset.update({"requires_hugging_face_api_key": "true"}),
+            lambda payload: payload.pop("requires_hugging_face_api_key"),
+            lambda payload: payload.update({"requires_hugging_face_api_key": "true"}),
         ]
 
         for mutate in cases:
             payload = start_payload()
-            mutate(payload["workflow_preset"])
+            mutate(payload)
 
             with self.assertRaises(ValidationError):
                 parse_start_request(payload)
@@ -195,7 +199,7 @@ def model_asset(
     id: str = "model",
     install_path: str = "models/checkpoints/model.safetensors",
 ) -> dict:
-    asset = start_payload()["workflow_preset"]["required_model_assets"][0].copy()
+    asset = start_payload()["required_model_assets"][0].copy()
     asset["download_source"] = asset["download_source"].copy()
     asset["id"] = id
     asset["install_comfyui_relative_path"] = install_path

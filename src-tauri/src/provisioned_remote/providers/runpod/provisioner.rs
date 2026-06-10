@@ -62,7 +62,9 @@ pub struct ProvisionerStatusResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ProvisionerWorkerErrorResponse {
+    #[serde(alias = "code")]
     _code: String,
+    #[serde(alias = "message")]
     _message: String,
 }
 
