@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use time::OffsetDateTime;
@@ -34,6 +35,13 @@ use crate::{
 
 use super::{
     errors::ProvisionedRemoteError,
+    lifecycle::{
+        self,
+        runner::{
+            BackgroundProvisionedRemoteLifecycleRunner, ProvisionedRemoteLifecycleRunner,
+            ProvisionedRemoteLifecycleRunnerContext,
+        },
+    },
     provider::{
         CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
         GetProvisionerStatusParams, ProvisionedRemoteEndpointProvider,
@@ -51,6 +59,139 @@ struct TestBackgroundTaskSpawner;
 impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
     fn spawn(&self, task: BackgroundTask) {
         tokio::spawn(task);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ManualLifecycleRunner;
+
+impl<W, L> ProvisionedRemoteLifecycleRunner<W, L> for ManualLifecycleRunner
+where
+    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
+    L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+{
+    fn spawn_provision(
+        &self,
+        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        operation_id: LifecycleOperationId,
+    ) {
+        if context
+            .lifecycle_operation_registry
+            .try_register(&operation_id)
+        {
+            context.lifecycle_operation_registry.complete(&operation_id);
+        }
+    }
+
+    fn spawn_cleanup(
+        &self,
+        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        operation_id: LifecycleOperationId,
+    ) {
+        if context
+            .lifecycle_operation_registry
+            .try_register(&operation_id)
+        {
+            context.lifecycle_operation_registry.complete(&operation_id);
+        }
+    }
+
+    fn spawn_delete(
+        &self,
+        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        operation_id: LifecycleOperationId,
+    ) {
+        if context
+            .lifecycle_operation_registry
+            .try_register(&operation_id)
+        {
+            context.lifecycle_operation_registry.complete(&operation_id);
+        }
+    }
+}
+
+pub(crate) trait ManualLifecycleRunnerExt {
+    fn run_provision_once_for_test<'a>(
+        &'a self,
+        operation_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+
+    fn run_cleanup_once_for_test<'a>(
+        &'a self,
+        operation_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+
+    fn run_delete_once_for_test<'a>(
+        &'a self,
+        operation_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+}
+
+impl<W, L> ManualLifecycleRunnerExt for ProvisionedRemoteService<W, L>
+where
+    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
+    L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+{
+    fn run_provision_once_for_test<'a>(
+        &'a self,
+        operation_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        Box::pin(async move {
+            let operation_id = operation_id.to_string();
+            let context = self.lifecycle_runner_context();
+            let result = lifecycle::provision::run_once(
+                &operation_id,
+                &context.workspace_repository,
+                &context.lifecycle_journal,
+                &context.provider_registry,
+                &context.event_sink,
+                Duration::ZERO,
+            )
+            .await;
+            context.lifecycle_operation_registry.complete(&operation_id);
+            result
+        })
+    }
+
+    fn run_cleanup_once_for_test<'a>(
+        &'a self,
+        operation_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        Box::pin(async move {
+            let operation_id = operation_id.to_string();
+            let context = self.lifecycle_runner_context();
+            let result = lifecycle::cleanup::run_once(
+                &operation_id,
+                &context.workspace_repository,
+                &context.lifecycle_journal,
+                &context.provider_registry,
+                &context.event_sink,
+            )
+            .await;
+            context.lifecycle_operation_registry.complete(&operation_id);
+            result
+        })
+    }
+
+    fn run_delete_once_for_test<'a>(
+        &'a self,
+        operation_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        Box::pin(async move {
+            let operation_id = operation_id.to_string();
+            let context = self.lifecycle_runner_context();
+            let result = lifecycle::delete::run_once(
+                &operation_id,
+                &context.workspace_repository,
+                &context.lifecycle_journal,
+                &context.provider_registry,
+                &context.event_sink,
+            )
+            .await
+            .map(|_| ());
+            context.lifecycle_operation_registry.complete(&operation_id);
+            result
+        })
     }
 }
 
@@ -533,13 +674,21 @@ pub(crate) fn service_with_state(
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
+        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
     )
 }
 
 pub(crate) fn service_without_lifecycle_spawning(
     state: Arc<Mutex<ProviderState>>,
 ) -> ProvisionedRemoteService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
-    service_with_state(state).without_lifecycle_spawning()
+    ProvisionedRemoteService::new(
+        InMemoryWorkspaceRepository::default(),
+        InMemoryLifecycleJournalRepository::default(),
+        ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
+        Arc::new(NoopEventSink::new()),
+        Arc::new(TestBackgroundTaskSpawner),
+        Arc::new(ManualLifecycleRunner),
+    )
 }
 
 pub(crate) fn service_with_state_and_workspace_repository(
@@ -552,6 +701,7 @@ pub(crate) fn service_with_state_and_workspace_repository(
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(provider_state))]),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
+        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
     )
 }
 

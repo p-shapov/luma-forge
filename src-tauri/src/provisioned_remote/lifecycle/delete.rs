@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     domain::{
-        lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
+        lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
         provisioned_remote::{ProvisionedRemoteDeleteStep, ProvisionedRemoteLifecycleError},
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
@@ -34,7 +34,7 @@ pub async fn run_once<W, L>(
     lifecycle_journal: &L,
     provider_registry: &ProvisionedRemoteProviderRegistry,
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
-) -> Result<(), ProvisionedRemoteError>
+) -> Result<Option<LifecycleOperation>, ProvisionedRemoteError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
@@ -59,7 +59,7 @@ where
                 .delete_for_workspace(&operation.workspace_id)
                 .await
                 .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-            return Ok(());
+            return Ok(None);
         }
         Err(_) => {
             mark_operation_state(
@@ -71,7 +71,7 @@ where
                 Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
             )
             .await?;
-            return Ok(());
+            return Ok(None);
         }
     };
     let mut failed_step = ProvisionedRemoteDeleteStep::DeleteEndpoint;
@@ -212,7 +212,7 @@ where
                 .await?;
                 return Err(error);
             }
-            mark_operation_state(
+            let completed_operation = mark_operation_state(
                 lifecycle_journal,
                 event_sink,
                 &operation,
@@ -228,6 +228,7 @@ where
             event_sink.emit(ProvisionedRemoteEvent::WorkspaceDeleted {
                 workspace_id: workspace.id.clone(),
             });
+            Ok(Some(completed_operation))
         }
         Err(error) => {
             let lifecycle_error = lifecycle_error_for(&error);
@@ -251,8 +252,7 @@ where
                 Some(lifecycle_error),
             )
             .await?;
+            Ok(None)
         }
     }
-
-    Ok(())
 }

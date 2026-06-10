@@ -7,6 +7,7 @@ use crate::{
     commands::{NativeCommandError, NativeCommandErrorCode},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     provisioned_remote::{
+        lifecycle::runner::BackgroundProvisionedRemoteLifecycleRunner,
         providers::runpod::RunpodProvisionedRemoteProvider,
         registry::ProvisionedRemoteProviderRegistry, service::ProvisionedRemoteService,
     },
@@ -71,6 +72,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         provider_registry,
         Arc::new(TauriProvisionedRemoteEventSink::new(app_handle.clone())),
         Arc::new(TauriBackgroundTaskSpawner),
+        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
     );
 
     provisioned_remote
