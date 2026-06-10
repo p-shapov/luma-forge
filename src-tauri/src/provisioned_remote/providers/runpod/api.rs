@@ -317,7 +317,7 @@ where
 
             Ok(RunpodEndpoint {
                 id: endpoint_response.id,
-                url: endpoint_response.url,
+                url: endpoint_response.url.unwrap_or_default(),
             })
         })
     }

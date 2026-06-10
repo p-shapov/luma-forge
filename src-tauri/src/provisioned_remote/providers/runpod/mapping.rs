@@ -143,6 +143,8 @@ pub(super) struct TemplateCreateBody {
     #[serde(rename = "imageName")]
     image_ref: String,
     name: String,
+    #[serde(rename = "isServerless")]
+    is_serverless: bool,
     ports: Vec<String>,
     env: HashMap<String, String>,
 }
@@ -156,8 +158,8 @@ pub(super) struct TemplateResponse {
 pub(super) struct EndpointCreateBody {
     #[serde(rename = "dataCenterIds")]
     datacenter_ids: Vec<String>,
-    #[serde(rename = "gpuIds")]
-    gpu_ids: Vec<String>,
+    #[serde(rename = "gpuTypeIds")]
+    gpu_type_ids: Vec<String>,
     #[serde(rename = "idleTimeout")]
     idle_timeout: u32,
     name: String,
@@ -165,8 +167,6 @@ pub(super) struct EndpointCreateBody {
     network_volume_id: String,
     #[serde(rename = "templateId")]
     template_id: String,
-    #[serde(rename = "volumeMountPath")]
-    mount_path: String,
     #[serde(rename = "workersMax")]
     workers_max: u32,
     #[serde(rename = "workersMin")]
@@ -176,7 +176,7 @@ pub(super) struct EndpointCreateBody {
 #[derive(Debug, Deserialize)]
 pub(super) struct EndpointResponse {
     pub(super) id: String,
-    pub(super) url: String,
+    pub(super) url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -269,6 +269,7 @@ pub(super) fn endpoint_template_create_body(request: &CreateEndpointRequest) -> 
     TemplateCreateBody {
         image_ref: request.image_ref.clone(),
         name: request.template_name.clone(),
+        is_serverless: true,
         ports: vec![format!("{PROVISIONER_PORT}/http")],
         env: HashMap::new(),
     }
@@ -280,12 +281,11 @@ pub(super) fn endpoint_create_body(
 ) -> EndpointCreateBody {
     EndpointCreateBody {
         datacenter_ids: vec![request.datacenter_id.clone()],
-        gpu_ids: vec![request.gpu_id.clone()],
+        gpu_type_ids: vec![request.gpu_id.clone()],
         idle_timeout: request.keep_alive_limits.default_seconds,
         name: request.endpoint_name.clone(),
         network_volume_id: request.network_volume_id.clone(),
         template_id: template_id.to_string(),
-        mount_path: request.mount_path.clone(),
         workers_max: 1,
         workers_min: 0,
     }
@@ -546,6 +546,7 @@ mod tests {
             json!({
                 "imageName": "ghcr.io/luma/endpoint:latest",
                 "name": "luma-forge-workspace-endpoint-template",
+                "isServerless": true,
                 "ports": ["8000/http"],
                 "env": {}
             })
@@ -554,12 +555,11 @@ mod tests {
             endpoint_body,
             json!({
                 "dataCenterIds": ["US-TX-1"],
-                "gpuIds": ["NVIDIA GeForce RTX 4090"],
+                "gpuTypeIds": ["NVIDIA GeForce RTX 4090"],
                 "idleTimeout": 300,
                 "name": "luma-forge-workspace-endpoint",
                 "networkVolumeId": "volume-1",
                 "templateId": "template-1",
-                "volumeMountPath": "/workspace",
                 "workersMax": 1,
                 "workersMin": 0
             })
