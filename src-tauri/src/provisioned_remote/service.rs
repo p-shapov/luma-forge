@@ -148,6 +148,9 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<ProvisionWorkspaceResponse, ProvisionedRemoteError> {
+        let workspace = self.load_workspace_required(workspace_id).await?;
+        validate_provision_start(&workspace)?;
+
         let payload = LifecycleOperationPayload::ProvisionedRemote(
             ProvisionedRemoteLifecycleOperationPayload::Provision {
                 step: None,
@@ -632,6 +635,19 @@ fn complete_background_runner(
     registry.complete(&operation_id.to_string());
 }
 
+fn validate_provision_start(workspace: &Workspace) -> Result<(), ProvisionedRemoteError> {
+    if workspace.state != WorkspaceState::NotProvisioned {
+        return Err(ProvisionedRemoteError::InvalidRuntimeState);
+    }
+
+    let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+    if !runtime.resources.is_empty() {
+        return Err(ProvisionedRemoteError::InvalidRuntimeState);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -809,6 +825,77 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provision_workspace_rejects_ready_workspace_without_side_effects() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_without_lifecycle_spawning(state.clone());
+        let mut workspace = service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        workspace.state = WorkspaceState::Ready;
+        service
+            .workspace_repository
+            .update_workspace(&workspace)
+            .await
+            .expect("workspace update should succeed");
+
+        let error = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect_err("ready workspace should not start provision");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::InvalidRuntimeState
+        );
+        assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
+        assert_eq!(
+            service
+                .get_running_lifecycle_operations()
+                .await
+                .expect("operation read should succeed"),
+            Vec::new()
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_workspace_rejects_resource_bearing_workspace_without_side_effects() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_without_lifecycle_spawning(state.clone());
+        let mut workspace = service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
+        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
+            id: "existing-volume".to_string(),
+        });
+        service
+            .workspace_repository
+            .update_workspace(&workspace)
+            .await
+            .expect("workspace update should succeed");
+
+        let error = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect_err("resource-bearing workspace should not start provision");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::InvalidRuntimeState
+        );
+        assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
+        assert_eq!(
+            service
+                .get_running_lifecycle_operations()
+                .await
+                .expect("operation read should succeed"),
+            Vec::new()
+        );
+    }
+
+    #[tokio::test]
     async fn provision_runner_marks_steps_updates_resources_and_completes_workspace() {
         let state = Arc::new(Mutex::new(ProviderState {
             provisioner_status_results: vec![
@@ -876,6 +963,21 @@ mod tests {
                 "create_endpoint",
             ]
         );
+        let state = state.lock().expect("state lock");
+        assert_eq!(
+            state.provisioner_image_refs,
+            vec![
+                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
+            ]
+        );
+        assert_eq!(
+            state.endpoint_image_refs,
+            vec![
+                "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:ac7b4ee14423f5e74f444a03c429dece830fc4f72b01847df18b2a5b960cdd1a"
+            ]
+        );
+        assert_ne!(state.provisioner_image_refs, vec!["luma-forge-provisioner"]);
+        assert_ne!(state.endpoint_image_refs, vec!["comfyui-hidream-o1-dev"]);
     }
 
     #[tokio::test]

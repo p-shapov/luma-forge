@@ -48,6 +48,8 @@ use super::{
 #[derive(Default)]
 pub(crate) struct ProviderState {
     pub(crate) calls: Vec<&'static str>,
+    pub(crate) provisioner_image_refs: Vec<String>,
+    pub(crate) endpoint_image_refs: Vec<String>,
     pub(crate) placement_options_result:
         Option<Result<RemotePlacementOptions, ProvisionedRemoteError>>,
     pub(crate) provisioner_status_results: Vec<ProvisionedRemoteProvisionerStatus>,
@@ -144,11 +146,14 @@ impl ProvisionedRemoteVolumeProvider for FakeProvider {
 impl ProvisionedRemoteProvisionerProvider for FakeProvider {
     fn start_provisioner<'a>(
         &'a self,
-        _params: StartProvisionerParams,
+        params: StartProvisionerParams,
     ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerSnapshot, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("start_provisioner");
+            state
+                .provisioner_image_refs
+                .push(params.provisioner_image_ref);
             if let Some(error) = state.start_provisioner_error.clone() {
                 return Err(error);
             }
@@ -198,11 +203,12 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
 impl ProvisionedRemoteEndpointProvider for FakeProvider {
     fn create_endpoint<'a>(
         &'a self,
-        _params: CreateEndpointParams,
+        params: CreateEndpointParams,
     ) -> AppFuture<'a, Result<ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("create_endpoint");
+            state.endpoint_image_refs.push(params.endpoint_image_ref);
             if let Some(error) = state.create_endpoint_error.clone() {
                 return Err(error);
             }
