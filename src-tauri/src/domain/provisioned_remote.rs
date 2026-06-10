@@ -45,7 +45,6 @@ pub struct ProvisionedRemoteProvisionerSnapshot {
 pub struct ProvisionedRemoteEndpointSnapshot {
     pub id: String,
     pub url: String,
-    pub template_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

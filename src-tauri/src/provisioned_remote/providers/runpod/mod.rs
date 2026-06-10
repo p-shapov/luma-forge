@@ -272,7 +272,6 @@ where
             Ok(ProvisionedRemoteEndpointSnapshot {
                 id: endpoint.id,
                 url: endpoint.url,
-                template_id: endpoint.template_id,
             })
         })
     }
@@ -283,7 +282,7 @@ where
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
         Box::pin(async move {
             self.api
-                .delete_endpoint_and_template(&params.endpoint_id, &params.template_id)
+                .delete_endpoint_and_template(&params.endpoint_id)
                 .await
         })
     }
@@ -428,7 +427,6 @@ mod tests {
                 Ok(RunpodEndpoint {
                     id: "endpoint".to_string(),
                     url: "https://endpoint.example".to_string(),
-                    template_id: "template".to_string(),
                 })
             })
         }
@@ -436,12 +434,11 @@ mod tests {
         fn delete_endpoint_and_template<'a>(
             &'a self,
             endpoint_id: &'a str,
-            template_id: &'a str,
         ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("api state");
                 state.deleted_endpoints.push(endpoint_id.to_string());
-                state.deleted_templates.push(template_id.to_string());
+                state.deleted_templates.push("template".to_string());
                 Ok(())
             })
         }
@@ -692,7 +689,7 @@ mod tests {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
-        let endpoint = provider
+        provider
             .create_endpoint(CreateEndpointParams {
                 workspace_id: "workspace".to_string(),
                 datacenter_id: "dc".to_string(),
@@ -705,7 +702,6 @@ mod tests {
             .await
             .expect("endpoint");
 
-        assert_eq!(endpoint.template_id, "template");
         let request = &api_state.lock().expect("api state").endpoint_requests[0];
         assert_eq!(request.endpoint_name, "luma-forge-workspace-endpoint");
         assert_eq!(
@@ -731,7 +727,6 @@ mod tests {
             .delete_endpoint(DeleteEndpointParams {
                 workspace_id: "workspace".to_string(),
                 endpoint_id: "endpoint".to_string(),
-                template_id: "template".to_string(),
             })
             .await
             .expect("delete endpoint");

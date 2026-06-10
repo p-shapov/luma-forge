@@ -66,7 +66,6 @@ pub struct CreateEndpointParams {
 pub struct DeleteEndpointParams {
     pub workspace_id: String,
     pub endpoint_id: String,
-    pub template_id: String,
 }
 
 pub trait ProvisionedRemotePlacementOptionsProvider {

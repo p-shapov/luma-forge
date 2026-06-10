@@ -1357,7 +1357,6 @@ mod tests {
             .as_ref()
             .expect("endpoint snapshot should be preserved for retry");
         assert_eq!(endpoint.id, "endpoint");
-        assert_eq!(endpoint.template_id, "template");
     }
 
     #[tokio::test]

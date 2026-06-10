@@ -216,7 +216,6 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
             Ok(ProvisionedRemoteEndpointSnapshot {
                 id: "endpoint".to_string(),
                 url: "https://endpoint.example".to_string(),
-                template_id: "template".to_string(),
             })
         })
     }
