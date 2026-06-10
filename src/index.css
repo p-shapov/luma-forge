@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "prismjs/themes/prism-tomorrow.css";
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
@@ -127,4 +128,49 @@
   html {
     @apply font-sans;
   }
+}
+
+.json-foldable {
+  white-space: normal;
+}
+
+.json-details,
+.json-summary {
+  display: inline;
+}
+
+.json-details summary {
+  display: inline;
+  cursor: pointer;
+  list-style: none;
+}
+
+.json-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.json-summary::before {
+  content: "▶";
+  display: inline-block;
+  width: 0.9rem;
+  color: var(--muted-foreground);
+  transition: transform 0.15s ease;
+}
+
+.json-details[open] > .json-summary::before {
+  transform: rotate(90deg);
+}
+
+.json-collapsed-bracket {
+  margin-left: 0.5rem;
+  color: var(--tw-prose-code-color, var(--muted-foreground));
+}
+
+.json-children,
+.json-item {
+  display: block;
+}
+
+.json-children {
+  padding-left: 1.5rem;
 }
