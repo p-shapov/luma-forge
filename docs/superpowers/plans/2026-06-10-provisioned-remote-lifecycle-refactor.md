@@ -58,6 +58,7 @@ Create or modify these files. Keep old `src-tauri/src/provisioned_remote_compute
 ### Task 1: Domain Model Split
 
 **Files:**
+
 - Create: `src-tauri/src/domain/lifecycle_operation.rs`
 - Create: `src-tauri/src/domain/provisioned_remote.rs`
 - Modify: `src-tauri/src/domain/workspace.rs`
@@ -501,6 +502,7 @@ git commit -m "refactor(domain): split provisioned remote lifecycle state"
 ### Task 2: Shared SQLite Bootstrap
 
 **Files:**
+
 - Create: `src-tauri/src/sqlite/mod.rs`
 - Create: `src-tauri/src/sqlite/database.rs`
 - Create: `src-tauri/src/sqlite/schema.rs`
@@ -660,6 +662,7 @@ git commit -m "feat(sqlite): add native database bootstrap owner"
 ### Task 3: Generic Workspace Persistence
 
 **Files:**
+
 - Modify: `src-tauri/src/workspace_catalog/schema.rs`
 - Modify: `src-tauri/src/workspace_catalog/repository.rs`
 - Modify: `src-tauri/src/workspace_catalog/sqlite.rs`
@@ -1066,6 +1069,7 @@ git commit -m "feat(workspace): persist generic workspace rows"
 ### Task 4: Lifecycle Journal Persistence
 
 **Files:**
+
 - Create: `src-tauri/src/lifecycle_journal/mod.rs`
 - Create: `src-tauri/src/lifecycle_journal/schema.rs`
 - Create: `src-tauri/src/lifecycle_journal/repository.rs`
@@ -1456,6 +1460,7 @@ git commit -m "feat(lifecycle): add durable lifecycle journal"
 ### Task 5: Provisioned Remote Service Skeleton and Events
 
 **Files:**
+
 - Create: `src-tauri/src/provisioned_remote/mod.rs`
 - Create: `src-tauri/src/provisioned_remote/errors.rs`
 - Create: `src-tauri/src/provisioned_remote/events.rs`
@@ -1760,6 +1765,7 @@ git commit -m "feat(provisioned-remote): add service boundary"
 ### Task 6: Background Lifecycle Operations
 
 **Files:**
+
 - Create: `src-tauri/src/provisioned_remote/lifecycle/background.rs`
 - Create: `src-tauri/src/provisioned_remote/lifecycle/coordination.rs`
 - Create: `src-tauri/src/provisioned_remote/lifecycle/helpers.rs`
@@ -2096,6 +2102,7 @@ git commit -m "feat(provisioned-remote): start lifecycle operations in backgroun
 ### Task 7: Provider Flow Migration
 
 **Files:**
+
 - Modify: `src-tauri/src/provisioned_remote/lifecycle/provision.rs`
 - Modify: `src-tauri/src/provisioned_remote/lifecycle/cleanup.rs`
 - Modify: `src-tauri/src/provisioned_remote/lifecycle/delete.rs`
@@ -2273,6 +2280,7 @@ git commit -m "feat(provisioned-remote): execute lifecycle provider flows"
 ### Task 8: Command Contracts and Typed Events
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/types/workspace.rs`
 - Modify: `src-tauri/src/commands/workspaces.rs`
 - Modify: `src-tauri/src/commands/mod.rs`
@@ -2578,6 +2586,7 @@ git commit -m "feat(commands): expose lifecycle operation contracts"
 ### Task 9: Remove Old Compute Module and Verify
 
 **Files:**
+
 - Delete: `src-tauri/src/provisioned_remote_compute/`
 - Modify: `src-tauri/src/lib.rs`
 - Modify: imports across `src-tauri/src/**/*.rs`
