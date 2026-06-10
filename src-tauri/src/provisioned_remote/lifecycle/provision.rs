@@ -116,7 +116,7 @@ where
                 datacenter_id: runtime.placement.datacenter_id.clone(),
                 gpu_id: runtime.placement.gpu_id.clone(),
                 volume_id: volume.id.clone(),
-                provisioner_image_ref: contracts.provisioner_contract.id.clone(),
+                provisioner_image_ref: contracts.provisioner_contract.image_ref.clone(),
                 mount_path: "/workspace".to_string(),
                 requires_hugging_face_api_key: workspace
                     .workflow_preset
@@ -200,7 +200,7 @@ where
                 datacenter_id: runtime.placement.datacenter_id.clone(),
                 gpu_id: runtime.placement.gpu_id.clone(),
                 volume_id: volume.id,
-                endpoint_image_ref: contracts.endpoint_contract.id.clone(),
+                endpoint_image_ref: contracts.endpoint_contract.image_ref.clone(),
                 mount_path: "/workspace".to_string(),
                 keep_alive_limits: runtime.placement.keep_alive_limits.clone(),
             })

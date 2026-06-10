@@ -6,13 +6,13 @@ This directory contains the active Tauri native backend. Business workflows live
 
 A `Workspace` owns common workspace identity and workflow selection. `WorkspaceRuntime` describes how that workspace is operated at runtime.
 
-At the moment, only the provisioned remote compute runtime is available: `ProvisionedRemoteCompute(ProvisionedRemoteComputeWorkspace)`. It represents provider-backed GPU infrastructure and remote provider resources. Future runtimes should be added only when they have a clear owner service and operation boundary.
+At the moment, only the provisioned remote runtime is available: `ProvisionedRemote(ProvisionedRemoteRuntime)`. It represents provider-backed GPU infrastructure and remote provider resources. Future runtimes should be added only when they have a clear owner service and operation boundary.
 
-When adding a new workspace runtime, do not route it through `provisioned_remote_compute`. Update the `provisioned_remote_compute` guard in `src/provisioned_remote_compute/service.rs` to reject non-remote runtimes with an explicit `ProvisionedRemoteComputeError`, and add tests for observe, provision, execute, and delete rejection.
+When adding a new workspace runtime, keep runtime-specific orchestration behind its own service boundary and persist long-running work through the lifecycle journal.
 
-## Provisioned Remote Compute
+## Provisioned Remote
 
-`provisioned_remote_compute` is the native backend boundary for remote workspace setup, observation, provisioning, execution, deletion, and remote provider integration. It owns the service-level workflow surface and the source-level extension point for remote GPU providers.
+`provisioned_remote` is the native backend boundary for remote workspace setup, lifecycle operation creation, background lifecycle execution, deletion, and remote provider integration. It owns the service-level workflow surface and the source-level extension point for remote GPU providers.
 
 Provider adapters must return only UI-safe errors and snapshots. Do not return raw provider responses, request bodies, API keys, bearer tokens, worker tokens, Hugging Face keys, credential-bearing URLs, SDK debug output, or environment dumps.
 
@@ -21,22 +21,19 @@ Provider adapters must return only UI-safe errors and snapshots. Do not return r
 To add a provider:
 
 1. Add the provider id to `GpuCloudProviderId` in `src/domain/provider.rs`.
-2. Add a provider-specific module under `src/provisioned_remote_compute/providers/<provider_name>/`.
-3. Implement the resource traits from `src/provisioned_remote_compute/provider.rs`:
-   - `ProvisionedRemoteComputeVolumeProvider`
-   - `ProvisionedRemoteComputeProvisionerProvider`
-   - `ProvisionedRemoteComputeEndpointProvider`
-   - `ProvisionedRemoteComputeProvider`
-4. Normalize provider SDK/API failures into `ProvisionedRemoteComputeError`.
+2. Add a provider-specific module under `src/provisioned_remote/providers/<provider_name>/`.
+3. Implement the resource traits from `src/provisioned_remote/provider.rs`:
+   - `ProvisionedRemoteVolumeProvider`
+   - `ProvisionedRemoteProvisionerProvider`
+   - `ProvisionedRemoteEndpointProvider`
+   - `ProvisionedRemoteProvider`
+4. Normalize provider SDK/API failures into `ProvisionedRemoteError`.
 5. Make sure every returned error is UI-safe before it leaves the provider adapter.
-6. Register the adapter in `ProvisionedRemoteComputeProviderRegistry` in `src/provisioned_remote_compute/registry.rs`.
+6. Register the adapter in `ProvisionedRemoteProviderRegistry` in `src/provisioned_remote/registry.rs`.
 7. Add registry selection tests.
-8. Add provider contract tests for resource behavior:
-   - observe returns `Ok(None)` when a matching resource does not exist.
-   - create returns the matching `Existing*` error when a resource already exists.
-   - delete returns the matching `NonExisting*` error when a known resource is already gone.
+8. Add provider contract tests for resource behavior.
 
-Provider implementations should expose resource primitives only. They should not duplicate the full provisioning workflow; orchestration belongs in `ProvisionedRemoteComputeService`.
+Provider implementations should expose resource primitives only. They should not duplicate the full lifecycle workflow; orchestration belongs in `ProvisionedRemoteService`.
 
 ## Verification
 
