@@ -1,0 +1,37 @@
+{
+  "contracts": [
+    {
+      "id": "luma-forge-provisioner",
+      "revisions": [
+        {
+          "version": "1.0.0",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55"
+        },
+        {
+          "version": "1.0.1",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:02f02c2ed8fc975814713c237b1db841883d158422996436c0e09ceb187e21b3"
+        },
+        {
+          "version": "1.0.2",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:1053bf831843e5068604e79f0f23140b43595040dba8e802bff285732ab805dd"
+        },
+        {
+          "version": "1.0.3",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:539ad4de5d8621db4cd84997429ab06282e3f6368ebea6c83e7bc0b3daef4f96"
+        },
+        {
+          "version": "1.0.4",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:35d34acdbd8016af713a3d79472e4159e56556f56319bd61f8cc08024ffc0bb3"
+        },
+        {
+          "version": "1.0.5",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:fb08da4f8722ce4f2c04ecff423a28e91741660d9776fd3fbdf8aa8ab81fec39"
+        },
+        {
+          "version": "1.0.6",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
+        }
+      ]
+    }
+  ]
+}

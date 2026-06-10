@@ -1,10 +1,8 @@
-pub mod error;
-pub mod hugging_face_setup;
+pub mod lifecycle_operation;
 pub mod placement;
-pub mod provider_inventory;
-pub mod provider_setup;
-pub mod provisioner;
-pub mod runtime;
-pub(crate) mod validation;
-pub mod workflow;
+pub mod provider;
+pub mod provisioned_remote;
+pub mod runtime_contract;
+pub mod secrets;
+pub mod workflow_preset;
 pub mod workspace;

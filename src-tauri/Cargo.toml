@@ -1,16 +1,11 @@
 [package]
 name = "luma-forge"
 version = "0.1.0"
-description = "A Tauri App"
+description = "LumaForge native backend refactor shell"
 authors = ["you"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "luma_forge_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -18,23 +13,21 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-log = "2"
-tauri-plugin-mcp-bridge = "0.11"
-tauri-plugin-opener = "2"
-log = "0.4"
+hex = "0.4"
+hmac = "0.12"
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 specta = "=2.0.0-rc.24"
-tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
 specta-typescript = "0.0.11"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "gzip"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "migrate", "uuid", "time", "json"] }
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
-secrecy = { version = "0.10", features = ["serde"] }
-thiserror = "2"
-uuid = { version = "1", features = ["serde", "v4"] }
-time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
-url = { version = "2", features = ["serde"] }
-tokio-util = "0.7"
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio-rustls"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-mcp-bridge = "0.11"
+tauri-plugin-opener = "2"
+tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
+time = { version = "0.3", features = ["formatting", "parsing", "serde-well-known"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4"] }

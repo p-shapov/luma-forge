@@ -19,6 +19,7 @@ export default antfu({
   ignores: [
     "spec/**",
     "src-tauri/**",
+    "src-tauri-legacy/**",
     "src/generated/**",
     "openspec/**",
     "workers/**",

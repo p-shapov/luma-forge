@@ -64,15 +64,22 @@ class ApiTests(unittest.TestCase):
             "id": "comfyui-hidream-o1-dev",
             "version": "1.0.0",
             "name": "ComfyUI Text to Image Basic",
-            "workflow_execution_type": "t2i",
-            "required_base_volume_size_bytes": 1,
-            "runtime_contract": {
-                "id": "comfyui-hidream-o1-dev",
-                "version": "1.0.0",
-            },
-            "provisioner_contract": {
-                "id": "luma-forge-provisioner",
-                "version": "1.0.0",
+            "execution_type": "t2i",
+            "remote_runtime_requirements": {
+                "required_base_volume_size_bytes": 1,
+                "provider_requirements": [
+                    {
+                        "gpu_cloud_provider_id": "runpod",
+                        "endpoint_contract": {
+                            "id": "comfyui-hidream-o1-dev",
+                            "version": "1.0.0",
+                        },
+                        "provisioner_contract": {
+                            "id": "luma-forge-provisioner",
+                            "version": "1.0.0",
+                        },
+                    }
+                ],
             },
         }
 

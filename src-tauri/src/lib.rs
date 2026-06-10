@@ -1,44 +1,24 @@
-mod app_state;
-mod bundled_catalog;
-mod commands;
-mod domain;
-mod hugging_face_setup;
-mod provider;
-mod provider_setup;
-mod secrets;
-mod workspace_catalog;
-mod workspace_provisioning;
-mod workspace_resources;
-mod workspace_setup;
+use tauri_specta::{collect_commands, collect_events, Builder};
 
-use tauri::Manager;
-
-const NATIVE_LOG_TARGET_PREFIX: &str = "luma_forge_lib";
+pub mod app;
+pub mod commands;
+pub mod domain;
+pub mod lifecycle_journal;
+pub mod provisioned_remote;
+pub mod secrets_storage;
+pub mod shared;
+pub mod sqlite;
+pub mod workflow_catalog;
+pub mod workspace_catalog;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = commands::builder();
+    let builder = command_builder();
 
     #[cfg(debug_assertions)]
-    commands::export_typescript_bindings(&builder);
+    export_typescript_bindings(&builder);
 
-    let mut app_builder = tauri::Builder::default()
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .clear_targets()
-                .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::Stdout,
-                ))
-                .target(tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::LogDir {
-                        file_name: Some("native".to_string()),
-                    },
-                ))
-                .level(log::LevelFilter::Info)
-                .filter(|metadata| metadata.target().starts_with(NATIVE_LOG_TARGET_PREFIX))
-                .build(),
-        )
-        .plugin(tauri_plugin_opener::init());
+    let mut app_builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
 
     #[cfg(debug_assertions)]
     {
@@ -48,23 +28,61 @@ pub fn run() {
     app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
-            app.manage(app_state::NativeAppState::new(app.handle().clone()));
+            let app_handle = app.handle().clone();
+            let app_state =
+                tauri::async_runtime::block_on(app::bootstrap::build_app_state(&app_handle))
+                    .map_err(|error| Box::<dyn std::error::Error>::from(error.message))?;
+            tauri::Manager::manage(app, app_state);
             builder.mount_events(app);
-
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
+fn command_builder() -> Builder<tauri::Wry> {
+    Builder::<tauri::Wry>::new()
+        .commands(collect_commands![
+            commands::catalog::get_workflow_catalog,
+            commands::catalog::get_provider_placement_options,
+            commands::catalog::get_workspace_catalog,
+            commands::secrets::setup_runpod_api_key,
+            commands::secrets::get_runpod_api_key_identity,
+            commands::secrets::delete_runpod_api_key,
+            commands::secrets::setup_hugging_face_api_key,
+            commands::secrets::get_hugging_face_api_key_identity,
+            commands::secrets::delete_hugging_face_api_key,
+            commands::workspaces::create_workspace,
+            commands::workspaces::provision_workspace,
+            commands::workspaces::cleanup_workspace,
+            commands::workspaces::delete_workspace,
+            commands::workspaces::get_running_lifecycle_operations,
+            commands::workspaces::get_latest_lifecycle_operation
+        ])
+        .events(collect_events![
+            commands::types::workspace::LifecycleOperationChangedEvent,
+            commands::types::workspace::WorkspaceChangedEvent,
+            commands::types::workspace::WorkspaceDeletedEvent
+        ])
+}
+
+fn export_typescript_bindings(builder: &Builder<tauri::Wry>) {
+    builder
+        .export(
+            specta_typescript::Typescript::default(),
+            "../src/generated/commands.ts",
+        )
+        .expect("failed to export TypeScript command bindings");
+}
+
 #[cfg(test)]
 mod tests {
-    use super::commands;
+    use super::{command_builder, export_typescript_bindings};
 
     #[test]
     fn export_bindings() {
-        let builder = commands::builder();
+        let builder = command_builder();
 
-        commands::export_typescript_bindings(&builder);
+        export_typescript_bindings(&builder);
     }
 }

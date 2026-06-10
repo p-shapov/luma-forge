@@ -10,10 +10,10 @@ ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-runtime-contract/release_tool.py"
 CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
-CATALOG_PATH = ROOT / "bundled/runtime-catalog.json"
-WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runtime-contract.yml"
+CATALOG_PATH = ROOT / "bundled/endpoint-contracts.json"
+WORKFLOW_PATH = ROOT / ".github/workflows/deploy-endpoint-contract.yml"
 
-spec = importlib.util.spec_from_file_location("runtime_contract_promotion_tool", TOOL_PATH)
+spec = importlib.util.spec_from_file_location("endpoint_contract_promotion_tool", TOOL_PATH)
 release_tool = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(release_tool)
@@ -185,10 +185,10 @@ runtime:
 
         publish_index = workflow.index("Publish endpoint image")
         promotion_index = workflow.index("Promote runtime image to catalog")
-        verify_index = workflow.index("Verify Runtime Catalog promotion PR scope")
-        pr_index = workflow.index("Open Runtime Catalog promotion PR")
+        verify_index = workflow.index("Verify Endpoint Contracts promotion PR scope")
+        pr_index = workflow.index("Open Endpoint Contracts promotion PR")
         promotion_section = workflow.split("Promote runtime image to catalog", maxsplit=1)[1].split(
-            "Verify Runtime Catalog promotion PR scope",
+            "Verify Endpoint Contracts promotion PR scope",
             maxsplit=1,
         )[0]
 
@@ -202,19 +202,19 @@ runtime:
 
     def test_workflow_restricts_runtime_catalog_promotion_pr_to_catalog_files(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        verify_section = workflow.split("Verify Runtime Catalog promotion PR scope", maxsplit=1)[1].split(
-            "Open Runtime Catalog promotion PR",
+        verify_section = workflow.split("Verify Endpoint Contracts promotion PR scope", maxsplit=1)[1].split(
+            "Open Endpoint Contracts promotion PR",
             maxsplit=1,
         )[0]
-        pr_section = workflow.split("Open Runtime Catalog promotion PR", maxsplit=1)[1]
+        pr_section = workflow.split("Open Endpoint Contracts promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("Catalog promotion did not modify bundled/runtime-catalog.json", verify_section)
+        self.assertIn("Catalog promotion did not modify bundled/endpoint-contracts.json", verify_section)
         self.assertIn("Catalog promotion did not modify bundled/workflow-catalog.json", verify_section)
-        self.assertIn("grep -Evx 'bundled/(runtime|workflow)-catalog\\.json'", verify_section)
+        self.assertIn("grep -Evx 'bundled/(endpoint-contracts|workflow-catalog)\\.json'", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
-        self.assertIn("bundled/runtime-catalog.json", pr_section)
+        self.assertIn("bundled/endpoint-contracts.json", pr_section)
         self.assertIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote runtime image", pr_section)
         self.assertIn(
@@ -233,7 +233,7 @@ runtime:
         revision = release_tool.find_revision(contract, "1.0.0")
         self.assertIsNotNone(revision)
         assert revision is not None
-        self.assertEqual(_image_ref("2"), revision["endpoint_image_ref"])
+        self.assertEqual(_image_ref("2"), revision["image_ref"])
 
     def test_promote_runtime_image_creates_new_contract_from_image_ref(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
@@ -252,7 +252,7 @@ runtime:
                     "revisions": [
                         {
                             "version": "1.0.0",
-                            "endpoint_image_ref": _image_ref("2"),
+                            "image_ref": _image_ref("2"),
                         }
                     ],
                 }
@@ -274,7 +274,7 @@ runtime:
         self.assertEqual(2, len(updated["contracts"][0]["revisions"]))
         self.assertEqual("1.0.0", updated["contracts"][0]["revisions"][0]["version"])
         self.assertEqual("1.0.1", updated["contracts"][0]["revisions"][1]["version"])
-        self.assertEqual(_image_ref("4"), updated["contracts"][0]["revisions"][1]["endpoint_image_ref"])
+        self.assertEqual(_image_ref("4"), updated["contracts"][0]["revisions"][1]["image_ref"])
 
     def test_promote_runtime_image_rejects_duplicate_explicit_revision(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
@@ -308,8 +308,18 @@ runtime:
             contract_version="1.0.1",
         )
 
-        self.assertEqual("1.0.1", updated["workflow_presets"][0]["runtime_contract"]["version"])
-        self.assertEqual("9.9.9", updated["workflow_presets"][1]["runtime_contract"]["version"])
+        self.assertEqual(
+            "1.0.1",
+            updated["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                "endpoint_contract"
+            ]["version"],
+        )
+        self.assertEqual(
+            "9.9.9",
+            updated["workflow_presets"][1]["remote_runtime_requirements"]["provider_requirements"][0][
+                "endpoint_contract"
+            ]["version"],
+        )
 
     def test_update_runtime_workflow_catalog_rejects_missing_matching_preset(self):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "workflow catalog does not contain preset"):
@@ -319,11 +329,13 @@ runtime:
                 contract_version="1.0.1",
             )
 
-    def test_update_runtime_workflow_catalog_rejects_mismatched_runtime_contract_id(self):
+    def test_update_runtime_workflow_catalog_rejects_mismatched_endpoint_contract_id(self):
         workflow_catalog = _workflow_catalog()
-        workflow_catalog["workflow_presets"][0]["runtime_contract"]["id"] = "other-runtime"
+        workflow_catalog["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+            "endpoint_contract"
+        ]["id"] = "other-runtime"
 
-        with self.assertRaisesRegex(release_tool.ReleaseToolError, "does not reference runtime contract"):
+        with self.assertRaisesRegex(release_tool.ReleaseToolError, "does not reference endpoint contract"):
             release_tool.update_runtime_workflow_catalog(
                 catalog=workflow_catalog,
                 contract_id="comfyui-hidream-o1-dev",
@@ -338,10 +350,10 @@ runtime:
 
         self.assertEqual("2.0.0", release_tool.next_contract_version(contract=contract, catalog=catalog))
 
-    def test_cli_promote_runtime_image_appends_runtime_catalog_revision_and_updates_workflow_catalog(self):
+    def test_cli_promote_runtime_image_appends_endpoint_contract_revision_and_updates_workflow_catalog(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "runtime-catalog.json"
+            catalog_path = Path(directory) / "endpoint-contracts.json"
             workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(
                 json.dumps(_catalog_with_contract(contract, image_ref=_image_ref("2"))),
@@ -369,7 +381,12 @@ runtime:
             updated_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
             updated_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
-            self.assertEqual("1.0.1", updated_workflow["workflow_presets"][0]["runtime_contract"]["version"])
+            self.assertEqual(
+                "1.0.1",
+                updated_workflow["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                    "endpoint_contract"
+                ]["version"],
+            )
 
     def test_cli_writes_github_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -390,7 +407,7 @@ runtime:
             self.assertIn("pytorch_packages_json=", output)
             self.assertIn("contract_version=1.0.0", output)
 
-    def test_cli_resolve_uses_next_bundled_runtime_catalog_revision(self):
+    def test_cli_resolve_uses_next_bundled_endpoint_contract_revision(self):
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "github-output"
             catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
@@ -421,7 +438,7 @@ def _catalog_with_contract(contract, *, image_ref):
                 "revisions": [
                     {
                         "version": contract["contract"]["version"],
-                        "endpoint_image_ref": image_ref,
+                        "image_ref": image_ref,
                     }
                 ],
             }
@@ -434,16 +451,30 @@ def _workflow_catalog():
         "workflow_presets": [
             {
                 "id": "comfyui-hidream-o1-dev",
-                "runtime_contract": {
-                    "id": "comfyui-hidream-o1-dev",
-                    "version": "1.0.0",
+                "remote_runtime_requirements": {
+                    "provider_requirements": [
+                        {
+                            "gpu_cloud_provider_id": "runpod",
+                            "endpoint_contract": {
+                                "id": "comfyui-hidream-o1-dev",
+                                "version": "1.0.0",
+                            },
+                        }
+                    ],
                 },
             },
             {
                 "id": "other-preset",
-                "runtime_contract": {
-                    "id": "comfyui-hidream-o1-dev",
-                    "version": "9.9.9",
+                "remote_runtime_requirements": {
+                    "provider_requirements": [
+                        {
+                            "gpu_cloud_provider_id": "runpod",
+                            "endpoint_contract": {
+                                "id": "comfyui-hidream-o1-dev",
+                                "version": "9.9.9",
+                            },
+                        }
+                    ],
                 },
             },
         ]

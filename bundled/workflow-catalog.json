@@ -4,16 +4,23 @@
       "id": "comfyui-hidream-o1-dev",
       "version": "1.0.0",
       "name": "ComfyUI HiDream O1 Dev",
-      "workflow_execution_type": "t2i",
-      "required_base_volume_size_bytes": 18837849239,
+      "execution_type": "t2i",
       "requires_hugging_face_api_key": true,
-      "runtime_contract": {
-        "id": "comfyui-hidream-o1-dev",
-        "version": "1.0.15"
-      },
-      "provisioner_contract": {
-        "id": "luma-forge-provisioner",
-        "version": "1.0.6"
+      "remote_runtime_requirements": {
+        "required_base_volume_size_bytes": 18837849239,
+        "provider_requirements": [
+          {
+            "gpu_cloud_provider_id": "runpod",
+            "endpoint_contract": {
+              "id": "comfyui-hidream-o1-dev",
+              "version": "1.0.15"
+            },
+            "provisioner_contract": {
+              "id": "luma-forge-provisioner",
+              "version": "1.0.6"
+            }
+          }
+        ]
       },
       "required_model_assets": [
         {

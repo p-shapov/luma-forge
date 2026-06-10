@@ -1,3 +1,12 @@
+pub mod errors;
 pub mod repository;
-pub(crate) mod schema_bootstrap;
+pub mod runtime;
+pub mod runtimes;
+pub mod schema;
+pub mod service;
 pub mod sqlite;
+
+pub use errors::WorkspaceCatalogError;
+pub use repository::WorkspaceCatalogRepository;
+pub use service::WorkspaceCatalogService;
+pub use sqlite::SqliteWorkspaceCatalogRepository;
