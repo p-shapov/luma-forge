@@ -246,7 +246,10 @@ pub(super) fn provisioner_pod_create_body(request: &CreateProvisionerPodRequest)
     )]);
 
     if let Some(hugging_face_api_key) = request.hugging_face_api_key.clone() {
-        env.insert("HF_TOKEN".to_string(), hugging_face_api_key);
+        env.insert(
+            "LUMA_FORGE_HUGGING_FACE_API_KEY".to_string(),
+            hugging_face_api_key,
+        );
     }
 
     PodCreateBody {
@@ -496,7 +499,10 @@ mod tests {
         assert_eq!(body["name"], json!("luma-forge-workspace-provisioner"));
         assert_eq!(body["ports"], json!(["8000/http"]));
         assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_BEARER_TOKEN"], json!("derived-token"));
-        assert_eq!(body["env"]["HF_TOKEN"], json!("hf-key"));
+        assert_eq!(
+            body["env"]["LUMA_FORGE_HUGGING_FACE_API_KEY"],
+            json!("hf-key")
+        );
         assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_JOB_ID"], json!("job-1"));
         assert_eq!(
             body["env"]["LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY"],
