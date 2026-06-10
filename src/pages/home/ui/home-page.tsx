@@ -9,7 +9,6 @@ import type {
 import Prism from "prismjs";
 import { useEffect, useMemo, useState } from "react";
 import { commands, events } from "@/generated/commands";
-import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import "prismjs/components/prism-json";
 
@@ -28,12 +27,6 @@ type CommandProbe
     inputType: "json";
     initialInput: string;
     run: (request: unknown) => Promise<unknown>;
-  }
-  | {
-    id: string;
-    label: string;
-    inputType: "secret";
-    run: (apiKey: string) => Promise<unknown>;
   };
 
 interface CommandResult {
@@ -82,8 +75,16 @@ const commandProbes: CommandProbe[] = [
   {
     id: "setup-runpod-api-key",
     label: "setupRunpodApiKey",
-    inputType: "secret",
-    run: async apiKey => commands.setupRunpodApiKey({ apiKey }),
+    inputType: "json",
+    initialInput: stringifyJson({
+      apiKey: "",
+    }),
+    run: async (request) => {
+      const apiKey = typeof request === "string"
+        ? request
+        : (request as { apiKey?: string }).apiKey ?? "";
+      return commands.setupRunpodApiKey({ apiKey });
+    },
   },
   {
     id: "get-runpod-api-key-identity",
@@ -100,8 +101,16 @@ const commandProbes: CommandProbe[] = [
   {
     id: "setup-hugging-face-api-key",
     label: "setupHuggingFaceApiKey",
-    inputType: "secret",
-    run: async apiKey => commands.setupHuggingFaceApiKey({ apiKey }),
+    inputType: "json",
+    initialInput: stringifyJson({
+      apiKey: "",
+    }),
+    run: async (request) => {
+      const apiKey = typeof request === "string"
+        ? request
+        : (request as { apiKey?: string }).apiKey ?? "";
+      return commands.setupHuggingFaceApiKey({ apiKey });
+    },
   },
   {
     id: "get-hugging-face-api-key-identity",
@@ -154,7 +163,7 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: workspaceIdRequest,
     run: async request =>
-      commands.deleteWorkspace(request as WorkspaceIdRequest),
+      commands.deleteWorkspace(request),
   },
   {
     id: "get-running-lifecycle-operations",
@@ -168,7 +177,7 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: workspaceIdRequest,
     run: async request =>
-      commands.getLatestLifecycleOperation(request as WorkspaceIdRequest),
+      commands.getLatestLifecycleOperation(request),
   },
 ];
 
@@ -286,10 +295,6 @@ export function HomePage() {
           output,
         }),
       );
-
-      if (probe.inputType === "secret") {
-        setCommandInputs(inputs => ({ ...inputs, [probe.id]: "" }));
-      }
     }
     catch (error) {
       setCommandResults(results =>
@@ -344,9 +349,6 @@ export function HomePage() {
                 const running = result.status === "running";
                 const inputValue = commandInputs[probe.id] ?? "";
                 const expanded = expandedCommands[probe.id] ?? false;
-                const statusBadgeVariant = getCommandStatusBadgeVariant(
-                  result.status,
-                );
 
                 return (
                   <article
@@ -356,16 +358,10 @@ export function HomePage() {
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/20 p-3">
                       <div className="min-w-0">
                         <h3 className="flex items-center gap-2 text-sm font-medium">
-                          <Badge variant={statusBadgeVariant}>
-                            {result.status}
-                          </Badge>
                           <span className="truncate font-mono text-xs">
                             {probe.label}
                           </span>
                         </h3>
-                        <p className="text-xs text-muted-foreground">
-                          OpenAPI-style command operation
-                        </p>
                       </div>
                       <div className="flex gap-2">
                         <Button
@@ -393,31 +389,12 @@ export function HomePage() {
                           <div className="grid gap-2 bg-card p-3">
                             {probe.inputType === "json"
                               ? (
-                                  <textarea
-                                    className="min-h-28 resize-y rounded-lg border bg-background p-3 font-mono text-xs leading-5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
-                                    spellCheck={false}
+                                  <JsonInput
                                     value={inputValue}
-                                    onChange={(event) => {
+                                    onChange={(nextValue) => {
                                       setCommandInputs(inputs => ({
                                         ...inputs,
-                                        [probe.id]: event.target.value,
-                                      }));
-                                    }}
-                                  />
-                                )
-                              : null}
-
-                            {probe.inputType === "secret"
-                              ? (
-                                  <input
-                                    className="h-9 rounded-lg border bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
-                                    placeholder="API key"
-                                    type="password"
-                                    value={inputValue}
-                                    onChange={(event) => {
-                                      setCommandInputs(inputs => ({
-                                        ...inputs,
-                                        [probe.id]: event.target.value,
+                                        [probe.id]: nextValue,
                                       }));
                                     }}
                                   />
@@ -513,6 +490,25 @@ function Panel({ title, description, children, className = "" }: PanelProps) {
   );
 }
 
+function JsonInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <textarea
+        className="min-h-28 w-full rounded-lg border bg-background p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words token string rounded-lg caret-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/30"
+        spellCheck={false}
+        value={value}
+        onChange={event => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
 function JsonBlock({
   value,
   className = "",
@@ -526,7 +522,7 @@ function JsonBlock({
 }) {
   const resizeClass = resizable ? "resize-y" : "";
   const rootClassName = [
-    "json-foldable min-h-0 min-w-0 max-h-[640px] overflow-auto rounded-lg border bg-muted/30 p-3 font-mono text-xs leading-5",
+    "json-foldable min-h-0 min-w-0 max-h-[640px] overflow-auto rounded-lg border bg-background p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words language-json",
     resizeClass,
     className,
   ].join(" ");
@@ -557,7 +553,13 @@ function jsonHighlightedHtml(code: string) {
 }
 
 function JsonFoldablePrimitive({ raw }: { raw: string }) {
-  return <span dangerouslySetInnerHTML={{ __html: jsonHighlightedHtml(raw) }} />;
+  const highlighted = useMemo(() => jsonHighlightedHtml(raw || ""), [raw]);
+  return (
+    <code
+      // className="language-json"
+      dangerouslySetInnerHTML={{ __html: highlighted }}
+    />
+  );
 }
 
 function renderFoldableJson(value: unknown, defaultCollapsed: boolean) {
@@ -768,15 +770,16 @@ function JsonFoldableObject({
                   {entries.map(([name, item], index) => (
                     <div key={name} className="json-item">
                       <span
-                        dangerouslySetInnerHTML={{
-                          __html: jsonHighlightedHtml(JSON.stringify(name)),
-                        }}
-                      />
+                        className="token string"
+                      >
+                        "
+                        {name}
+                        "
+                      </span>
                       <span className="token punctuation">
                         :
                         {" "}
-                      </span
-                      >
+                      </span>
                       <JsonFoldNode
                         value={item}
                         depth={depth + 1}
@@ -828,22 +831,6 @@ function findCommandResult(results: CommandResult[], id: string) {
   };
 }
 
-function getCommandStatusBadgeVariant(status: CommandStatus) {
-  if (status === "ok") {
-    return "secondary";
-  }
-
-  if (status === "error") {
-    return "destructive";
-  }
-
-  if (status === "running") {
-    return "outline";
-  }
-
-  return "ghost";
-}
-
 function updateCommandResult(
   results: CommandResult[],
   nextResult: CommandResult,
@@ -859,10 +846,6 @@ async function executeCommandProbe(
 ) {
   if (probe.inputType === "none") {
     return probe.run();
-  }
-
-  if (probe.inputType === "secret") {
-    return probe.run(input ?? "");
   }
 
   return probe.run(parseJsonInput(input ?? ""));
