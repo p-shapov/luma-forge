@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     domain::{
         lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationPayload,
+            LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
             ProvisionedRemoteLifecycleOperationPayload,
         },
         placement::{RemotePlacementOptions, RemotePlacementPlan},
@@ -14,22 +14,21 @@ use crate::{
         workflow_preset::WorkflowPreset,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
+    shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
 
 use super::{
     errors::ProvisionedRemoteError,
-    events::{NoopProvisionedRemoteEventSink, ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
-    lifecycle::{
-        background::spawn_lifecycle_task,
-        coordination::LifecycleOperationRegistry,
-        helpers::{
-            interrupted_state_for_resources, map_lifecycle_journal_error,
-            payload_with_app_interrupted_error,
-        },
+    events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
+    lifecycle::helpers::{
+        interrupted_state_for_resources, map_lifecycle_journal_error,
+        payload_with_app_interrupted_error,
     },
     registry::ProvisionedRemoteProviderRegistry,
 };
+
+type LifecycleOperationRegistry = InFlightRegistry<LifecycleOperationId>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateProvisionedRemoteWorkspaceRequest {
@@ -48,6 +47,7 @@ where
     provider_registry: ProvisionedRemoteProviderRegistry,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn ProvisionedRemoteEventSink>,
+    task_spawner: Arc<dyn BackgroundTaskSpawner>,
     provisioner_poll_interval: Duration,
     #[cfg(test)]
     spawn_lifecycle_runners: bool,
@@ -62,22 +62,20 @@ where
         workspace_repository: W,
         lifecycle_journal: L,
         provider_registry: ProvisionedRemoteProviderRegistry,
+        event_sink: Arc<dyn ProvisionedRemoteEventSink>,
+        task_spawner: Arc<dyn BackgroundTaskSpawner>,
     ) -> Self {
         Self {
             workspace_repository,
             lifecycle_journal,
             provider_registry,
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
-            event_sink: Arc::new(NoopProvisionedRemoteEventSink),
+            event_sink,
+            task_spawner,
             provisioner_poll_interval: Duration::from_secs(5),
             #[cfg(test)]
             spawn_lifecycle_runners: true,
         }
-    }
-
-    pub fn with_event_sink(mut self, event_sink: Arc<dyn ProvisionedRemoteEventSink>) -> Self {
-        self.event_sink = event_sink;
-        self
     }
 
     #[cfg(test)]
@@ -149,7 +147,13 @@ where
         workspace_id: &str,
     ) -> Result<ProvisionWorkspaceResponse, ProvisionedRemoteError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
-        validate_provision_start(&workspace)?;
+        if workspace.state != WorkspaceState::NotProvisioned {
+            return Err(ProvisionedRemoteError::InvalidRuntimeState);
+        }
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        if !runtime.resources.is_empty() {
+            return Err(ProvisionedRemoteError::InvalidRuntimeState);
+        }
 
         let payload = LifecycleOperationPayload::ProvisionedRemote(
             ProvisionedRemoteLifecycleOperationPayload::Provision {
@@ -455,8 +459,8 @@ where
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
             let provisioner_poll_interval = self.provisioner_poll_interval;
-            spawn_lifecycle_task(async move {
-                let result = super::lifecycle::provision::run_once(
+            spawn_background_task(self.task_spawner.as_ref(), async move {
+                let _ = super::lifecycle::provision::run_once(
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
@@ -465,7 +469,7 @@ where
                     provisioner_poll_interval,
                 )
                 .await;
-                complete_background_runner(&registry, &operation_id, result);
+                registry.complete(&operation_id);
             });
         }
     }
@@ -488,8 +492,8 @@ where
             let lifecycle_journal = self.lifecycle_journal.clone();
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
-            spawn_lifecycle_task(async move {
-                let result = super::lifecycle::cleanup::run_once(
+            spawn_background_task(self.task_spawner.as_ref(), async move {
+                let _ = super::lifecycle::cleanup::run_once(
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
@@ -497,7 +501,7 @@ where
                     &event_sink,
                 )
                 .await;
-                complete_background_runner(&registry, &operation_id, result);
+                registry.complete(&operation_id);
             });
         }
     }
@@ -520,8 +524,8 @@ where
             let lifecycle_journal = self.lifecycle_journal.clone();
             let provider_registry = self.provider_registry.clone();
             let event_sink = self.event_sink.clone();
-            spawn_lifecycle_task(async move {
-                let result = super::lifecycle::delete::run_once(
+            spawn_background_task(self.task_spawner.as_ref(), async move {
+                let _ = super::lifecycle::delete::run_once(
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
@@ -529,7 +533,7 @@ where
                     &event_sink,
                 )
                 .await;
-                complete_background_runner(&registry, &operation_id, result);
+                registry.complete(&operation_id);
             });
         }
     }
@@ -620,32 +624,6 @@ pub(super) fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> Provi
         | WorkspaceCatalogError::QueryFailed
         | WorkspaceCatalogError::SchemaMismatch => ProvisionedRemoteError::StorageUnavailable,
     }
-}
-
-fn complete_background_runner(
-    registry: &LifecycleOperationRegistry,
-    operation_id: &str,
-    result: Result<(), ProvisionedRemoteError>,
-) {
-    // run_once records provider/domain failures in the lifecycle journal once the
-    // operation is loaded. Remaining errors are journal/storage failures where a
-    // durable terminal write could not be guaranteed; the persisted Running row
-    // continues to block future starts until stale-operation recovery handles it.
-    let _unrecoverable = result;
-    registry.complete(&operation_id.to_string());
-}
-
-fn validate_provision_start(workspace: &Workspace) -> Result<(), ProvisionedRemoteError> {
-    if workspace.state != WorkspaceState::NotProvisioned {
-        return Err(ProvisionedRemoteError::InvalidRuntimeState);
-    }
-
-    let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-    if !runtime.resources.is_empty() {
-        return Err(ProvisionedRemoteError::InvalidRuntimeState);
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]
