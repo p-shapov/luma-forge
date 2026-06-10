@@ -30,6 +30,10 @@
         {
           "version": "1.0.6",
           "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
+        },
+        {
+          "version": "1.0.7",
+          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:5a6f1dd21599455b5e71a648de365557c03494c887447d46fec2b3d6de4958f3"
         }
       ]
     }
