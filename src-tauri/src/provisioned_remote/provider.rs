@@ -19,7 +19,6 @@ pub struct CreateVolumeParams {
     pub datacenter_id: String,
     pub gpu_id: String,
     pub size_bytes: u64,
-    pub mount_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,7 +34,6 @@ pub struct StartProvisionerParams {
     pub gpu_id: String,
     pub volume_id: String,
     pub provisioner_image_ref: String,
-    pub mount_path: String,
     pub requires_hugging_face_api_key: bool,
     pub required_model_assets: Vec<ModelAsset>,
 }
@@ -60,7 +58,6 @@ pub struct CreateEndpointParams {
     pub gpu_id: String,
     pub volume_id: String,
     pub endpoint_image_ref: String,
-    pub mount_path: String,
     pub keep_alive_limits: Option<RemoteEndpointKeepAliveLimits>,
 }
 

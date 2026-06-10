@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     api::{CreateEndpointRequest, CreateNetworkVolumeRequest, CreateProvisionerPodRequest},
-    config::PROVISIONER_PORT,
+    config::{ENDPOINT_WORKSPACE_MOUNT_PATH, PROVISIONER_PORT},
 };
 
 const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
@@ -266,12 +266,18 @@ pub(super) fn provisioner_pod_create_body(request: &CreateProvisionerPodRequest)
 }
 
 pub(super) fn endpoint_template_create_body(request: &CreateEndpointRequest) -> TemplateCreateBody {
+    let mut env = HashMap::new();
+    env.insert(
+        "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH".to_string(),
+        request.mount_path.clone(),
+    );
+
     TemplateCreateBody {
         image_ref: request.image_ref.clone(),
         name: request.template_name.clone(),
         is_serverless: true,
         ports: vec![format!("{PROVISIONER_PORT}/http")],
-        env: HashMap::new(),
+        env,
     }
 }
 
@@ -528,7 +534,7 @@ mod tests {
             template_name: "luma-forge-workspace-endpoint-template".to_string(),
             image_ref: "ghcr.io/luma/endpoint:latest".to_string(),
             network_volume_id: "volume-1".to_string(),
-            mount_path: "/workspace".to_string(),
+            mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
             keep_alive_limits: RemoteEndpointKeepAliveLimits {
                 default_seconds: 300,
                 min_seconds: 0,
@@ -548,7 +554,9 @@ mod tests {
                 "name": "luma-forge-workspace-endpoint-template",
                 "isServerless": true,
                 "ports": ["8000/http"],
-                "env": {}
+                "env": {
+                    "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH": "/runpod-volume"
+                }
             })
         );
         assert_eq!(

@@ -36,8 +36,9 @@ use self::{
         HttpRunpodApi, RunpodApi,
     },
     config::{
-        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, NETWORK_VOLUME_MAX_SIZE_BYTES, PROVISIONER_PORT,
-        RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
+        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS,
+        ENDPOINT_WORKSPACE_MOUNT_PATH, PROVISIONER_WORKSPACE_MOUNT_PATH,
+        NETWORK_VOLUME_MAX_SIZE_BYTES, PROVISIONER_PORT, RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
@@ -191,7 +192,7 @@ where
                     name: mapping::workspace_resource_name(&params.workspace_id, "provisioner"),
                     image_ref: params.provisioner_image_ref,
                     network_volume_id: params.volume_id,
-                    mount_path: params.mount_path,
+                    mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
                     bearer_token,
                     job_id: params.workspace_id,
                     requires_hugging_face_api_key: params.requires_hugging_face_api_key.to_string(),
@@ -266,7 +267,7 @@ where
                     ),
                     image_ref: params.endpoint_image_ref,
                     network_volume_id: params.volume_id,
-                    mount_path: params.mount_path,
+                    mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
                     keep_alive_limits: params
                         .keep_alive_limits
                         .unwrap_or(DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS),
@@ -335,6 +336,7 @@ mod tests {
     };
 
     use self::api::{RunpodEndpoint, RunpodId};
+    use super::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
     use serde_json::json;
@@ -584,7 +586,6 @@ mod tests {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 size_bytes: 1_000_000_001,
-                mount_path: "/workspace".to_string(),
             })
             .await
             .expect("volume");
@@ -612,7 +613,6 @@ mod tests {
                 gpu_id: "gpu".to_string(),
                 volume_id: "volume".to_string(),
                 provisioner_image_ref: "image".to_string(),
-                mount_path: "/workspace".to_string(),
                 requires_hugging_face_api_key: true,
                 required_model_assets: vec![ModelAsset {
                     id: "model".to_string(),
@@ -678,7 +678,6 @@ mod tests {
                 gpu_id: "gpu".to_string(),
                 volume_id: "volume".to_string(),
                 provisioner_image_ref: "image".to_string(),
-                mount_path: "/workspace".to_string(),
                 requires_hugging_face_api_key: false,
                 required_model_assets: Vec::new(),
             })
@@ -735,13 +734,13 @@ mod tests {
                 gpu_id: "gpu".to_string(),
                 volume_id: "volume".to_string(),
                 endpoint_image_ref: "image".to_string(),
-                mount_path: "/workspace".to_string(),
                 keep_alive_limits: None,
             })
             .await
             .expect("endpoint");
 
         let request = &api_state.lock().expect("api state").endpoint_requests[0];
+        assert_eq!(request.mount_path, ENDPOINT_WORKSPACE_MOUNT_PATH);
         assert_eq!(request.endpoint_name, "luma-forge-workspace-endpoint");
         assert_eq!(
             request.template_name,
