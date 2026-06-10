@@ -105,7 +105,6 @@ pub struct ProvisionedRemoteProvisionerSnapshotResponse {
 pub struct ProvisionedRemoteEndpointSnapshotResponse {
     pub id: String,
     pub url: String,
-    pub template_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -366,7 +365,6 @@ impl From<ProvisionedRemoteEndpointSnapshot> for ProvisionedRemoteEndpointSnapsh
         Self {
             id: value.id,
             url: value.url,
-            template_id: value.template_id,
         }
     }
 }
@@ -552,7 +550,6 @@ mod tests {
                     endpoint: Some(ProvisionedRemoteEndpointSnapshotResponse {
                         id: "endpoint".to_string(),
                         url: "https://endpoint.example".to_string(),
-                        template_id: "template".to_string(),
                     }),
                 },
             });
@@ -561,7 +558,11 @@ mod tests {
 
         assert_eq!(json["runtimeType"], "provisioned_remote");
         assert_eq!(json["placement"]["gpuCloudProviderId"], "runpod");
-        assert_eq!(json["resources"]["endpoint"]["templateId"], "template");
+        assert_eq!(json["resources"]["endpoint"]["id"], "endpoint");
+        assert_eq!(
+            json["resources"]["endpoint"]["url"],
+            "https://endpoint.example"
+        );
         assert_eq!(
             json.as_object()
                 .expect("runtime response should be object")

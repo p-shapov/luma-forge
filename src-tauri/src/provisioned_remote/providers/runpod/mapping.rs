@@ -173,6 +173,26 @@ pub(super) struct EndpointResponse {
     pub(super) url: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct EndpointDetailsResponse {
+    #[serde(rename = "templateId")]
+    template_id: Option<String>,
+    template: Option<EndpointTemplateResponse>,
+}
+
+impl EndpointDetailsResponse {
+    pub(super) fn template_id(self) -> Result<String, ProvisionedRemoteError> {
+        self.template_id
+            .or_else(|| self.template.map(|template| template.id))
+            .ok_or_else(provider_request_failed)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct EndpointTemplateResponse {
+    id: String,
+}
+
 #[derive(Debug, Serialize)]
 struct RunpodEnvVar {
     key: String,
@@ -189,6 +209,7 @@ pub(super) enum RunpodOperation {
     CreateTemplate,
     DeleteTemplate,
     CreateEndpoint,
+    GetEndpoint,
     DeleteEndpoint,
 }
 
@@ -295,9 +316,9 @@ fn map_status_error(status: StatusCode, operation: RunpodOperation) -> Provision
             RunpodOperation::DeleteProvisionerPod => {
                 ProvisionedRemoteError::RemoteProvisionerNotFound
             }
-            RunpodOperation::DeleteEndpoint | RunpodOperation::DeleteTemplate => {
-                ProvisionedRemoteError::RemoteEndpointNotFound
-            }
+            RunpodOperation::GetEndpoint
+            | RunpodOperation::DeleteEndpoint
+            | RunpodOperation::DeleteTemplate => ProvisionedRemoteError::RemoteEndpointNotFound,
             _ => provider_request_failed(),
         },
         _ => provider_request_failed(),
@@ -506,6 +527,30 @@ mod tests {
                 "query": RUNPOD_PLACEMENT_QUERY,
                 "variables": {}
             })
+        );
+    }
+
+    #[test]
+    fn endpoint_details_response_resolves_template_id_from_supported_shapes() {
+        let with_top_level_id: EndpointDetailsResponse =
+            serde_json::from_value(json!({ "templateId": "template-1" }))
+                .expect("endpoint should deserialize");
+        let with_nested_id: EndpointDetailsResponse =
+            serde_json::from_value(json!({ "template": { "id": "template-2" } }))
+                .expect("endpoint should deserialize");
+        let without_template: EndpointDetailsResponse =
+            serde_json::from_value(json!({})).expect("endpoint should deserialize");
+
+        assert_eq!(
+            with_top_level_id.template_id(),
+            Ok("template-1".to_string())
+        );
+        assert_eq!(with_nested_id.template_id(), Ok("template-2".to_string()));
+        assert_eq!(
+            without_template.template_id(),
+            Err(ProvisionedRemoteError::ProviderApiFailed(
+                ProviderApiError::RequestFailed
+            ))
         );
     }
 

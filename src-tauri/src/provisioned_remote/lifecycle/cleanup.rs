@@ -89,7 +89,6 @@ where
                 .delete_endpoint(DeleteEndpointParams {
                     workspace_id: workspace.id.clone(),
                     endpoint_id: endpoint.id,
-                    template_id: endpoint.template_id,
                 })
                 .await
             {
