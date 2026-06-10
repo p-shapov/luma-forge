@@ -1,5 +1,6 @@
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::{
     domain::{
@@ -115,10 +116,12 @@ pub(super) struct NetworkVolumeResponse {
 
 #[derive(Debug, Serialize)]
 pub(super) struct PodCreateBody {
-    #[serde(rename = "dataCenterId")]
-    datacenter_id: String,
-    #[serde(rename = "gpuTypeId")]
-    gpu_id: String,
+    #[serde(rename = "dataCenterIds")]
+    datacenter_ids: Vec<String>,
+    #[serde(rename = "computeType")]
+    compute_type: String,
+    #[serde(rename = "gpuTypeIds")]
+    gpu_type_ids: Vec<String>,
     #[serde(rename = "imageName")]
     image_ref: String,
     #[serde(rename = "networkVolumeId")]
@@ -126,8 +129,8 @@ pub(super) struct PodCreateBody {
     #[serde(rename = "volumeMountPath")]
     mount_path: String,
     name: String,
-    ports: String,
-    env: Vec<RunpodEnvVar>,
+    ports: Vec<String>,
+    env: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -140,8 +143,8 @@ pub(super) struct TemplateCreateBody {
     #[serde(rename = "imageName")]
     image_ref: String,
     name: String,
-    ports: String,
-    env: Vec<RunpodEnvVar>,
+    ports: Vec<String>,
+    env: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,12 +199,6 @@ struct EndpointTemplateResponse {
     id: String,
 }
 
-#[derive(Debug, Serialize)]
-struct RunpodEnvVar {
-    key: String,
-    value: String,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(super) enum RunpodOperation {
     PlacementOptions,
@@ -234,26 +231,33 @@ pub(super) fn network_volume_create_body(
 }
 
 pub(super) fn provisioner_pod_create_body(request: &CreateProvisionerPodRequest) -> PodCreateBody {
-    let mut env = vec![RunpodEnvVar {
-        key: "LUMA_FORGE_PROVISIONER_TOKEN".to_string(),
-        value: request.bearer_token.clone(),
-    }];
+    let mut env = HashMap::from([(
+        "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+        request.bearer_token.clone(),
+    ), (
+        "LUMA_FORGE_PROVISIONER_JOB_ID".to_string(),
+        request.job_id.clone(),
+    ), (
+        "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY".to_string(),
+        request.requires_hugging_face_api_key.clone(),
+    ), (
+        "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS".to_string(),
+        request.required_model_assets.clone(),
+    )]);
 
     if let Some(hugging_face_api_key) = request.hugging_face_api_key.clone() {
-        env.push(RunpodEnvVar {
-            key: "HF_TOKEN".to_string(),
-            value: hugging_face_api_key,
-        });
+        env.insert("HF_TOKEN".to_string(), hugging_face_api_key);
     }
 
     PodCreateBody {
-        datacenter_id: request.datacenter_id.clone(),
-        gpu_id: "CPU".to_string(),
+        datacenter_ids: vec![request.datacenter_id.clone()],
+        compute_type: "CPU".to_string(),
+        gpu_type_ids: Vec::new(),
         image_ref: request.image_ref.clone(),
         network_volume_id: request.network_volume_id.clone(),
         mount_path: request.mount_path.clone(),
         name: request.name.clone(),
-        ports: format!("{PROVISIONER_PORT}/http"),
+        ports: vec![format!("{PROVISIONER_PORT}/http")],
         env,
     }
 }
@@ -262,8 +266,8 @@ pub(super) fn endpoint_template_create_body(request: &CreateEndpointRequest) -> 
     TemplateCreateBody {
         image_ref: request.image_ref.clone(),
         name: request.template_name.clone(),
-        ports: format!("{PROVISIONER_PORT}/http"),
-        env: Vec::new(),
+        ports: vec![format!("{PROVISIONER_PORT}/http")],
+        env: HashMap::new(),
     }
 }
 
@@ -451,34 +455,61 @@ mod tests {
 
     #[test]
     fn provisioner_pod_create_serializes_cpu_volume_port_and_env() {
-        let request = CreateProvisionerPodRequest {
+    let request = CreateProvisionerPodRequest {
             datacenter_id: "US-KS-2".to_string(),
             name: "luma-forge-workspace-provisioner".to_string(),
             image_ref: "ghcr.io/luma/provisioner:latest".to_string(),
             network_volume_id: "volume-1".to_string(),
             mount_path: "/workspace".to_string(),
             bearer_token: "derived-token".to_string(),
+            job_id: "job-1".to_string(),
+            requires_hugging_face_api_key: "false".to_string(),
+            required_model_assets: r#"[{"id":"model","name":"Model","download_source":{"source_type":"huggingface","repository_id":"owner/model","file_path":"model.safetensors","revision":"main"},"install_comfyui_relative_path":"models/checkpoints/model.safetensors"}]"#.to_string(),
             hugging_face_api_key: Some("hf-key".to_string()),
         };
 
         let body = serde_json::to_value(provisioner_pod_create_body(&request))
             .expect("pod body should serialize");
+        let expected_required_model_assets = json!([
+                {
+                    "id": "model",
+                    "name": "Model",
+                    "download_source": {
+                        "source_type": "huggingface",
+                        "repository_id": "owner/model",
+                        "file_path": "model.safetensors",
+                        "revision": "main",
+                    },
+                    "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
+                },
+            ]);
 
         assert_eq!(
-            body,
-            json!({
-                "dataCenterId": "US-KS-2",
-                "gpuTypeId": "CPU",
-                "imageName": "ghcr.io/luma/provisioner:latest",
-                "networkVolumeId": "volume-1",
-                "volumeMountPath": "/workspace",
-                "name": "luma-forge-workspace-provisioner",
-                "ports": "8000/http",
-                "env": [
-                    {"key": "LUMA_FORGE_PROVISIONER_TOKEN", "value": "derived-token"},
-                    {"key": "HF_TOKEN", "value": "hf-key"}
-                ]
-            })
+            body["dataCenterIds"],
+            json!(["US-KS-2"])
+        );
+        assert_eq!(body["computeType"], json!("CPU"));
+        assert_eq!(body["gpuTypeIds"], json!([]));
+        assert_eq!(body["imageName"], json!("ghcr.io/luma/provisioner:latest"));
+        assert_eq!(body["networkVolumeId"], json!("volume-1"));
+        assert_eq!(body["volumeMountPath"], json!("/workspace"));
+        assert_eq!(body["name"], json!("luma-forge-workspace-provisioner"));
+        assert_eq!(body["ports"], json!(["8000/http"]));
+        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_BEARER_TOKEN"], json!("derived-token"));
+        assert_eq!(body["env"]["HF_TOKEN"], json!("hf-key"));
+        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_JOB_ID"], json!("job-1"));
+        assert_eq!(
+            body["env"]["LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY"],
+            json!("false")
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                body["env"]["LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .expect("required model assets should decode"),
+            expected_required_model_assets
         );
     }
 
@@ -509,8 +540,8 @@ mod tests {
             json!({
                 "imageName": "ghcr.io/luma/endpoint:latest",
                 "name": "luma-forge-workspace-endpoint-template",
-                "ports": "8000/http",
-                "env": []
+                "ports": ["8000/http"],
+                "env": {}
             })
         );
         assert_eq!(

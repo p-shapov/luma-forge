@@ -36,7 +36,7 @@ class Provisioner:
         self._prepare_workspace_paths(workspace_root)
         progress("preparing_workspace", 25, "Workspace directories prepared")
 
-        if request.workflow_preset.requires_hugging_face_api_key and not self.config.hugging_face_api_key:
+        if request.requires_hugging_face_api_key and not self.config.hugging_face_api_key:
             raise AssetAuthRequiredError("Hugging Face asset requires authentication.")
 
         self._download_assets(request, workspace_root, progress)
@@ -51,7 +51,7 @@ class Provisioner:
         workspace_root: Path,
         progress: ProgressCallback,
     ) -> None:
-        assets = request.workflow_preset.required_model_assets
+        assets = request.required_model_assets
         total_assets = len(assets)
         progress("downloading_assets", 55, "Downloading model assets")
         for index, asset in enumerate(assets, start=1):
@@ -65,7 +65,7 @@ class Provisioner:
                 target,
                 timeout_seconds=self.config.download_timeout_seconds,
                 hugging_face_api_key=self.config.hugging_face_api_key
-                if request.workflow_preset.requires_hugging_face_api_key
+                if request.requires_hugging_face_api_key
                 else None,
             )
             progress(
@@ -83,7 +83,7 @@ class Provisioner:
             directory.mkdir(parents=True, exist_ok=True)
 
     def _validate_model_assets(self, request: StartRequest, workspace_root: Path) -> None:
-        for asset in request.workflow_preset.required_model_assets:
+        for asset in request.required_model_assets:
             target = safe_child_path(
                 workspace_root,
                 asset.install_comfyui_relative_path.as_posix(),

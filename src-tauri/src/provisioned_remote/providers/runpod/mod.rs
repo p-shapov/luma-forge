@@ -193,6 +193,10 @@ where
                     network_volume_id: params.volume_id,
                     mount_path: params.mount_path,
                     bearer_token,
+                    job_id: params.workspace_id,
+                    requires_hugging_face_api_key: params.requires_hugging_face_api_key.to_string(),
+                    required_model_assets: serde_json::to_string(&params.required_model_assets)
+                        .map_err(|_| ProviderApiError::RequestFailed)?,
                     hugging_face_api_key,
                 })
                 .await?;
@@ -332,6 +336,8 @@ mod tests {
 
     use self::api::{RunpodEndpoint, RunpodId};
     use super::*;
+    use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
+    use serde_json::json;
 
     #[derive(Default)]
     struct ApiState {
@@ -608,6 +614,16 @@ mod tests {
                 provisioner_image_ref: "image".to_string(),
                 mount_path: "/workspace".to_string(),
                 requires_hugging_face_api_key: true,
+                required_model_assets: vec![ModelAsset {
+                    id: "model".to_string(),
+                    name: "Model".to_string(),
+                    download_source: ModelAssetSource::Huggingface {
+                        repository_id: "owner/model".to_string(),
+                        file_path: "model.safetensors".to_string(),
+                        revision: "main".to_string(),
+                    },
+                    install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
+                }],
             })
             .await
             .expect("provisioner");
@@ -625,7 +641,29 @@ mod tests {
             .provisioner_pod_requests[0];
         assert_eq!(request.name, "luma-forge-workspace-provisioner");
         assert_eq!(request.hugging_face_api_key, Some("hf-secret".to_string()));
-        assert_eq!(request.bearer_token.len(), 64);
+        assert_eq!(request.job_id, "workspace");
+        assert_eq!(request.requires_hugging_face_api_key, "true");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&request.required_model_assets)
+                .expect("required_model_assets should parse"),
+            json!([
+                {
+                    "id": "model",
+                    "name": "Model",
+                    "download_source": {
+                        "source_type": "huggingface",
+                        "repository_id": "owner/model",
+                        "file_path": "model.safetensors",
+                        "revision": "main"
+                    },
+                    "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
+                }
+            ])
+        );
+        assert_eq!(
+            request.bearer_token.len(),
+            64
+        );
     }
 
     #[tokio::test]
@@ -642,6 +680,7 @@ mod tests {
                 provisioner_image_ref: "image".to_string(),
                 mount_path: "/workspace".to_string(),
                 requires_hugging_face_api_key: false,
+                required_model_assets: Vec::new(),
             })
             .await
             .expect("provisioner");

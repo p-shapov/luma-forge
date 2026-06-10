@@ -13,6 +13,9 @@ from app.config import (
     DEFAULT_MAX_REQUEST_BYTES,
     DEFAULT_PORT,
     DEFAULT_WORKSPACE_MOUNT_PATH,
+    JOB_ID_ENV,
+    REQUIRES_HUGGING_FACE_API_KEY_ENV,
+    REQUIRED_MODEL_ASSETS_ENV,
     MAX_REQUEST_BYTES_LIMIT,
     MAX_TIMEOUT_SECONDS,
     WorkerConfig,
@@ -21,9 +24,14 @@ from app.server import create_server, main
 
 
 VALID_TOKEN = "config-token-0123456789abcdef0123"
+
+
 def valid_env(**overrides):
     env = {
         "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": VALID_TOKEN,
+        JOB_ID_ENV: "job-1",
+        REQUIRES_HUGGING_FACE_API_KEY_ENV: "false",
+        REQUIRED_MODEL_ASSETS_ENV: r'[{"id":"model","name":"Model","download_source":{"source_type":"huggingface","repository_id":"owner/model","file_path":"model.safetensors","revision":"main"},"install_comfyui_relative_path":"models/checkpoints/model.safetensors"}]',
     }
     env.update(overrides)
     return env
@@ -74,6 +82,17 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
         self.assertEqual(context.exception.code, "missing_required_value")
         self.assertNotIn(VALID_TOKEN, str(context.exception))
+
+    def test_rejects_missing_start_request_without_leaking_value(self):
+        with self.assertRaises(ConfigurationError) as context:
+            WorkerConfig.from_env(
+                {
+                    "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": VALID_TOKEN,
+                }
+            )
+
+        self.assertEqual(context.exception.env_name, JOB_ID_ENV)
+        self.assertEqual(context.exception.code, "missing_required_value")
 
     def test_rejects_malformed_bearer_tokens_without_leaking_value(self):
         invalid_values = [

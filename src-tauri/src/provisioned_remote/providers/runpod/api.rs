@@ -70,6 +70,9 @@ pub struct CreateProvisionerPodRequest {
     pub network_volume_id: String,
     pub mount_path: String,
     pub bearer_token: String,
+    pub job_id: String,
+    pub requires_hugging_face_api_key: String,
+    pub required_model_assets: String,
     pub hugging_face_api_key: Option<String>,
 }
 

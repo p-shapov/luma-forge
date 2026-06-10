@@ -58,7 +58,7 @@ class SlowUrlOpen:
 class PublicFileDownloaderTests(unittest.TestCase):
     def test_downloads_asset_with_huggingface_hub_client(self):
         request = parse_start_request(start_payload())
-        asset = request.workflow_preset.required_model_assets[0]
+        asset = request.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
             hub_url = FakeHubUrl()
@@ -82,7 +82,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
 
     def test_uses_configured_token_for_authenticated_asset(self):
         request = parse_start_request(start_payload())
-        asset = request.workflow_preset.required_model_assets[0]
+        asset = request.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
             open_url = FakeUrlOpen()
@@ -102,13 +102,13 @@ class PublicFileDownloaderTests(unittest.TestCase):
 
     def test_download_writes_only_requested_target_when_source_path_has_directory(self):
         payload = start_payload()
-        payload["workflow_preset"]["required_model_assets"][0]["download_source"][
+        payload["required_model_assets"][0]["download_source"][
             "file_path"
         ] = "text_encoders/model.safetensors"
-        payload["workflow_preset"]["required_model_assets"][0][
+        payload["required_model_assets"][0][
             "install_comfyui_relative_path"
         ] = "models/text_encoders/model.safetensors"
-        asset = parse_start_request(payload).workflow_preset.required_model_assets[0]
+        asset = parse_start_request(payload).required_model_assets[0]
 
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/text_encoders/model.safetensors"
@@ -125,7 +125,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
 
     def test_removes_partial_file_when_download_fails(self):
         request = parse_start_request(start_payload())
-        asset = request.workflow_preset.required_model_assets[0]
+        asset = request.required_model_assets[0]
 
         def fail_download(request):
             return BrokenStream()
@@ -153,7 +153,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(AssetAuthRequiredError):
                 PublicFileDownloader(FakeHubUrl(), fail_auth).download(
-                    request.workflow_preset.required_model_assets[0],
+                    request.required_model_assets[0],
                     Path(directory) / "model.safetensors",
                     timeout_seconds=None,
                 )
@@ -166,14 +166,14 @@ class PublicFileDownloaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(AssetDownloadError):
                 PublicFileDownloader(FakeHubUrl(), fail_download).download(
-                    request.workflow_preset.required_model_assets[0],
+                    request.required_model_assets[0],
                     Path(directory) / "model.safetensors",
                     timeout_seconds=None,
                 )
 
     def test_download_timeout_terminates_hub_process(self):
         request = parse_start_request(start_payload())
-        asset = request.workflow_preset.required_model_assets[0]
+        asset = request.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
 
