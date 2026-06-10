@@ -2,17 +2,14 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     domain::{
-        lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-            LifecycleOperationState,
-        },
+        lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
         provisioned_remote::{
-            ProvisionedRemoteLifecycleError, ProvisionedRemoteLifecycleOperationPayload,
-            ProvisionedRemoteProvisionStep, ProvisionedRemoteProvisionerStatus,
+            ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep,
+            ProvisionedRemoteProvisionerStatus,
         },
         workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
-            WorkspaceRuntimeInvalidReason, WorkspaceState,
+            WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
+            WorkspaceState,
         },
     },
     lifecycle_journal::LifecycleJournalRepository,
@@ -23,21 +20,15 @@ use super::{
     super::{
         contracts::ProvisionedRemoteContractResolver,
         errors::ProvisionedRemoteError,
-        events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
+        events::ProvisionedRemoteEventSink,
         provider::{
             CreateEndpointParams, CreateVolumeParams, GetProvisionerStatusParams,
             StartProvisionerParams, TerminateProvisionerParams,
         },
         registry::ProvisionedRemoteProviderRegistry,
-        service::map_workspace_catalog_error,
     },
-    coordination::LifecycleOperationRegistry,
-    helpers::map_lifecycle_journal_error,
+    helpers::{load_running_operation, mark_operation_state, mark_running_step, persist_workspace},
 };
-
-pub async fn run(operation_id: LifecycleOperationId, registry: LifecycleOperationRegistry) {
-    registry.complete(&operation_id);
-}
 
 pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
@@ -79,7 +70,7 @@ where
         let contracts = ProvisionedRemoteContractResolver::resolve(&workspace, &runtime_snapshot)?;
         let provider = provider_registry.for_provider(runtime_snapshot.provider_id())?;
 
-        mark_step(
+        mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
@@ -101,7 +92,7 @@ where
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
         failed_step = ProvisionedRemoteProvisionStep::StartProvisioner;
-        mark_step(
+        mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
@@ -130,7 +121,7 @@ where
         let mut provisioner_failed = false;
         loop {
             failed_step = ProvisionedRemoteProvisionStep::PollProvisioner;
-            mark_step(
+            mark_running_step(
                 lifecycle_journal,
                 event_sink,
                 &operation,
@@ -162,7 +153,7 @@ where
         }
 
         failed_step = ProvisionedRemoteProvisionStep::TerminateProvisioner;
-        mark_step(
+        mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
@@ -185,7 +176,7 @@ where
         }
 
         failed_step = ProvisionedRemoteProvisionStep::CreateEndpoint;
-        mark_step(
+        mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
@@ -252,92 +243,6 @@ where
     }
 
     Ok(())
-}
-
-async fn load_running_operation<L>(
-    lifecycle_journal: &L,
-    operation_id: &LifecycleOperationId,
-) -> Result<LifecycleOperation, ProvisionedRemoteError>
-where
-    L: LifecycleJournalRepository,
-{
-    lifecycle_journal
-        .list_running()
-        .await
-        .map_err(|error| map_lifecycle_journal_error(error, &String::new()))?
-        .into_iter()
-        .find(|operation| operation.operation_id == *operation_id)
-        .ok_or(ProvisionedRemoteError::StorageUnavailable)
-}
-
-async fn mark_step<L>(
-    lifecycle_journal: &L,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
-    operation: &LifecycleOperation,
-    step: ProvisionedRemoteProvisionStep,
-    error: Option<ProvisionedRemoteLifecycleError>,
-) -> Result<(), ProvisionedRemoteError>
-where
-    L: LifecycleJournalRepository,
-{
-    mark_operation_state(
-        lifecycle_journal,
-        event_sink,
-        operation,
-        LifecycleOperationState::Running,
-        step,
-        error,
-    )
-    .await
-    .map(|_| ())
-}
-
-async fn mark_operation_state<L>(
-    lifecycle_journal: &L,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
-    operation: &LifecycleOperation,
-    state: LifecycleOperationState,
-    step: ProvisionedRemoteProvisionStep,
-    error: Option<ProvisionedRemoteLifecycleError>,
-) -> Result<LifecycleOperation, ProvisionedRemoteError>
-where
-    L: LifecycleJournalRepository,
-{
-    let payload = LifecycleOperationPayload::ProvisionedRemote(
-        ProvisionedRemoteLifecycleOperationPayload::Provision {
-            step: Some(step),
-            error,
-        },
-    );
-    let operation = lifecycle_journal
-        .mark_state(&operation.operation_id, state, &payload)
-        .await
-        .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-    event_sink.emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
-        workspace_id: operation.workspace_id.clone(),
-        operation_id: operation.operation_id.clone(),
-        operation: operation.clone(),
-    });
-    Ok(operation)
-}
-
-async fn persist_workspace<W>(
-    workspace_repository: &W,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
-    workspace: &Workspace,
-) -> Result<Workspace, ProvisionedRemoteError>
-where
-    W: WorkspaceCatalogRepository,
-{
-    let workspace = workspace_repository
-        .update_workspace(workspace)
-        .await
-        .map_err(map_workspace_catalog_error)?;
-    event_sink.emit(ProvisionedRemoteEvent::WorkspaceChanged {
-        workspace_id: workspace.id.clone(),
-        workspace: Box::new(workspace.clone()),
-    });
-    Ok(workspace)
 }
 
 fn lifecycle_error_for(error: &ProvisionedRemoteError) -> ProvisionedRemoteLifecycleError {

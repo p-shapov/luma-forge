@@ -28,7 +28,7 @@ use crate::{
         workspace::{Workspace, WorkspaceCatalog},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    shared::AppFuture,
+    shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, NoopEventSink},
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
 
@@ -44,6 +44,15 @@ use super::{
     registry::ProvisionedRemoteProviderRegistry,
     service::{CreateProvisionedRemoteWorkspaceRequest, ProvisionedRemoteService},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TestBackgroundTaskSpawner;
+
+impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
+    fn spawn(&self, task: BackgroundTask) {
+        tokio::spawn(task);
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct ProviderState {
@@ -522,6 +531,8 @@ pub(crate) fn service_with_state(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
+        Arc::new(NoopEventSink::new()),
+        Arc::new(TestBackgroundTaskSpawner),
     )
 }
 
@@ -539,6 +550,8 @@ pub(crate) fn service_with_state_and_workspace_repository(
         workspace_repository,
         InMemoryLifecycleJournalRepository::default(),
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(provider_state))]),
+        Arc::new(NoopEventSink::new()),
+        Arc::new(TestBackgroundTaskSpawner),
     )
 }
 

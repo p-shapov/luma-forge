@@ -5,7 +5,8 @@ use crate::{
     commands::types::workspace::{
         LifecycleOperationChangedEvent, WorkspaceChangedEvent, WorkspaceDeletedEvent,
     },
-    provisioned_remote::events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
+    provisioned_remote::events::ProvisionedRemoteEvent,
+    shared::EventSink,
 };
 
 pub struct TauriProvisionedRemoteEventSink {
@@ -18,7 +19,7 @@ impl TauriProvisionedRemoteEventSink {
     }
 }
 
-impl ProvisionedRemoteEventSink for TauriProvisionedRemoteEventSink {
+impl EventSink<ProvisionedRemoteEvent> for TauriProvisionedRemoteEventSink {
     fn emit(&self, event: ProvisionedRemoteEvent) {
         match event {
             ProvisionedRemoteEvent::LifecycleOperationChanged {

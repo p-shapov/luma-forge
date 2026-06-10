@@ -1,4 +1,7 @@
-use crate::domain::{lifecycle_operation::LifecycleOperation, workspace::Workspace};
+use crate::{
+    domain::{lifecycle_operation::LifecycleOperation, workspace::Workspace},
+    shared::EventSink,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProvisionedRemoteEvent {
@@ -16,13 +19,6 @@ pub enum ProvisionedRemoteEvent {
     },
 }
 
-pub trait ProvisionedRemoteEventSink: Send + Sync {
-    fn emit(&self, event: ProvisionedRemoteEvent);
-}
+pub trait ProvisionedRemoteEventSink: EventSink<ProvisionedRemoteEvent> {}
 
-#[derive(Debug, Clone, Copy)]
-pub struct NoopProvisionedRemoteEventSink;
-
-impl ProvisionedRemoteEventSink for NoopProvisionedRemoteEventSink {
-    fn emit(&self, _event: ProvisionedRemoteEvent) {}
-}
+impl<T> ProvisionedRemoteEventSink for T where T: EventSink<ProvisionedRemoteEvent> {}

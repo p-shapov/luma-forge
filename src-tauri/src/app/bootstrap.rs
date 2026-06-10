@@ -3,7 +3,7 @@ use std::{fs, sync::Arc};
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    app::events::TauriProvisionedRemoteEventSink,
+    app::{background::TauriBackgroundTaskSpawner, events::TauriProvisionedRemoteEventSink},
     commands::{NativeCommandError, NativeCommandErrorCode},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     provisioned_remote::{
@@ -65,11 +65,13 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         provider_hugging_face_secrets,
     );
     let provider_registry = ProvisionedRemoteProviderRegistry::new(vec![Box::new(runpod_provider)]);
-    let provisioned_remote =
-        ProvisionedRemoteService::new(workspace_repository, lifecycle_journal, provider_registry)
-            .with_event_sink(Arc::new(TauriProvisionedRemoteEventSink::new(
-                app_handle.clone(),
-            )));
+    let provisioned_remote = ProvisionedRemoteService::new(
+        workspace_repository,
+        lifecycle_journal,
+        provider_registry,
+        Arc::new(TauriProvisionedRemoteEventSink::new(app_handle.clone())),
+        Arc::new(TauriBackgroundTaskSpawner),
+    );
 
     provisioned_remote
         .mark_running_operations_stale()
