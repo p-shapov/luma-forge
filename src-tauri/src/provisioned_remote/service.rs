@@ -1,34 +1,36 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::{
     domain::{
         lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
+            LifecycleOperation, LifecycleOperationPayload,
             ProvisionedRemoteLifecycleOperationPayload,
         },
         placement::{RemotePlacementOptions, RemotePlacementPlan},
         provider::GpuCloudProviderId,
-        provisioned_remote::{
-            ProvisionedRemoteDeleteStep, ProvisionedRemoteResources, ProvisionedRemoteRuntime,
-        },
+        provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
         workflow_preset::WorkflowPreset,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
-    shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
+    shared::BackgroundTaskSpawner,
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
 
 use super::{
     errors::ProvisionedRemoteError,
     events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
-    lifecycle::helpers::{
-        interrupted_state_for_resources, map_lifecycle_journal_error,
-        payload_with_app_interrupted_error,
+    lifecycle::{
+        helpers::{
+            interrupted_state_for_resources, map_lifecycle_journal_error,
+            payload_with_app_interrupted_error,
+        },
+        runner::{
+            LifecycleOperationRegistry, ProvisionedRemoteLifecycleRunner,
+            ProvisionedRemoteLifecycleRunnerContext,
+        },
     },
     registry::ProvisionedRemoteProviderRegistry,
 };
-
-type LifecycleOperationRegistry = InFlightRegistry<LifecycleOperationId>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateProvisionedRemoteWorkspaceRequest {
@@ -48,9 +50,7 @@ where
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn ProvisionedRemoteEventSink>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
-    provisioner_poll_interval: Duration,
-    #[cfg(test)]
-    spawn_lifecycle_runners: bool,
+    lifecycle_runner: Arc<dyn ProvisionedRemoteLifecycleRunner<W, L>>,
 }
 
 impl<W, L> ProvisionedRemoteService<W, L>
@@ -58,12 +58,13 @@ where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: crate::lifecycle_journal::LifecycleJournalRepository + Clone + Send + Sync + 'static,
 {
-    pub fn new(
+    pub(crate) fn new(
         workspace_repository: W,
         lifecycle_journal: L,
         provider_registry: ProvisionedRemoteProviderRegistry,
         event_sink: Arc<dyn ProvisionedRemoteEventSink>,
         task_spawner: Arc<dyn BackgroundTaskSpawner>,
+        lifecycle_runner: Arc<dyn ProvisionedRemoteLifecycleRunner<W, L>>,
     ) -> Self {
         Self {
             workspace_repository,
@@ -72,21 +73,8 @@ where
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
             event_sink,
             task_spawner,
-            provisioner_poll_interval: Duration::from_secs(5),
-            #[cfg(test)]
-            spawn_lifecycle_runners: true,
+            lifecycle_runner,
         }
-    }
-
-    #[cfg(test)]
-    pub fn without_lifecycle_spawning(mut self) -> Self {
-        self.spawn_lifecycle_runners = false;
-        self
-    }
-
-    #[cfg(test)]
-    pub fn provisioner_poll_interval(&self) -> Duration {
-        self.provisioner_poll_interval
     }
 
     pub async fn create_workspace(
@@ -164,7 +152,10 @@ where
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
-        self.spawn_provision_runner(&operation);
+        self.lifecycle_runner.spawn_provision(
+            self.lifecycle_runner_context(),
+            operation.operation_id.clone(),
+        );
 
         Ok(ProvisionWorkspaceResponse {
             workspace,
@@ -185,7 +176,10 @@ where
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
-        self.spawn_cleanup_runner(&operation);
+        self.lifecycle_runner.spawn_cleanup(
+            self.lifecycle_runner_context(),
+            operation.operation_id.clone(),
+        );
 
         Ok(CleanupWorkspaceResponse {
             workspace,
@@ -203,107 +197,21 @@ where
                 error: None,
             },
         );
-        let (_, operation) = self
+        let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
 
-        let workspace = self.load_workspace_required(workspace_id).await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
         if runtime.resources.is_empty() {
-            let payload = LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Delete {
-                    step: Some(ProvisionedRemoteDeleteStep::DeleteLocalWorkspace),
-                    error: None,
-                },
-            );
-            let running_operation = self
-                .lifecycle_journal
-                .mark_state(
-                    &operation.operation_id,
-                    crate::domain::lifecycle_operation::LifecycleOperationState::Running,
-                    &payload,
-                )
-                .await
-                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-            self.event_sink
-                .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
-                    workspace_id: running_operation.workspace_id.clone(),
-                    operation_id: running_operation.operation_id.clone(),
-                    operation: running_operation,
-                });
-
-            if let Err(error) = self
-                .workspace_repository
-                .delete_workspace(&workspace.id)
-                .await
-                .map_err(map_workspace_catalog_error)
-            {
-                let mut workspace = workspace;
-                workspace.state = WorkspaceState::Invalid {
-                    reason: crate::domain::workspace::WorkspaceRuntimeInvalidReason::DeleteFailed,
-                };
-                let workspace = self
-                    .workspace_repository
-                    .update_workspace(&workspace)
-                    .await
-                    .map_err(map_workspace_catalog_error)?;
-                self.event_sink
-                    .emit(ProvisionedRemoteEvent::WorkspaceChanged {
-                        workspace_id: workspace.id.clone(),
-                        workspace: Box::new(workspace),
-                    });
-
-                let failed_payload = LifecycleOperationPayload::ProvisionedRemote(
-                    ProvisionedRemoteLifecycleOperationPayload::Delete {
-                        step: Some(ProvisionedRemoteDeleteStep::DeleteLocalWorkspace),
-                        error: Some(
-                            crate::domain::provisioned_remote::ProvisionedRemoteLifecycleError::InvalidRuntimeState,
-                        ),
-                    },
-                );
-                let failed_operation = self
-                    .lifecycle_journal
-                    .mark_state(
-                        &operation.operation_id,
-                        crate::domain::lifecycle_operation::LifecycleOperationState::Failed,
-                        &failed_payload,
-                    )
-                    .await
-                    .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-                self.event_sink
-                    .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
-                        workspace_id: failed_operation.workspace_id.clone(),
-                        operation_id: failed_operation.operation_id.clone(),
-                        operation: failed_operation,
-                    });
-
-                return Err(error);
-            }
-
-            let completed_operation = self
-                .lifecycle_journal
-                .mark_state(
-                    &operation.operation_id,
-                    crate::domain::lifecycle_operation::LifecycleOperationState::Completed,
-                    &payload,
-                )
-                .await
-                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-            self.event_sink
-                .emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
-                    workspace_id: completed_operation.workspace_id.clone(),
-                    operation_id: completed_operation.operation_id.clone(),
-                    operation: completed_operation.clone(),
-                });
-
-            self.lifecycle_journal
-                .delete_for_workspace(&workspace.id)
-                .await
-                .map_err(|error| map_lifecycle_journal_error(error, &workspace.id))?;
-            self.event_sink
-                .emit(ProvisionedRemoteEvent::WorkspaceDeleted {
-                    workspace_id: workspace.id.clone(),
-                });
+            let completed_operation = super::lifecycle::delete::run_once(
+                &operation.operation_id,
+                &self.workspace_repository,
+                &self.lifecycle_journal,
+                &self.provider_registry,
+                &self.event_sink,
+            )
+            .await?
+            .ok_or(ProvisionedRemoteError::StorageUnavailable)?;
 
             return Ok(DeleteWorkspaceResponse {
                 workspace_id: workspace_id.to_string(),
@@ -311,7 +219,10 @@ where
             });
         }
 
-        self.spawn_delete_runner(&operation);
+        self.lifecycle_runner.spawn_delete(
+            self.lifecycle_runner_context(),
+            operation.operation_id.clone(),
+        );
 
         Ok(DeleteWorkspaceResponse {
             workspace_id: workspace_id.to_string(),
@@ -440,157 +351,15 @@ where
             .ok_or(ProvisionedRemoteError::WorkspaceNotFound)
     }
 
-    fn spawn_provision_runner(&self, operation: &LifecycleOperation) {
-        let operation_id = operation.operation_id.clone();
-        if self
-            .lifecycle_operation_registry
-            .try_register(&operation.operation_id)
-        {
-            #[cfg(test)]
-            if !self.spawn_lifecycle_runners {
-                self.lifecycle_operation_registry
-                    .complete(&operation.operation_id);
-                return;
-            }
-
-            let registry = self.lifecycle_operation_registry.clone();
-            let workspace_repository = self.workspace_repository.clone();
-            let lifecycle_journal = self.lifecycle_journal.clone();
-            let provider_registry = self.provider_registry.clone();
-            let event_sink = self.event_sink.clone();
-            let provisioner_poll_interval = self.provisioner_poll_interval;
-            spawn_background_task(self.task_spawner.as_ref(), async move {
-                let _ = super::lifecycle::provision::run_once(
-                    &operation_id,
-                    &workspace_repository,
-                    &lifecycle_journal,
-                    &provider_registry,
-                    &event_sink,
-                    provisioner_poll_interval,
-                )
-                .await;
-                registry.complete(&operation_id);
-            });
+    pub(crate) fn lifecycle_runner_context(&self) -> ProvisionedRemoteLifecycleRunnerContext<W, L> {
+        ProvisionedRemoteLifecycleRunnerContext {
+            workspace_repository: self.workspace_repository.clone(),
+            lifecycle_journal: self.lifecycle_journal.clone(),
+            provider_registry: self.provider_registry.clone(),
+            lifecycle_operation_registry: self.lifecycle_operation_registry.clone(),
+            event_sink: self.event_sink.clone(),
+            task_spawner: self.task_spawner.clone(),
         }
-    }
-
-    fn spawn_cleanup_runner(&self, operation: &LifecycleOperation) {
-        let operation_id = operation.operation_id.clone();
-        if self
-            .lifecycle_operation_registry
-            .try_register(&operation.operation_id)
-        {
-            #[cfg(test)]
-            if !self.spawn_lifecycle_runners {
-                self.lifecycle_operation_registry
-                    .complete(&operation.operation_id);
-                return;
-            }
-
-            let registry = self.lifecycle_operation_registry.clone();
-            let workspace_repository = self.workspace_repository.clone();
-            let lifecycle_journal = self.lifecycle_journal.clone();
-            let provider_registry = self.provider_registry.clone();
-            let event_sink = self.event_sink.clone();
-            spawn_background_task(self.task_spawner.as_ref(), async move {
-                let _ = super::lifecycle::cleanup::run_once(
-                    &operation_id,
-                    &workspace_repository,
-                    &lifecycle_journal,
-                    &provider_registry,
-                    &event_sink,
-                )
-                .await;
-                registry.complete(&operation_id);
-            });
-        }
-    }
-
-    fn spawn_delete_runner(&self, operation: &LifecycleOperation) {
-        let operation_id = operation.operation_id.clone();
-        if self
-            .lifecycle_operation_registry
-            .try_register(&operation.operation_id)
-        {
-            #[cfg(test)]
-            if !self.spawn_lifecycle_runners {
-                self.lifecycle_operation_registry
-                    .complete(&operation.operation_id);
-                return;
-            }
-
-            let registry = self.lifecycle_operation_registry.clone();
-            let workspace_repository = self.workspace_repository.clone();
-            let lifecycle_journal = self.lifecycle_journal.clone();
-            let provider_registry = self.provider_registry.clone();
-            let event_sink = self.event_sink.clone();
-            spawn_background_task(self.task_spawner.as_ref(), async move {
-                let _ = super::lifecycle::delete::run_once(
-                    &operation_id,
-                    &workspace_repository,
-                    &lifecycle_journal,
-                    &provider_registry,
-                    &event_sink,
-                )
-                .await;
-                registry.complete(&operation_id);
-            });
-        }
-    }
-
-    #[cfg(test)]
-    pub async fn run_provision_once_for_test(
-        &self,
-        operation_id: &str,
-    ) -> Result<(), ProvisionedRemoteError> {
-        let operation_id = operation_id.to_string();
-        let result = super::lifecycle::provision::run_once(
-            &operation_id,
-            &self.workspace_repository,
-            &self.lifecycle_journal,
-            &self.provider_registry,
-            &self.event_sink,
-            Duration::ZERO,
-        )
-        .await;
-        self.lifecycle_operation_registry.complete(&operation_id);
-        result
-    }
-
-    #[cfg(test)]
-    pub async fn run_cleanup_once_for_test(
-        &self,
-        operation_id: &str,
-    ) -> Result<(), ProvisionedRemoteError> {
-        let operation_id = operation_id.to_string();
-        let result = super::lifecycle::cleanup::run_once(
-            &operation_id,
-            &self.workspace_repository,
-            &self.lifecycle_journal,
-            &self.provider_registry,
-            &self.event_sink,
-        )
-        .await;
-        self.lifecycle_operation_registry.complete(&operation_id);
-        result
-    }
-
-    #[cfg(test)]
-    pub async fn run_delete_once_for_test(
-        &self,
-        operation_id: &str,
-    ) -> Result<(), ProvisionedRemoteError> {
-        let operation_id = operation_id.to_string();
-        let result = super::lifecycle::delete::run_once(
-            &operation_id,
-            &self.workspace_repository,
-            &self.lifecycle_journal,
-            &self.provider_registry,
-            &self.event_sink,
-        )
-        .await;
-        self.lifecycle_operation_registry.complete(&operation_id);
-        result
     }
 }
 
@@ -645,14 +414,12 @@ mod tests {
         provisioned_remote::test_support::{
             block_on, draft_create_request, placement_options, service_with_state,
             service_with_state_and_workspace_repository, service_without_lifecycle_spawning,
-            InMemoryWorkspaceRepository, ProviderState, WorkspaceRepositoryState,
+            InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, ProviderState,
+            WorkspaceRepositoryState,
         },
         workspace_catalog::WorkspaceCatalogRepository,
     };
-    use std::{
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn create_workspace_persists_not_provisioned_workspace_without_provider_calls() {
@@ -732,13 +499,6 @@ mod tests {
             state.lock().expect("state lock").calls,
             vec!["get_provider_placement_options"]
         );
-    }
-
-    #[test]
-    fn service_uses_nonzero_production_provisioner_poll_interval() {
-        let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
-
-        assert_eq!(service.provisioner_poll_interval(), Duration::from_secs(5));
     }
 
     #[tokio::test]
