@@ -17,7 +17,7 @@
             },
             "provisioner_contract": {
               "id": "luma-forge-provisioner",
-              "version": "1.0.7"
+              "version": "1.0.8"
             }
           }
         ]
