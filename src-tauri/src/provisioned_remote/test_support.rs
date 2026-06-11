@@ -717,7 +717,7 @@ fn workflow_preset() -> WorkflowPreset {
             provider_requirements: vec![RemoteProviderRuntimeRequirements {
                 gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
                 endpoint_contract: RuntimeContractReference {
-                    id: "comfyui-hidream-o1-dev".to_string(),
+                    id: "comfyui-py312-cu126-torch291".to_string(),
                     version: "1.0.15".to_string(),
                 },
                 provisioner_contract: RuntimeContractReference {

@@ -715,7 +715,10 @@ mod tests {
             ]
         );
         assert_ne!(state.provisioner_image_refs, vec!["luma-forge-provisioner"]);
-        assert_ne!(state.endpoint_image_refs, vec!["comfyui-hidream-o1-dev"]);
+        assert_ne!(
+            state.endpoint_image_refs,
+            vec!["comfyui-py312-cu126-torch291"]
+        );
     }
 
     #[tokio::test]

@@ -214,7 +214,7 @@ def _workflow_catalog():
                         {
                             "gpu_cloud_provider_id": "runpod",
                             "endpoint_contract": {
-                                "id": "comfyui-hidream-o1-dev",
+                                "id": "comfyui-py312-cu126-torch291",
                                 "version": "1.0.0",
                             },
                             "provisioner_contract": {

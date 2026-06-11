@@ -10,7 +10,7 @@ RunPod Endpoint Worker deployment is driven by [`promote-runtime-contract/`](./p
 ## Release Triggers
 
 - Push a provisioner release tag matching `provisioner-worker-v*`, or run `Deploy Provisioner Contract` manually, to publish the generic provisioner image.
-- Push a endpoint contract release tag matching `runtime-contract-v*`, or run `Deploy Endpoint Contract` manually and select one contract, for example `workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml`.
+- Push a endpoint contract release tag matching `runtime-contract-v*`, or run `Deploy Endpoint Contract` manually and select one contract, for example `workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml`.
 
 Manual endpoint contract releases publish a workflow-specific endpoint image, then automatically propose Endpoint Contracts promotion under the selected endpoint contract id. The workflow resolves the next Endpoint Contracts patch version from `bundled/endpoint-contracts.json`, for example `1.0.0` to `1.0.1`, before endpoint worker validation, image builds, or publication. If the contract declares a higher SemVer version than the next patch, the workflow uses the contract version instead.
 
