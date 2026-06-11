@@ -30,3 +30,4 @@ workers/*/src/*.egg-info/
 
 # OpenSpec directories
 openspec/changes
+.worktrees/
