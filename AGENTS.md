@@ -10,7 +10,6 @@ LumaForge is a desktop application that helps a user provision remote GPU infras
 
 - `src/`: React frontend. See `src/AGENTS.md`.
 - `src-tauri/`: Active minimal Tauri native backend refactor shell. See `src-tauri/AGENTS.md`.
-- `src-tauri-legacy/`: Archived previous Tauri native backend, kept for refactor reference.
 - `workers/`: Python workers and worker contract tooling. See `workers/AGENTS.md`.
 - `bundled/`: Bundled workflow catalog, endpoint contracts, and provisioner contracts.
 - `spec/`: Product flows, reference contracts, architecture notes, and ubiquitous language.
@@ -90,8 +89,18 @@ Touch only what you must.
 - Match existing style, even if you'd do it differently.
 - Every changed line should trace directly to the user's reques
 
----
-
-## Commit Conventions
+### Commit Conventions
 
 All commits must follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) v1.0.0, for example `feat(scope): description`, `fix(scope): description`, or `docs(scope): description`.
+
+### Asking the User Questions
+
+**ALWAYS** use a user-input tool when asking the user questions, in any context.
+
+Tool selection depends on the runtime:
+
+- In **Codex**, use `request_user_input`.
+- In **Claude Code**, use `AskUserQuestion` if it is available.
+- If the expected tool is not available in the current runtime, do not ask the question as plain text unless there is no tool-based alternative. First check whether an equivalent user-input tool exists.
+
+If there are too many questions for a single tool call, split them into multiple calls.

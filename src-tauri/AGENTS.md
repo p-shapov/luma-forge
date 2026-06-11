@@ -7,7 +7,6 @@
 - Keep Tauri commands as adapters. Commands accept typed requests, call application-layer services, map errors, and return generated binding-safe responses.
 - Keep business workflows in application services, not command handlers.
 - Keep domain models and rules independent from Tauri runtime APIs, command handlers, UI concerns, persistence adapters, and provider SDK details.
-- Do not restore legacy native workflows here; use `../src-tauri-legacy` only as reference.
 
 ## Secrets
 

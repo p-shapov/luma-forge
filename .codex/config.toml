@@ -1,0 +1,3 @@
+[features]
+collaboration_modes = true
+default_mode_request_user_input = true

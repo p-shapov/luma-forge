@@ -4,9 +4,6 @@ export default antfu({
   react: true,
   formatters: true,
   jsonc: true,
-  markdown: true,
-  yaml: true,
-  toml: true,
   typescript: {
     filesTypeAware: ["src/**/*.{ts,tsx}"],
     tsconfigPath: "tsconfig.eslint.json",
@@ -19,11 +16,8 @@ export default antfu({
   ignores: [
     "spec/**",
     "src-tauri/**",
-    "src-tauri-legacy/**",
     "src/generated/**",
-    "openspec/**",
     "workers/**",
-    "AGENTS.md",
   ],
 }, {
   files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],
