@@ -185,7 +185,7 @@ mod tests {
                 provider_requirements: vec![RemoteProviderRuntimeRequirements {
                     gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
                     endpoint_contract: RuntimeContractReference {
-                        id: "comfyui-hidream-o1-dev".to_string(),
+                        id: "comfyui-py312-cu126-torch291".to_string(),
                         version: "1.0.15".to_string(),
                     },
                     provisioner_contract: RuntimeContractReference {
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn validate_runtime_catalog_accepts_valid_catalog() {
         assert_eq!(
-            validate_runtime_catalog(&runtime_catalog("comfyui-hidream-o1-dev", "1.0.15")),
+            validate_runtime_catalog(&runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15")),
             Ok(())
         );
     }
@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(
             validate_workflows(
                 &workflows,
-                &runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+                &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6")
             ),
             Ok(())
@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(
             validate_workflows(
                 &workflows,
-                &runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+                &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6")
             ),
             Err(WorkflowCatalogError::ValidationFailed)
@@ -288,7 +288,7 @@ mod tests {
         assert_eq!(
             validate_workflows(
                 &workflows,
-                &runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+                &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("different-provisioner", "1.0.6")
             ),
             Err(WorkflowCatalogError::ValidationFailed)
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(
             validate_workflows(
                 &workflows,
-                &runtime_catalog("comfyui-hidream-o1-dev", "1.0.15"),
+                &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6")
             ),
             Err(WorkflowCatalogError::ValidationFailed)

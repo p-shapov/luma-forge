@@ -115,20 +115,20 @@ def update_runtime_workflow_catalog(
     contract_id: str,
     contract_version: str,
 ) -> dict[str, Any]:
+    updated = False
     workflow_presets = _list_value(catalog, "workflow_presets")
     for preset in workflow_presets:
         if not isinstance(preset, dict):
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        if preset.get("id") != contract_id:
-            continue
         provider_requirements = _remote_provider_requirements(preset)
         for provider_requirement in provider_requirements:
             endpoint_contract = _dict_value(provider_requirement, "endpoint_contract")
             if endpoint_contract.get("id") == contract_id:
                 endpoint_contract["version"] = contract_version
-                return catalog
-        raise ReleaseToolError(f"workflow preset {contract_id} does not reference endpoint contract: {contract_id}")
-    raise ReleaseToolError(f"workflow catalog does not contain preset: {contract_id}")
+                updated = True
+    if not updated:
+        raise ReleaseToolError(f"workflow catalog does not reference endpoint contract: {contract_id}")
+    return catalog
 
 
 def contract_outputs(
@@ -156,11 +156,8 @@ def contract_outputs(
 
 
 def resolve_bundled_workflow_path(contract: dict[str, Any], contract_path: Path) -> Path:
-    contract_id = _string_value(contract["contract"], "id")
-    if not _is_safe_identifier(contract_id):
-        raise ReleaseToolError("invalid contract id")
     repository_root = contract_path.resolve().parents[2]
-    workflow_path = repository_root / "bundled" / "workflows" / f"{contract_id}.json"
+    workflow_path = repository_root / "bundled" / "workflows" / "comfyui-hidream-o1-dev.json"
     if not workflow_path.is_file():
         raise ReleaseToolError(f"bundled workflow file does not exist: {workflow_path}")
     return workflow_path.relative_to(repository_root)

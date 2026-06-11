@@ -11,8 +11,8 @@ on:
         required: true
         type: choice
         options:
-          - workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml
-        default: workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml
+          - workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml
+        default: workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml
 
 permissions:
   contents: write
@@ -43,7 +43,7 @@ jobs:
       - name: Resolve contract metadata
         id: contract
         env:
-          CONTRACT: ${{ inputs.contract || 'workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml' }}
+          CONTRACT: ${{ inputs.contract || 'workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml' }}
         run: |
           python workers/promote-runtime-contract/release_tool.py resolve \
             --contract "$CONTRACT" \

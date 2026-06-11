@@ -88,7 +88,7 @@ mod tests {
         assert!(catalog
             .contracts
             .iter()
-            .any(|contract| contract.id == "comfyui-hidream-o1-dev"));
+            .any(|contract| contract.id == "comfyui-py312-cu126-torch291"));
     }
 
     #[test]

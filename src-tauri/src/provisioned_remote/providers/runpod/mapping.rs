@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     api::{CreateEndpointRequest, CreateNetworkVolumeRequest, CreateProvisionerPodRequest},
-    config::{ENDPOINT_WORKSPACE_MOUNT_PATH, PROVISIONER_PORT},
+    config::PROVISIONER_PORT,
 };
 
 const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
@@ -231,19 +231,24 @@ pub(super) fn network_volume_create_body(
 }
 
 pub(super) fn provisioner_pod_create_body(request: &CreateProvisionerPodRequest) -> PodCreateBody {
-    let mut env = HashMap::from([(
-        "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
-        request.bearer_token.clone(),
-    ), (
-        "LUMA_FORGE_PROVISIONER_JOB_ID".to_string(),
-        request.job_id.clone(),
-    ), (
-        "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY".to_string(),
-        request.requires_hugging_face_api_key.clone(),
-    ), (
-        "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS".to_string(),
-        request.required_model_assets.clone(),
-    )]);
+    let mut env = HashMap::from([
+        (
+            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+            request.bearer_token.clone(),
+        ),
+        (
+            "LUMA_FORGE_PROVISIONER_JOB_ID".to_string(),
+            request.job_id.clone(),
+        ),
+        (
+            "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY".to_string(),
+            request.requires_hugging_face_api_key.clone(),
+        ),
+        (
+            "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS".to_string(),
+            request.required_model_assets.clone(),
+        ),
+    ]);
 
     if let Some(hugging_face_api_key) = request.hugging_face_api_key.clone() {
         env.insert(
@@ -422,7 +427,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::placement::RemoteEndpointKeepAliveLimits;
+    use crate::{
+        domain::placement::RemoteEndpointKeepAliveLimits,
+        provisioned_remote::providers::runpod::config::ENDPOINT_WORKSPACE_MOUNT_PATH,
+    };
 
     #[test]
     fn bytes_to_runpod_volume_gb_rounds_up_to_decimal_gb() {
@@ -464,7 +472,7 @@ mod tests {
 
     #[test]
     fn provisioner_pod_create_serializes_cpu_volume_port_and_env() {
-    let request = CreateProvisionerPodRequest {
+        let request = CreateProvisionerPodRequest {
             datacenter_id: "US-KS-2".to_string(),
             name: "luma-forge-workspace-provisioner".to_string(),
             image_ref: "ghcr.io/luma/provisioner:latest".to_string(),
@@ -480,23 +488,20 @@ mod tests {
         let body = serde_json::to_value(provisioner_pod_create_body(&request))
             .expect("pod body should serialize");
         let expected_required_model_assets = json!([
-                {
-                    "id": "model",
-                    "name": "Model",
-                    "download_source": {
-                        "source_type": "huggingface",
-                        "repository_id": "owner/model",
-                        "file_path": "model.safetensors",
-                        "revision": "main",
-                    },
-                    "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
+            {
+                "id": "model",
+                "name": "Model",
+                "download_source": {
+                    "source_type": "huggingface",
+                    "repository_id": "owner/model",
+                    "file_path": "model.safetensors",
+                    "revision": "main",
                 },
-            ]);
+                "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
+            },
+        ]);
 
-        assert_eq!(
-            body["dataCenterIds"],
-            json!(["US-KS-2"])
-        );
+        assert_eq!(body["dataCenterIds"], json!(["US-KS-2"]));
         assert_eq!(body["computeType"], json!("CPU"));
         assert_eq!(body["gpuTypeIds"], json!([]));
         assert_eq!(body["imageName"], json!("ghcr.io/luma/provisioner:latest"));
@@ -504,7 +509,10 @@ mod tests {
         assert_eq!(body["volumeMountPath"], json!("/workspace"));
         assert_eq!(body["name"], json!("luma-forge-workspace-provisioner"));
         assert_eq!(body["ports"], json!(["8000/http"]));
-        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_BEARER_TOKEN"], json!("derived-token"));
+        assert_eq!(
+            body["env"]["LUMA_FORGE_PROVISIONER_BEARER_TOKEN"],
+            json!("derived-token")
+        );
         assert_eq!(
             body["env"]["LUMA_FORGE_HUGGING_FACE_API_KEY"],
             json!("hf-key")

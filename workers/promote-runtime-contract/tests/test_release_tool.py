@@ -8,7 +8,7 @@ import re
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-runtime-contract/release_tool.py"
-CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-hidream-o1-dev.yaml"
+CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 CATALOG_PATH = ROOT / "bundled/endpoint-contracts.json"
 WORKFLOW_PATH = ROOT / ".github/workflows/deploy-endpoint-contract.yml"
@@ -26,7 +26,7 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
         outputs = release_tool.contract_outputs(contract, CONTRACT_PATH)
 
         self.assertEqual(str(CONTRACT_PATH), outputs["contract"])
-        self.assertEqual("comfyui-hidream-o1-dev", outputs["contract_id"])
+        self.assertEqual("comfyui-py312-cu126-torch291", outputs["contract_id"])
         self.assertEqual("1.0.0", outputs["contract_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
         self.assertEqual("bundled/workflows/comfyui-hidream-o1-dev.json", outputs["bundled_workflow_path"])
@@ -226,7 +226,7 @@ runtime:
         contract = release_tool.load_contract(CONTRACT_PATH)
         catalog = _catalog_with_contract(contract, image_ref=_image_ref("2"))
 
-        contract = release_tool.find_contract(catalog, "comfyui-hidream-o1-dev")
+        contract = release_tool.find_contract(catalog, "comfyui-py312-cu126-torch291")
 
         self.assertIsNotNone(contract)
         assert contract is not None
@@ -248,7 +248,7 @@ runtime:
         self.assertEqual(
             [
                 {
-                    "id": "comfyui-hidream-o1-dev",
+                    "id": "comfyui-py312-cu126-torch291",
                     "revisions": [
                         {
                             "version": "1.0.0",
@@ -299,12 +299,12 @@ runtime:
                 image_ref="ghcr.io/luma-forge/test:latest",
             )
 
-    def test_update_runtime_workflow_catalog_updates_matching_preset(self):
+    def test_update_runtime_workflow_catalog_updates_matching_endpoint_contract_references(self):
         workflow_catalog = _workflow_catalog()
 
         updated = release_tool.update_runtime_workflow_catalog(
             catalog=workflow_catalog,
-            contract_id="comfyui-hidream-o1-dev",
+            contract_id="comfyui-py312-cu126-torch291",
             contract_version="1.0.1",
         )
 
@@ -315,17 +315,23 @@ runtime:
             ]["version"],
         )
         self.assertEqual(
-            "9.9.9",
+            "1.0.1",
             updated["workflow_presets"][1]["remote_runtime_requirements"]["provider_requirements"][0][
                 "endpoint_contract"
             ]["version"],
         )
+        self.assertEqual(
+            "9.9.9",
+            updated["workflow_presets"][2]["remote_runtime_requirements"]["provider_requirements"][0][
+                "endpoint_contract"
+            ]["version"],
+        )
 
-    def test_update_runtime_workflow_catalog_rejects_missing_matching_preset(self):
-        with self.assertRaisesRegex(release_tool.ReleaseToolError, "workflow catalog does not contain preset"):
+    def test_update_runtime_workflow_catalog_rejects_missing_endpoint_contract_reference(self):
+        with self.assertRaisesRegex(release_tool.ReleaseToolError, "workflow catalog does not reference endpoint contract"):
             release_tool.update_runtime_workflow_catalog(
                 catalog={"workflow_presets": []},
-                contract_id="comfyui-hidream-o1-dev",
+                contract_id="comfyui-py312-cu126-torch291",
                 contract_version="1.0.1",
             )
 
@@ -334,11 +340,14 @@ runtime:
         workflow_catalog["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
             "endpoint_contract"
         ]["id"] = "other-runtime"
+        workflow_catalog["workflow_presets"][1]["remote_runtime_requirements"]["provider_requirements"][0][
+            "endpoint_contract"
+        ]["id"] = "other-runtime"
 
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "does not reference endpoint contract"):
             release_tool.update_runtime_workflow_catalog(
                 catalog=workflow_catalog,
-                contract_id="comfyui-hidream-o1-dev",
+                contract_id="comfyui-py312-cu126-torch291",
                 contract_version="1.0.1",
             )
 
@@ -456,7 +465,7 @@ def _workflow_catalog():
                         {
                             "gpu_cloud_provider_id": "runpod",
                             "endpoint_contract": {
-                                "id": "comfyui-hidream-o1-dev",
+                                "id": "comfyui-py312-cu126-torch291",
                                 "version": "1.0.0",
                             },
                         }
@@ -464,13 +473,27 @@ def _workflow_catalog():
                 },
             },
             {
-                "id": "other-preset",
+                "id": "other-comfyui-preset",
                 "remote_runtime_requirements": {
                     "provider_requirements": [
                         {
                             "gpu_cloud_provider_id": "runpod",
                             "endpoint_contract": {
-                                "id": "comfyui-hidream-o1-dev",
+                                "id": "comfyui-py312-cu126-torch291",
+                                "version": "1.0.0",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "other-runtime-preset",
+                "remote_runtime_requirements": {
+                    "provider_requirements": [
+                        {
+                            "gpu_cloud_provider_id": "runpod",
+                            "endpoint_contract": {
+                                "id": "other-runtime",
                                 "version": "9.9.9",
                             },
                         }
