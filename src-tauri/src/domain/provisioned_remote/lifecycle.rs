@@ -16,7 +16,6 @@ pub enum ProvisionedRemoteProvisionerStatus {
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionedRemoteLifecycleError {
     AppInterrupted,
-    ProviderAdapterUnavailable,
     ProviderSecretUnavailable,
     ProviderApiFailed { reason: ProviderApiError },
     ProvisionerUnavailable,

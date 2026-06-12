@@ -16,7 +16,7 @@ use crate::{
 use super::{
     super::{
         errors::ProvisionedRemoteError, events::ProvisionedRemoteEventSink,
-        registry::ProvisionedRemoteProviderRegistry,
+        provider::RunpodRuntimeClient,
     },
     helpers::{load_running_operation, mark_operation_state, mark_running_step, persist_workspace},
 };
@@ -25,7 +25,7 @@ pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
     workspace_repository: &W,
     lifecycle_journal: &L,
-    provider_registry: &ProvisionedRemoteProviderRegistry,
+    runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
 ) -> Result<(), ProvisionedRemoteError>
 where
@@ -58,7 +58,7 @@ where
         let provider = if runtime.resources.is_empty() {
             None
         } else {
-            Some(provider_registry.for_provider()?)
+            Some(runpod_client)
         };
         if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::DeleteEndpoint;
@@ -213,9 +213,6 @@ pub(super) fn lifecycle_error_for(
     error: &ProvisionedRemoteError,
 ) -> ProvisionedRemoteLifecycleError {
     match error {
-        ProvisionedRemoteError::ProviderAdapterUnavailable => {
-            ProvisionedRemoteLifecycleError::ProviderAdapterUnavailable
-        }
         ProvisionedRemoteError::ProviderSecretUnavailable => {
             ProvisionedRemoteLifecycleError::ProviderSecretUnavailable
         }

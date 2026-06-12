@@ -157,10 +157,6 @@ impl From<ProvisionedRemoteError> for NativeCommandError {
                 NativeCommandErrorCode::LifecycleOperationAlreadyRunning,
                 "workspace lifecycle operation is already running",
             ),
-            ProvisionedRemoteError::ProviderAdapterUnavailable => Self::new(
-                NativeCommandErrorCode::ProviderUnavailable,
-                "remote provider is unavailable",
-            ),
             ProvisionedRemoteError::ProviderSecretUnavailable => Self::new(
                 NativeCommandErrorCode::ProviderSecretUnavailable,
                 "api key is not configured",

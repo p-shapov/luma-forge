@@ -12,7 +12,7 @@ use crate::{
         CommandResult,
     },
     domain::provisioned_remote::RunpodPlacementPlan,
-    provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
+    provisioned_remote::service::CreateRunpodWorkspaceRequest,
 };
 
 #[tauri::command]
@@ -21,14 +21,14 @@ pub async fn create_workspace(
     state: State<'_, AppState>,
     request: CreateWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
-    let remote_placement: RunpodPlacementPlan = request.remote_placement.into();
+    let placement: RunpodPlacementPlan = request.remote_placement.into();
 
     let workspace = state
-        .provisioned_remote
-        .create_workspace(CreateProvisionedRemoteWorkspaceRequest {
+        .runpod_runtime
+        .create_runpod_workspace(CreateRunpodWorkspaceRequest {
             workspace_id: Uuid::new_v4().to_string(),
             workflow_preset_id: request.workflow_preset_id,
-            remote_placement,
+            placement,
         })
         .await?;
 
@@ -42,7 +42,7 @@ pub async fn provision_workspace(
     request: WorkspaceIdRequest,
 ) -> CommandResult<ProvisionWorkspaceResponse> {
     let response = state
-        .provisioned_remote
+        .runpod_runtime
         .provision_workspace(&request.workspace_id)
         .await?;
     Ok(response.into())
@@ -55,7 +55,7 @@ pub async fn cleanup_workspace(
     request: WorkspaceIdRequest,
 ) -> CommandResult<CleanupWorkspaceResponse> {
     let response = state
-        .provisioned_remote
+        .runpod_runtime
         .cleanup_workspace(&request.workspace_id)
         .await?;
     Ok(response.into())
@@ -68,7 +68,7 @@ pub async fn delete_workspace(
     request: WorkspaceIdRequest,
 ) -> CommandResult<DeleteWorkspaceResponse> {
     let response = state
-        .provisioned_remote
+        .runpod_runtime
         .delete_workspace(&request.workspace_id)
         .await?;
 
@@ -81,7 +81,7 @@ pub async fn get_running_lifecycle_operations(
     state: State<'_, AppState>,
 ) -> CommandResult<RunningLifecycleOperationsResponse> {
     let operations = state
-        .provisioned_remote
+        .runpod_runtime
         .get_running_lifecycle_operations()
         .await?
         .into_iter()
@@ -98,7 +98,7 @@ pub async fn get_latest_lifecycle_operation(
     request: WorkspaceIdRequest,
 ) -> CommandResult<LatestLifecycleOperationResponse> {
     let operation = state
-        .provisioned_remote
+        .runpod_runtime
         .get_latest_lifecycle_operation(&request.workspace_id)
         .await?
         .map(Into::into);

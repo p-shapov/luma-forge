@@ -24,9 +24,9 @@ use super::{
         events::ProvisionedRemoteEventSink,
         provider::{
             CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
-            CreateRunpodServerlessTemplateParams, StartRunpodProvisionerPodParams,
+            CreateRunpodServerlessTemplateParams, RunpodRuntimeClient,
+            StartRunpodProvisionerPodParams,
         },
-        registry::ProvisionedRemoteProviderRegistry,
     },
     helpers::{load_running_operation, mark_operation_state, mark_running_step, persist_workspace},
 };
@@ -39,7 +39,7 @@ pub async fn run_once<W, L>(
     workspace_repository: &W,
     lifecycle_journal: &L,
     workflow_catalog: &WorkflowCatalogService,
-    provider_registry: &ProvisionedRemoteProviderRegistry,
+    runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
     provisioner_poll_interval: Duration,
 ) -> Result<(), ProvisionedRemoteError>
@@ -78,9 +78,8 @@ where
         let resolved_workflow = workflow_catalog
             .resolve(&workspace.workflow)
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
-        let contracts =
-            ProvisionedRemoteContractResolver::resolve(&resolved_workflow, &runtime_state)?;
-        let provider = provider_registry.for_provider()?;
+        let contracts = ProvisionedRemoteContractResolver::resolve(&resolved_workflow)?;
+        let provider = runpod_client;
 
         mark_running_step(
             lifecycle_journal,
@@ -291,9 +290,6 @@ where
 
 fn lifecycle_error_for(error: &ProvisionedRemoteError) -> ProvisionedRemoteLifecycleError {
     match error {
-        ProvisionedRemoteError::ProviderAdapterUnavailable => {
-            ProvisionedRemoteLifecycleError::ProviderAdapterUnavailable
-        }
         ProvisionedRemoteError::ProviderSecretUnavailable => {
             ProvisionedRemoteLifecycleError::ProviderSecretUnavailable
         }

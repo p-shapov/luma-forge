@@ -6,34 +6,27 @@ This directory contains the active Tauri native backend. Business workflows live
 
 A `Workspace` owns common workspace identity and workflow selection. `WorkspaceRuntime` describes how that workspace is operated at runtime.
 
-At the moment, only the provisioned remote runtime is available: `ProvisionedRemote(ProvisionedRemoteRuntime)`. It represents provider-backed GPU infrastructure and remote provider resources. Future runtimes should be added only when they have a clear owner service and operation boundary.
+At the moment, only the RunPod runtime is available: `Runpod(RunpodRuntime)`. It represents RunPod-backed GPU infrastructure and RunPod resources. Future runtimes should be added only when they have a clear owner service and operation boundary.
 
 When adding a new workspace runtime, keep runtime-specific orchestration behind its own service boundary and persist long-running work through the lifecycle journal.
 
-## Provisioned Remote
+## RunPod Runtime
 
-`provisioned_remote` is the native backend boundary for remote workspace setup, lifecycle operation creation, background lifecycle execution, deletion, and remote provider integration. It owns the service-level workflow surface and the source-level extension point for remote GPU providers.
+`provisioned_remote` currently contains the RunPod runtime implementation for workspace setup, lifecycle operation creation, background lifecycle execution, deletion, and RunPod API integration. `RunpodRuntimeService` owns the service-level workflow surface and receives one concrete `RunpodRuntimeClient`.
 
-Provider adapters must return only UI-safe errors and snapshots. Do not return raw provider responses, request bodies, API keys, bearer tokens, worker tokens, Hugging Face keys, credential-bearing URLs, SDK debug output, or environment dumps.
+RunPod API adapters must return only UI-safe errors and snapshots. Do not return raw provider responses, request bodies, API keys, bearer tokens, worker tokens, Hugging Face keys, credential-bearing URLs, SDK debug output, or environment dumps.
 
-### Adding A Remote Provider
+### Runtime Client Boundary
 
-To add a provider:
+The RunPod client boundary should expose RunPod resource primitives only:
 
-1. Add the provider id to `GpuCloudProviderId` in `src/domain/provider.rs`.
-2. Add a provider-specific module under `src/provisioned_remote/providers/<provider_name>/`.
-3. Implement the resource traits from `src/provisioned_remote/provider.rs`:
-   - `ProvisionedRemoteVolumeProvider`
-   - `ProvisionedRemoteProvisionerProvider`
-   - `ProvisionedRemoteEndpointProvider`
-   - `ProvisionedRemoteProvider`
-4. Normalize provider SDK/API failures into `ProvisionedRemoteError`.
-5. Make sure every returned error is UI-safe before it leaves the provider adapter.
-6. Register the adapter in `ProvisionedRemoteProviderRegistry` in `src/provisioned_remote/registry.rs`.
-7. Add registry selection tests.
-8. Add provider contract tests for resource behavior.
+- placement options
+- network volume create/delete
+- provisioner pod start/status/terminate
+- serverless template create/delete
+- serverless endpoint create/delete
 
-Provider implementations should expose resource primitives only. They should not duplicate the full lifecycle workflow; orchestration belongs in `ProvisionedRemoteService`.
+It should not duplicate the full lifecycle workflow. Orchestration belongs in `RunpodRuntimeService` and the lifecycle runner.
 
 ## Verification
 

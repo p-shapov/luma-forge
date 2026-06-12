@@ -26,10 +26,7 @@ pub async fn get_provider_placement_options(
     state: State<'_, AppState>,
     _request: GetProviderPlacementOptionsRequest,
 ) -> CommandResult<RemotePlacementOptionsResponse> {
-    let options = state
-        .provisioned_remote
-        .get_provider_placement_options()
-        .await?;
+    let options = state.runpod_runtime.get_runpod_placement_options().await?;
 
     Ok(options.into())
 }

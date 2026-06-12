@@ -8,8 +8,7 @@ use crate::{
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     provisioned_remote::{
         lifecycle::runner::BackgroundProvisionedRemoteLifecycleRunner,
-        providers::runpod::RunpodProvisionedRemoteProvider,
-        registry::ProvisionedRemoteProviderRegistry, service::ProvisionedRemoteService,
+        providers::runpod::RunpodProvisionedRemoteProvider, service::RunpodRuntimeService,
     },
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
@@ -65,18 +64,17 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         provider_runpod_secrets,
         provider_hugging_face_secrets,
     );
-    let provider_registry = ProvisionedRemoteProviderRegistry::new(vec![Box::new(runpod_provider)]);
-    let provisioned_remote = ProvisionedRemoteService::new(
+    let runpod_runtime = RunpodRuntimeService::new(
         workspace_repository,
         lifecycle_journal,
         workflow_catalog.clone(),
-        provider_registry,
+        Arc::new(runpod_provider),
         Arc::new(TauriProvisionedRemoteEventSink::new(app_handle.clone())),
         Arc::new(TauriBackgroundTaskSpawner),
         Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
     );
 
-    provisioned_remote
+    runpod_runtime
         .mark_running_operations_stale()
         .await
         .map_err(|_| {
@@ -89,7 +87,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     Ok(AppState {
         workflow_catalog,
         workspace_catalog,
-        provisioned_remote,
+        runpod_runtime,
         runpod_secrets,
         hugging_face_secrets,
     })

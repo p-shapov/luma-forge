@@ -38,8 +38,7 @@ use super::{
         CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
         CreateRunpodServerlessTemplateParams, RunpodRuntimeClient, StartRunpodProvisionerPodParams,
     },
-    registry::ProvisionedRemoteProviderRegistry,
-    service::{CreateProvisionedRemoteWorkspaceRequest, ProvisionedRemoteService},
+    service::{CreateRunpodWorkspaceRequest, RunpodRuntimeService},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,7 +115,7 @@ pub(crate) trait ManualLifecycleRunnerExt {
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
 }
 
-impl<W, L> ManualLifecycleRunnerExt for ProvisionedRemoteService<W, L>
+impl<W, L> ManualLifecycleRunnerExt for RunpodRuntimeService<W, L>
 where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
@@ -133,7 +132,7 @@ where
                 &context.workspace_repository,
                 &context.lifecycle_journal,
                 &context.workflow_catalog,
-                &context.provider_registry,
+                context.runpod_client.as_ref(),
                 &context.event_sink,
                 Duration::ZERO,
             )
@@ -154,7 +153,7 @@ where
                 &operation_id,
                 &context.workspace_repository,
                 &context.lifecycle_journal,
-                &context.provider_registry,
+                context.runpod_client.as_ref(),
                 &context.event_sink,
             )
             .await;
@@ -174,7 +173,7 @@ where
                 &operation_id,
                 &context.workspace_repository,
                 &context.lifecycle_journal,
-                &context.provider_registry,
+                context.runpod_client.as_ref(),
                 &context.event_sink,
             )
             .await
@@ -660,22 +659,22 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
     }
 }
 
-pub(crate) fn draft_create_request(workspace_id: &str) -> CreateProvisionedRemoteWorkspaceRequest {
-    CreateProvisionedRemoteWorkspaceRequest {
+pub(crate) fn draft_create_request(workspace_id: &str) -> CreateRunpodWorkspaceRequest {
+    CreateRunpodWorkspaceRequest {
         workspace_id: workspace_id.to_string(),
         workflow_preset_id: "comfyui-hidream-o1-dev".to_string(),
-        remote_placement: placement_plan(),
+        placement: placement_plan(),
     }
 }
 
 pub(crate) fn service_with_state(
     state: Arc<Mutex<ProviderState>>,
-) -> ProvisionedRemoteService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
-    ProvisionedRemoteService::new(
+) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
+    RunpodRuntimeService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
         WorkflowCatalogService::new(),
-        ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
+        Arc::new(FakeProvider::new(state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
         Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
@@ -684,12 +683,12 @@ pub(crate) fn service_with_state(
 
 pub(crate) fn service_without_lifecycle_spawning(
     state: Arc<Mutex<ProviderState>>,
-) -> ProvisionedRemoteService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
-    ProvisionedRemoteService::new(
+) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
+    RunpodRuntimeService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
         WorkflowCatalogService::new(),
-        ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
+        Arc::new(FakeProvider::new(state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
         Arc::new(ManualLifecycleRunner),
@@ -699,12 +698,12 @@ pub(crate) fn service_without_lifecycle_spawning(
 pub(crate) fn service_with_state_and_workspace_repository(
     provider_state: Arc<Mutex<ProviderState>>,
     workspace_repository: InMemoryWorkspaceRepository,
-) -> ProvisionedRemoteService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
-    ProvisionedRemoteService::new(
+) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
+    RunpodRuntimeService::new(
         workspace_repository,
         InMemoryLifecycleJournalRepository::default(),
         WorkflowCatalogService::new(),
-        ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(provider_state))]),
+        Arc::new(FakeProvider::new(provider_state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
         Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
@@ -715,7 +714,7 @@ fn placement_plan() -> RunpodPlacementPlan {
     RunpodPlacementPlan {
         data_center_id: "dc".to_string(),
         gpu_type_id: "gpu".to_string(),
-        volume_size_gb: 1,
+        volume_size_gb: 19,
         keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
             default_seconds: 60,
             min_seconds: 30,

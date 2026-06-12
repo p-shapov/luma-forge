@@ -17,7 +17,7 @@ use super::{
     super::{
         errors::ProvisionedRemoteError,
         events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
-        registry::ProvisionedRemoteProviderRegistry,
+        provider::RunpodRuntimeClient,
         service::map_workspace_catalog_error,
     },
     cleanup::lifecycle_error_for,
@@ -31,7 +31,7 @@ pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
     workspace_repository: &W,
     lifecycle_journal: &L,
-    provider_registry: &ProvisionedRemoteProviderRegistry,
+    runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
 ) -> Result<Option<LifecycleOperation>, ProvisionedRemoteError>
 where
@@ -80,7 +80,7 @@ where
         let provider = if runtime.resources.is_empty() {
             None
         } else {
-            Some(provider_registry.for_provider()?)
+            Some(runpod_client)
         };
         if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
             failed_step = ProvisionedRemoteDeleteStep::DeleteEndpoint;

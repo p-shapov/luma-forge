@@ -3,9 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     domain::lifecycle_operation::LifecycleOperationId,
     lifecycle_journal::LifecycleJournalRepository,
-    provisioned_remote::{
-        events::ProvisionedRemoteEventSink, registry::ProvisionedRemoteProviderRegistry,
-    },
+    provisioned_remote::{events::ProvisionedRemoteEventSink, provider::RunpodRuntimeClient},
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
@@ -24,7 +22,7 @@ where
     pub(crate) workspace_repository: W,
     pub(crate) lifecycle_journal: L,
     pub(crate) workflow_catalog: WorkflowCatalogService,
-    pub(crate) provider_registry: ProvisionedRemoteProviderRegistry,
+    pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
     pub(crate) event_sink: Arc<dyn ProvisionedRemoteEventSink>,
     pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
@@ -78,7 +76,7 @@ where
         let workspace_repository = context.workspace_repository;
         let lifecycle_journal = context.lifecycle_journal;
         let workflow_catalog = context.workflow_catalog;
-        let provider_registry = context.provider_registry;
+        let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
         spawn_background_task(context.task_spawner.as_ref(), async move {
             let _ = provision::run_once(
@@ -86,7 +84,7 @@ where
                 &workspace_repository,
                 &lifecycle_journal,
                 &workflow_catalog,
-                &provider_registry,
+                runpod_client.as_ref(),
                 &event_sink,
                 PROVISIONER_POLL_INTERVAL,
             )
@@ -110,14 +108,14 @@ where
         let registry = context.lifecycle_operation_registry.clone();
         let workspace_repository = context.workspace_repository;
         let lifecycle_journal = context.lifecycle_journal;
-        let provider_registry = context.provider_registry;
+        let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
         spawn_background_task(context.task_spawner.as_ref(), async move {
             let _ = cleanup::run_once(
                 &operation_id,
                 &workspace_repository,
                 &lifecycle_journal,
-                &provider_registry,
+                runpod_client.as_ref(),
                 &event_sink,
             )
             .await;
@@ -140,14 +138,14 @@ where
         let registry = context.lifecycle_operation_registry.clone();
         let workspace_repository = context.workspace_repository;
         let lifecycle_journal = context.lifecycle_journal;
-        let provider_registry = context.provider_registry;
+        let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
         spawn_background_task(context.task_spawner.as_ref(), async move {
             let _ = delete::run_once(
                 &operation_id,
                 &workspace_repository,
                 &lifecycle_journal,
-                &provider_registry,
+                runpod_client.as_ref(),
                 &event_sink,
             )
             .await;

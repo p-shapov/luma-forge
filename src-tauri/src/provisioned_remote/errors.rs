@@ -7,7 +7,6 @@ pub enum ProvisionedRemoteError {
     WorkspaceNotFound,
     WorkspaceAlreadyExists,
     LifecycleOperationAlreadyRunning { workspace_id: String },
-    ProviderAdapterUnavailable,
     ProviderSecretUnavailable,
     ProviderApiFailed(ProviderApiError),
     ProvisionerUnavailable,
@@ -30,9 +29,6 @@ impl From<ProvisionedRemoteLifecycleError> for ProvisionedRemoteError {
     fn from(error: ProvisionedRemoteLifecycleError) -> Self {
         match error {
             ProvisionedRemoteLifecycleError::AppInterrupted => Self::InvalidRuntimeState,
-            ProvisionedRemoteLifecycleError::ProviderAdapterUnavailable => {
-                Self::ProviderAdapterUnavailable
-            }
             ProvisionedRemoteLifecycleError::ProviderSecretUnavailable => {
                 Self::ProviderSecretUnavailable
             }

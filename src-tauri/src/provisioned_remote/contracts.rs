@@ -1,6 +1,5 @@
 use crate::domain::{
-    provisioned_remote::RunpodRuntime, runtime_contract::RuntimeContractResolved,
-    workflow_preset::WorkflowPresetResolved,
+    runtime_contract::RuntimeContractResolved, workflow_preset::WorkflowPresetResolved,
 };
 
 use super::errors::ProvisionedRemoteError;
@@ -19,7 +18,6 @@ pub struct ProvisionedRemoteContractResolver;
 impl ProvisionedRemoteContractResolver {
     pub fn resolve(
         workflow: &WorkflowPresetResolved,
-        _runtime: &RunpodRuntime,
     ) -> Result<RunpodRuntimeContracts, ProvisionedRemoteError> {
         let endpoint_catalog = BundledEndpointContractCatalogReader
             .read_endpoint_contract_catalog()

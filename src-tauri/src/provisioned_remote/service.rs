@@ -29,17 +29,17 @@ use super::{
             ProvisionedRemoteLifecycleRunnerContext,
         },
     },
-    registry::ProvisionedRemoteProviderRegistry,
+    provider::RunpodRuntimeClient,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateProvisionedRemoteWorkspaceRequest {
+pub struct CreateRunpodWorkspaceRequest {
     pub workspace_id: String,
     pub workflow_preset_id: String,
-    pub remote_placement: RunpodPlacementPlan,
+    pub placement: RunpodPlacementPlan,
 }
 
-pub struct ProvisionedRemoteService<W, L>
+pub struct RunpodRuntimeService<W, L>
 where
     W: WorkspaceCatalogRepository,
     L: crate::lifecycle_journal::LifecycleJournalRepository,
@@ -47,14 +47,14 @@ where
     workspace_repository: W,
     lifecycle_journal: L,
     workflow_catalog: WorkflowCatalogService,
-    provider_registry: ProvisionedRemoteProviderRegistry,
+    runpod_client: Arc<dyn RunpodRuntimeClient>,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn ProvisionedRemoteEventSink>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
     lifecycle_runner: Arc<dyn ProvisionedRemoteLifecycleRunner<W, L>>,
 }
 
-impl<W, L> ProvisionedRemoteService<W, L>
+impl<W, L> RunpodRuntimeService<W, L>
 where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: crate::lifecycle_journal::LifecycleJournalRepository + Clone + Send + Sync + 'static,
@@ -63,7 +63,7 @@ where
         workspace_repository: W,
         lifecycle_journal: L,
         workflow_catalog: WorkflowCatalogService,
-        provider_registry: ProvisionedRemoteProviderRegistry,
+        runpod_client: Arc<dyn RunpodRuntimeClient>,
         event_sink: Arc<dyn ProvisionedRemoteEventSink>,
         task_spawner: Arc<dyn BackgroundTaskSpawner>,
         lifecycle_runner: Arc<dyn ProvisionedRemoteLifecycleRunner<W, L>>,
@@ -72,7 +72,7 @@ where
             workspace_repository,
             lifecycle_journal,
             workflow_catalog,
-            provider_registry,
+            runpod_client,
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
             event_sink,
             task_spawner,
@@ -80,9 +80,9 @@ where
         }
     }
 
-    pub async fn create_workspace(
+    pub async fn create_runpod_workspace(
         &self,
-        request: CreateProvisionedRemoteWorkspaceRequest,
+        request: CreateRunpodWorkspaceRequest,
     ) -> Result<Workspace, ProvisionedRemoteError> {
         if request.workspace_id.trim().is_empty() {
             return Err(ProvisionedRemoteError::InvalidRuntimeState);
@@ -95,6 +95,9 @@ where
         let workflow = workflow_catalog
             .resolve_latest(&request.workflow_preset_id)
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
+        if request.placement.volume_size_gb < workflow.required_volume_size_gb {
+            return Err(ProvisionedRemoteError::InvalidRuntimeState);
+        }
 
         let workspace = Workspace {
             id: request.workspace_id,
@@ -104,7 +107,7 @@ where
             },
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
-                placement: request.remote_placement,
+                placement: request.placement,
                 resources: RunpodResources {
                     network_volume_id: None,
                     provisioner_pod_id: None,
@@ -129,13 +132,10 @@ where
         Ok(workspace)
     }
 
-    pub async fn get_provider_placement_options(
+    pub async fn get_runpod_placement_options(
         &self,
     ) -> Result<RunpodPlacementOptions, ProvisionedRemoteError> {
-        self.provider_registry
-            .for_provider()?
-            .placement_options()
-            .await
+        self.runpod_client.placement_options().await
     }
 
     pub async fn provision_workspace(
@@ -215,7 +215,7 @@ where
                 &operation.operation_id,
                 &self.workspace_repository,
                 &self.lifecycle_journal,
-                &self.provider_registry,
+                self.runpod_client.as_ref(),
                 &self.event_sink,
             )
             .await?
@@ -364,7 +364,7 @@ where
             workspace_repository: self.workspace_repository.clone(),
             lifecycle_journal: self.lifecycle_journal.clone(),
             workflow_catalog: self.workflow_catalog.clone(),
-            provider_registry: self.provider_registry.clone(),
+            runpod_client: self.runpod_client.clone(),
             lifecycle_operation_registry: self.lifecycle_operation_registry.clone(),
             event_sink: self.event_sink.clone(),
             task_spawner: self.task_spawner.clone(),
@@ -433,12 +433,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     #[test]
-    fn create_workspace_persists_not_provisioned_workspace_without_provider_calls() {
+    fn create_runpod_workspace_persists_not_provisioned_workspace_without_provider_calls() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
 
-        let workspace = block_on(service.create_workspace(draft_create_request("workspace-1")))
-            .expect("workspace should be created");
+        let workspace =
+            block_on(service.create_runpod_workspace(draft_create_request("workspace-1")))
+                .expect("workspace should be created");
 
         assert_eq!(workspace.id, "workspace-1");
         assert_eq!(workspace.workflow.id, "comfyui-hidream-o1-dev");
@@ -464,13 +465,39 @@ mod tests {
     }
 
     #[test]
-    fn create_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls() {
+    fn create_runpod_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls(
+    ) {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
         request.workflow_preset_id = "missing-preset".to_string();
 
-        let error = block_on(service.create_workspace(request)).expect_err("request should fail");
+        let error =
+            block_on(service.create_runpod_workspace(request)).expect_err("request should fail");
+
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::InvalidRuntimeState
+        );
+        assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
+        let persisted = block_on(
+            service
+                .workspace_repository
+                .find_workspace_by_id("workspace-1"),
+        )
+        .expect("repository read should succeed");
+        assert_eq!(persisted, None);
+    }
+
+    #[test]
+    fn create_runpod_workspace_rejects_volume_smaller_than_workflow_requires_without_persisting() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_with_state(state.clone());
+        let mut request = draft_create_request("workspace-1");
+        request.placement.volume_size_gb = 1;
+
+        let error =
+            block_on(service.create_runpod_workspace(request)).expect_err("request should fail");
 
         assert_eq!(
             error,
@@ -497,11 +524,11 @@ mod tests {
     }
 
     #[test]
-    fn get_provider_placement_options_returns_selected_provider_options() {
+    fn get_runpod_placement_options_returns_selected_provider_options() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
 
-        let options = block_on(service.get_provider_placement_options())
+        let options = block_on(service.get_runpod_placement_options())
             .expect("placement options should resolve");
 
         assert_eq!(options, placement_options());
@@ -516,7 +543,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         let workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
 
@@ -551,7 +578,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         service
@@ -577,7 +604,7 @@ mod tests {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_without_lifecycle_spawning(state.clone());
         let mut workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         workspace.state = WorkspaceState::Ready;
@@ -611,7 +638,7 @@ mod tests {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_without_lifecycle_spawning(state.clone());
         let mut workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
@@ -652,7 +679,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -730,7 +757,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state);
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -790,7 +817,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -842,7 +869,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -908,7 +935,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -979,7 +1006,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -1049,7 +1076,7 @@ mod tests {
         }));
         let service = service_with_state(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
 
@@ -1101,7 +1128,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -1150,7 +1177,7 @@ mod tests {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -1219,7 +1246,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         let workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
 
@@ -1252,7 +1279,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -1304,7 +1331,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let provision_operation_id = service
@@ -1356,7 +1383,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let provision_operation_id = service
@@ -1417,7 +1444,7 @@ mod tests {
     async fn delete_workspace_without_resources_completes_and_deletes_immediately() {
         let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
 
@@ -1463,7 +1490,7 @@ mod tests {
             InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
         );
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         workspace_state
@@ -1509,7 +1536,7 @@ mod tests {
     async fn delete_runner_completes_when_workspace_missing_after_operation_created() {
         let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let payload = LifecycleOperationPayload::ProvisionedRemote(
@@ -1554,7 +1581,7 @@ mod tests {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
         let mut workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
@@ -1608,7 +1635,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let provision_operation_id = service
@@ -1674,7 +1701,7 @@ mod tests {
             InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
         );
         let mut workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
@@ -1740,7 +1767,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation = service
@@ -1762,7 +1789,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let first = service
@@ -1799,7 +1826,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation = service
@@ -1848,7 +1875,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         let mut workspace = service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
@@ -1885,7 +1912,7 @@ mod tests {
     async fn mark_running_operations_stale_marks_delete_stale_when_workspace_is_missing() {
         let service = service_with_state(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let payload = LifecycleOperationPayload::ProvisionedRemote(
@@ -1933,7 +1960,7 @@ mod tests {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation = service

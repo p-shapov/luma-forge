@@ -217,7 +217,6 @@ pub enum ProvisionedRemoteDeleteStepResponse {
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionedRemoteLifecycleErrorResponse {
     AppInterrupted,
-    ProviderAdapterUnavailable,
     ProviderSecretUnavailable,
     ProviderApiFailed,
     ProvisionerUnavailable,
@@ -472,9 +471,6 @@ impl From<ProvisionedRemoteLifecycleError> for ProvisionedRemoteLifecycleErrorRe
     fn from(value: ProvisionedRemoteLifecycleError) -> Self {
         match value {
             ProvisionedRemoteLifecycleError::AppInterrupted => Self::AppInterrupted,
-            ProvisionedRemoteLifecycleError::ProviderAdapterUnavailable => {
-                Self::ProviderAdapterUnavailable
-            }
             ProvisionedRemoteLifecycleError::ProviderSecretUnavailable => {
                 Self::ProviderSecretUnavailable
             }
