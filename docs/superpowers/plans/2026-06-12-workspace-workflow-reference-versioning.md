@@ -35,6 +35,7 @@
 ### Task 1: Add Workflow Reference and Resolved Workflow Domain Types
 
 **Files:**
+
 - Modify: `src-tauri/src/domain/workflow_preset.rs`
 
 - [ ] **Step 1: Add failing tests for catalog resolution**
@@ -208,6 +209,7 @@ git commit -m "feat(tauri): add resolved workflow preset model"
 ### Task 2: Update Workflow Catalog Validation and Bundled Catalog Shape
 
 **Files:**
+
 - Modify: `src-tauri/src/workflow_catalog/validation.rs`
 - Modify: `src-tauri/src/workflow_catalog/service.rs`
 - Modify: `bundled/workflow-catalog.json`
@@ -395,6 +397,7 @@ git commit -m "feat(tauri): validate workflow revisions"
 ### Task 3: Persist WorkflowReference in Workspace Catalog
 
 **Files:**
+
 - Modify: `src-tauri/src/domain/workspace.rs`
 - Modify: `src-tauri/src/workspace_catalog/schema.rs`
 - Modify: `src-tauri/src/workspace_catalog/sqlite.rs`
@@ -590,6 +593,7 @@ git commit -m "feat(tauri): persist workspace workflow references"
 ### Task 4: Resolve Workflows at Command and Response Boundaries
 
 **Files:**
+
 - Modify: `src-tauri/src/commands/types/catalog.rs`
 - Modify: `src-tauri/src/commands/types/workspace.rs`
 - Modify: `src-tauri/src/commands/catalog.rs`
@@ -737,6 +741,7 @@ git commit -m "feat(tauri): resolve workflow references for commands"
 ### Task 5: Use Resolved Workflows in Provisioned Remote Lifecycle
 
 **Files:**
+
 - Modify: `src-tauri/src/provisioned_remote/service.rs`
 - Modify: `src-tauri/src/provisioned_remote/contracts.rs`
 - Modify: `src-tauri/src/provisioned_remote/lifecycle/provision.rs`
@@ -905,6 +910,7 @@ git commit -m "feat(tauri): provision with resolved workflow references"
 ### Task 6: Regenerate Bindings and Update Frontend Diagnostics Request
 
 **Files:**
+
 - Modify: `src/generated/commands.ts`
 - Modify: `src/pages/home/ui/home-page.tsx`
 
@@ -923,7 +929,7 @@ Expected: `src/generated/commands.ts` includes `workflowRevisionVersion` on `Cre
 In `src/pages/home/ui/home-page.tsx`, update the sample create request from:
 
 ```ts
-{
+const request = {
   workflowPresetId: "",
   remotePlacement: {
     gpuCloudProviderId: "runpod",
@@ -932,13 +938,13 @@ In `src/pages/home/ui/home-page.tsx`, update the sample create request from:
     volumeSizeBytes: 0,
     keepAliveLimits: null,
   },
-}
+};
 ```
 
 to:
 
 ```ts
-{
+const request = {
   workflowPresetId: "",
   workflowRevisionVersion: "",
   remotePlacement: {
@@ -948,7 +954,7 @@ to:
     volumeSizeBytes: 0,
     keepAliveLimits: null,
   },
-}
+};
 ```
 
 - [ ] **Step 3: Run frontend checks affected by generated contracts**
@@ -973,6 +979,7 @@ git commit -m "chore(frontend): update workflow revision command bindings"
 ### Task 7: Final Native Verification
 
 **Files:**
+
 - No planned source edits.
 
 - [ ] **Step 1: Run full native tests**
