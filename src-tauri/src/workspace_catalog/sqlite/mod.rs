@@ -21,8 +21,38 @@ mod state;
 use row::workspace_from_row;
 use state::workspace_state_columns;
 
-const WORKSPACE_COLUMNS: &str =
-    "id, runtime_type, state, state_reason, workflow_id, workflow_version, runtime_json";
+const LIST_WORKSPACES_SQL: &str = "SELECT id, runtime_type, state, state_reason, \
+    workflow_id, workflow_version, runtime_json \
+    FROM workspaces ORDER BY created_at ASC";
+const FIND_WORKSPACE_SQL: &str = "SELECT id, runtime_type, state, state_reason, \
+    workflow_id, workflow_version, runtime_json \
+    FROM workspaces WHERE id = ?1";
+
+struct PersistedWorkspace<'a> {
+    workspace: &'a Workspace,
+    runtime_type: String,
+    runtime_json: String,
+    state: &'static str,
+    state_reason: Option<&'static str>,
+}
+
+impl<'a> PersistedWorkspace<'a> {
+    fn encode(workspace: &'a Workspace) -> Result<Self, WorkspaceCatalogError> {
+        validate_id(&workspace.id)?;
+        validate_workflow_reference(&workspace.workflow)?;
+
+        let encoded = runtime::encode_runtime(&workspace.runtime)?;
+        let state = workspace_state_columns(&workspace.state);
+
+        Ok(Self {
+            workspace,
+            runtime_type: encoded.runtime_type,
+            runtime_json: encoded.runtime_json,
+            state: state.state,
+            state_reason: state.reason,
+        })
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SqliteWorkspaceCatalogRepository {
@@ -57,12 +87,10 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
         &'a self,
     ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>> {
         Box::pin(async move {
-            let rows = sqlx::query(&format!(
-                "SELECT {WORKSPACE_COLUMNS} FROM workspaces ORDER BY created_at ASC"
-            ))
-            .fetch_all(&self.pool)
-            .await
-            .map_err(storage_unavailable)?;
+            let rows = sqlx::query(LIST_WORKSPACES_SQL)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(storage_unavailable)?;
             let workspaces = rows
                 .iter()
                 .map(workspace_from_row)
@@ -79,13 +107,11 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
         Box::pin(async move {
             validate_id(id)?;
 
-            let row = sqlx::query(&format!(
-                "SELECT {WORKSPACE_COLUMNS} FROM workspaces WHERE id = ?1"
-            ))
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(storage_unavailable)?;
+            let row = sqlx::query(FIND_WORKSPACE_SQL)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(storage_unavailable)?;
 
             row.as_ref().map(workspace_from_row).transpose()
         })
@@ -96,11 +122,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
         workspace: &'a Workspace,
     ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
         Box::pin(async move {
-            validate_id(&workspace.id)?;
-            validate_workflow_reference(&workspace.workflow)?;
-
-            let encoded = runtime::encode_runtime(&workspace.runtime)?;
-            let state = workspace_state_columns(&workspace.state);
+            let persisted = PersistedWorkspace::encode(workspace)?;
             let now = timestamp()?;
 
             sqlx::query(
@@ -117,13 +139,13 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 )
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )
-            .bind(&workspace.id)
-            .bind(&encoded.runtime_type)
-            .bind(state.state)
-            .bind(state.reason)
-            .bind(&workspace.workflow.id)
-            .bind(&workspace.workflow.version)
-            .bind(&encoded.runtime_json)
+            .bind(&persisted.workspace.id)
+            .bind(&persisted.runtime_type)
+            .bind(persisted.state)
+            .bind(persisted.state_reason)
+            .bind(&persisted.workspace.workflow.id)
+            .bind(&persisted.workspace.workflow.version)
+            .bind(&persisted.runtime_json)
             .bind(&now)
             .bind(&now)
             .execute(&self.pool)
@@ -145,11 +167,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
         workspace: &'a Workspace,
     ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
         Box::pin(async move {
-            validate_id(&workspace.id)?;
-            validate_workflow_reference(&workspace.workflow)?;
-
-            let encoded = runtime::encode_runtime(&workspace.runtime)?;
-            let state = workspace_state_columns(&workspace.state);
+            let persisted = PersistedWorkspace::encode(workspace)?;
             let now = timestamp()?;
 
             let result = sqlx::query(
@@ -163,14 +181,14 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                      updated_at = ?7
                  WHERE id = ?8",
             )
-            .bind(&encoded.runtime_type)
-            .bind(state.state)
-            .bind(state.reason)
-            .bind(&workspace.workflow.id)
-            .bind(&workspace.workflow.version)
-            .bind(&encoded.runtime_json)
+            .bind(&persisted.runtime_type)
+            .bind(persisted.state)
+            .bind(persisted.state_reason)
+            .bind(&persisted.workspace.workflow.id)
+            .bind(&persisted.workspace.workflow.version)
+            .bind(&persisted.runtime_json)
             .bind(now)
-            .bind(&workspace.id)
+            .bind(&persisted.workspace.id)
             .execute(&self.pool)
             .await
             .map_err(storage_unavailable)?;

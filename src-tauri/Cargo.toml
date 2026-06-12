@@ -28,6 +28,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-mcp-bridge = "0.11"
 tauri-plugin-opener = "2"
 tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
+thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde-well-known"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 uuid = { version = "1", features = ["v4"] }

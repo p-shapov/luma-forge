@@ -2,7 +2,7 @@ use sqlx::Row;
 
 use crate::domain::{workflow_preset::WorkflowReference, workspace::Workspace};
 
-use super::{state::workspace_state_from_columns, validate_workflow_reference};
+use super::{state::workspace_state_from_columns, validate_id, validate_workflow_reference};
 use crate::workspace_catalog::{errors::WorkspaceCatalogError, runtime};
 
 pub(super) fn workspace_from_row(
@@ -15,6 +15,7 @@ pub(super) fn workspace_from_row(
     let workflow_id = required_text(row, "workflow_id", "workflow ID is missing")?;
     let workflow_version = required_text(row, "workflow_version", "workflow version is missing")?;
     let runtime_json = required_text(row, "runtime_json", "runtime JSON is missing")?;
+    validate_id(&id)?;
 
     let workflow = WorkflowReference {
         id: workflow_id,

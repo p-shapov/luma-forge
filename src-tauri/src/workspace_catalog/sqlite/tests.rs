@@ -307,7 +307,7 @@ async fn connect_rejects_existing_composite_primary_key_without_metadata() {
     assert_eq!(
         error,
         WorkspaceCatalogError::SchemaInvalid {
-            message: "table columns do not match expected columns".to_string()
+            message: "workspaces.runtime_type column mismatch: expected TEXT not_null=true pk=0, got TEXT not_null=true pk=2".to_string()
         }
     );
     assert_eq!(metadata_version(&path).await, None);
@@ -393,7 +393,7 @@ async fn connect_rejects_not_null_state_reason_column() {
     assert_eq!(
         error,
         WorkspaceCatalogError::SchemaInvalid {
-            message: "table columns do not match expected columns".to_string()
+            message: "workspaces.state_reason column mismatch: expected TEXT not_null=false pk=0, got TEXT not_null=true pk=0".to_string()
         }
     );
     assert_eq!(metadata_version(&path).await, None);
@@ -841,7 +841,51 @@ async fn corrupt_runtime_json_returns_corrupt() {
     assert_eq!(
         error,
         WorkspaceCatalogError::DataInvalid {
-            message: "EOF while parsing an object at line 1 column 1".to_string()
+            message:
+                "runpod runtime JSON is invalid: EOF while parsing an object at line 1 column 1"
+                    .to_string()
+        }
+    );
+
+    drop(repository);
+    let _ = fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn empty_stored_workspace_id_returns_corrupt() {
+    let path = catalog_path("empty-workspace-id");
+    let WorkspaceRuntime::Runpod(runtime) = workspace("workspace-1").runtime;
+    let runtime_json =
+        serde_json::to_string(&runtime).expect("runtime serialization should succeed");
+
+    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+        .await
+        .expect("connect should succeed");
+    insert_workspace_row(
+        &repository.pool,
+        WorkspaceRowInsert {
+            id: "",
+            runtime_type: "runpod",
+            state: "not_provisioned",
+            state_reason: None,
+            workflow_id: "preset",
+            workflow_version: "1",
+            runtime_json: &runtime_json,
+            created_at: "2026-06-06T00:00:01Z",
+            updated_at: "2026-06-06T00:00:01Z",
+        },
+    )
+    .await;
+
+    let error = repository
+        .list_workspaces()
+        .await
+        .expect_err("empty stored workspace id should fail");
+
+    assert_eq!(
+        error,
+        WorkspaceCatalogError::DataInvalid {
+            message: "ID is empty".to_string()
         }
     );
 
