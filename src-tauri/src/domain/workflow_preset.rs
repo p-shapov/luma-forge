@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{provisioned_remote::GpuCloudProviderId, runtime_contract::RuntimeContractReference};
+use super::runtime_contract::RuntimeContractReference;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]
@@ -27,40 +27,23 @@ pub enum WorkflowExecutionType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteProviderRuntimeRequirements {
-    pub gpu_cloud_provider_id: GpuCloudProviderId,
-    pub endpoint_contract: RuntimeContractReference,
-    pub provisioner_contract: RuntimeContractReference,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteRuntimeRequirements {
-    pub required_base_volume_size_bytes: u64,
-    pub provider_requirements: Vec<RemoteProviderRuntimeRequirements>,
-}
-
-impl RemoteRuntimeRequirements {
-    pub fn resolve_provider_requirements(
-        &self,
-        gpu_cloud_provider_id: GpuCloudProviderId,
-    ) -> Option<&RemoteProviderRuntimeRequirements> {
-        self.provider_requirements
-            .iter()
-            .find(|requirements| requirements.gpu_cloud_provider_id == gpu_cloud_provider_id)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowReference {
     pub id: String,
     pub version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunpodRuntimeRequirements {
+    pub endpoint_contract: RuntimeContractReference,
+    pub provisioner_contract: RuntimeContractReference,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRevision {
     pub version: String,
     pub requires_hugging_face_api_key: bool,
-    pub remote_runtime_requirements: RemoteRuntimeRequirements,
+    pub required_volume_size_gb: u64,
+    pub runpod_runtime_requirements: RunpodRuntimeRequirements,
     pub required_model_assets: Vec<ModelAsset>,
 }
 
@@ -79,7 +62,8 @@ pub struct WorkflowPresetResolved {
     pub name: String,
     pub execution_type: WorkflowExecutionType,
     pub requires_hugging_face_api_key: bool,
-    pub remote_runtime_requirements: RemoteRuntimeRequirements,
+    pub required_volume_size_gb: u64,
+    pub runpod_runtime_requirements: RunpodRuntimeRequirements,
     pub required_model_assets: Vec<ModelAsset>,
 }
 
@@ -105,7 +89,8 @@ impl WorkflowCatalog {
             name: preset.name.clone(),
             execution_type: preset.execution_type,
             requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
-            remote_runtime_requirements: revision.remote_runtime_requirements.clone(),
+            required_volume_size_gb: revision.required_volume_size_gb,
+            runpod_runtime_requirements: revision.runpod_runtime_requirements.clone(),
             required_model_assets: revision.required_model_assets.clone(),
         })
     }
@@ -123,7 +108,8 @@ impl WorkflowCatalog {
             name: preset.name.clone(),
             execution_type: preset.execution_type,
             requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
-            remote_runtime_requirements: revision.remote_runtime_requirements.clone(),
+            required_volume_size_gb: revision.required_volume_size_gb,
+            runpod_runtime_requirements: revision.runpod_runtime_requirements.clone(),
             required_model_assets: revision.required_model_assets.clone(),
         })
     }
@@ -132,9 +118,7 @@ impl WorkflowCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{
-        provisioned_remote::GpuCloudProviderId, runtime_contract::RuntimeContractReference,
-    };
+    use crate::domain::runtime_contract::RuntimeContractReference;
 
     fn reference(version: &str) -> WorkflowReference {
         WorkflowReference {
@@ -143,23 +127,20 @@ mod tests {
         }
     }
 
-    fn revision(version: &str, volume_size: u64) -> WorkflowRevision {
+    fn revision(version: &str, volume_size_gb: u64) -> WorkflowRevision {
         WorkflowRevision {
             version: version.to_string(),
             requires_hugging_face_api_key: true,
-            remote_runtime_requirements: RemoteRuntimeRequirements {
-                required_base_volume_size_bytes: volume_size,
-                provider_requirements: vec![RemoteProviderRuntimeRequirements {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                    endpoint_contract: RuntimeContractReference {
-                        id: "endpoint".to_string(),
-                        version: "1.0.0".to_string(),
-                    },
-                    provisioner_contract: RuntimeContractReference {
-                        id: "provisioner".to_string(),
-                        version: "1.0.0".to_string(),
-                    },
-                }],
+            required_volume_size_gb: volume_size_gb,
+            runpod_runtime_requirements: RunpodRuntimeRequirements {
+                endpoint_contract: RuntimeContractReference {
+                    id: "endpoint".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+                provisioner_contract: RuntimeContractReference {
+                    id: "provisioner".to_string(),
+                    version: "1.0.0".to_string(),
+                },
             },
             required_model_assets: Vec::new(),
         }
@@ -186,11 +167,20 @@ mod tests {
         assert_eq!(resolved.version, "1.1.0");
         assert_eq!(resolved.name, "Workflow");
         assert_eq!(resolved.execution_type, WorkflowExecutionType::T2i);
+        assert_eq!(resolved.required_volume_size_gb, 2);
         assert_eq!(
-            resolved
-                .remote_runtime_requirements
-                .required_base_volume_size_bytes,
-            2
+            resolved.runpod_runtime_requirements.endpoint_contract,
+            RuntimeContractReference {
+                id: "endpoint".to_string(),
+                version: "1.0.0".to_string(),
+            }
+        );
+        assert_eq!(
+            resolved.runpod_runtime_requirements.provisioner_contract,
+            RuntimeContractReference {
+                id: "provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            }
         );
     }
 
@@ -207,11 +197,20 @@ mod tests {
 
         assert_eq!(resolved.id, "workflow");
         assert_eq!(resolved.version, "1.1.0");
+        assert_eq!(resolved.required_volume_size_gb, 2);
         assert_eq!(
-            resolved
-                .remote_runtime_requirements
-                .required_base_volume_size_bytes,
-            2
+            resolved.runpod_runtime_requirements.endpoint_contract,
+            RuntimeContractReference {
+                id: "endpoint".to_string(),
+                version: "1.0.0".to_string(),
+            }
+        );
+        assert_eq!(
+            resolved.runpod_runtime_requirements.provisioner_contract,
+            RuntimeContractReference {
+                id: "provisioner".to_string(),
+                version: "1.0.0".to_string(),
+            }
         );
     }
 

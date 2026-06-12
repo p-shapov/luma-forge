@@ -68,23 +68,15 @@ pub(super) fn validate_workflows(
                 return Err(WorkflowCatalogError::ValidationFailed);
             }
 
-            let remote_requirements = &revision.remote_runtime_requirements;
-            if remote_requirements.required_base_volume_size_bytes == 0
-                || remote_requirements.provider_requirements.is_empty()
+            if revision.required_volume_size_gb == 0
+                || endpoint_contract_catalog
+                    .resolve(&revision.runpod_runtime_requirements.endpoint_contract)
+                    .is_none()
+                || provisioner_contract_catalog
+                    .resolve(&revision.runpod_runtime_requirements.provisioner_contract)
+                    .is_none()
             {
                 return Err(WorkflowCatalogError::ValidationFailed);
-            }
-
-            for provider_requirements in &remote_requirements.provider_requirements {
-                if endpoint_contract_catalog
-                    .resolve(&provider_requirements.endpoint_contract)
-                    .is_none()
-                    || provisioner_contract_catalog
-                        .resolve(&provider_requirements.provisioner_contract)
-                        .is_none()
-                {
-                    return Err(WorkflowCatalogError::ValidationFailed);
-                }
             }
 
             for asset in &revision.required_model_assets {
@@ -151,11 +143,10 @@ fn is_safe_hugging_face_name(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::domain::{
-        provisioned_remote::GpuCloudProviderId,
         runtime_contract::{RuntimeContract, RuntimeContractReference, RuntimeContractRevision},
         workflow_preset::{
-            ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
-            RemoteRuntimeRequirements, WorkflowExecutionType, WorkflowRevision,
+            ModelAsset, ModelAssetSource, RunpodRuntimeRequirements, WorkflowExecutionType,
+            WorkflowRevision,
         },
     };
 
@@ -189,19 +180,16 @@ mod tests {
         WorkflowRevision {
             version: version.to_string(),
             requires_hugging_face_api_key: true,
-            remote_runtime_requirements: RemoteRuntimeRequirements {
-                required_base_volume_size_bytes: 18837849239,
-                provider_requirements: vec![RemoteProviderRuntimeRequirements {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                    endpoint_contract: RuntimeContractReference {
-                        id: "comfyui-py312-cu126-torch291".to_string(),
-                        version: "1.0.15".to_string(),
-                    },
-                    provisioner_contract: RuntimeContractReference {
-                        id: "luma-forge-provisioner".to_string(),
-                        version: "1.0.6".to_string(),
-                    },
-                }],
+            required_volume_size_gb: 19,
+            runpod_runtime_requirements: RunpodRuntimeRequirements {
+                endpoint_contract: RuntimeContractReference {
+                    id: "comfyui-py312-cu126-torch291".to_string(),
+                    version: "1.0.15".to_string(),
+                },
+                provisioner_contract: RuntimeContractReference {
+                    id: "luma-forge-provisioner".to_string(),
+                    version: "1.0.6".to_string(),
+                },
             },
             required_model_assets: vec![valid_asset()],
         }
@@ -306,6 +294,21 @@ mod tests {
     fn validate_workflows_rejects_duplicate_revision_versions() {
         let mut workflow = valid_workflow("workflow");
         workflow.revisions.push(workflow.revisions[0].clone());
+
+        assert_eq!(
+            validate_workflows(
+                &[workflow],
+                &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
+                &runtime_catalog("luma-forge-provisioner", "1.0.6"),
+            ),
+            Err(WorkflowCatalogError::ValidationFailed)
+        );
+    }
+
+    #[test]
+    fn validate_workflows_rejects_zero_required_volume_size_gb() {
+        let mut workflow = valid_workflow("workflow");
+        workflow.revisions[0].required_volume_size_gb = 0;
 
         assert_eq!(
             validate_workflows(

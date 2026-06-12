@@ -19,13 +19,8 @@ pub struct ProvisionedRemoteContractResolver;
 impl ProvisionedRemoteContractResolver {
     pub fn resolve(
         workflow: &WorkflowPresetResolved,
-        runtime: &ProvisionedRemoteRuntime,
+        _runtime: &ProvisionedRemoteRuntime,
     ) -> Result<ProvisionedRemoteRuntimeContracts, ProvisionedRemoteError> {
-        let provider_requirements = workflow
-            .remote_runtime_requirements
-            .resolve_provider_requirements(runtime.provider_id())
-            .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
-
         let endpoint_catalog = BundledEndpointContractCatalogReader
             .read_endpoint_contract_catalog()
             .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
@@ -34,10 +29,10 @@ impl ProvisionedRemoteContractResolver {
             .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
 
         let endpoint_contract = endpoint_catalog
-            .resolve(&provider_requirements.endpoint_contract)
+            .resolve(&workflow.runpod_runtime_requirements.endpoint_contract)
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
         let provisioner_contract = provisioner_catalog
-            .resolve(&provider_requirements.provisioner_contract)
+            .resolve(&workflow.runpod_runtime_requirements.provisioner_contract)
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
 
         Ok(ProvisionedRemoteRuntimeContracts {

@@ -4,8 +4,8 @@ use specta::Type;
 use crate::domain::{
     runtime_contract::RuntimeContractReference,
     workflow_preset::{
-        ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements,
-        WorkflowCatalog, WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
+        ModelAsset, ModelAssetSource, RunpodRuntimeRequirements, WorkflowCatalog,
+        WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
     },
 };
 
@@ -37,7 +37,8 @@ pub struct WorkflowPresetResponse {
 pub struct WorkflowRevisionResponse {
     pub version: String,
     pub requires_hugging_face_api_key: bool,
-    pub remote_runtime_requirements: RemoteRuntimeRequirementsResponse,
+    pub required_volume_size_gb: u64,
+    pub runpod_runtime_requirements: RunpodRuntimeRequirementsResponse,
     pub required_model_assets: Vec<ModelAssetResponse>,
 }
 
@@ -49,15 +50,7 @@ pub enum WorkflowExecutionTypeDto {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteRuntimeRequirementsResponse {
-    pub required_base_volume_size_bytes: u64,
-    pub provider_requirements: Vec<RemoteProviderRuntimeRequirementsResponse>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteProviderRuntimeRequirementsResponse {
-    pub gpu_cloud_provider_id: GpuCloudProviderIdDto,
+pub struct RunpodRuntimeRequirementsResponse {
     pub endpoint_contract: RuntimeContractReferenceResponse,
     pub provisioner_contract: RuntimeContractReferenceResponse,
 }
@@ -112,7 +105,8 @@ impl From<WorkflowRevision> for WorkflowRevisionResponse {
         Self {
             version: value.version,
             requires_hugging_face_api_key: value.requires_hugging_face_api_key,
-            remote_runtime_requirements: value.remote_runtime_requirements.into(),
+            required_volume_size_gb: value.required_volume_size_gb,
+            runpod_runtime_requirements: value.runpod_runtime_requirements.into(),
             required_model_assets: value
                 .required_model_assets
                 .into_iter()
@@ -130,23 +124,9 @@ impl From<WorkflowExecutionType> for WorkflowExecutionTypeDto {
     }
 }
 
-impl From<RemoteRuntimeRequirements> for RemoteRuntimeRequirementsResponse {
-    fn from(value: RemoteRuntimeRequirements) -> Self {
+impl From<RunpodRuntimeRequirements> for RunpodRuntimeRequirementsResponse {
+    fn from(value: RunpodRuntimeRequirements) -> Self {
         Self {
-            required_base_volume_size_bytes: value.required_base_volume_size_bytes,
-            provider_requirements: value
-                .provider_requirements
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
-    }
-}
-
-impl From<RemoteProviderRuntimeRequirements> for RemoteProviderRuntimeRequirementsResponse {
-    fn from(value: RemoteProviderRuntimeRequirements) -> Self {
-        Self {
-            gpu_cloud_provider_id: value.gpu_cloud_provider_id.into(),
             endpoint_contract: value.endpoint_contract.into(),
             provisioner_contract: value.provisioner_contract.into(),
         }
