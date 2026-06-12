@@ -1,10 +1,9 @@
-use crate::domain::{provisioned_remote::GpuCloudProviderId, workspace::WorkspaceRuntime};
+use crate::domain::workspace::WorkspaceRuntime;
 
 use super::{errors::WorkspaceCatalogError, runtimes};
 
 pub struct EncodedWorkspaceRuntime {
     pub runtime_type: String,
-    pub provider_id: GpuCloudProviderId,
     pub runtime_json: String,
 }
 
@@ -12,7 +11,7 @@ pub fn encode_runtime(
     runtime: &WorkspaceRuntime,
 ) -> Result<EncodedWorkspaceRuntime, WorkspaceCatalogError> {
     match runtime {
-        WorkspaceRuntime::ProvisionedRemote(remote) => runtimes::provisioned_remote::encode(remote),
+        WorkspaceRuntime::Runpod(runtime) => runtimes::provisioned_remote::encode(runtime),
     }
 }
 

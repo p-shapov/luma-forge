@@ -6,9 +6,8 @@ use crate::{
             LifecycleOperation, LifecycleOperationPayload,
             ProvisionedRemoteLifecycleOperationPayload,
         },
-        provisioned_remote::GpuCloudProviderId,
-        provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
-        provisioned_remote::{RemotePlacementOptions, RemotePlacementPlan},
+        provisioned_remote::{RunpodPlacementOptions, RunpodPlacementPlan},
+        provisioned_remote::{RunpodResources, RunpodRuntime},
         workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
@@ -37,7 +36,7 @@ use super::{
 pub struct CreateProvisionedRemoteWorkspaceRequest {
     pub workspace_id: String,
     pub workflow_preset_id: String,
-    pub remote_placement: RemotePlacementPlan,
+    pub remote_placement: RunpodPlacementPlan,
 }
 
 pub struct ProvisionedRemoteService<W, L>
@@ -104,12 +103,13 @@ where
                 version: workflow.version,
             },
             state: WorkspaceState::NotProvisioned,
-            runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
+            runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
                 placement: request.remote_placement,
-                resources: ProvisionedRemoteResources {
-                    volume_id: None,
-                    provisioner_id: None,
+                resources: RunpodResources {
+                    network_volume_id: None,
+                    provisioner_pod_id: None,
                     endpoint_id: None,
+                    template_id: None,
                 },
             }),
         };
@@ -131,10 +131,9 @@ where
 
     pub async fn get_provider_placement_options(
         &self,
-        provider_id: GpuCloudProviderId,
-    ) -> Result<RemotePlacementOptions, ProvisionedRemoteError> {
+    ) -> Result<RunpodPlacementOptions, ProvisionedRemoteError> {
         self.provider_registry
-            .for_provider(provider_id)?
+            .for_provider()?
             .get_provider_placement_options()
             .await
     }
@@ -147,7 +146,7 @@ where
         if workspace.state != WorkspaceState::NotProvisioned {
             return Err(ProvisionedRemoteError::InvalidRuntimeState);
         }
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if !runtime.resources.is_empty() {
             return Err(ProvisionedRemoteError::InvalidRuntimeState);
         }
@@ -210,7 +209,7 @@ where
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
 
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if runtime.resources.is_empty() {
             let completed_operation = super::lifecycle::delete::run_once(
                 &operation.operation_id,
@@ -277,7 +276,7 @@ where
 
             let workspace = match self.find_workspace(&operation.workspace_id).await? {
                 Some(mut workspace) => {
-                    let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+                    let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
                     workspace.state = interrupted_state_for_resources(&runtime.resources);
                     Some(
                         self.workspace_repository
@@ -413,10 +412,9 @@ mod tests {
                 LifecycleOperationPayload, LifecycleOperationState,
                 ProvisionedRemoteLifecycleOperationPayload,
             },
-            provisioned_remote::{GpuCloudProviderId, ProviderApiError},
+            provisioned_remote::ProviderApiError,
             provisioned_remote::{
-                ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus,
-                ProvisionedRemoteRuntime,
+                ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus, RunpodRuntime,
             },
             workspace::{
                 WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
@@ -446,11 +444,12 @@ mod tests {
         assert_eq!(workspace.workflow.id, "comfyui-hidream-o1-dev");
         assert_eq!(workspace.workflow.version, "1.0.0");
         assert_eq!(workspace.state, WorkspaceState::NotProvisioned);
-        let WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
+        let WorkspaceRuntime::Runpod(RunpodRuntime {
             placement,
             resources,
         }) = &workspace.runtime;
-        assert_eq!(placement.gpu_cloud_provider_id, GpuCloudProviderId::Runpod);
+        assert_eq!(placement.data_center_id, "dc");
+        assert_eq!(placement.gpu_type_id, "gpu");
         assert!(resources.is_empty());
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
 
@@ -502,7 +501,7 @@ mod tests {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
 
-        let options = block_on(service.get_provider_placement_options(GpuCloudProviderId::Runpod))
+        let options = block_on(service.get_provider_placement_options())
             .expect("placement options should resolve");
 
         assert_eq!(options, placement_options());
@@ -615,8 +614,8 @@ mod tests {
             .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume_id = Some("existing-volume".to_string());
+        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+        runtime.resources.network_volume_id = Some("existing-volume".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)
@@ -674,9 +673,12 @@ mod tests {
             .expect("workspace read should succeed")
             .expect("workspace should exist");
         assert_eq!(workspace.state, WorkspaceState::Ready);
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        assert_eq!(runtime.resources.volume_id.as_deref(), Some("volume"));
-        assert_eq!(runtime.resources.provisioner_id, None);
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id.as_deref(),
+            Some("volume")
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
         assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
 
         let latest = service
@@ -752,9 +754,12 @@ mod tests {
                 reason: WorkspaceCleanupRequiredReason::ProvisionFailed
             }
         );
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        assert_eq!(runtime.resources.volume_id.as_deref(), Some("volume"));
-        assert_eq!(runtime.resources.provisioner_id, None);
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id.as_deref(),
+            Some("volume")
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
         assert_eq!(runtime.resources.endpoint_id, None);
 
         let latest = service
@@ -808,9 +813,12 @@ mod tests {
                 reason: WorkspaceCleanupRequiredReason::ProvisionFailed
             }
         );
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        assert_eq!(runtime.resources.volume_id.as_deref(), Some("volume"));
-        assert_eq!(runtime.resources.provisioner_id, None);
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id.as_deref(),
+            Some("volume")
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
         assert_eq!(runtime.resources.endpoint_id, None);
 
         let latest = service
@@ -1141,7 +1149,7 @@ mod tests {
                 reason: WorkspaceCleanupRequiredReason::CleanupFailed
             }
         );
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
     }
 
@@ -1289,8 +1297,8 @@ mod tests {
             .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume_id = Some("volume".to_string());
+        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+        runtime.resources.network_volume_id = Some("volume".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)
@@ -1344,8 +1352,8 @@ mod tests {
             .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume_id = Some("volume".to_string());
+        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+        runtime.resources.network_volume_id = Some("volume".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)
@@ -1518,8 +1526,8 @@ mod tests {
             .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume_id = Some("volume-1".to_string());
+        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+        runtime.resources.network_volume_id = Some("volume-1".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)

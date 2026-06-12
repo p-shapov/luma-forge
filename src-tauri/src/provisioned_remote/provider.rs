@@ -1,8 +1,7 @@
 use crate::{
     domain::{
-        provisioned_remote::GpuCloudProviderId,
         provisioned_remote::ProvisionedRemoteProvisionerStatus,
-        provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
+        provisioned_remote::{RunpodEndpointKeepAliveLimits, RunpodPlacementOptions},
         workflow_preset::ModelAsset,
     },
     shared::AppFuture,
@@ -15,7 +14,7 @@ pub struct CreateVolumeParams {
     pub workspace_id: String,
     pub datacenter_id: String,
     pub gpu_id: String,
-    pub size_bytes: u64,
+    pub size_gb: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,7 +53,7 @@ pub struct CreateEndpointParams {
     pub gpu_id: String,
     pub volume_id: String,
     pub endpoint_image_ref: String,
-    pub keep_alive_limits: Option<RemoteEndpointKeepAliveLimits>,
+    pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimits>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +65,7 @@ pub struct DeleteEndpointParams {
 pub trait ProvisionedRemotePlacementOptionsProvider {
     fn get_provider_placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>>;
 }
 
 pub trait ProvisionedRemoteVolumeProvider {
@@ -118,5 +117,4 @@ pub trait ProvisionedRemoteProvider:
     + Send
     + Sync
 {
-    fn provider_id(&self) -> GpuCloudProviderId;
 }

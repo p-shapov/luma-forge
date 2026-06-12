@@ -11,7 +11,7 @@ use crate::{
         },
         CommandResult,
     },
-    domain::provisioned_remote::RemotePlacementPlan,
+    domain::provisioned_remote::RunpodPlacementPlan,
     provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
 };
 
@@ -21,7 +21,7 @@ pub async fn create_workspace(
     state: State<'_, AppState>,
     request: CreateWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
-    let remote_placement: RemotePlacementPlan = request.remote_placement.into();
+    let remote_placement: RunpodPlacementPlan = request.remote_placement.into();
 
     let workspace = state
         .provisioned_remote

@@ -1,5 +1,5 @@
 use crate::domain::{
-    provisioned_remote::ProvisionedRemoteRuntime, runtime_contract::RuntimeContractResolved,
+    provisioned_remote::RunpodRuntime, runtime_contract::RuntimeContractResolved,
     workflow_preset::WorkflowPresetResolved,
 };
 
@@ -9,7 +9,7 @@ use crate::workflow_catalog::reader::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProvisionedRemoteRuntimeContracts {
+pub struct RunpodRuntimeContracts {
     pub endpoint_contract: RuntimeContractResolved,
     pub provisioner_contract: RuntimeContractResolved,
 }
@@ -19,8 +19,8 @@ pub struct ProvisionedRemoteContractResolver;
 impl ProvisionedRemoteContractResolver {
     pub fn resolve(
         workflow: &WorkflowPresetResolved,
-        _runtime: &ProvisionedRemoteRuntime,
-    ) -> Result<ProvisionedRemoteRuntimeContracts, ProvisionedRemoteError> {
+        _runtime: &RunpodRuntime,
+    ) -> Result<RunpodRuntimeContracts, ProvisionedRemoteError> {
         let endpoint_catalog = BundledEndpointContractCatalogReader
             .read_endpoint_contract_catalog()
             .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
@@ -35,7 +35,7 @@ impl ProvisionedRemoteContractResolver {
             .resolve(&workflow.runpod_runtime_requirements.provisioner_contract)
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
 
-        Ok(ProvisionedRemoteRuntimeContracts {
+        Ok(RunpodRuntimeContracts {
             endpoint_contract,
             provisioner_contract,
         })

@@ -52,7 +52,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
     ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>> {
         Box::pin(async move {
             let rows = sqlx::query(
-                "SELECT id, runtime_type, provider_id, state, state_reason, workflow_id, workflow_version, runtime_json
+                "SELECT id, runtime_type, state, state_reason, workflow_id, workflow_version, runtime_json
                  FROM workspaces ORDER BY created_at ASC",
             )
             .fetch_all(&self.pool)
@@ -75,7 +75,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             validate_id(id)?;
 
             let row = sqlx::query(
-                "SELECT id, runtime_type, provider_id, state, state_reason, workflow_id, workflow_version, runtime_json
+                "SELECT id, runtime_type, state, state_reason, workflow_id, workflow_version, runtime_json
                  FROM workspaces WHERE id = ?1",
             )
             .bind(id)
@@ -96,7 +96,6 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             validate_workflow_reference(&workspace.workflow)?;
 
             let encoded = runtime::encode_runtime(&workspace.runtime)?;
-            let provider_id = json_string(&encoded.provider_id)?;
             let state = workspace_state_columns(&workspace.state);
             let now = timestamp()?;
 
@@ -104,7 +103,6 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 "INSERT INTO workspaces (
                     id,
                     runtime_type,
-                    provider_id,
                     state,
                     state_reason,
                     workflow_id,
@@ -113,11 +111,10 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                     created_at,
                     updated_at
                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )
             .bind(&workspace.id)
             .bind(&encoded.runtime_type)
-            .bind(provider_id)
             .bind(state.state)
             .bind(state.reason)
             .bind(&workspace.workflow.id)
@@ -148,24 +145,21 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             validate_workflow_reference(&workspace.workflow)?;
 
             let encoded = runtime::encode_runtime(&workspace.runtime)?;
-            let provider_id = json_string(&encoded.provider_id)?;
             let state = workspace_state_columns(&workspace.state);
             let now = timestamp()?;
 
             let result = sqlx::query(
                 "UPDATE workspaces
                  SET runtime_type = ?1,
-                     provider_id = ?2,
-                     state = ?3,
-                     state_reason = ?4,
-                     workflow_id = ?5,
-                     workflow_version = ?6,
-                     runtime_json = ?7,
-                     updated_at = ?8
-                 WHERE id = ?9",
+                     state = ?2,
+                     state_reason = ?3,
+                     workflow_id = ?4,
+                     workflow_version = ?5,
+                     runtime_json = ?6,
+                     updated_at = ?7
+                 WHERE id = ?8",
             )
             .bind(&encoded.runtime_type)
-            .bind(provider_id)
             .bind(state.state)
             .bind(state.reason)
             .bind(&workspace.workflow.id)
@@ -227,9 +221,6 @@ fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, Worksp
     let runtime_type = row
         .try_get::<String, _>("runtime_type")
         .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let provider_id = row
-        .try_get::<String, _>("provider_id")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
     let state = row
         .try_get::<String, _>("state")
         .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
@@ -252,11 +243,6 @@ fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, Worksp
     validate_workflow_reference(&workflow)?;
     let state = workspace_state_from_columns(&state, state_reason.as_deref())?;
     let runtime = runtime::decode_runtime(&runtime_type, &runtime_json)?;
-    let encoded = runtime::encode_runtime(&runtime)?;
-
-    if json_string(&encoded.provider_id)? != provider_id {
-        return Err(WorkspaceCatalogError::Corrupt);
-    }
 
     Ok(Workspace {
         id,
@@ -264,17 +250,6 @@ fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, Worksp
         state,
         runtime,
     })
-}
-
-fn json_string<T>(value: &T) -> Result<String, WorkspaceCatalogError>
-where
-    T: serde::Serialize,
-{
-    serde_json::to_value(value)
-        .map_err(|_| WorkspaceCatalogError::Corrupt)?
-        .as_str()
-        .map(str::to_string)
-        .ok_or(WorkspaceCatalogError::Corrupt)
 }
 
 struct WorkspaceStateColumns {
@@ -388,9 +363,9 @@ mod tests {
     };
 
     use crate::domain::{
-        provisioned_remote::GpuCloudProviderId,
-        provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
-        provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
+        provisioned_remote::{
+            RunpodEndpointKeepAliveLimits, RunpodPlacementPlan, RunpodResources, RunpodRuntime,
+        },
         workflow_preset::WorkflowReference,
         workspace::{
             Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
@@ -487,7 +462,6 @@ mod tests {
     struct WorkspaceRowInsert<'a> {
         id: &'a str,
         runtime_type: &'a str,
-        provider_id: &'a str,
         state: &'a str,
         state_reason: Option<&'a str>,
         workflow_id: &'a str,
@@ -502,7 +476,6 @@ mod tests {
             "INSERT INTO workspaces (
                 id,
                 runtime_type,
-                provider_id,
                 state,
                 state_reason,
                 workflow_id,
@@ -511,11 +484,10 @@ mod tests {
                 created_at,
                 updated_at
             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )
         .bind(row.id)
         .bind(row.runtime_type)
-        .bind(row.provider_id)
         .bind(row.state)
         .bind(row.state_reason)
         .bind(row.workflow_id)
@@ -536,22 +508,22 @@ mod tests {
                 version: "1".to_string(),
             },
             state: WorkspaceState::NotProvisioned,
-            runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
-                placement: RemotePlacementPlan {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                    datacenter_id: "datacenter-1".to_string(),
-                    gpu_id: "gpu-1".to_string(),
-                    volume_size_bytes: 1,
-                    keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+            runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
+                placement: RunpodPlacementPlan {
+                    data_center_id: "datacenter-1".to_string(),
+                    gpu_type_id: "gpu-1".to_string(),
+                    volume_size_gb: 19,
+                    keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
                         default_seconds: 60,
                         min_seconds: 0,
                         max_seconds: 3600,
                     }),
                 },
-                resources: ProvisionedRemoteResources {
-                    volume_id: None,
-                    provisioner_id: None,
+                resources: RunpodResources {
+                    network_volume_id: None,
+                    provisioner_pod_id: None,
                     endpoint_id: None,
+                    template_id: None,
                 },
             }),
         }
@@ -571,7 +543,6 @@ mod tests {
 
         assert_text_not_null_column(&pool, "workspaces", "id").await;
         assert_text_not_null_column(&pool, "workspaces", "runtime_type").await;
-        assert_text_not_null_column(&pool, "workspaces", "provider_id").await;
         assert_text_not_null_column(&pool, "workspaces", "state").await;
         assert_text_nullable_column(&pool, "workspaces", "state_reason").await;
         assert_text_not_null_column(&pool, "workspaces", "workflow_id").await;
@@ -581,7 +552,6 @@ mod tests {
         assert_text_not_null_column(&pool, "workspaces", "updated_at").await;
 
         assert!(index_exists(&pool, "idx_workspaces_runtime_type").await);
-        assert!(index_exists(&pool, "idx_workspaces_provider_id").await);
         assert!(index_exists(&pool, "idx_workspaces_state").await);
 
         let version = sqlx::query("SELECT value FROM metadata WHERE key = ?1")
@@ -669,7 +639,6 @@ mod tests {
             "CREATE TABLE workspaces (
                 id TEXT NOT NULL,
                 runtime_type TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
                 workflow_id TEXT NOT NULL,
@@ -709,7 +678,6 @@ mod tests {
             "CREATE TABLE workspaces (
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
                 workflow_id TEXT NOT NULL,
@@ -748,7 +716,6 @@ mod tests {
             "CREATE TABLE workspaces (
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT NOT NULL,
                 workflow_id TEXT NOT NULL,
@@ -787,7 +754,6 @@ mod tests {
             "CREATE TABLE workspaces (
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
                 workflow_id TEXT NOT NULL,
@@ -804,10 +770,6 @@ mod tests {
             .execute(&pool)
             .await
             .expect("setup runtime type index creation should succeed");
-        sqlx::query("CREATE INDEX idx_workspaces_provider_id ON workspaces (provider_id)")
-            .execute(&pool)
-            .await
-            .expect("setup provider id index creation should succeed");
         sqlx::query("CREATE INDEX idx_workspaces_state ON workspaces (state)")
             .execute(&pool)
             .await
@@ -842,7 +804,6 @@ mod tests {
             "CREATE TABLE workspaces (
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
                 workflow_id TEXT NOT NULL,
@@ -859,10 +820,6 @@ mod tests {
             .execute(&pool)
             .await
             .expect("setup runtime type index creation should succeed");
-        sqlx::query("CREATE INDEX idx_workspaces_provider_id ON workspaces (provider_id)")
-            .execute(&pool)
-            .await
-            .expect("setup provider id index creation should succeed");
         sqlx::query(
             "CREATE INDEX idx_workspaces_state ON workspaces (state) WHERE state = 'ready'",
         )
@@ -894,7 +851,7 @@ mod tests {
             .expect("insert should succeed");
 
         let row = sqlx::query(
-            "SELECT runtime_type, provider_id, state, state_reason, workflow_id, workflow_version, runtime_json
+            "SELECT runtime_type, state, state_reason, workflow_id, workflow_version, runtime_json
              FROM workspaces WHERE id = ?1",
         )
         .bind("workspace-1")
@@ -902,8 +859,7 @@ mod tests {
         .await
         .expect("workspace row should exist");
 
-        assert_eq!(row.get::<String, _>("runtime_type"), "provisioned_remote");
-        assert_eq!(row.get::<String, _>("provider_id"), "runpod");
+        assert_eq!(row.get::<String, _>("runtime_type"), "runpod");
         assert_eq!(row.get::<String, _>("state"), "not_provisioned");
         assert_eq!(row.get::<Option<String>, _>("state_reason"), None);
         assert_eq!(row.get::<String, _>("workflow_id"), "preset");
@@ -1044,7 +1000,7 @@ mod tests {
     async fn invalid_state_reason_combinations_return_corrupt() {
         let path = catalog_path("invalid-state-reason");
         let workspace = workspace("workspace-1");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace.runtime;
+        let WorkspaceRuntime::Runpod(runtime) = workspace.runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1067,8 +1023,7 @@ mod tests {
                 &repository.pool,
                 WorkspaceRowInsert {
                     id,
-                    runtime_type: "provisioned_remote",
-                    provider_id: "runpod",
+                    runtime_type: "runpod",
                     state,
                     state_reason,
                     workflow_id: "preset",
@@ -1095,7 +1050,7 @@ mod tests {
     #[tokio::test]
     async fn empty_workflow_id_returns_corrupt() {
         let path = catalog_path("empty-workflow-id");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace("workspace-1").runtime;
+        let WorkspaceRuntime::Runpod(runtime) = workspace("workspace-1").runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1106,8 +1061,7 @@ mod tests {
             &repository.pool,
             WorkspaceRowInsert {
                 id: "workspace-1",
-                runtime_type: "provisioned_remote",
-                provider_id: "runpod",
+                runtime_type: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
                 workflow_id: "",
@@ -1133,7 +1087,7 @@ mod tests {
     #[tokio::test]
     async fn empty_workflow_version_returns_corrupt() {
         let path = catalog_path("empty-workflow-version");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace("workspace-1").runtime;
+        let WorkspaceRuntime::Runpod(runtime) = workspace("workspace-1").runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1144,8 +1098,7 @@ mod tests {
             &repository.pool,
             WorkspaceRowInsert {
                 id: "workspace-1",
-                runtime_type: "provisioned_remote",
-                provider_id: "runpod",
+                runtime_type: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
                 workflow_id: "preset",
@@ -1179,8 +1132,7 @@ mod tests {
             &repository.pool,
             WorkspaceRowInsert {
                 id: "workspace-1",
-                runtime_type: "provisioned_remote",
-                provider_id: "runpod",
+                runtime_type: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
                 workflow_id: "preset",
@@ -1206,7 +1158,7 @@ mod tests {
     async fn unknown_runtime_type_returns_corrupt() {
         let path = catalog_path("unknown-runtime-type");
         let workspace = workspace("workspace-1");
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace.runtime;
+        let WorkspaceRuntime::Runpod(runtime) = workspace.runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
@@ -1218,7 +1170,6 @@ mod tests {
             WorkspaceRowInsert {
                 id: "workspace-1",
                 runtime_type: "unknown",
-                provider_id: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
                 workflow_id: "preset",
@@ -1246,10 +1197,10 @@ mod tests {
         let path = catalog_path("created-at-order");
         let workspace_1 = workspace("workspace-1");
         let workspace_2 = workspace("workspace-2");
-        let WorkspaceRuntime::ProvisionedRemote(runtime_1) = &workspace_1.runtime;
+        let WorkspaceRuntime::Runpod(runtime_1) = &workspace_1.runtime;
         let runtime_1_json =
             serde_json::to_string(runtime_1).expect("runtime serialization should succeed");
-        let WorkspaceRuntime::ProvisionedRemote(runtime_2) = &workspace_2.runtime;
+        let WorkspaceRuntime::Runpod(runtime_2) = &workspace_2.runtime;
         let runtime_2_json =
             serde_json::to_string(runtime_2).expect("runtime serialization should succeed");
 
@@ -1260,8 +1211,7 @@ mod tests {
             &repository.pool,
             WorkspaceRowInsert {
                 id: "workspace-2",
-                runtime_type: "provisioned_remote",
-                provider_id: "runpod",
+                runtime_type: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
                 workflow_id: &workspace_2.workflow.id,
@@ -1276,8 +1226,7 @@ mod tests {
             &repository.pool,
             WorkspaceRowInsert {
                 id: "workspace-1",
-                runtime_type: "provisioned_remote",
-                provider_id: "runpod",
+                runtime_type: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
                 workflow_id: &workspace_1.workflow.id,

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    domain::provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
+    domain::provisioned_remote::{RunpodEndpointKeepAliveLimits, RunpodPlacementOptions},
     provisioned_remote::errors::ProvisionedRemoteError,
     secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService},
     shared::AppFuture,
@@ -19,7 +19,7 @@ use super::mapping::{
 pub trait RunpodApi: Send + Sync {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>>;
 
     fn create_network_volume<'a>(
         &'a self,
@@ -82,7 +82,7 @@ pub struct CreateEndpointRequest {
     pub image_ref: String,
     pub network_volume_id: String,
     pub mount_path: String,
-    pub keep_alive_limits: RemoteEndpointKeepAliveLimits,
+    pub keep_alive_limits: RunpodEndpointKeepAliveLimits,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,7 +200,7 @@ where
 {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
         Box::pin(async move {
             let api_key = self.api_key().await?;
             let response = self

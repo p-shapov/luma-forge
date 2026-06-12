@@ -9,8 +9,8 @@ pub use lifecycle::{
     ProvisionedRemoteProvisionerStatus,
 };
 pub use placement::{
-    RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits, RemoteGpuPlacementOption,
-    RemotePlacementOptions, RemotePlacementPlan,
+    RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits, RunpodGpuPlacementOption,
+    RunpodPlacementOptions, RunpodPlacementPlan,
 };
-pub use provider::{GpuCloudProviderId, ProviderApiError};
-pub use runtime::{ProvisionedRemoteResources, ProvisionedRemoteRuntime};
+pub use provider::ProviderApiError;
+pub use runtime::{RunpodResources, RunpodRuntime};

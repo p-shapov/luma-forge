@@ -24,11 +24,11 @@ pub fn get_workflow_catalog(state: State<'_, AppState>) -> CommandResult<Workflo
 #[specta::specta]
 pub async fn get_provider_placement_options(
     state: State<'_, AppState>,
-    request: GetProviderPlacementOptionsRequest,
+    _request: GetProviderPlacementOptionsRequest,
 ) -> CommandResult<RemotePlacementOptionsResponse> {
     let options = state
         .provisioned_remote
-        .get_provider_placement_options(request.provider_id.into())
+        .get_provider_placement_options()
         .await?;
 
     Ok(options.into())

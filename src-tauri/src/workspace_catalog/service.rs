@@ -50,9 +50,8 @@ mod tests {
 
     use crate::{
         domain::{
-            provisioned_remote::GpuCloudProviderId,
-            provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
-            provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
+            provisioned_remote::{RunpodEndpointKeepAliveLimits, RunpodPlacementPlan},
+            provisioned_remote::{RunpodResources, RunpodRuntime},
             workflow_preset::WorkflowReference,
             workspace::{Workspace, WorkspaceCatalog, WorkspaceRuntime, WorkspaceState},
         },
@@ -330,22 +329,22 @@ mod tests {
                 version: "1".to_string(),
             },
             state: WorkspaceState::NotProvisioned,
-            runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
-                placement: RemotePlacementPlan {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                    datacenter_id: "datacenter-1".to_string(),
-                    gpu_id: "gpu-1".to_string(),
-                    volume_size_bytes: 1,
-                    keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+            runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
+                placement: RunpodPlacementPlan {
+                    data_center_id: "datacenter-1".to_string(),
+                    gpu_type_id: "gpu-1".to_string(),
+                    volume_size_gb: 1,
+                    keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
                         default_seconds: 60,
                         min_seconds: 0,
                         max_seconds: 3600,
                     }),
                 },
-                resources: ProvisionedRemoteResources {
-                    volume_id: None,
-                    provisioner_id: None,
+                resources: RunpodResources {
+                    network_volume_id: None,
+                    provisioner_pod_id: None,
                     endpoint_id: None,
+                    template_id: None,
                 },
             }),
         }

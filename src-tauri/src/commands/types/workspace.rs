@@ -7,7 +7,7 @@ use crate::domain::{
     provisioned_remote::{
         ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep, ProvisionedRemoteLifecycleError,
         ProvisionedRemoteLifecycleOperationPayload, ProvisionedRemoteProvisionStep,
-        ProvisionedRemoteResources, ProvisionedRemoteRuntime,
+        RunpodResources, RunpodRuntime,
     },
     workflow_preset::WorkflowReference,
     workspace::{
@@ -75,19 +75,19 @@ pub enum WorkspaceRuntimeInvalidReasonResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "runtimeType", rename_all = "snake_case")]
 pub enum WorkspaceRuntimeResponse {
-    ProvisionedRemote(ProvisionedRemoteWorkspaceResponse),
+    Runpod(RunpodWorkspaceResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ProvisionedRemoteWorkspaceResponse {
+pub struct RunpodWorkspaceResponse {
     pub placement: RemotePlacementPlanInput,
-    pub resources: ProvisionedRemoteResourcesResponse,
+    pub resources: RunpodResourcesResponse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ProvisionedRemoteResourcesResponse {
+pub struct RunpodResourcesResponse {
     pub volume_id: Option<String>,
     pub provisioner_id: Option<String>,
     pub endpoint_id: Option<String>,
@@ -316,13 +316,13 @@ impl From<WorkspaceRuntimeInvalidReason> for WorkspaceRuntimeInvalidReasonRespon
 impl From<WorkspaceRuntime> for WorkspaceRuntimeResponse {
     fn from(value: WorkspaceRuntime) -> Self {
         match value {
-            WorkspaceRuntime::ProvisionedRemote(remote) => Self::ProvisionedRemote(remote.into()),
+            WorkspaceRuntime::Runpod(runtime) => Self::Runpod(runtime.into()),
         }
     }
 }
 
-impl From<ProvisionedRemoteRuntime> for ProvisionedRemoteWorkspaceResponse {
-    fn from(value: ProvisionedRemoteRuntime) -> Self {
+impl From<RunpodRuntime> for RunpodWorkspaceResponse {
+    fn from(value: RunpodRuntime) -> Self {
         Self {
             placement: value.placement.into(),
             resources: value.resources.into(),
@@ -330,11 +330,11 @@ impl From<ProvisionedRemoteRuntime> for ProvisionedRemoteWorkspaceResponse {
     }
 }
 
-impl From<ProvisionedRemoteResources> for ProvisionedRemoteResourcesResponse {
-    fn from(value: ProvisionedRemoteResources) -> Self {
+impl From<RunpodResources> for RunpodResourcesResponse {
+    fn from(value: RunpodResources) -> Self {
         Self {
-            volume_id: value.volume_id,
-            provisioner_id: value.provisioner_id,
+            volume_id: value.network_volume_id,
+            provisioner_id: value.provisioner_pod_id,
             endpoint_id: value.endpoint_id,
         }
     }
@@ -499,8 +499,7 @@ mod tests {
     use super::{
         CreateWorkspaceRequest, LifecycleOperationPayloadResponse,
         ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
-        ProvisionedRemoteResourcesResponse, ProvisionedRemoteWorkspaceResponse,
-        WorkspaceRuntimeResponse,
+        RunpodResourcesResponse, RunpodWorkspaceResponse, WorkspaceRuntimeResponse,
     };
 
     #[test]
@@ -512,7 +511,7 @@ mod tests {
                     crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
-                volume_size_bytes: 1,
+                volume_size_gb: 1,
                 keep_alive_limits: None,
             },
         };
@@ -525,27 +524,26 @@ mod tests {
     }
 
     #[test]
-    fn workspace_runtime_response_serializes_provisioned_remote_variant() {
-        let response =
-            WorkspaceRuntimeResponse::ProvisionedRemote(ProvisionedRemoteWorkspaceResponse {
-                placement: crate::commands::types::placement::RemotePlacementPlanInput {
-                    gpu_cloud_provider_id:
-                        crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
-                    datacenter_id: "dc".to_string(),
-                    gpu_id: "gpu".to_string(),
-                    volume_size_bytes: 1,
-                    keep_alive_limits: None,
-                },
-                resources: ProvisionedRemoteResourcesResponse {
-                    volume_id: None,
-                    provisioner_id: None,
-                    endpoint_id: Some("endpoint".to_string()),
-                },
-            });
+    fn workspace_runtime_response_serializes_runpod_variant() {
+        let response = WorkspaceRuntimeResponse::Runpod(RunpodWorkspaceResponse {
+            placement: crate::commands::types::placement::RemotePlacementPlanInput {
+                gpu_cloud_provider_id:
+                    crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
+                datacenter_id: "dc".to_string(),
+                gpu_id: "gpu".to_string(),
+                volume_size_gb: 1,
+                keep_alive_limits: None,
+            },
+            resources: RunpodResourcesResponse {
+                volume_id: None,
+                provisioner_id: None,
+                endpoint_id: Some("endpoint".to_string()),
+            },
+        });
 
         let json = serde_json::to_value(&response).expect("runtime json");
 
-        assert_eq!(json["runtimeType"], "provisioned_remote");
+        assert_eq!(json["runtimeType"], "runpod");
         assert_eq!(json["placement"]["gpuCloudProviderId"], "runpod");
         assert_eq!(json["resources"]["endpointId"], "endpoint");
         assert!(json["resources"].get("endpoint").is_none());

@@ -112,17 +112,6 @@ export type ProvisionedRemoteLifecycleOperationPayloadResponse = { operation: "p
 
 export type ProvisionedRemoteProvisionStepResponse = "create_volume" | "start_provisioner" | "poll_provisioner" | "terminate_provisioner" | "create_endpoint";
 
-export type ProvisionedRemoteResourcesResponse = {
-	volumeId: string | null,
-	provisionerId: string | null,
-	endpointId: string | null,
-};
-
-export type ProvisionedRemoteWorkspaceResponse = {
-	placement: RemotePlacementPlanInput,
-	resources: ProvisionedRemoteResourcesResponse,
-};
-
 export type RemoteDatacenterPlacementOptionResponse = {
 	id: string,
 	name: string,
@@ -138,12 +127,12 @@ export type RemoteEndpointKeepAliveLimitsDto = {
 export type RemoteGpuPlacementOptionResponse = {
 	id: string,
 	name: string,
-	vramBytes: number,
+	vramGb: number,
 	availabilityScore: number,
 };
 
 export type RemotePlacementOptionsResponse = {
-	maxPersistentStorageVolumeSizeBytes: number | null,
+	maxNetworkVolumeSizeGb: number | null,
 	datacenters: RemoteDatacenterPlacementOptionResponse[],
 };
 
@@ -151,23 +140,28 @@ export type RemotePlacementPlanInput = {
 	gpuCloudProviderId: GpuCloudProviderIdDto,
 	datacenterId: string,
 	gpuId: string,
-	volumeSizeBytes: number,
+	volumeSizeGb: number,
 	keepAliveLimits: RemoteEndpointKeepAliveLimitsDto | null,
-};
-
-export type RemoteProviderRuntimeRequirementsResponse = {
-	gpuCloudProviderId: GpuCloudProviderIdDto,
-	endpointContract: RuntimeContractReferenceResponse,
-	provisionerContract: RuntimeContractReferenceResponse,
-};
-
-export type RemoteRuntimeRequirementsResponse = {
-	requiredBaseVolumeSizeBytes: number,
-	providerRequirements: RemoteProviderRuntimeRequirementsResponse[],
 };
 
 export type RunningLifecycleOperationsResponse = {
 	operations: LifecycleOperationResponse[],
+};
+
+export type RunpodResourcesResponse = {
+	volumeId: string | null,
+	provisionerId: string | null,
+	endpointId: string | null,
+};
+
+export type RunpodRuntimeRequirementsResponse = {
+	endpointContract: RuntimeContractReferenceResponse,
+	provisionerContract: RuntimeContractReferenceResponse,
+};
+
+export type RunpodWorkspaceResponse = {
+	placement: RemotePlacementPlanInput,
+	resources: RunpodResourcesResponse,
 };
 
 export type RuntimeContractReferenceResponse = {
@@ -200,7 +194,8 @@ export type WorkflowReferenceResponse = {
 export type WorkflowRevisionResponse = {
 	version: string,
 	requiresHuggingFaceApiKey: boolean,
-	remoteRuntimeRequirements: RemoteRuntimeRequirementsResponse,
+	requiredVolumeSizeGb: number,
+	runpodRuntimeRequirements: RunpodRuntimeRequirementsResponse,
 	requiredModelAssets: ModelAssetResponse[],
 };
 
@@ -232,7 +227,7 @@ export type WorkspaceResponse = {
 
 export type WorkspaceRuntimeInvalidReasonResponse = "operation_interrupted" | "provision_failed" | "cleanup_failed" | "delete_failed" | "corrupt_runtime_state";
 
-export type WorkspaceRuntimeResponse = { runtimeType: "provisioned_remote" } & (ProvisionedRemoteWorkspaceResponse);
+export type WorkspaceRuntimeResponse = { runtimeType: "runpod" } & (RunpodWorkspaceResponse);
 
 export type WorkspaceStateResponse = "not_provisioned" | "ready" | ({ cleanup_required: {
 	reason: WorkspaceCleanupRequiredReasonResponse,

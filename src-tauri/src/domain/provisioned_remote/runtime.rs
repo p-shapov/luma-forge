@@ -1,28 +1,26 @@
 use serde::{Deserialize, Serialize};
 
-use super::{placement::RemotePlacementPlan, provider::GpuCloudProviderId};
+use super::placement::RunpodPlacementPlan;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteRuntime {
-    pub placement: RemotePlacementPlan,
-    pub resources: ProvisionedRemoteResources,
-}
-
-impl ProvisionedRemoteRuntime {
-    pub fn provider_id(&self) -> GpuCloudProviderId {
-        self.placement.gpu_cloud_provider_id
-    }
+pub struct RunpodRuntime {
+    pub placement: RunpodPlacementPlan,
+    pub resources: RunpodResources,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProvisionedRemoteResources {
-    pub volume_id: Option<String>,
-    pub provisioner_id: Option<String>,
+pub struct RunpodResources {
+    pub network_volume_id: Option<String>,
+    pub provisioner_pod_id: Option<String>,
     pub endpoint_id: Option<String>,
+    pub template_id: Option<String>,
 }
 
-impl ProvisionedRemoteResources {
+impl RunpodResources {
     pub fn is_empty(&self) -> bool {
-        self.volume_id.is_none() && self.provisioner_id.is_none() && self.endpoint_id.is_none()
+        self.network_volume_id.is_none()
+            && self.provisioner_pod_id.is_none()
+            && self.endpoint_id.is_none()
+            && self.template_id.is_none()
     }
 }

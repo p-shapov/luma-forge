@@ -51,7 +51,6 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         "CREATE TABLE IF NOT EXISTS workspaces (
             id TEXT NOT NULL PRIMARY KEY,
             runtime_type TEXT NOT NULL,
-            provider_id TEXT NOT NULL,
             state TEXT NOT NULL,
             state_reason TEXT,
             workflow_id TEXT NOT NULL,
@@ -96,12 +95,6 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
             },
             ExpectedColumn {
                 name: "runtime_type",
-                column_type: "TEXT",
-                not_null: true,
-                primary_key_position: 0,
-            },
-            ExpectedColumn {
-                name: "provider_id",
                 column_type: "TEXT",
                 not_null: true,
                 primary_key_position: 0,
@@ -158,10 +151,6 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
             column: "runtime_type",
         },
         ExpectedIndex {
-            name: "idx_workspaces_provider_id",
-            column: "provider_id",
-        },
-        ExpectedIndex {
             name: "idx_workspaces_state",
             column: "state",
         },
@@ -172,11 +161,6 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
     } else {
         pool.execute(
             "CREATE INDEX IF NOT EXISTS idx_workspaces_runtime_type ON workspaces (runtime_type)",
-        )
-        .await
-        .map_err(|_| WorkspaceCatalogError::MigrationFailed)?;
-        pool.execute(
-            "CREATE INDEX IF NOT EXISTS idx_workspaces_provider_id ON workspaces (provider_id)",
         )
         .await
         .map_err(|_| WorkspaceCatalogError::MigrationFailed)?;

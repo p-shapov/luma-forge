@@ -13,9 +13,9 @@ use crate::{
             LifecycleOperationState, WorkspaceId,
         },
         provisioned_remote::{
-            GpuCloudProviderId, ProvisionedRemoteProvisionerStatus,
-            RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits,
-            RemoteGpuPlacementOption, RemotePlacementOptions, RemotePlacementPlan,
+            ProvisionedRemoteProvisionerStatus, RunpodDatacenterPlacementOption,
+            RunpodEndpointKeepAliveLimits, RunpodGpuPlacementOption, RunpodPlacementOptions,
+            RunpodPlacementPlan,
         },
         workspace::{Workspace, WorkspaceCatalog},
     },
@@ -194,7 +194,7 @@ pub(crate) struct ProviderState {
     pub(crate) provisioner_image_refs: Vec<String>,
     pub(crate) endpoint_image_refs: Vec<String>,
     pub(crate) placement_options_result:
-        Option<Result<RemotePlacementOptions, ProvisionedRemoteError>>,
+        Option<Result<RunpodPlacementOptions, ProvisionedRemoteError>>,
     pub(crate) provisioner_status_results: Vec<ProvisionedRemoteProvisionerStatus>,
     pub(crate) create_volume_error: Option<ProvisionedRemoteError>,
     pub(crate) start_provisioner_error: Option<ProvisionedRemoteError>,
@@ -210,16 +210,16 @@ pub(crate) struct WorkspaceRepositoryState {
     pub(crate) delete_workspace_error: Option<WorkspaceCatalogError>,
 }
 
-pub(crate) fn placement_options() -> RemotePlacementOptions {
-    RemotePlacementOptions {
-        max_persistent_storage_volume_size_bytes: Some(10),
-        datacenters: vec![RemoteDatacenterPlacementOption {
+pub(crate) fn placement_options() -> RunpodPlacementOptions {
+    RunpodPlacementOptions {
+        max_network_volume_size_gb: Some(10),
+        datacenters: vec![RunpodDatacenterPlacementOption {
             id: "dc".to_string(),
             name: "Datacenter".to_string(),
-            gpu_options: vec![RemoteGpuPlacementOption {
+            gpu_options: vec![RunpodGpuPlacementOption {
                 id: "gpu".to_string(),
                 name: "GPU".to_string(),
-                vram_bytes: 24,
+                vram_gb: 24,
                 availability_score: 90,
             }],
         }],
@@ -239,7 +239,7 @@ impl FakeProvider {
 impl ProvisionedRemotePlacementOptionsProvider for FakeProvider {
     fn get_provider_placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("get_provider_placement_options");
@@ -371,11 +371,7 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
     }
 }
 
-impl ProvisionedRemoteProvider for FakeProvider {
-    fn provider_id(&self) -> GpuCloudProviderId {
-        GpuCloudProviderId::Runpod
-    }
-}
+impl ProvisionedRemoteProvider for FakeProvider {}
 
 #[derive(Clone, Default)]
 pub(crate) struct InMemoryWorkspaceRepository {
@@ -693,13 +689,12 @@ pub(crate) fn service_with_state_and_workspace_repository(
     )
 }
 
-fn placement_plan() -> RemotePlacementPlan {
-    RemotePlacementPlan {
-        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-        datacenter_id: "dc".to_string(),
-        gpu_id: "gpu".to_string(),
-        volume_size_bytes: 1,
-        keep_alive_limits: Some(RemoteEndpointKeepAliveLimits {
+fn placement_plan() -> RunpodPlacementPlan {
+    RunpodPlacementPlan {
+        data_center_id: "dc".to_string(),
+        gpu_type_id: "gpu".to_string(),
+        volume_size_gb: 1,
+        keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
             default_seconds: 60,
             min_seconds: 30,
             max_seconds: 120,

@@ -1,40 +1,37 @@
 use serde::{Deserialize, Serialize};
 
-use super::provider::GpuCloudProviderId;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteGpuPlacementOption {
+pub struct RunpodGpuPlacementOption {
     pub id: String,
     pub name: String,
-    pub vram_bytes: u64,
+    pub vram_gb: u64,
     pub availability_score: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteDatacenterPlacementOption {
+pub struct RunpodDatacenterPlacementOption {
     pub id: String,
     pub name: String,
-    pub gpu_options: Vec<RemoteGpuPlacementOption>,
+    pub gpu_options: Vec<RunpodGpuPlacementOption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemotePlacementOptions {
-    pub max_persistent_storage_volume_size_bytes: Option<u64>,
-    pub datacenters: Vec<RemoteDatacenterPlacementOption>,
+pub struct RunpodPlacementOptions {
+    pub max_network_volume_size_gb: Option<u64>,
+    pub datacenters: Vec<RunpodDatacenterPlacementOption>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoteEndpointKeepAliveLimits {
+pub struct RunpodEndpointKeepAliveLimits {
     pub default_seconds: u32,
     pub min_seconds: u32,
     pub max_seconds: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemotePlacementPlan {
-    pub gpu_cloud_provider_id: GpuCloudProviderId,
-    pub datacenter_id: String,
-    pub gpu_id: String,
-    pub volume_size_bytes: u64,
-    pub keep_alive_limits: Option<RemoteEndpointKeepAliveLimits>,
+pub struct RunpodPlacementPlan {
+    pub data_center_id: String,
+    pub gpu_type_id: String,
+    pub volume_size_gb: u64,
+    pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimits>,
 }

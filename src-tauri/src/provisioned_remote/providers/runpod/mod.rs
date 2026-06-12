@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use crate::{
     domain::provisioned_remote::{
-        GpuCloudProviderId, ProviderApiError, ProvisionedRemoteProvisionerStatus,
-        RemotePlacementOptions,
+        ProviderApiError, ProvisionedRemoteProvisionerStatus, RunpodPlacementOptions,
     },
     provisioned_remote::{
         errors::ProvisionedRemoteError,
@@ -33,7 +32,7 @@ use self::{
     },
     config::{
         DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, ENDPOINT_WORKSPACE_MOUNT_PATH,
-        NETWORK_VOLUME_MAX_SIZE_BYTES, PROVISIONER_PORT, PROVISIONER_WORKSPACE_MOUNT_PATH,
+        NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT, PROVISIONER_WORKSPACE_MOUNT_PATH,
         RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
@@ -111,10 +110,10 @@ where
 {
     fn get_provider_placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut options = self.api.placement_options().await?;
-            options.max_persistent_storage_volume_size_bytes = Some(NETWORK_VOLUME_MAX_SIZE_BYTES);
+            options.max_network_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
             Ok(options)
         })
     }
@@ -138,7 +137,7 @@ where
                 .create_network_volume(CreateNetworkVolumeRequest {
                     datacenter_id: params.datacenter_id,
                     name: mapping::workspace_resource_name(&params.workspace_id, "volume"),
-                    size_gb: mapping::bytes_to_runpod_volume_gb(params.size_bytes),
+                    size_gb: params.size_gb,
                 })
                 .await?;
 
@@ -296,9 +295,6 @@ where
     HS: SecretStore,
     HI: ApiKeyIdentityProvider,
 {
-    fn provider_id(&self) -> GpuCloudProviderId {
-        GpuCloudProviderId::Runpod
-    }
 }
 
 fn provisioner_status_url(pod_id: &str) -> String {
@@ -322,8 +318,8 @@ mod tests {
     use crate::{
         domain::{
             provisioned_remote::{
-                ProvisionedRemoteLifecycleError, RemoteDatacenterPlacementOption,
-                RemoteEndpointKeepAliveLimits, RemoteGpuPlacementOption,
+                ProvisionedRemoteLifecycleError, RunpodDatacenterPlacementOption,
+                RunpodEndpointKeepAliveLimits, RunpodGpuPlacementOption,
             },
             secrets::ApiKeyIdentity,
         },
@@ -352,17 +348,17 @@ mod tests {
     impl RunpodApi for FakeApi {
         fn placement_options<'a>(
             &'a self,
-        ) -> AppFuture<'a, Result<RemotePlacementOptions, ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
             Box::pin(async {
-                Ok(RemotePlacementOptions {
-                    max_persistent_storage_volume_size_bytes: None,
-                    datacenters: vec![RemoteDatacenterPlacementOption {
+                Ok(RunpodPlacementOptions {
+                    max_network_volume_size_gb: None,
+                    datacenters: vec![RunpodDatacenterPlacementOption {
                         id: "dc".to_string(),
                         name: "Datacenter".to_string(),
-                        gpu_options: vec![RemoteGpuPlacementOption {
+                        gpu_options: vec![RunpodGpuPlacementOption {
                             id: "gpu".to_string(),
                             name: "GPU".to_string(),
-                            vram_bytes: 24_000_000_000,
+                            vram_gb: 24,
                             availability_score: 100,
                         }],
                     }],
@@ -577,7 +573,7 @@ mod tests {
                 workspace_id: "workspace".to_string(),
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
-                size_bytes: 1_000_000_001,
+                size_gb: 75,
             })
             .await
             .expect("volume");
@@ -588,9 +584,21 @@ mod tests {
             vec![CreateNetworkVolumeRequest {
                 datacenter_id: "dc".to_string(),
                 name: "luma-forge-workspace-volume".to_string(),
-                size_gb: 2,
+                size_gb: 75,
             }]
         );
+    }
+
+    #[tokio::test]
+    async fn placement_options_sets_max_network_volume_size_in_gb() {
+        let provider = provider(Arc::default(), Arc::default());
+
+        let options = provider
+            .get_provider_placement_options()
+            .await
+            .expect("placement options");
+
+        assert_eq!(options.max_network_volume_size_gb, Some(4_000));
     }
 
     #[tokio::test]
@@ -731,7 +739,7 @@ mod tests {
         );
         assert_eq!(
             request.keep_alive_limits,
-            RemoteEndpointKeepAliveLimits {
+            RunpodEndpointKeepAliveLimits {
                 default_seconds: 300,
                 min_seconds: 0,
                 max_seconds: 86_400,

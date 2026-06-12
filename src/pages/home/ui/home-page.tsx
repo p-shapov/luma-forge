@@ -135,7 +135,7 @@ const commandProbes: CommandProbe[] = [
         gpuCloudProviderId: "runpod",
         datacenterId: "",
         gpuId: "",
-        volumeSizeBytes: 0,
+        volumeSizeGb: 0,
         keepAliveLimits: null,
       },
     }),

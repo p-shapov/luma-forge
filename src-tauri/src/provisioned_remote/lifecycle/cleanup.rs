@@ -56,11 +56,11 @@ where
     let mut failed_step = ProvisionedRemoteCleanupStep::DeleteEndpoint;
 
     let result = async {
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         let provider = if runtime.resources.is_empty() {
             None
         } else {
-            Some(provider_registry.for_provider(runtime.provider_id())?)
+            Some(provider_registry.for_provider()?)
         };
         if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::DeleteEndpoint;
@@ -81,7 +81,7 @@ where
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
-                    let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
+                    let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.endpoint_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
@@ -90,8 +90,8 @@ where
             }
         }
 
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        if let Some(provisioner_id) = runtime.resources.provisioner_id.clone() {
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        if let Some(provisioner_id) = runtime.resources.provisioner_pod_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::TerminateProvisioner;
             mark_running_step(
                 lifecycle_journal,
@@ -110,8 +110,8 @@ where
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteProvisionerNotFound) => {
-                    let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-                    runtime.resources.provisioner_id = None;
+                    let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+                    runtime.resources.provisioner_pod_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
                 }
@@ -119,8 +119,8 @@ where
             }
         }
 
-        let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        if let Some(volume_id) = runtime.resources.volume_id.clone() {
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        if let Some(volume_id) = runtime.resources.network_volume_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::DeleteVolume;
             mark_running_step(
                 lifecycle_journal,
@@ -139,8 +139,8 @@ where
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteVolumeNotFound) => {
-                    let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-                    runtime.resources.volume_id = None;
+                    let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+                    runtime.resources.network_volume_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
                 }
@@ -168,7 +168,7 @@ where
         }
         Err(error) => {
             let lifecycle_error = lifecycle_error_for(&error);
-            let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
+            let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
             workspace.state = if runtime.resources.is_empty() {
                 WorkspaceState::Invalid {
                     reason: WorkspaceRuntimeInvalidReason::CleanupFailed,

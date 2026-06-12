@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use crate::{
     domain::provisioned_remote::{
-        ProviderApiError, RemoteDatacenterPlacementOption, RemoteGpuPlacementOption,
-        RemotePlacementOptions,
+        ProviderApiError, RunpodDatacenterPlacementOption, RunpodGpuPlacementOption,
+        RunpodPlacementOptions,
     },
     provisioned_remote::errors::ProvisionedRemoteError,
     secrets_storage::SecretsStorageError,
@@ -36,10 +36,6 @@ const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
 pub fn not_implemented(operation: &str) -> ProvisionedRemoteError {
     let _ = operation;
     ProviderApiError::RequestFailed.into()
-}
-
-pub fn bytes_to_runpod_volume_gb(size_bytes: u64) -> u64 {
-    size_bytes.div_ceil(1_000_000_000)
 }
 
 pub fn workspace_resource_name(workspace_id: &str, suffix: &str) -> String {
@@ -369,7 +365,7 @@ pub(super) fn map_secret_error(error: SecretsStorageError) -> ProvisionedRemoteE
 
 pub(super) fn map_placement_response(
     response: GraphqlResponse<PlacementQueryData>,
-) -> Result<RemotePlacementOptions, ProvisionedRemoteError> {
+) -> Result<RunpodPlacementOptions, ProvisionedRemoteError> {
     if !response.errors.is_empty() {
         return Err(provider_request_failed());
     }
@@ -389,15 +385,15 @@ pub(super) fn map_placement_response(
                         .find(|gpu| gpu.id == availability.gpu_type_id)
                         .map(|gpu| (availability, gpu))
                 })
-                .map(|(availability, gpu)| RemoteGpuPlacementOption {
+                .map(|(availability, gpu)| RunpodGpuPlacementOption {
                     id: gpu.id.clone(),
                     name: gpu.display_name.clone(),
-                    vram_bytes: gpu.memory_gb * 1_000_000_000,
+                    vram_gb: gpu.memory_gb,
                     availability_score: stock_status_score(availability.stock_status.as_deref()),
                 })
                 .collect();
 
-            RemoteDatacenterPlacementOption {
+            RunpodDatacenterPlacementOption {
                 id: datacenter.id,
                 name: datacenter.name,
                 gpu_options,
@@ -405,8 +401,8 @@ pub(super) fn map_placement_response(
         })
         .collect();
 
-    Ok(RemotePlacementOptions {
-        max_persistent_storage_volume_size_bytes: None,
+    Ok(RunpodPlacementOptions {
+        max_network_volume_size_gb: None,
         datacenters,
     })
 }
@@ -425,17 +421,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::provisioned_remote::RemoteEndpointKeepAliveLimits;
+    use crate::domain::provisioned_remote::RunpodEndpointKeepAliveLimits;
     use crate::provisioned_remote::providers::runpod::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
-
-    #[test]
-    fn bytes_to_runpod_volume_gb_rounds_up_to_decimal_gb() {
-        assert_eq!(bytes_to_runpod_volume_gb(0), 0);
-        assert_eq!(bytes_to_runpod_volume_gb(1), 1);
-        assert_eq!(bytes_to_runpod_volume_gb(1_000_000_000), 1);
-        assert_eq!(bytes_to_runpod_volume_gb(1_000_000_001), 2);
-        assert_eq!(bytes_to_runpod_volume_gb(4_000_000_000), 4);
-    }
 
     #[test]
     fn workspace_resource_name_is_deterministic() {
@@ -539,7 +526,7 @@ mod tests {
             image_ref: "ghcr.io/luma/endpoint:latest".to_string(),
             network_volume_id: "volume-1".to_string(),
             mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
-            keep_alive_limits: RemoteEndpointKeepAliveLimits {
+            keep_alive_limits: RunpodEndpointKeepAliveLimits {
                 default_seconds: 300,
                 min_seconds: 0,
                 max_seconds: 86_400,
@@ -696,15 +683,15 @@ mod tests {
 
         assert_eq!(
             options,
-            RemotePlacementOptions {
-                max_persistent_storage_volume_size_bytes: None,
-                datacenters: vec![RemoteDatacenterPlacementOption {
+            RunpodPlacementOptions {
+                max_network_volume_size_gb: None,
+                datacenters: vec![RunpodDatacenterPlacementOption {
                     id: "US-TX-1".to_string(),
                     name: "Texas".to_string(),
-                    gpu_options: vec![RemoteGpuPlacementOption {
+                    gpu_options: vec![RunpodGpuPlacementOption {
                         id: "gpu-1".to_string(),
                         name: "RTX 4090".to_string(),
-                        vram_bytes: 24_000_000_000,
+                        vram_gb: 24,
                         availability_score: 25,
                     }],
                 }],

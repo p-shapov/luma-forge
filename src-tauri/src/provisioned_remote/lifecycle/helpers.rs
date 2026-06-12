@@ -9,7 +9,7 @@ use crate::{
         provisioned_remote::{
             ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep,
             ProvisionedRemoteLifecycleError, ProvisionedRemoteLifecycleOperationPayload,
-            ProvisionedRemoteProvisionStep, ProvisionedRemoteResources,
+            ProvisionedRemoteProvisionStep, RunpodResources,
         },
         workspace::{
             Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntimeInvalidReason,
@@ -176,7 +176,7 @@ impl ProvisionedRemoteStepPayload for ProvisionedRemoteDeleteStep {
     }
 }
 
-pub fn interrupted_state_for_resources(resources: &ProvisionedRemoteResources) -> WorkspaceState {
+pub fn interrupted_state_for_resources(resources: &RunpodResources) -> WorkspaceState {
     if resources.is_empty() {
         WorkspaceState::Invalid {
             reason: WorkspaceRuntimeInvalidReason::OperationInterrupted,

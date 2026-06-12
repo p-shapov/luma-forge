@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use crate::domain::provisioned_remote::GpuCloudProviderId;
-
 use super::{errors::ProvisionedRemoteError, provider::ProvisionedRemoteProvider};
 
 #[derive(Clone)]
@@ -28,13 +26,10 @@ impl ProvisionedRemoteProviderRegistry {
         }
     }
 
-    pub fn for_provider(
-        &self,
-        provider_id: GpuCloudProviderId,
-    ) -> Result<&dyn ProvisionedRemoteProvider, ProvisionedRemoteError> {
+    pub fn for_provider(&self) -> Result<&dyn ProvisionedRemoteProvider, ProvisionedRemoteError> {
         self.providers
             .iter()
-            .find(|provider| provider.provider_id() == provider_id)
+            .next()
             .map(|provider| provider.as_ref())
             .ok_or(ProvisionedRemoteError::ProviderAdapterUnavailable)
     }
