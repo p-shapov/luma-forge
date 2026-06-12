@@ -69,6 +69,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let provisioned_remote = ProvisionedRemoteService::new(
         workspace_repository,
         lifecycle_journal,
+        workflow_catalog.clone(),
         provider_registry,
         Arc::new(TauriProvisionedRemoteEventSink::new(app_handle.clone())),
         Arc::new(TauriBackgroundTaskSpawner),

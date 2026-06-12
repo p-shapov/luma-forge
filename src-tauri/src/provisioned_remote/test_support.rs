@@ -17,15 +17,12 @@ use crate::{
             RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits,
             RemoteGpuPlacementOption, RemotePlacementOptions, RemotePlacementPlan,
         },
-        runtime_contract::RuntimeContractReference,
-        workflow_preset::{
-            RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
-            WorkflowPresetResolved, WorkflowReference,
-        },
+        workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceCatalog},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
     shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, NoopEventSink},
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
 
@@ -139,6 +136,7 @@ where
                 &operation_id,
                 &context.workspace_repository,
                 &context.lifecycle_journal,
+                &context.workflow_catalog,
                 &context.provider_registry,
                 &context.event_sink,
                 Duration::ZERO,
@@ -649,7 +647,6 @@ pub(crate) fn draft_create_request(workspace_id: &str) -> CreateProvisionedRemot
     CreateProvisionedRemoteWorkspaceRequest {
         workspace_id: workspace_id.to_string(),
         workflow: workflow_reference(),
-        resolved_workflow: resolved_workflow(),
         remote_placement: placement_plan(),
     }
 }
@@ -660,6 +657,7 @@ pub(crate) fn service_with_state(
     ProvisionedRemoteService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
+        WorkflowCatalogService::new(),
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
@@ -673,6 +671,7 @@ pub(crate) fn service_without_lifecycle_spawning(
     ProvisionedRemoteService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
+        WorkflowCatalogService::new(),
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(state))]),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
@@ -687,6 +686,7 @@ pub(crate) fn service_with_state_and_workspace_repository(
     ProvisionedRemoteService::new(
         workspace_repository,
         InMemoryLifecycleJournalRepository::default(),
+        WorkflowCatalogService::new(),
         ProvisionedRemoteProviderRegistry::new(vec![Box::new(FakeProvider::new(provider_state))]),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
@@ -696,33 +696,8 @@ pub(crate) fn service_with_state_and_workspace_repository(
 
 fn workflow_reference() -> WorkflowReference {
     WorkflowReference {
-        id: "preset".to_string(),
+        id: "comfyui-hidream-o1-dev".to_string(),
         version: "1.0.0".to_string(),
-    }
-}
-
-fn resolved_workflow() -> WorkflowPresetResolved {
-    WorkflowPresetResolved {
-        id: "preset".to_string(),
-        version: "1.0.0".to_string(),
-        name: "Preset".to_string(),
-        execution_type: WorkflowExecutionType::T2i,
-        requires_hugging_face_api_key: false,
-        remote_runtime_requirements: RemoteRuntimeRequirements {
-            required_base_volume_size_bytes: 1,
-            provider_requirements: vec![RemoteProviderRuntimeRequirements {
-                gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                endpoint_contract: RuntimeContractReference {
-                    id: "endpoint".to_string(),
-                    version: "1.0.0".to_string(),
-                },
-                provisioner_contract: RuntimeContractReference {
-                    id: "provisioner".to_string(),
-                    version: "1.0.0".to_string(),
-                },
-            }],
-        },
-        required_model_assets: Vec::new(),
     }
 }
 

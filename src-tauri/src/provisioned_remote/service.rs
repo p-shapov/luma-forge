@@ -9,10 +9,11 @@ use crate::{
         provisioned_remote::GpuCloudProviderId,
         provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
         provisioned_remote::{RemotePlacementOptions, RemotePlacementPlan},
-        workflow_preset::{WorkflowPresetResolved, WorkflowReference},
+        workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
     shared::BackgroundTaskSpawner,
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
 
@@ -36,7 +37,6 @@ use super::{
 pub struct CreateProvisionedRemoteWorkspaceRequest {
     pub workspace_id: String,
     pub workflow: WorkflowReference,
-    pub resolved_workflow: WorkflowPresetResolved,
     pub remote_placement: RemotePlacementPlan,
 }
 
@@ -47,6 +47,7 @@ where
 {
     workspace_repository: W,
     lifecycle_journal: L,
+    workflow_catalog: WorkflowCatalogService,
     provider_registry: ProvisionedRemoteProviderRegistry,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn ProvisionedRemoteEventSink>,
@@ -62,6 +63,7 @@ where
     pub(crate) fn new(
         workspace_repository: W,
         lifecycle_journal: L,
+        workflow_catalog: WorkflowCatalogService,
         provider_registry: ProvisionedRemoteProviderRegistry,
         event_sink: Arc<dyn ProvisionedRemoteEventSink>,
         task_spawner: Arc<dyn BackgroundTaskSpawner>,
@@ -70,6 +72,7 @@ where
         Self {
             workspace_repository,
             lifecycle_journal,
+            workflow_catalog,
             provider_registry,
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
             event_sink,
@@ -85,12 +88,6 @@ where
         if request.workspace_id.trim().is_empty() {
             return Err(ProvisionedRemoteError::InvalidRuntimeState);
         }
-
-        request
-            .resolved_workflow
-            .remote_runtime_requirements
-            .resolve_provider_requirements(request.remote_placement.gpu_cloud_provider_id)
-            .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
 
         let workspace = Workspace {
             id: request.workspace_id,
@@ -356,6 +353,7 @@ where
         ProvisionedRemoteLifecycleRunnerContext {
             workspace_repository: self.workspace_repository.clone(),
             lifecycle_journal: self.lifecycle_journal.clone(),
+            workflow_catalog: self.workflow_catalog.clone(),
             provider_registry: self.provider_registry.clone(),
             lifecycle_operation_registry: self.lifecycle_operation_registry.clone(),
             event_sink: self.event_sink.clone(),
@@ -409,7 +407,10 @@ mod tests {
                 ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus,
                 ProvisionedRemoteRuntime,
             },
-            workspace::{WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceState},
+            workspace::{
+                WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
+                WorkspaceState,
+            },
         },
         lifecycle_journal::LifecycleJournalRepository,
         provisioned_remote::test_support::{
@@ -418,26 +419,9 @@ mod tests {
             InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, ProviderState,
             WorkspaceRepositoryState,
         },
-        workflow_catalog::BundledWorkflowCatalogReader,
         workspace_catalog::WorkspaceCatalogRepository,
     };
     use std::sync::{Arc, Mutex};
-
-    fn bundled_workflow_create_request(
-        workspace_id: &str,
-    ) -> super::CreateProvisionedRemoteWorkspaceRequest {
-        let mut request = draft_create_request(workspace_id);
-        request.workflow = crate::domain::workflow_preset::WorkflowReference {
-            id: "comfyui-hidream-o1-dev".to_string(),
-            version: "1.0.0".to_string(),
-        };
-        request.resolved_workflow = BundledWorkflowCatalogReader
-            .read_workflow_catalog()
-            .expect("bundled workflow catalog should load")
-            .resolve(&request.workflow)
-            .expect("bundled workflow should resolve");
-        request
-    }
 
     #[test]
     fn create_workspace_persists_not_provisioned_workspace_without_provider_calls() {
@@ -448,7 +432,7 @@ mod tests {
             .expect("workspace should be created");
 
         assert_eq!(workspace.id, "workspace-1");
-        assert_eq!(workspace.workflow.id, "preset");
+        assert_eq!(workspace.workflow.id, "comfyui-hidream-o1-dev");
         assert_eq!(workspace.state, WorkspaceState::NotProvisioned);
         let WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
             placement,
@@ -469,30 +453,24 @@ mod tests {
     }
 
     #[test]
-    fn create_workspace_rejects_unsupported_provider_without_persisting_or_provider_calls() {
+    fn create_workspace_persists_unresolved_workflow_reference_without_provider_calls() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
-        request
-            .resolved_workflow
-            .remote_runtime_requirements
-            .provider_requirements
-            .clear();
+        request.workflow.version = "missing-revision".to_string();
 
-        let error = block_on(service.create_workspace(request)).expect_err("request should fail");
+        let workspace = block_on(service.create_workspace(request)).expect("request should pass");
 
-        assert_eq!(
-            error,
-            crate::provisioned_remote::errors::ProvisionedRemoteError::InvalidRuntimeState
-        );
+        assert_eq!(workspace.workflow.version, "missing-revision");
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
         let persisted = block_on(
             service
                 .workspace_repository
                 .find_workspace_by_id("workspace-1"),
         )
-        .expect("repository read should succeed");
-        assert_eq!(persisted, None);
+        .expect("repository read should succeed")
+        .expect("workspace should be persisted");
+        assert_eq!(persisted, workspace);
     }
 
     #[test]
@@ -661,7 +639,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(bundled_workflow_create_request("workspace-1"))
+            .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -734,7 +712,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state);
         service
-            .create_workspace(bundled_workflow_create_request("workspace-1"))
+            .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -790,7 +768,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(bundled_workflow_create_request("workspace-1"))
+            .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -857,7 +835,7 @@ mod tests {
         }));
         let service = service_with_state(state.clone());
         service
-            .create_workspace(bundled_workflow_create_request("workspace-1"))
+            .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
 
@@ -953,6 +931,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provision_runner_marks_failed_when_workflow_reference_does_not_resolve() {
+        let state = Arc::new(Mutex::new(ProviderState::default()));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        let mut workspace = service
+            .workspace_repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        workspace.workflow.version = "missing-revision".to_string();
+        service
+            .workspace_repository
+            .update_workspace(&workspace)
+            .await
+            .expect("workspace should update");
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("runner should terminalize operation");
+
+        assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateVolume
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                }
+            )
+        );
+        let workspace = service
+            .workspace_repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::Invalid {
+                reason: WorkspaceRuntimeInvalidReason::ProvisionFailed,
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn cleanup_workspace_creates_cleanup_operation_without_changing_workspace_state() {
         let service =
             service_without_lifecycle_spawning(Arc::new(Mutex::new(ProviderState::default())));
@@ -1042,7 +1089,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(bundled_workflow_create_request("workspace-1"))
+            .create_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let provision_operation_id = service

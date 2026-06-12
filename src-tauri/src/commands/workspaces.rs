@@ -9,7 +9,7 @@ use crate::{
             LatestLifecycleOperationResponse, ProvisionWorkspaceResponse,
             RunningLifecycleOperationsResponse, WorkspaceIdRequest, WorkspaceResponse,
         },
-        CommandResult, NativeCommandError, NativeCommandErrorCode,
+        CommandResult,
     },
     domain::{provisioned_remote::RemotePlacementPlan, workflow_preset::WorkflowReference},
     provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
@@ -25,15 +25,6 @@ pub async fn create_workspace(
         id: request.workflow_preset_id,
         version: request.workflow_revision_version,
     };
-    let workflow_catalog = state.workflow_catalog.get_workflow_catalog()?;
-    let workflow = workflow_catalog
-        .resolve(&workflow_reference)
-        .ok_or_else(|| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkflowCatalogInvalid,
-                "workflow reference was not found",
-            )
-        })?;
     let remote_placement: RemotePlacementPlan = request.remote_placement.into();
 
     let workspace = state
@@ -41,7 +32,6 @@ pub async fn create_workspace(
         .create_workspace(CreateProvisionedRemoteWorkspaceRequest {
             workspace_id: Uuid::new_v4().to_string(),
             workflow: workflow_reference,
-            resolved_workflow: workflow.clone(),
             remote_placement,
         })
         .await?;

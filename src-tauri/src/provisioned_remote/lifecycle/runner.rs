@@ -7,6 +7,7 @@ use crate::{
         events::ProvisionedRemoteEventSink, registry::ProvisionedRemoteProviderRegistry,
     },
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -22,6 +23,7 @@ where
 {
     pub(crate) workspace_repository: W,
     pub(crate) lifecycle_journal: L,
+    pub(crate) workflow_catalog: WorkflowCatalogService,
     pub(crate) provider_registry: ProvisionedRemoteProviderRegistry,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
     pub(crate) event_sink: Arc<dyn ProvisionedRemoteEventSink>,
@@ -75,6 +77,7 @@ where
         let registry = context.lifecycle_operation_registry.clone();
         let workspace_repository = context.workspace_repository;
         let lifecycle_journal = context.lifecycle_journal;
+        let workflow_catalog = context.workflow_catalog;
         let provider_registry = context.provider_registry;
         let event_sink = context.event_sink;
         spawn_background_task(context.task_spawner.as_ref(), async move {
@@ -82,6 +85,7 @@ where
                 &operation_id,
                 &workspace_repository,
                 &lifecycle_journal,
+                &workflow_catalog,
                 &provider_registry,
                 &event_sink,
                 PROVISIONER_POLL_INTERVAL,

@@ -13,7 +13,7 @@ use crate::{
         },
     },
     lifecycle_journal::LifecycleJournalRepository,
-    workflow_catalog::BundledWorkflowCatalogReader,
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -38,6 +38,7 @@ pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
     workspace_repository: &W,
     lifecycle_journal: &L,
+    workflow_catalog: &WorkflowCatalogService,
     provider_registry: &ProvisionedRemoteProviderRegistry,
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
     provisioner_poll_interval: Duration,
@@ -71,8 +72,8 @@ where
         failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
         let runtime_state = runtime.clone();
-        let workflow_catalog = BundledWorkflowCatalogReader
-            .read_workflow_catalog()
+        let workflow_catalog = workflow_catalog
+            .get_workflow_catalog()
             .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
         let resolved_workflow = workflow_catalog
             .resolve(&workspace.workflow)
