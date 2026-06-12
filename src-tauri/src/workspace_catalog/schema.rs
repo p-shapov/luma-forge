@@ -43,9 +43,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         )",
     )
     .await
-    .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-        message: error.to_string(),
-    })?;
+    .map_err(storage_unavailable)?;
 
     let workspaces_existed = table_exists(pool, "workspaces").await?;
 
@@ -63,9 +61,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         )",
     )
     .await
-    .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-        message: error.to_string(),
-    })?;
+    .map_err(storage_unavailable)?;
 
     validate_table(
         pool,
@@ -167,14 +163,10 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
             "CREATE INDEX IF NOT EXISTS idx_workspaces_runtime_type ON workspaces (runtime_type)",
         )
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
         pool.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_state ON workspaces (state)")
             .await
-            .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-                message: error.to_string(),
-            })?;
+            .map_err(storage_unavailable)?;
 
         validate_indexes(pool, "workspaces", &expected_indexes).await?;
     }
@@ -184,26 +176,20 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         .bind(SCHEMA_VERSION)
         .execute(pool)
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
 
     let version: Option<String> = sqlx::query_scalar("SELECT value FROM metadata WHERE key = ?1")
         .bind(SCHEMA_VERSION_KEY)
         .fetch_optional(pool)
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
 
     match version.as_deref() {
         Some(SCHEMA_VERSION) => Ok(()),
-        Some(version) => Err(WorkspaceCatalogError::SchemaInvalid {
-            message: format!("expected schema version {SCHEMA_VERSION}, got {version}").to_string(),
-        }),
-        None => Err(WorkspaceCatalogError::SchemaInvalid {
-            message: format!("schema version is missing").to_string(),
-        }),
+        Some(version) => Err(schema_invalid(format!(
+            "expected schema version {SCHEMA_VERSION}, got {version}"
+        ))),
+        None => Err(schema_invalid("schema version is missing")),
     }
 }
 
@@ -212,9 +198,7 @@ async fn table_exists(pool: &SqlitePool, table_name: &str) -> Result<bool, Works
         .bind(table_name)
         .fetch_optional(pool)
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
 
     Ok(row.is_some())
 }
@@ -227,14 +211,11 @@ async fn validate_table(
     let columns = table_columns(pool, table_name).await?;
 
     if columns.len() != expected_columns.len() {
-        return Err(WorkspaceCatalogError::SchemaInvalid {
-            message: format!(
-                "expected {expected_columns_len} columns, got {columns_len}",
-                expected_columns_len = expected_columns.len(),
-                columns_len = columns.len()
-            )
-            .to_string(),
-        });
+        return Err(schema_invalid(format!(
+            "expected {expected_columns_len} columns, got {columns_len}",
+            expected_columns_len = expected_columns.len(),
+            columns_len = columns.len()
+        )));
     }
 
     let matches = columns
@@ -252,9 +233,9 @@ async fn validate_table(
     if matches {
         Ok(())
     } else {
-        Err(WorkspaceCatalogError::SchemaInvalid {
-            message: format!("table columns do not match expected columns").to_string(),
-        })
+        Err(schema_invalid(
+            "table columns do not match expected columns",
+        ))
     }
 }
 
@@ -265,9 +246,7 @@ async fn table_columns(
     let rows = sqlx::query(&format!("PRAGMA table_info({table_name})"))
         .fetch_all(pool)
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
 
     Ok(rows
         .into_iter()
@@ -294,12 +273,9 @@ async fn validate_indexes(
     expected_index_names.sort();
 
     if actual_index_names != expected_index_names {
-        return Err(WorkspaceCatalogError::SchemaInvalid {
-            message: format!(
-                "expected index names {expected_index_names:?}, got {actual_index_names:?}"
-            )
-            .to_string(),
-        });
+        return Err(schema_invalid(format!(
+            "expected index names {expected_index_names:?}, got {actual_index_names:?}"
+        )));
     }
 
     for expected in expected_indexes {
@@ -308,46 +284,37 @@ async fn validate_indexes(
                 .bind(expected.name)
                 .fetch_optional(pool)
                 .await
-                .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-                    message: error.to_string(),
-                })?
-                .ok_or(WorkspaceCatalogError::SchemaInvalid {
-                    message: format!("index {index_name} is missing", index_name = expected.name)
-                        .to_string(),
+                .map_err(storage_unavailable)?
+                .ok_or_else(|| {
+                    schema_invalid(format!(
+                        "index {index_name} is missing",
+                        index_name = expected.name
+                    ))
                 })?;
 
         if row.get::<String, _>("tbl_name") != table_name {
-            return Err(WorkspaceCatalogError::SchemaInvalid {
-                message: format!(
-                    "index {index_name} is not on table {table_name}",
-                    index_name = expected.name,
-                    table_name = table_name
-                )
-                .to_string(),
-            });
+            return Err(schema_invalid(format!(
+                "index {index_name} is not on table {table_name}",
+                index_name = expected.name,
+                table_name = table_name
+            )));
         }
 
         let metadata = index_metadata(pool, table_name, expected.name).await?;
         if metadata.unique || metadata.partial {
-            return Err(WorkspaceCatalogError::SchemaInvalid {
-                message: format!(
-                    "index {index_name} must be non-unique and non-partial",
-                    index_name = expected.name
-                )
-                .to_string(),
-            });
+            return Err(schema_invalid(format!(
+                "index {index_name} must be non-unique and non-partial",
+                index_name = expected.name
+            )));
         }
 
         let columns = index_key_columns(pool, expected.name).await?;
         if columns.len() != 1 {
-            return Err(WorkspaceCatalogError::SchemaInvalid {
-                message: format!(
-                    "index {index_name} has {columns_len} columns, expected 1",
-                    index_name = expected.name,
-                    columns_len = columns.len()
-                )
-                .to_string(),
-            });
+            return Err(schema_invalid(format!(
+                "index {index_name} has {columns_len} columns, expected 1",
+                index_name = expected.name,
+                columns_len = columns.len()
+            )));
         }
 
         let column = &columns[0];
@@ -358,13 +325,10 @@ async fn validate_indexes(
                 .as_deref()
                 .is_some_and(|collation| !collation.eq_ignore_ascii_case("BINARY"))
         {
-            return Err(WorkspaceCatalogError::SchemaInvalid {
-                message: format!(
-                    "index {index_name} has invalid columns",
-                    index_name = expected.name
-                )
-                .to_string(),
-            });
+            return Err(schema_invalid(format!(
+                "index {index_name} has invalid columns",
+                index_name = expected.name
+            )));
         }
     }
 
@@ -384,9 +348,7 @@ async fn user_defined_index_names(
     .bind(table_name)
     .fetch_all(pool)
     .await
-    .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-        message: error.to_string(),
-    })?;
+    .map_err(storage_unavailable)?;
 
     Ok(rows.into_iter().map(|row| row.get("name")).collect())
 }
@@ -399,16 +361,12 @@ async fn index_metadata(
     let rows = sqlx::query(&format!("PRAGMA index_list({table_name})"))
         .fetch_all(pool)
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
 
     let row = rows
         .into_iter()
         .find(|row| row.get::<String, _>("name") == index_name)
-        .ok_or(WorkspaceCatalogError::SchemaInvalid {
-            message: format!("index {index_name} is missing").to_string(),
-        })?;
+        .ok_or_else(|| schema_invalid(format!("index {index_name} is missing")))?;
 
     Ok(IndexMetadata {
         unique: row.get::<i64, _>("unique") == 1,
@@ -425,9 +383,7 @@ async fn index_key_columns(
     let rows = sqlx::query(&format!("PRAGMA index_xinfo({index_name})"))
         .fetch_all(pool)
         .await
-        .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable)?;
 
     Ok(rows
         .into_iter()
@@ -438,4 +394,16 @@ async fn index_key_columns(
             collation: row.try_get("coll").ok(),
         })
         .collect())
+}
+
+fn storage_unavailable(error: impl std::fmt::Display) -> WorkspaceCatalogError {
+    WorkspaceCatalogError::StorageUnavailable {
+        message: error.to_string(),
+    }
+}
+
+fn schema_invalid(message: impl Into<String>) -> WorkspaceCatalogError {
+    WorkspaceCatalogError::SchemaInvalid {
+        message: message.into(),
+    }
 }

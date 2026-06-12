@@ -1,0 +1,257 @@
+use std::path::Path;
+
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+
+use crate::{
+    domain::{
+        workflow_preset::WorkflowReference,
+        workspace::{Workspace, WorkspaceCatalog},
+    },
+    shared::AppFuture,
+};
+
+use super::{
+    errors::WorkspaceCatalogError, repository::WorkspaceCatalogRepository, runtime, schema,
+};
+
+mod row;
+mod state;
+
+use row::workspace_from_row;
+use state::workspace_state_columns;
+
+const WORKSPACE_COLUMNS: &str =
+    "id, runtime_type, state, state_reason, workflow_id, workflow_version, runtime_json";
+
+#[derive(Debug, Clone)]
+pub struct SqliteWorkspaceCatalogRepository {
+    pool: SqlitePool,
+}
+
+impl SqliteWorkspaceCatalogRepository {
+    pub async fn connect(path: impl AsRef<Path>) -> Result<Self, WorkspaceCatalogError> {
+        let options = SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true);
+        let pool = SqlitePool::connect_with(options)
+            .await
+            .map_err(storage_unavailable)?;
+
+        schema::bootstrap(&pool).await?;
+
+        Ok(Self { pool })
+    }
+
+    pub fn from_pool(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    pub fn pool(&self) -> SqlitePool {
+        self.pool.clone()
+    }
+}
+
+impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
+    fn list_workspaces<'a>(
+        &'a self,
+    ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            let rows = sqlx::query(&format!(
+                "SELECT {WORKSPACE_COLUMNS} FROM workspaces ORDER BY created_at ASC"
+            ))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage_unavailable)?;
+            let workspaces = rows
+                .iter()
+                .map(workspace_from_row)
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(WorkspaceCatalog { workspaces })
+        })
+    }
+
+    fn find_workspace_by_id<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> AppFuture<'a, Result<Option<Workspace>, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            validate_id(id)?;
+
+            let row = sqlx::query(&format!(
+                "SELECT {WORKSPACE_COLUMNS} FROM workspaces WHERE id = ?1"
+            ))
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(storage_unavailable)?;
+
+            row.as_ref().map(workspace_from_row).transpose()
+        })
+    }
+
+    fn insert_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            validate_id(&workspace.id)?;
+            validate_workflow_reference(&workspace.workflow)?;
+
+            let encoded = runtime::encode_runtime(&workspace.runtime)?;
+            let state = workspace_state_columns(&workspace.state);
+            let now = timestamp()?;
+
+            sqlx::query(
+                "INSERT INTO workspaces (
+                    id,
+                    runtime_type,
+                    state,
+                    state_reason,
+                    workflow_id,
+                    workflow_version,
+                    runtime_json,
+                    created_at,
+                    updated_at
+                )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(&workspace.id)
+            .bind(&encoded.runtime_type)
+            .bind(state.state)
+            .bind(state.reason)
+            .bind(&workspace.workflow.id)
+            .bind(&workspace.workflow.version)
+            .bind(&encoded.runtime_json)
+            .bind(&now)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|error| {
+                if is_unique_constraint(&error) {
+                    WorkspaceCatalogError::WorkspaceAlreadyExists
+                } else {
+                    storage_unavailable(error)
+                }
+            })?;
+
+            Ok(workspace.clone())
+        })
+    }
+
+    fn update_workspace<'a>(
+        &'a self,
+        workspace: &'a Workspace,
+    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
+        Box::pin(async move {
+            validate_id(&workspace.id)?;
+            validate_workflow_reference(&workspace.workflow)?;
+
+            let encoded = runtime::encode_runtime(&workspace.runtime)?;
+            let state = workspace_state_columns(&workspace.state);
+            let now = timestamp()?;
+
+            let result = sqlx::query(
+                "UPDATE workspaces
+                 SET runtime_type = ?1,
+                     state = ?2,
+                     state_reason = ?3,
+                     workflow_id = ?4,
+                     workflow_version = ?5,
+                     runtime_json = ?6,
+                     updated_at = ?7
+                 WHERE id = ?8",
+            )
+            .bind(&encoded.runtime_type)
+            .bind(state.state)
+            .bind(state.reason)
+            .bind(&workspace.workflow.id)
+            .bind(&workspace.workflow.version)
+            .bind(&encoded.runtime_json)
+            .bind(now)
+            .bind(&workspace.id)
+            .execute(&self.pool)
+            .await
+            .map_err(storage_unavailable)?;
+
+            if result.rows_affected() == 0 {
+                return Err(WorkspaceCatalogError::WorkspaceNotFound);
+            }
+
+            Ok(workspace.clone())
+        })
+    }
+
+    fn delete_workspace<'a>(
+        &'a self,
+        id: &'a str,
+    ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>> {
+        Box::pin(async move {
+            validate_id(id)?;
+
+            let result = sqlx::query("DELETE FROM workspaces WHERE id = ?1")
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(storage_unavailable)?;
+
+            if result.rows_affected() == 0 {
+                return Err(WorkspaceCatalogError::WorkspaceNotFound);
+            }
+
+            Ok(())
+        })
+    }
+}
+
+pub(super) fn validate_id(id: &str) -> Result<(), WorkspaceCatalogError> {
+    if id.trim().is_empty() {
+        Err(WorkspaceCatalogError::DataInvalid {
+            message: "ID is empty".to_string(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+pub(super) fn validate_workflow_reference(
+    workflow: &WorkflowReference,
+) -> Result<(), WorkspaceCatalogError> {
+    validate_required_text(&workflow.id, "workflow ID is missing")?;
+    validate_required_text(&workflow.version, "workflow version is missing")
+}
+
+fn validate_required_text(value: &str, message: &'static str) -> Result<(), WorkspaceCatalogError> {
+    if value.trim().is_empty() {
+        Err(WorkspaceCatalogError::DataInvalid {
+            message: message.to_string(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+fn timestamp() -> Result<String, WorkspaceCatalogError> {
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .map_err(storage_unavailable)
+}
+
+fn storage_unavailable(error: impl std::fmt::Display) -> WorkspaceCatalogError {
+    WorkspaceCatalogError::StorageUnavailable {
+        message: error.to_string(),
+    }
+}
+
+fn is_unique_constraint(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(error) => error
+            .code()
+            .is_some_and(|code| code.as_ref() == "1555" || code.as_ref() == "2067"),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests;
