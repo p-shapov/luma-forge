@@ -1,31 +1,33 @@
 use serde::{Deserialize, Serialize};
 
-use super::provider::ProviderApiError;
+use crate::{secrets_storage::SecretsStorageError, shared::ApiError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum RunpodProvisionerStatus {
-    Pending,
-    Starting,
-    Running,
-    Succeeded,
+pub enum RunpodProvisionerError {
+    Unavailable,
+    ResponseInvalid,
     Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunpodRuntimeStateError {
+    Invalid,
+    MissingVolume,
+    MissingEndpoint,
+    MissingTemplate,
+    MissingProvisionerPod,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodLifecycleError {
     AppInterrupted,
-    RunpodSecretUnavailable,
-    RunpodApiFailed { reason: ProviderApiError },
-    ProvisionerUnavailable,
-    ProvisionerResponseInvalid,
-    ProvisionerFailed,
-    NetworkVolumeNotFound,
-    ProvisionerPodNotFound,
-    EndpointNotFound,
-    TemplateNotFound,
-    InvalidRuntimeState,
+    RunPodSecretError(SecretsStorageError),
+    RunPodApiError(ApiError),
+    ProvisionerError(RunpodProvisionerError),
+    InvalidRuntimeState(RunpodRuntimeStateError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

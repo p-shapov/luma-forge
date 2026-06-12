@@ -11,17 +11,23 @@ pub(super) fn validate_runtime_catalog(
     catalog: &RuntimeCatalog,
 ) -> Result<(), WorkflowCatalogError> {
     if catalog.contracts.is_empty() {
-        return Err(WorkflowCatalogError::ValidationFailed);
+        return Err(WorkflowCatalogError::ValidationFailed {
+            message: "catalog is empty".to_string(),
+        });
     }
 
     let mut contract_ids = HashSet::new();
     for contract in &catalog.contracts {
         if contract.id.trim().is_empty() || !contract_ids.insert(contract.id.as_str()) {
-            return Err(WorkflowCatalogError::ValidationFailed);
+            return Err(WorkflowCatalogError::ValidationFailed {
+                message: "contract ID is empty or duplicate".to_string(),
+            });
         }
 
         if contract.revisions.is_empty() {
-            return Err(WorkflowCatalogError::ValidationFailed);
+            return Err(WorkflowCatalogError::ValidationFailed {
+                message: "contract has no revisions".to_string(),
+            });
         }
 
         let mut revision_versions = HashSet::new();
@@ -30,7 +36,10 @@ pub(super) fn validate_runtime_catalog(
                 || !revision_versions.insert(revision.version.as_str())
                 || revision.image_ref.trim().is_empty()
             {
-                return Err(WorkflowCatalogError::ValidationFailed);
+                return Err(WorkflowCatalogError::ValidationFailed {
+                    message: "revision version is empty, duplicate, or image reference is empty"
+                        .to_string(),
+                });
             }
         }
     }
@@ -44,7 +53,9 @@ pub(super) fn validate_workflows(
     provisioner_contract_catalog: &RuntimeCatalog,
 ) -> Result<(), WorkflowCatalogError> {
     if workflows.is_empty() {
-        return Err(WorkflowCatalogError::ValidationFailed);
+        return Err(WorkflowCatalogError::ValidationFailed {
+            message: "workflows are empty".to_string(),
+        });
     }
 
     let mut workflow_ids = HashSet::new();
@@ -53,11 +64,15 @@ pub(super) fn validate_workflows(
             || !workflow_ids.insert(workflow.id.as_str())
             || workflow.name.trim().is_empty()
         {
-            return Err(WorkflowCatalogError::ValidationFailed);
+            return Err(WorkflowCatalogError::ValidationFailed {
+                message: "workflow ID is empty, duplicate, or name is empty".to_string(),
+            });
         }
 
         if workflow.revisions.is_empty() {
-            return Err(WorkflowCatalogError::ValidationFailed);
+            return Err(WorkflowCatalogError::ValidationFailed {
+                message: "workflow has no revisions".to_string(),
+            });
         }
 
         let mut revision_versions = HashSet::new();
@@ -65,7 +80,9 @@ pub(super) fn validate_workflows(
             if revision.version.trim().is_empty()
                 || !revision_versions.insert(revision.version.as_str())
             {
-                return Err(WorkflowCatalogError::ValidationFailed);
+                return Err(WorkflowCatalogError::ValidationFailed {
+                    message: "revision version is empty or duplicate".to_string(),
+                });
             }
 
             if revision.required_volume_size_gb == 0
@@ -76,7 +93,7 @@ pub(super) fn validate_workflows(
                     .resolve(&revision.runpod_runtime_requirements.provisioner_contract)
                     .is_none()
             {
-                return Err(WorkflowCatalogError::ValidationFailed);
+                return Err(WorkflowCatalogError::ValidationFailed { message: "required volume size is zero, endpoint contract is missing, or provisioner contract is missing".to_string() });
             }
 
             for asset in &revision.required_model_assets {
@@ -92,7 +109,11 @@ pub(super) fn validate_workflows(
                         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
                     || !is_valid_model_asset_source(&asset.download_source)
                 {
-                    return Err(WorkflowCatalogError::ValidationFailed);
+                    return Err(WorkflowCatalogError::ValidationFailed {
+                        message:
+                            "model asset ID, name, install path, or download source is invalid"
+                                .to_string(),
+                    });
                 }
             }
         }
@@ -216,7 +237,9 @@ mod tests {
     fn validate_runtime_catalog_rejects_empty_catalog() {
         assert_eq!(
             validate_runtime_catalog(&RuntimeCatalog { contracts: vec![] }),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "catalog is empty".to_string()
+            })
         );
     }
 
@@ -242,7 +265,9 @@ mod tests {
         };
         assert_eq!(
             validate_runtime_catalog(&catalog),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "contract ID is empty or duplicate".to_string()
+            })
         );
     }
 
@@ -271,7 +296,9 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6")
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "workflow ID is empty, duplicate, or name is empty".to_string()
+            })
         );
     }
 
@@ -286,7 +313,9 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6"),
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "workflow has no revisions".to_string()
+            })
         );
     }
 
@@ -301,7 +330,9 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6"),
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "revision version is empty or duplicate".to_string()
+            })
         );
     }
 
@@ -316,7 +347,7 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6"),
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed { message: "required volume size is zero, endpoint contract is missing, or provisioner contract is missing".to_string() }    )
         );
     }
 
@@ -329,7 +360,9 @@ mod tests {
                 &runtime_catalog("different-endpoint", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6")
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "endpoint contract is missing".to_string()
+            })
         );
     }
 
@@ -342,7 +375,9 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("different-provisioner", "1.0.6")
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "provisioner contract is missing".to_string()
+            })
         );
     }
 
@@ -358,7 +393,10 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6")
             ),
-            Err(WorkflowCatalogError::ValidationFailed)
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "model asset ID, name, install path, or download source is invalid"
+                    .to_string()
+            })
         );
     }
 }

@@ -120,7 +120,6 @@ export type RunpodGpuPlacementOptionResponse = {
 	id: string,
 	name: string,
 	vramGb: number,
-	availabilityScore: number,
 };
 
 export type RunpodLifecycleErrorResponse = "app_interrupted" | "runpod_secret_unavailable" | "runpod_api_failed" | "provisioner_unavailable" | "provisioner_response_invalid" | "provisioner_failed" | "network_volume_not_found" | "provisioner_pod_not_found" | "endpoint_not_found" | "template_not_found" | "invalid_runtime_state";

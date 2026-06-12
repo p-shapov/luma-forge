@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
-        runpod_runtime::{RunpodDeleteStep, RunpodLifecycleError},
+        runpod::RunpodDeleteStep,
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
@@ -20,10 +20,10 @@ use super::{
         provider::RunpodRuntimeClient,
         service::map_workspace_catalog_error,
     },
-    cleanup::lifecycle_error_for,
+    cleanup::{invalid_runtime_state, lifecycle_error_for},
     helpers::{
         load_running_operation, map_lifecycle_journal_error, mark_operation_state,
-        mark_running_step, persist_workspace,
+        mark_running_step, persist_workspace, runpod_resources_are_empty,
     },
 };
 
@@ -67,7 +67,7 @@ where
                 &operation,
                 LifecycleOperationState::Failed,
                 RunpodDeleteStep::DeleteEndpoint,
-                Some(RunpodLifecycleError::InvalidRuntimeState),
+                Some(invalid_runtime_state()),
             )
             .await?;
             return Ok(None);
@@ -77,7 +77,7 @@ where
 
     let result = async {
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        let provider = if runtime.resources.is_empty() {
+        let provider = if runpod_resources_are_empty(&runtime.resources) {
             None
         } else {
             Some(runpod_client)
@@ -207,7 +207,7 @@ where
             {
                 let lifecycle_error = lifecycle_error_for(&error);
                 let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-                workspace.state = if runtime.resources.is_empty() {
+                workspace.state = if runpod_resources_are_empty(&runtime.resources) {
                     WorkspaceState::Invalid {
                         reason: WorkspaceRuntimeInvalidReason::DeleteFailed,
                     }
@@ -249,7 +249,7 @@ where
         Err(error) => {
             let lifecycle_error = lifecycle_error_for(&error);
             let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-            workspace.state = if runtime.resources.is_empty() {
+            workspace.state = if runpod_resources_are_empty(&runtime.resources) {
                 WorkspaceState::Invalid {
                     reason: WorkspaceRuntimeInvalidReason::DeleteFailed,
                 }

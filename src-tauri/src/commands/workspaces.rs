@@ -11,7 +11,7 @@ use crate::{
         },
         CommandResult,
     },
-    domain::runpod_runtime::RunpodPlacementPlan,
+    domain::runpod::RunpodPlacementPlan,
     runpod_runtime::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
 

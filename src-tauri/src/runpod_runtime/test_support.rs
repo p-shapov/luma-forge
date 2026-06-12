@@ -10,16 +10,16 @@ use crate::{
     domain::{
         lifecycle_operation::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-            LifecycleOperationState, WorkspaceId,
+            LifecycleOperationState,
         },
-        runpod_runtime::{
-            RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits,
-            RunpodGpuPlacementOption, RunpodPlacementOptions, RunpodPlacementPlan,
-            RunpodProvisionerStatus,
+        runpod::{
+            RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
+            RunpodPlacementPlan,
         },
-        workspace::{Workspace, WorkspaceCatalog},
+        workspace::{Workspace, WorkspaceCatalog, WorkspaceId},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
+    runpod_runtime::provider::RunpodProvisionerStatus,
     shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, NoopEventSink},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
@@ -209,7 +209,7 @@ pub(crate) struct WorkspaceRepositoryState {
 
 pub(crate) fn placement_options() -> RunpodPlacementOptions {
     RunpodPlacementOptions {
-        max_network_volume_size_gb: Some(10),
+        max_volume_size_gb: Some(10),
         datacenters: vec![RunpodDatacenterPlacementOption {
             id: "dc".to_string(),
             name: "Datacenter".to_string(),
@@ -217,7 +217,6 @@ pub(crate) fn placement_options() -> RunpodPlacementOptions {
                 id: "gpu".to_string(),
                 name: "GPU".to_string(),
                 vram_gb: 24,
-                availability_score: 90,
             }],
         }],
     }
@@ -714,11 +713,6 @@ fn placement_plan() -> RunpodPlacementPlan {
         data_center_id: "dc".to_string(),
         gpu_type_id: "gpu".to_string(),
         volume_size_gb: 19,
-        keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
-            default_seconds: 60,
-            min_seconds: 30,
-            max_seconds: 120,
-        }),
     }
 }
 
@@ -758,7 +752,7 @@ pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::runpod_runtime::RunpodLifecycleOperationPayload;
+    use crate::domain::runpod::RunpodLifecycleOperationPayload;
 
     fn provision_payload() -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {

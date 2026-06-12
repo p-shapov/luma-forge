@@ -2,9 +2,11 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::runpod_runtime::{RunpodLifecycleError, RunpodProvisionerStatus},
+    domain::runpod::{RunpodLifecycleError, RunpodProvisionerError},
     shared::AppFuture,
 };
+
+use super::RunpodProvisionerStatus;
 
 pub trait ProvisionerWorkerApi: Send + Sync {
     fn get_status<'a>(
@@ -38,13 +40,13 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
                 .bearer_auth(bearer_token)
                 .send()
                 .await
-                .map_err(|_| RunpodLifecycleError::ProvisionerUnavailable)?;
+                .map_err(|_| provisioner_unavailable())?;
 
             map_http_status(response.status())?;
             let status = response
                 .json::<ProvisionerStatusResponse>()
                 .await
-                .map_err(|_| RunpodLifecycleError::ProvisionerResponseInvalid)?;
+                .map_err(|_| provisioner_response_invalid())?;
 
             map_status_response(status)
         })
@@ -73,22 +75,32 @@ pub fn map_status_response(
         "running" => Ok(RunpodProvisionerStatus::Running),
         "succeeded" => Ok(RunpodProvisionerStatus::Succeeded),
         "failed" => {
-            let _error = response
-                .error
-                .ok_or(RunpodLifecycleError::ProvisionerResponseInvalid)?;
+            let _error = response.error.ok_or_else(provisioner_response_invalid)?;
             Ok(RunpodProvisionerStatus::Failed)
         }
-        _ => Err(RunpodLifecycleError::ProvisionerResponseInvalid),
+        _ => Err(provisioner_response_invalid()),
     }
 }
 
 fn map_http_status(status: StatusCode) -> Result<(), RunpodLifecycleError> {
     match status {
         status if status.is_success() => Ok(()),
-        StatusCode::UNAUTHORIZED => Err(RunpodLifecycleError::ProvisionerResponseInvalid),
-        StatusCode::CONFLICT => Err(RunpodLifecycleError::ProvisionerFailed),
-        _ => Err(RunpodLifecycleError::ProvisionerUnavailable),
+        StatusCode::UNAUTHORIZED => Err(provisioner_response_invalid()),
+        StatusCode::CONFLICT => Err(provisioner_failed()),
+        _ => Err(provisioner_unavailable()),
     }
+}
+
+fn provisioner_unavailable() -> RunpodLifecycleError {
+    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable)
+}
+
+fn provisioner_response_invalid() -> RunpodLifecycleError {
+    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid)
+}
+
+fn provisioner_failed() -> RunpodLifecycleError {
+    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed)
 }
 
 #[cfg(test)]
@@ -141,14 +153,14 @@ mod tests {
                 status: "failed".to_string(),
                 error: None,
             }),
-            Err(RunpodLifecycleError::ProvisionerResponseInvalid)
+            Err(provisioner_response_invalid())
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "other".to_string(),
                 error: None,
             }),
-            Err(RunpodLifecycleError::ProvisionerResponseInvalid)
+            Err(provisioner_response_invalid())
         );
     }
 
@@ -157,15 +169,15 @@ mod tests {
         assert_eq!(map_http_status(StatusCode::OK), Ok(()));
         assert_eq!(
             map_http_status(StatusCode::UNAUTHORIZED),
-            Err(RunpodLifecycleError::ProvisionerResponseInvalid)
+            Err(provisioner_response_invalid())
         );
         assert_eq!(
             map_http_status(StatusCode::CONFLICT),
-            Err(RunpodLifecycleError::ProvisionerFailed)
+            Err(provisioner_failed())
         );
         assert_eq!(
             map_http_status(StatusCode::INTERNAL_SERVER_ERROR),
-            Err(RunpodLifecycleError::ProvisionerUnavailable)
+            Err(provisioner_unavailable())
         );
     }
 }

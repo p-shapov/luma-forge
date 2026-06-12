@@ -4,12 +4,12 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::{runpod_runtime::ProviderApiError, secrets::ApiKeyIdentity},
-    shared::AppFuture,
+    domain::secrets::ApiKeyIdentity,
+    shared::{ApiError, AppFuture},
 };
 
 use crate::secrets_storage::{
-    errors::SecretsStorageError, identities::ApiKeyIdentityProvider, stores::ApiSecret,
+    errors::SecretsStorageError, identity::ApiKeyIdentityProvider, stores::ApiSecret,
 };
 
 const HUGGING_FACE_WHOAMI_ENDPOINT: &str = "https://huggingface.co/api/whoami-v2";
@@ -27,7 +27,15 @@ impl HuggingFaceIdentityProvider {
             .connect_timeout(HUGGING_FACE_CONNECT_TIMEOUT)
             .timeout(HUGGING_FACE_REQUEST_TIMEOUT)
             .build()
-            .map_err(|_| provider_request_failed())?;
+            .map_err(|err| {
+                SecretsStorageError::IdentityRequestFailed(if err.is_timeout() {
+                    ApiError::Timeout
+                } else {
+                    ApiError::RequestFailed {
+                        message: err.to_string(),
+                    }
+                })
+            })?;
 
         Ok(Self {
             http,
@@ -45,7 +53,15 @@ impl HuggingFaceIdentityProvider {
             .bearer_auth(secret.expose_secret())
             .send()
             .await
-            .map_err(|_| provider_request_failed())?;
+            .map_err(|err| {
+                SecretsStorageError::IdentityRequestFailed(if err.is_timeout() {
+                    ApiError::Timeout
+                } else {
+                    ApiError::RequestFailed {
+                        message: err.to_string(),
+                    }
+                })
+            })?;
 
         if let Some(error) = map_status_error(response.status()) {
             return Err(error);
@@ -54,7 +70,9 @@ impl HuggingFaceIdentityProvider {
         let response = response
             .json::<serde_json::Value>()
             .await
-            .map_err(|_| SecretsStorageError::IdentityResponseInvalid)?;
+            .map_err(|error| SecretsStorageError::IdentityResponseInvalid {
+                message: error.to_string(),
+            })?;
 
         map_whoami_response(response)
     }
@@ -113,51 +131,61 @@ fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
     }
 
     match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-            Some(ProviderApiError::Unauthorized.into())
-        }
-        StatusCode::TOO_MANY_REQUESTS => Some(ProviderApiError::RateLimited.into()),
-        _ => Some(provider_request_failed()),
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Some(
+            SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized),
+        ),
+        StatusCode::TOO_MANY_REQUESTS => Some(SecretsStorageError::IdentityRequestFailed(
+            ApiError::RateLimited,
+        )),
+        _ => Some(SecretsStorageError::IdentityRequestFailed(
+            ApiError::RequestFailed {
+                message: "Hugging Face API request failed".to_string(),
+            },
+        )),
     }
 }
 
-fn provider_request_failed() -> SecretsStorageError {
-    ProviderApiError::RequestFailed.into()
-}
-
 fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, SecretsStorageError> {
-    let response = serde_json::from_value::<WhoamiResponse>(response)
-        .map_err(|_| SecretsStorageError::IdentityResponseInvalid)?;
+    let response = serde_json::from_value::<WhoamiResponse>(response).map_err(|error| {
+        SecretsStorageError::IdentityResponseInvalid {
+            message: error.to_string(),
+        }
+    })?;
 
     let name = response.name.trim();
     if name.is_empty() {
-        return Err(SecretsStorageError::IdentityResponseInvalid);
+        return Err(SecretsStorageError::IdentityResponseInvalid {
+            message: "identity name is empty".to_string(),
+        });
     }
 
     let display_name = response.auth.access_token.display_name.trim();
     if display_name.is_empty() {
-        return Err(SecretsStorageError::IdentityResponseInvalid);
+        return Err(SecretsStorageError::IdentityResponseInvalid {
+            message: "identity display name is empty".to_string(),
+        });
     }
 
     match response.auth.access_token.role.as_str() {
         "read" | "write" => {}
         "fineGrained" => {
-            let fine_grained =
-                response
-                    .auth
-                    .access_token
-                    .fine_grained
-                    .ok_or(SecretsStorageError::Provider(
-                        ProviderApiError::InsufficientPermissions,
-                    ))?;
+            let fine_grained = response.auth.access_token.fine_grained.ok_or(
+                SecretsStorageError::IdentityRequestFailed(ApiError::InsufficientPermissions),
+            )?;
 
             if !fine_grained.can_read_gated_repos.unwrap_or(false)
                 || !fine_grained.has_repo_content_read_permission()
             {
-                return Err(ProviderApiError::InsufficientPermissions.into());
+                return Err(SecretsStorageError::IdentityRequestFailed(
+                    ApiError::InsufficientPermissions,
+                ));
             }
         }
-        _ => return Err(ProviderApiError::InsufficientPermissions.into()),
+        _ => {
+            return Err(SecretsStorageError::IdentityRequestFailed(
+                ApiError::InsufficientPermissions,
+            ))
+        }
     }
 
     Ok(ApiKeyIdentity {
@@ -310,7 +338,9 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderApiError::InsufficientPermissions.into())
+            Err(SecretsStorageError::IdentityRequestFailed(
+                ApiError::InsufficientPermissions
+            ))
         );
     }
 
@@ -332,7 +362,9 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderApiError::InsufficientPermissions.into())
+            Err(SecretsStorageError::IdentityRequestFailed(
+                ApiError::InsufficientPermissions
+            ))
         );
     }
 
@@ -354,7 +386,9 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(ProviderApiError::InsufficientPermissions.into())
+            Err(SecretsStorageError::IdentityRequestFailed(
+                ApiError::InsufficientPermissions
+            ))
         );
     }
 
@@ -372,7 +406,9 @@ mod tests {
 
         assert_eq!(
             map_whoami_response(response),
-            Err(SecretsStorageError::IdentityResponseInvalid)
+            Err(SecretsStorageError::IdentityResponseInvalid {
+                message: "identity name is empty".to_string()
+            })
         );
     }
 
@@ -380,11 +416,15 @@ mod tests {
     fn maps_unauthorized_status() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED),
-            Some(ProviderApiError::Unauthorized.into())
+            Some(SecretsStorageError::IdentityRequestFailed(
+                ApiError::Unauthorized
+            ))
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN),
-            Some(ProviderApiError::Unauthorized.into())
+            Some(SecretsStorageError::IdentityRequestFailed(
+                ApiError::Unauthorized
+            ))
         );
     }
 }

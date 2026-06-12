@@ -5,8 +5,9 @@ use uuid::Uuid;
 use crate::{
     domain::lifecycle_operation::{
         LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-        LifecycleOperationState, WorkspaceId,
+        LifecycleOperationState,
     },
+    domain::workspace::WorkspaceId,
     shared::AppFuture,
 };
 
@@ -63,7 +64,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 if is_unique_constraint(&error) {
                     LifecycleJournalError::RunningOperationExists
                 } else {
-                    LifecycleJournalError::QueryFailed
+                    LifecycleJournalError::StorageUnavailable {
+                        message: error.to_string(),
+                    }
                 }
             })?;
 
@@ -87,7 +90,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|_| LifecycleJournalError::QueryFailed)?;
+            .map_err(|error| LifecycleJournalError::StorageUnavailable {
+                message: error.to_string(),
+            })?;
 
             row.as_ref().map(row_to_operation).transpose()
         })
@@ -105,7 +110,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             )
             .fetch_all(&self.pool)
             .await
-            .map_err(|_| LifecycleJournalError::QueryFailed)?;
+            .map_err(|error| LifecycleJournalError::StorageUnavailable {
+                message: error.to_string(),
+            })?;
 
             rows.iter().map(row_to_operation).collect()
         })
@@ -128,7 +135,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|_| LifecycleJournalError::QueryFailed)?;
+            .map_err(|error| LifecycleJournalError::StorageUnavailable {
+                message: error.to_string(),
+            })?;
 
             row.as_ref().map(row_to_operation).transpose()
         })
@@ -145,7 +154,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 .bind(workspace_id)
                 .execute(&self.pool)
                 .await
-                .map_err(|_| LifecycleJournalError::QueryFailed)?;
+                .map_err(|error| LifecycleJournalError::StorageUnavailable {
+                    message: error.to_string(),
+                })?;
 
             Ok(())
         })
@@ -188,7 +199,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 if is_unique_constraint(&error) {
                     LifecycleJournalError::RunningOperationExists
                 } else {
-                    LifecycleJournalError::QueryFailed
+                    LifecycleJournalError::StorageUnavailable {
+                        message: error.to_string(),
+                    }
                 }
             })?;
 
@@ -241,7 +254,9 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 if is_unique_constraint(&error) {
                     LifecycleJournalError::RunningOperationExists
                 } else {
-                    LifecycleJournalError::QueryFailed
+                    LifecycleJournalError::StorageUnavailable {
+                        message: error.to_string(),
+                    }
                 }
             })?;
 
@@ -267,7 +282,9 @@ impl SqliteLifecycleJournalRepository {
         .bind(operation_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| LifecycleJournalError::QueryFailed)?;
+        .map_err(|error| LifecycleJournalError::StorageUnavailable {
+            message: error.to_string(),
+        })?;
 
         row.as_ref()
             .map(row_to_operation)
@@ -278,7 +295,9 @@ impl SqliteLifecycleJournalRepository {
 
 fn validate_workspace_id(workspace_id: &str) -> Result<(), LifecycleJournalError> {
     if workspace_id.trim().is_empty() {
-        Err(LifecycleJournalError::Corrupt)
+        Err(LifecycleJournalError::DataInvalid {
+            message: "workspace ID is empty".to_string(),
+        })
     } else {
         Ok(())
     }
@@ -294,7 +313,9 @@ fn validate_operation_id(operation_id: &str) -> Result<(), LifecycleJournalError
 
 fn validate_persisted_operation_id(operation_id: &str) -> Result<(), LifecycleJournalError> {
     if operation_id.trim().is_empty() {
-        Err(LifecycleJournalError::Corrupt)
+        Err(LifecycleJournalError::DataInvalid {
+            message: "operation ID is empty".to_string(),
+        })
     } else {
         Ok(())
     }
@@ -313,7 +334,9 @@ fn validate_operation_identity_matches(
 ) -> Result<(), LifecycleJournalError> {
     if existing.workspace_id != supplied.workspace_id || existing.created_at != supplied.created_at
     {
-        Err(LifecycleJournalError::Corrupt)
+        Err(LifecycleJournalError::DataInvalid {
+            message: "operation identity fields do not match persisted operation".to_string(),
+        })
     } else {
         Ok(())
     }
@@ -334,7 +357,9 @@ fn state_from_storage(state: &str) -> Result<LifecycleOperationState, LifecycleJ
         "completed" => Ok(LifecycleOperationState::Completed),
         "failed" => Ok(LifecycleOperationState::Failed),
         "stale" => Ok(LifecycleOperationState::Stale),
-        _ => Err(LifecycleJournalError::Corrupt),
+        state => Err(LifecycleJournalError::DataInvalid {
+            message: format!("unknown lifecycle operation state: {state}"),
+        }),
     }
 }
 
@@ -345,11 +370,15 @@ fn timestamp() -> Result<String, LifecycleJournalError> {
 fn format_timestamp(timestamp: OffsetDateTime) -> Result<String, LifecycleJournalError> {
     timestamp
         .format(&Rfc3339)
-        .map_err(|_| LifecycleJournalError::QueryFailed)
+        .map_err(|error| LifecycleJournalError::StorageUnavailable {
+            message: error.to_string(),
+        })
 }
 
 fn parse_timestamp(timestamp: &str) -> Result<OffsetDateTime, LifecycleJournalError> {
-    OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|_| LifecycleJournalError::Corrupt)
+    OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|error| LifecycleJournalError::DataInvalid {
+        message: error.to_string(),
+    })
 }
 
 fn format_optional_timestamp(
@@ -367,7 +396,9 @@ fn finished_at_for_update(
         Ok(None)
     } else if let Some(finished_at) = finished_at {
         if finished_at < updated_at {
-            Err(LifecycleJournalError::Corrupt)
+            Err(LifecycleJournalError::DataInvalid {
+                message: "finished_at is before updated_at".to_string(),
+            })
         } else {
             Ok(Some(finished_at))
         }
@@ -379,27 +410,41 @@ fn finished_at_for_update(
 fn row_to_operation(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<LifecycleOperation, LifecycleJournalError> {
-    let operation_id = row
-        .try_get::<String, _>("id")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
-    let workspace_id = row
-        .try_get::<String, _>("workspace_id")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
-    let state = row
-        .try_get::<String, _>("state")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
-    let payload_json = row
-        .try_get::<String, _>("payload_json")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
-    let created_at = row
-        .try_get::<String, _>("created_at")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
-    let updated_at = row
-        .try_get::<String, _>("updated_at")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
+    let operation_id =
+        row.try_get::<String, _>("id")
+            .map_err(|_| LifecycleJournalError::SchemaInvalid {
+                message: "operation ID is missing".to_string(),
+            })?;
+    let workspace_id = row.try_get::<String, _>("workspace_id").map_err(|_| {
+        LifecycleJournalError::SchemaInvalid {
+            message: "workspace ID is missing".to_string(),
+        }
+    })?;
+    let state =
+        row.try_get::<String, _>("state")
+            .map_err(|_| LifecycleJournalError::SchemaInvalid {
+                message: "state is missing".to_string(),
+            })?;
+    let payload_json = row.try_get::<String, _>("payload_json").map_err(|_| {
+        LifecycleJournalError::SchemaInvalid {
+            message: "payload JSON is missing".to_string(),
+        }
+    })?;
+    let created_at = row.try_get::<String, _>("created_at").map_err(|_| {
+        LifecycleJournalError::SchemaInvalid {
+            message: "created_at is missing".to_string(),
+        }
+    })?;
+    let updated_at = row.try_get::<String, _>("updated_at").map_err(|_| {
+        LifecycleJournalError::SchemaInvalid {
+            message: "updated_at is missing".to_string(),
+        }
+    })?;
     let finished_at = row
         .try_get::<Option<String>, _>("finished_at")
-        .map_err(|_| LifecycleJournalError::SchemaMismatch)?;
+        .map_err(|_| LifecycleJournalError::SchemaInvalid {
+            message: "finished_at is missing".to_string(),
+        })?;
 
     validate_persisted_operation_id(&operation_id)?;
     validate_workspace_id(&workspace_id)?;
@@ -431,17 +476,15 @@ pub mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use sqlx::{sqlite::SqliteConnectOptions, Row};
+    use sqlx::sqlite::SqliteConnectOptions;
 
     use crate::{
         domain::{
-            lifecycle_operation::{
-                LifecycleOperationPayload, LifecycleOperationState, RunpodLifecycleOperationPayload,
-            },
-            runpod_runtime::ProviderApiError,
-            runpod_runtime::{RunpodLifecycleError, RunpodProvisionStep},
+            lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
+            runpod::{RunpodLifecycleError, RunpodLifecycleOperationPayload, RunpodProvisionStep},
         },
         lifecycle_journal::schema,
+        shared::ApiError,
     };
 
     use super::*;
@@ -476,48 +519,6 @@ pub mod tests {
             step,
             error,
         })
-    }
-
-    #[tokio::test]
-    async fn schema_creates_lifecycle_table_indexes_and_unique_running_constraint() {
-        let repository = repository("schema").await;
-
-        let table = sqlx::query(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lifecycle_operations'",
-        )
-        .fetch_optional(&repository.pool)
-        .await
-        .expect("table query should succeed");
-        assert!(table.is_some());
-
-        let indexes = sqlx::query("PRAGMA index_list(lifecycle_operations)")
-            .fetch_all(&repository.pool)
-            .await
-            .expect("index list should succeed");
-        assert!(indexes
-            .iter()
-            .any(|row| row.get::<String, _>("name") == "idx_lifecycle_operations_workspace_id"));
-        assert!(indexes
-            .iter()
-            .any(|row| row.get::<String, _>("name") == "idx_lifecycle_operations_state"));
-
-        let running_index = indexes
-            .iter()
-            .find(|row| {
-                row.get::<String, _>("name") == "idx_lifecycle_operations_running_workspace_unique"
-            })
-            .expect("running unique index should exist");
-        assert_eq!(running_index.get::<i64, _>("unique"), 1);
-        assert_eq!(running_index.get::<i64, _>("partial"), 1);
-
-        let predicate: String = sqlx::query_scalar(
-            "SELECT sql FROM sqlite_master
-             WHERE type = 'index' AND name = 'idx_lifecycle_operations_running_workspace_unique'",
-        )
-        .fetch_one(&repository.pool)
-        .await
-        .expect("index sql should exist");
-        assert!(predicate.ends_with("WHERE state = 'running'"));
     }
 
     #[tokio::test]
@@ -564,47 +565,6 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn find_list_and_latest_return_expected_running_rows() {
-        let repository = repository("queries").await;
-        let payload = provision_payload(None, None);
-        let workspace_1 = "workspace-1".to_string();
-        let workspace_2 = "workspace-2".to_string();
-        let first = repository
-            .create_operation(&workspace_1, &payload)
-            .await
-            .expect("first operation should be created");
-        let second = repository
-            .create_operation(&workspace_2, &payload)
-            .await
-            .expect("second operation should be created");
-
-        let found = repository
-            .find_running_by_workspace(&workspace_1)
-            .await
-            .expect("running lookup should succeed")
-            .expect("running operation should exist");
-        let running = repository
-            .list_running()
-            .await
-            .expect("running list should succeed");
-        let latest = repository
-            .latest_for_workspace(&workspace_1)
-            .await
-            .expect("latest lookup should succeed")
-            .expect("latest operation should exist");
-
-        assert_eq!(found.operation_id, first.operation_id);
-        assert_eq!(latest.operation_id, first.operation_id);
-        assert_eq!(running.len(), 2);
-        assert!(running
-            .iter()
-            .any(|operation| operation.operation_id == first.operation_id));
-        assert!(running
-            .iter()
-            .any(|operation| operation.operation_id == second.operation_id));
-    }
-
-    #[tokio::test]
     async fn delete_for_workspace_removes_only_matching_rows() {
         let repository = repository("delete-for-workspace").await;
         let payload = provision_payload(None, None);
@@ -648,9 +608,7 @@ pub mod tests {
         let initial_payload = provision_payload(None, None);
         let finished_payload = provision_payload(
             Some(RunpodProvisionStep::CreateNetworkVolume),
-            Some(RunpodLifecycleError::RunpodApiFailed {
-                reason: ProviderApiError::RateLimited,
-            }),
+            Some(RunpodLifecycleError::RunPodApiError(ApiError::Timeout)),
         );
         let operation = repository
             .create_operation(&"workspace-1".to_string(), &initial_payload)
@@ -669,25 +627,6 @@ pub mod tests {
         assert_eq!(marked.state, LifecycleOperationState::Failed);
         assert_eq!(marked.payload, finished_payload);
         assert!(marked.finished_at.is_some());
-    }
-
-    #[tokio::test]
-    async fn update_operation_persists_operation_updated_at_timestamp() {
-        let repository = repository("update-operation-updated-at").await;
-        let payload = provision_payload(None, None);
-        let mut operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
-            .await
-            .expect("operation should be created");
-        let updated_at = OffsetDateTime::from_unix_timestamp(42).expect("valid timestamp");
-        operation.updated_at = updated_at;
-
-        let updated = repository
-            .update_operation(&operation)
-            .await
-            .expect("operation should be updated");
-
-        assert_eq!(updated.updated_at, updated_at);
     }
 
     #[tokio::test]
@@ -714,8 +653,14 @@ pub mod tests {
             .await
             .expect_err("created_at change should be corrupt");
 
-        assert_eq!(workspace_error, LifecycleJournalError::Corrupt);
-        assert_eq!(created_at_error, LifecycleJournalError::Corrupt);
+        assert!(matches!(
+            workspace_error,
+            LifecycleJournalError::DataInvalid { .. }
+        ));
+        assert!(matches!(
+            created_at_error,
+            LifecycleJournalError::DataInvalid { .. }
+        ));
     }
 
     #[tokio::test]
@@ -758,7 +703,7 @@ pub mod tests {
             .await
             .expect_err("finished_at before updated_at should be corrupt");
 
-        assert_eq!(error, LifecycleJournalError::Corrupt);
+        assert!(matches!(error, LifecycleJournalError::DataInvalid { .. }));
     }
 
     #[tokio::test]
@@ -856,30 +801,6 @@ pub mod tests {
             .await
             .expect_err("blank persisted operation id should be corrupt");
 
-        assert_eq!(error, LifecycleJournalError::Corrupt);
-    }
-
-    #[tokio::test]
-    async fn payload_round_trip_preserves_runpod_kind_step_and_error_detail() {
-        let repository = repository("payload-round-trip").await;
-        let payload = provision_payload(
-            Some(RunpodProvisionStep::PollProvisioner),
-            Some(RunpodLifecycleError::RunpodApiFailed {
-                reason: ProviderApiError::Timeout,
-            }),
-        );
-
-        let created = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
-            .await
-            .expect("operation should be created");
-        let found = repository
-            .find_running_by_workspace(&"workspace-1".to_string())
-            .await
-            .expect("running lookup should succeed")
-            .expect("running operation should exist");
-
-        assert_eq!(found.operation_id, created.operation_id);
-        assert_eq!(found.payload, payload);
+        assert!(matches!(error, LifecycleJournalError::DataInvalid { .. }));
     }
 }

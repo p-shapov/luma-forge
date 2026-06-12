@@ -4,14 +4,14 @@ use crate::{
     domain::{
         lifecycle_operation::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-            LifecycleOperationState, WorkspaceId,
+            LifecycleOperationState,
         },
-        runpod_runtime::{
+        runpod::{
             RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
             RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodResources,
         },
         workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntimeInvalidReason,
+            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
         },
     },
@@ -36,10 +36,9 @@ pub fn map_lifecycle_journal_error(
             }
         }
         LifecycleJournalError::OperationNotFound
-        | LifecycleJournalError::StorageUnavailable
-        | LifecycleJournalError::QueryFailed
-        | LifecycleJournalError::Corrupt
-        | LifecycleJournalError::SchemaMismatch => RunpodRuntimeError::StorageUnavailable,
+        | LifecycleJournalError::StorageUnavailable { .. }
+        | LifecycleJournalError::DataInvalid { .. }
+        | LifecycleJournalError::SchemaInvalid { .. } => RunpodRuntimeError::StorageUnavailable,
     }
 }
 
@@ -158,7 +157,7 @@ impl RunpodStepPayload for RunpodDeleteStep {
 }
 
 pub fn interrupted_state_for_resources(resources: &RunpodResources) -> WorkspaceState {
-    if resources.is_empty() {
+    if runpod_resources_are_empty(resources) {
         WorkspaceState::Invalid {
             reason: WorkspaceRuntimeInvalidReason::OperationInterrupted,
         }
@@ -167,6 +166,13 @@ pub fn interrupted_state_for_resources(resources: &RunpodResources) -> Workspace
             reason: WorkspaceCleanupRequiredReason::OperationInterrupted,
         }
     }
+}
+
+pub fn runpod_resources_are_empty(resources: &RunpodResources) -> bool {
+    resources.network_volume_id.is_none()
+        && resources.provisioner_pod_id.is_none()
+        && resources.endpoint_id.is_none()
+        && resources.template_id.is_none()
 }
 
 pub fn payload_with_app_interrupted_error(

@@ -3,11 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
-    domain::runpod_runtime::{
-        ProviderApiError, RunpodDatacenterPlacementOption, RunpodGpuPlacementOption,
-        RunpodPlacementOptions,
+    domain::runpod::{
+        RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
     },
-    runpod_runtime::errors::RunpodRuntimeError,
+    runpod_runtime::errors::{ProviderApiError, RunpodRuntimeError},
     secrets_storage::SecretsStorageError,
 };
 
@@ -30,7 +29,6 @@ const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
     name
     gpuAvailability {
       gpuTypeId
-      available
       stockStatus
     }
   }
@@ -93,9 +91,6 @@ struct PlacementDatacenter {
 struct PlacementGpuAvailability {
     #[serde(rename = "gpuTypeId")]
     gpu_type_id: String,
-    available: bool,
-    #[serde(rename = "stockStatus")]
-    stock_status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -358,18 +353,16 @@ pub(super) fn map_placement_response(
             let gpu_options = datacenter
                 .gpu_availability
                 .into_iter()
-                .filter(|availability| availability.available)
                 .filter_map(|availability| {
                     data.gpu_types
                         .iter()
                         .find(|gpu| gpu.id == availability.gpu_type_id)
                         .map(|gpu| (availability, gpu))
                 })
-                .map(|(availability, gpu)| RunpodGpuPlacementOption {
+                .map(|(_, gpu)| RunpodGpuPlacementOption {
                     id: gpu.id.clone(),
                     name: gpu.display_name.clone(),
                     vram_gb: gpu.memory_gb,
-                    availability_score: stock_status_score(availability.stock_status.as_deref()),
                 })
                 .collect();
 
@@ -382,18 +375,9 @@ pub(super) fn map_placement_response(
         .collect();
 
     Ok(RunpodPlacementOptions {
-        max_network_volume_size_gb: None,
+        max_volume_size_gb: None,
         datacenters,
     })
-}
-
-fn stock_status_score(stock_status: Option<&str>) -> u8 {
-    match stock_status {
-        Some("High") => 100,
-        Some("Medium") => 50,
-        Some("Low") => 25,
-        _ => 0,
-    }
 }
 
 #[cfg(test)]
@@ -401,8 +385,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::runpod_runtime::RunpodEndpointKeepAliveLimits;
     use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
+    use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
 
     #[test]
     fn workspace_resource_name_is_deterministic() {
@@ -642,8 +626,6 @@ mod tests {
                     name: "Texas".to_string(),
                     gpu_availability: vec![PlacementGpuAvailability {
                         gpu_type_id: "gpu-1".to_string(),
-                        available: true,
-                        stock_status: Some("Low".to_string()),
                     }],
                 }],
             }),
@@ -655,7 +637,7 @@ mod tests {
         assert_eq!(
             options,
             RunpodPlacementOptions {
-                max_network_volume_size_gb: None,
+                max_volume_size_gb: None,
                 datacenters: vec![RunpodDatacenterPlacementOption {
                     id: "US-TX-1".to_string(),
                     name: "Texas".to_string(),
@@ -663,7 +645,6 @@ mod tests {
                         id: "gpu-1".to_string(),
                         name: "RTX 4090".to_string(),
                         vram_gb: 24,
-                        availability_score: 25,
                     }],
                 }],
             }

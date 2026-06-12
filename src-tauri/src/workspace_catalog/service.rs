@@ -50,8 +50,8 @@ mod tests {
 
     use crate::{
         domain::{
-            runpod_runtime::{RunpodEndpointKeepAliveLimits, RunpodPlacementPlan},
-            runpod_runtime::{RunpodResources, RunpodRuntime},
+            runpod::placement::RunpodPlacementPlan,
+            runpod::runtime::{RunpodResources, RunpodRuntime},
             workflow_preset::WorkflowReference,
             workspace::{Workspace, WorkspaceCatalog, WorkspaceRuntime, WorkspaceState},
         },
@@ -282,7 +282,9 @@ mod tests {
 
     #[tokio::test]
     async fn service_preserves_repository_errors() {
-        let error = WorkspaceCatalogError::QueryFailed;
+        let error = WorkspaceCatalogError::StorageUnavailable {
+            message: "query failed".to_string(),
+        };
         let workspace = workspace("workspace-1");
 
         let calls = Arc::new(Mutex::new(Vec::new()));
@@ -334,11 +336,6 @@ mod tests {
                     data_center_id: "datacenter-1".to_string(),
                     gpu_type_id: "gpu-1".to_string(),
                     volume_size_gb: 1,
-                    keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
-                        default_seconds: 60,
-                        min_seconds: 0,
-                        max_seconds: 3600,
-                    }),
                 },
                 resources: RunpodResources {
                     network_volume_id: None,

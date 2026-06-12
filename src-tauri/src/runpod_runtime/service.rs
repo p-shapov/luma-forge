@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use crate::{
     domain::{
-        lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationPayload, RunpodLifecycleOperationPayload,
-        },
-        runpod_runtime::{RunpodPlacementOptions, RunpodPlacementPlan},
-        runpod_runtime::{RunpodResources, RunpodRuntime},
+        lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload},
+        runpod::RunpodLifecycleOperationPayload,
+        runpod::{RunpodPlacementOptions, RunpodPlacementPlan},
+        runpod::{RunpodResources, RunpodRuntime},
         workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
@@ -21,7 +20,7 @@ use super::{
     lifecycle::{
         helpers::{
             interrupted_state_for_resources, map_lifecycle_journal_error,
-            payload_with_app_interrupted_error,
+            payload_with_app_interrupted_error, runpod_resources_are_empty,
         },
         runner::{
             LifecycleOperationRegistry, RunpodRuntimeLifecycleRunner,
@@ -145,7 +144,7 @@ where
             return Err(RunpodRuntimeError::InvalidRuntimeState);
         }
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        if !runtime.resources.is_empty() {
+        if !runpod_resources_are_empty(&runtime.resources) {
             return Err(RunpodRuntimeError::InvalidRuntimeState);
         }
 
@@ -203,7 +202,7 @@ where
             .await?;
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        if runtime.resources.is_empty() {
+        if runpod_resources_are_empty(&runtime.resources) {
             let completed_operation = super::lifecycle::delete::run_once(
                 &operation.operation_id,
                 &self.workspace_repository,
@@ -386,11 +385,9 @@ pub(super) fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> Runpo
     match error {
         WorkspaceCatalogError::WorkspaceAlreadyExists => RunpodRuntimeError::WorkspaceAlreadyExists,
         WorkspaceCatalogError::WorkspaceNotFound => RunpodRuntimeError::WorkspaceNotFound,
-        WorkspaceCatalogError::Corrupt => RunpodRuntimeError::StorageUnavailable,
-        WorkspaceCatalogError::StorageUnavailable
-        | WorkspaceCatalogError::MigrationFailed
-        | WorkspaceCatalogError::QueryFailed
-        | WorkspaceCatalogError::SchemaMismatch => RunpodRuntimeError::StorageUnavailable,
+        WorkspaceCatalogError::DataInvalid { .. } => RunpodRuntimeError::StorageUnavailable,
+        WorkspaceCatalogError::StorageUnavailable { .. }
+        | WorkspaceCatalogError::SchemaInvalid { .. } => RunpodRuntimeError::StorageUnavailable,
     }
 }
 
@@ -398,26 +395,47 @@ pub(super) fn map_workspace_catalog_error(error: WorkspaceCatalogError) -> Runpo
 mod tests {
     use crate::{
         domain::{
-            lifecycle_operation::{
-                LifecycleOperationPayload, LifecycleOperationState, RunpodLifecycleOperationPayload,
+            lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
+            runpod::{
+                RunpodLifecycleError, RunpodLifecycleOperationPayload, RunpodProvisionerError,
+                RunpodRuntime, RunpodRuntimeStateError,
             },
-            runpod_runtime::ProviderApiError,
-            runpod_runtime::{RunpodLifecycleError, RunpodProvisionerStatus, RunpodRuntime},
             workspace::{
                 WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
                 WorkspaceState,
             },
         },
         lifecycle_journal::LifecycleJournalRepository,
-        runpod_runtime::test_support::{
-            block_on, draft_create_request, placement_options, service_with_state,
-            service_with_state_and_workspace_repository, service_without_lifecycle_spawning,
-            InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, RunpodClientState,
-            WorkspaceRepositoryState,
+        runpod_runtime::{
+            errors::ProviderApiError,
+            lifecycle::helpers::runpod_resources_are_empty,
+            provider::RunpodProvisionerStatus,
+            test_support::{
+                block_on, draft_create_request, placement_options, service_with_state,
+                service_with_state_and_workspace_repository, service_without_lifecycle_spawning,
+                InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, RunpodClientState,
+                WorkspaceRepositoryState,
+            },
         },
         workspace_catalog::WorkspaceCatalogRepository,
     };
     use std::sync::{Arc, Mutex};
+
+    fn runpod_api_failed() -> RunpodLifecycleError {
+        RunpodLifecycleError::RunPodApiError(ProviderApiError::RequestFailed.into())
+    }
+
+    fn provisioner_unavailable() -> RunpodLifecycleError {
+        RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable)
+    }
+
+    fn provisioner_failed() -> RunpodLifecycleError {
+        RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed)
+    }
+
+    fn invalid_runtime_state() -> RunpodLifecycleError {
+        RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid)
+    }
 
     #[test]
     fn create_runpod_workspace_persists_not_provisioned_workspace_without_client_calls() {
@@ -438,7 +456,7 @@ mod tests {
         }) = &workspace.runtime;
         assert_eq!(placement.data_center_id, "dc");
         assert_eq!(placement.gpu_type_id, "gpu");
-        assert!(resources.is_empty());
+        assert!(runpod_resources_are_empty(resources));
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
 
         let persisted = block_on(
@@ -504,7 +522,9 @@ mod tests {
     fn corrupt_workspace_catalog_error_maps_to_storage_unavailable() {
         assert_eq!(
             super::map_workspace_catalog_error(
-                crate::workspace_catalog::WorkspaceCatalogError::Corrupt
+                crate::workspace_catalog::WorkspaceCatalogError::DataInvalid {
+                    message: "corrupt workspace".to_string(),
+                },
             ),
             crate::runpod_runtime::errors::RunpodRuntimeError::StorageUnavailable
         );
@@ -785,8 +805,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod_runtime::RunpodProvisionStep::StartProvisionerPod),
-                error: Some(RunpodLifecycleError::ProvisionerUnavailable),
+                step: Some(crate::domain::runpod::RunpodProvisionStep::StartProvisionerPod),
+                error: Some(provisioner_unavailable()),
             })
         );
     }
@@ -885,10 +905,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod_runtime::RunpodProvisionStep::CreateTemplate),
-                error: Some(RunpodLifecycleError::RunpodApiFailed {
-                    reason: ProviderApiError::RequestFailed,
-                }),
+                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateTemplate),
+                error: Some(runpod_api_failed()),
             })
         );
         assert_eq!(
@@ -953,10 +971,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod_runtime::RunpodProvisionStep::CreateEndpoint),
-                error: Some(RunpodLifecycleError::RunpodApiFailed {
-                    reason: ProviderApiError::RequestFailed,
-                }),
+                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateEndpoint),
+                error: Some(runpod_api_failed()),
             })
         );
         assert_eq!(
@@ -1024,10 +1040,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(
-                    crate::domain::runpod_runtime::RunpodProvisionStep::TerminateProvisionerPod
-                ),
-                error: Some(RunpodLifecycleError::ProvisionerFailed),
+                step: Some(crate::domain::runpod::RunpodProvisionStep::TerminateProvisionerPod),
+                error: Some(provisioner_failed()),
             })
         );
         assert_eq!(
@@ -1135,8 +1149,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod_runtime::RunpodProvisionStep::CreateNetworkVolume),
-                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume),
+                error: Some(invalid_runtime_state()),
             })
         );
     }
@@ -1188,8 +1202,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod_runtime::RunpodProvisionStep::CreateNetworkVolume),
-                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume),
+                error: Some(invalid_runtime_state()),
             })
         );
         let workspace = service
@@ -1276,8 +1290,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-                step: Some(crate::domain::runpod_runtime::RunpodCleanupStep::DeleteEndpoint),
-                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+                step: Some(crate::domain::runpod::RunpodCleanupStep::DeleteEndpoint),
+                error: Some(invalid_runtime_state()),
             })
         );
     }
@@ -1387,10 +1401,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-                step: Some(crate::domain::runpod_runtime::RunpodCleanupStep::DeleteTemplate),
-                error: Some(RunpodLifecycleError::RunpodApiFailed {
-                    reason: ProviderApiError::RequestFailed,
-                }),
+                step: Some(crate::domain::runpod::RunpodCleanupStep::DeleteTemplate),
+                error: Some(runpod_api_failed()),
             })
         );
     }
@@ -1474,7 +1486,7 @@ mod tests {
         assert_eq!(
             response.operation.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod_runtime::RunpodDeleteStep::DeleteLocalWorkspace),
+                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
                 error: None,
             })
         );
@@ -1508,8 +1520,11 @@ mod tests {
         workspace_state
             .lock()
             .expect("workspace state lock should succeed")
-            .delete_workspace_error =
-            Some(crate::workspace_catalog::WorkspaceCatalogError::QueryFailed);
+            .delete_workspace_error = Some(
+            crate::workspace_catalog::WorkspaceCatalogError::StorageUnavailable {
+                message: "query failed".to_string(),
+            },
+        );
 
         let error = service
             .delete_workspace("workspace-1")
@@ -1534,8 +1549,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod_runtime::RunpodDeleteStep::DeleteLocalWorkspace),
-                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
+                error: Some(invalid_runtime_state()),
             })
         );
     }
@@ -1684,10 +1699,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod_runtime::RunpodDeleteStep::DeleteTemplate),
-                error: Some(RunpodLifecycleError::RunpodApiFailed {
-                    reason: ProviderApiError::RequestFailed,
-                }),
+                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteTemplate),
+                error: Some(runpod_api_failed()),
             })
         );
     }
@@ -1787,8 +1800,11 @@ mod tests {
         workspace_state
             .lock()
             .expect("workspace state lock should succeed")
-            .delete_workspace_error =
-            Some(crate::workspace_catalog::WorkspaceCatalogError::QueryFailed);
+            .delete_workspace_error = Some(
+            crate::workspace_catalog::WorkspaceCatalogError::StorageUnavailable {
+                message: "query failed".to_string(),
+            },
+        );
 
         let error = service
             .run_delete_once_for_test(&operation_id)
@@ -1813,8 +1829,8 @@ mod tests {
         assert_eq!(
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod_runtime::RunpodDeleteStep::DeleteLocalWorkspace),
-                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
+                error: Some(invalid_runtime_state()),
             })
         );
     }

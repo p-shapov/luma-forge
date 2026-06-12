@@ -28,9 +28,11 @@ impl SqliteWorkspaceCatalogRepository {
         let options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(true);
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(|_| WorkspaceCatalogError::StorageUnavailable)?;
+        let pool = SqlitePool::connect_with(options).await.map_err(|error| {
+            WorkspaceCatalogError::StorageUnavailable {
+                message: error.to_string(),
+            }
+        })?;
 
         schema::bootstrap(&pool).await?;
 
@@ -57,7 +59,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             )
             .fetch_all(&self.pool)
             .await
-            .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+            .map_err(|error| WorkspaceCatalogError::StorageUnavailable { message: error.to_string() })?;
             let workspaces = rows
                 .iter()
                 .map(workspace_from_row)
@@ -81,7 +83,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+            .map_err(|error| WorkspaceCatalogError::StorageUnavailable { message: error.to_string() })?;
 
             row.as_ref().map(workspace_from_row).transpose()
         })
@@ -128,7 +130,9 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 if is_unique_constraint(&error) {
                     WorkspaceCatalogError::WorkspaceAlreadyExists
                 } else {
-                    WorkspaceCatalogError::QueryFailed
+                    WorkspaceCatalogError::StorageUnavailable {
+                        message: error.to_string(),
+                    }
                 }
             })?;
 
@@ -169,7 +173,9 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             .bind(&workspace.id)
             .execute(&self.pool)
             .await
-            .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+            .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
+                message: error.to_string(),
+            })?;
 
             if result.rows_affected() == 0 {
                 return Err(WorkspaceCatalogError::WorkspaceNotFound);
@@ -190,7 +196,9 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 .bind(id)
                 .execute(&self.pool)
                 .await
-                .map_err(|_| WorkspaceCatalogError::QueryFailed)?;
+                .map_err(|error| WorkspaceCatalogError::StorageUnavailable {
+                    message: error.to_string(),
+                })?;
 
             if result.rows_affected() == 0 {
                 return Err(WorkspaceCatalogError::WorkspaceNotFound);
@@ -203,7 +211,9 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
 
 fn validate_id(id: &str) -> Result<(), WorkspaceCatalogError> {
     if id.trim().is_empty() {
-        Err(WorkspaceCatalogError::Corrupt)
+        Err(WorkspaceCatalogError::DataInvalid {
+            message: "ID is empty".to_string(),
+        })
     } else {
         Ok(())
     }
@@ -217,25 +227,39 @@ fn validate_workflow_reference(workflow: &WorkflowReference) -> Result<(), Works
 fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, WorkspaceCatalogError> {
     let id = row
         .try_get::<String, _>("id")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let runtime_type = row
-        .try_get::<String, _>("runtime_type")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let state = row
-        .try_get::<String, _>("state")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
+        .map_err(|_| WorkspaceCatalogError::SchemaInvalid {
+            message: "ID is missing".to_string(),
+        })?;
+    let runtime_type = row.try_get::<String, _>("runtime_type").map_err(|_| {
+        WorkspaceCatalogError::SchemaInvalid {
+            message: "runtime type is missing".to_string(),
+        }
+    })?;
+    let state =
+        row.try_get::<String, _>("state")
+            .map_err(|_| WorkspaceCatalogError::SchemaInvalid {
+                message: "state is missing".to_string(),
+            })?;
     let state_reason = row
         .try_get::<Option<String>, _>("state_reason")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let workflow_id = row
-        .try_get::<String, _>("workflow_id")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let workflow_version = row
-        .try_get::<String, _>("workflow_version")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let runtime_json = row
-        .try_get::<String, _>("runtime_json")
-        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
+        .map_err(|_| WorkspaceCatalogError::SchemaInvalid {
+            message: "state reason is missing".to_string(),
+        })?;
+    let workflow_id = row.try_get::<String, _>("workflow_id").map_err(|_| {
+        WorkspaceCatalogError::SchemaInvalid {
+            message: "workflow ID is missing".to_string(),
+        }
+    })?;
+    let workflow_version = row.try_get::<String, _>("workflow_version").map_err(|_| {
+        WorkspaceCatalogError::SchemaInvalid {
+            message: "workflow version is missing".to_string(),
+        }
+    })?;
+    let runtime_json = row.try_get::<String, _>("runtime_json").map_err(|_| {
+        WorkspaceCatalogError::SchemaInvalid {
+            message: "runtime JSON is missing".to_string(),
+        }
+    })?;
     let workflow = WorkflowReference {
         id: workflow_id,
         version: workflow_version,
@@ -291,7 +315,9 @@ fn workspace_state_from_columns(
         ("invalid", Some(reason)) => Ok(WorkspaceState::Invalid {
             reason: invalid_reason_from_column(reason)?,
         }),
-        _ => Err(WorkspaceCatalogError::Corrupt),
+        (state, _) => Err(WorkspaceCatalogError::DataInvalid {
+            message: format!("unknown state: {state}"),
+        }),
     }
 }
 
@@ -312,7 +338,9 @@ fn cleanup_required_reason_from_column(
         "cleanup_failed" => Ok(WorkspaceCleanupRequiredReason::CleanupFailed),
         "delete_failed" => Ok(WorkspaceCleanupRequiredReason::DeleteFailed),
         "operation_interrupted" => Ok(WorkspaceCleanupRequiredReason::OperationInterrupted),
-        _ => Err(WorkspaceCatalogError::Corrupt),
+        reason => Err(WorkspaceCatalogError::DataInvalid {
+            message: format!("unknown cleanup required reason: {reason}"),
+        }),
     }
 }
 
@@ -335,14 +363,18 @@ fn invalid_reason_from_column(
         "cleanup_failed" => Ok(WorkspaceRuntimeInvalidReason::CleanupFailed),
         "delete_failed" => Ok(WorkspaceRuntimeInvalidReason::DeleteFailed),
         "corrupt_runtime_state" => Ok(WorkspaceRuntimeInvalidReason::CorruptRuntimeState),
-        _ => Err(WorkspaceCatalogError::Corrupt),
+        reason => Err(WorkspaceCatalogError::DataInvalid {
+            message: format!("unknown invalid reason: {reason}"),
+        }),
     }
 }
 
 fn timestamp() -> Result<String, WorkspaceCatalogError> {
-    OffsetDateTime::now_utc()
-        .format(&Rfc3339)
-        .map_err(|_| WorkspaceCatalogError::QueryFailed)
+    OffsetDateTime::now_utc().format(&Rfc3339).map_err(|error| {
+        WorkspaceCatalogError::StorageUnavailable {
+            message: error.to_string(),
+        }
+    })
 }
 
 fn is_unique_constraint(error: &sqlx::Error) -> bool {
@@ -363,9 +395,8 @@ mod tests {
     };
 
     use crate::domain::{
-        runpod_runtime::{
-            RunpodEndpointKeepAliveLimits, RunpodPlacementPlan, RunpodResources, RunpodRuntime,
-        },
+        runpod::placement::RunpodPlacementPlan,
+        runpod::runtime::{RunpodResources, RunpodRuntime},
         workflow_preset::WorkflowReference,
         workspace::{
             Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
@@ -513,11 +544,6 @@ mod tests {
                     data_center_id: "datacenter-1".to_string(),
                     gpu_type_id: "gpu-1".to_string(),
                     volume_size_gb: 19,
-                    keep_alive_limits: Some(RunpodEndpointKeepAliveLimits {
-                        default_seconds: 60,
-                        min_seconds: 0,
-                        max_seconds: 3600,
-                    }),
                 },
                 resources: RunpodResources {
                     network_volume_id: None,
@@ -587,7 +613,12 @@ mod tests {
             .await
             .expect_err("connect should reject incompatible schema");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "expected 9 columns, got 1".to_string()
+            }
+        );
 
         let _ = fs::remove_file(path);
     }
@@ -619,7 +650,12 @@ mod tests {
             .await
             .expect_err("connect should reject legacy workspace json schema");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "table columns do not match expected columns".to_string()
+            }
+        );
         assert_eq!(metadata_version(&path).await, None);
 
         let _ = fs::remove_file(path);
@@ -658,7 +694,12 @@ mod tests {
             .await
             .expect_err("connect should reject incompatible primary key");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "table columns do not match expected columns".to_string()
+            }
+        );
         assert_eq!(metadata_version(&path).await, None);
 
         let _ = fs::remove_file(path);
@@ -696,7 +737,12 @@ mod tests {
             .await
             .expect_err("connect should reject missing workspace indexes");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "expected index names [\"idx_workspaces_runtime_type\", \"idx_workspaces_state\"], got []".to_string()
+            }
+        );
         assert_eq!(metadata_version(&path).await, None);
 
         let _ = fs::remove_file(path);
@@ -734,7 +780,12 @@ mod tests {
             .await
             .expect_err("connect should reject non-null state_reason schema");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "table columns do not match expected columns".to_string()
+            }
+        );
         assert_eq!(metadata_version(&path).await, None);
 
         let _ = fs::remove_file(path);
@@ -784,7 +835,12 @@ mod tests {
             .await
             .expect_err("connect should reject extra workspace index");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "expected index names [\"idx_workspaces_runtime_type\", \"idx_workspaces_state\"], got [\"idx_workspaces_created_at\", \"idx_workspaces_runtime_type\", \"idx_workspaces_state\"]".to_string()
+            }
+        );
         assert_eq!(metadata_version(&path).await, None);
 
         let _ = fs::remove_file(path);
@@ -832,7 +888,13 @@ mod tests {
             .await
             .expect_err("connect should reject partial workspace index");
 
-        assert_eq!(error, WorkspaceCatalogError::SchemaMismatch);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::SchemaInvalid {
+                message: "index idx_workspaces_state must be non-unique and non-partial"
+                    .to_string()
+            }
+        );
         assert_eq!(metadata_version(&path).await, None);
 
         let _ = fs::remove_file(path);
@@ -1040,7 +1102,12 @@ mod tests {
                 .await
                 .expect_err("invalid state reason combination should fail");
 
-            assert_eq!(error, WorkspaceCatalogError::Corrupt);
+            assert_eq!(
+                error,
+                WorkspaceCatalogError::DataInvalid {
+                    message: format!("unknown state: {state}")
+                }
+            );
         }
 
         drop(repository);
@@ -1078,7 +1145,12 @@ mod tests {
             .await
             .expect_err("empty workflow id should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "ID is empty".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1115,7 +1187,12 @@ mod tests {
             .await
             .expect_err("empty workflow version should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "workflow version is missing".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1149,7 +1226,12 @@ mod tests {
             .await
             .expect_err("corrupt runtime json should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "runtime JSON is missing".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1186,7 +1268,12 @@ mod tests {
             .await
             .expect_err("unknown runtime type should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "unknown runtime type: unknown".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1309,7 +1396,12 @@ mod tests {
             .await
             .expect_err("blank id should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "ID is empty".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1329,7 +1421,12 @@ mod tests {
             .await
             .expect_err("blank workspace id should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "ID is empty".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1449,7 +1546,12 @@ mod tests {
             .await
             .expect_err("blank workspace id should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "ID is empty".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1468,7 +1570,12 @@ mod tests {
             .await
             .expect_err("blank id should fail");
 
-        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+        assert_eq!(
+            error,
+            WorkspaceCatalogError::DataInvalid {
+                message: "ID is empty".to_string()
+            }
+        );
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1492,7 +1599,10 @@ mod tests {
             .await
             .expect_err("update should fail when workspaces table is missing");
 
-        assert_eq!(error, WorkspaceCatalogError::QueryFailed);
+        assert!(matches!(
+            error,
+            WorkspaceCatalogError::StorageUnavailable { .. }
+        ));
 
         drop(repository);
         let _ = fs::remove_file(path);
@@ -1515,7 +1625,10 @@ mod tests {
             .await
             .expect_err("delete should fail when workspaces table is missing");
 
-        assert_eq!(error, WorkspaceCatalogError::QueryFailed);
+        assert!(matches!(
+            error,
+            WorkspaceCatalogError::StorageUnavailable { .. }
+        ));
 
         drop(repository);
         let _ = fs::remove_file(path);

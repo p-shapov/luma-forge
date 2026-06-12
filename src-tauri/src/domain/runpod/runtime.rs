@@ -15,12 +15,3 @@ pub struct RunpodResources {
     pub endpoint_id: Option<String>,
     pub template_id: Option<String>,
 }
-
-impl RunpodResources {
-    pub fn is_empty(&self) -> bool {
-        self.network_volume_id.is_none()
-            && self.provisioner_pod_id.is_none()
-            && self.endpoint_id.is_none()
-            && self.template_id.is_none()
-    }
-}

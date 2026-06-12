@@ -1,10 +1,8 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceCatalogError {
-    StorageUnavailable,
-    MigrationFailed,
-    QueryFailed,
-    Corrupt,
-    SchemaMismatch,
+    StorageUnavailable { message: String },
+    SchemaInvalid { message: String },
+    DataInvalid { message: String },
     WorkspaceAlreadyExists,
     WorkspaceNotFound,
 }

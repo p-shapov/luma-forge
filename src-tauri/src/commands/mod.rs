@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    domain::runpod_runtime::ProviderApiError, runpod_runtime::errors::RunpodRuntimeError,
-    secrets_storage::SecretsStorageError, workflow_catalog::WorkflowCatalogError,
+    runpod_runtime::errors::{ProviderApiError, RunpodRuntimeError},
+    secrets_storage::SecretsStorageError,
+    workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
@@ -59,11 +60,11 @@ impl NativeCommandError {
 impl From<WorkflowCatalogError> for NativeCommandError {
     fn from(error: WorkflowCatalogError) -> Self {
         match error {
-            WorkflowCatalogError::ParseFailed => Self::new(
+            WorkflowCatalogError::ParseFailed { .. } => Self::new(
                 NativeCommandErrorCode::WorkflowCatalogInvalid,
                 "workflow catalog could not be read",
             ),
-            WorkflowCatalogError::ValidationFailed => Self::new(
+            WorkflowCatalogError::ValidationFailed { .. } => Self::new(
                 NativeCommandErrorCode::WorkflowCatalogInvalid,
                 "workflow catalog is invalid",
             ),
@@ -74,23 +75,15 @@ impl From<WorkflowCatalogError> for NativeCommandError {
 impl From<WorkspaceCatalogError> for NativeCommandError {
     fn from(error: WorkspaceCatalogError) -> Self {
         match error {
-            WorkspaceCatalogError::StorageUnavailable => Self::new(
+            WorkspaceCatalogError::StorageUnavailable { .. } => Self::new(
                 NativeCommandErrorCode::WorkspaceStorageUnavailable,
                 "workspace storage is unavailable",
             ),
-            WorkspaceCatalogError::MigrationFailed => Self::new(
-                NativeCommandErrorCode::WorkspaceStorageUnavailable,
-                "workspace storage could not be initialized",
-            ),
-            WorkspaceCatalogError::QueryFailed => Self::new(
-                NativeCommandErrorCode::WorkspaceStorageQueryFailed,
-                "workspace storage query failed",
-            ),
-            WorkspaceCatalogError::Corrupt => Self::new(
+            WorkspaceCatalogError::DataInvalid { .. } => Self::new(
                 NativeCommandErrorCode::WorkspaceStorageCorrupt,
                 "workspace storage contains invalid data",
             ),
-            WorkspaceCatalogError::SchemaMismatch => Self::new(
+            WorkspaceCatalogError::SchemaInvalid { .. } => Self::new(
                 NativeCommandErrorCode::WorkspaceStorageSchemaMismatch,
                 "workspace storage schema is incompatible",
             ),
@@ -129,11 +122,11 @@ impl From<SecretsStorageError> for NativeCommandError {
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "stored api key is invalid",
             ),
-            SecretsStorageError::Provider(_) => Self::new(
+            SecretsStorageError::IdentityRequestFailed(_) => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "api key could not be validated",
             ),
-            SecretsStorageError::IdentityResponseInvalid => Self::new(
+            SecretsStorageError::IdentityResponseInvalid { .. } => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "api key identity response is invalid",
             ),

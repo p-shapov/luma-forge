@@ -7,6 +7,8 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+use serde::{Deserialize, Serialize};
+
 pub type AppFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type BackgroundTask = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
@@ -79,4 +81,14 @@ where
             Err(poisoned) => poisoned.into_inner(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiError {
+    Unauthorized,
+    InsufficientPermissions,
+    RateLimited,
+    Timeout,
+    RequestFailed { message: String },
 }

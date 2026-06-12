@@ -4,9 +4,10 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::domain::{
     lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
-    runpod_runtime::{
+    runpod::{
         RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError, RunpodLifecycleOperationPayload,
-        RunpodProvisionStep, RunpodResources, RunpodRuntime,
+        RunpodProvisionStep, RunpodProvisionerError, RunpodResources, RunpodRuntime,
+        RunpodRuntimeStateError,
     },
     workflow_preset::WorkflowReference,
     workspace::{
@@ -463,16 +464,32 @@ impl From<RunpodLifecycleError> for RunpodLifecycleErrorResponse {
     fn from(value: RunpodLifecycleError) -> Self {
         match value {
             RunpodLifecycleError::AppInterrupted => Self::AppInterrupted,
-            RunpodLifecycleError::RunpodSecretUnavailable => Self::RunpodSecretUnavailable,
-            RunpodLifecycleError::RunpodApiFailed { .. } => Self::RunpodApiFailed,
-            RunpodLifecycleError::ProvisionerUnavailable => Self::ProvisionerUnavailable,
-            RunpodLifecycleError::ProvisionerResponseInvalid => Self::ProvisionerResponseInvalid,
-            RunpodLifecycleError::ProvisionerFailed => Self::ProvisionerFailed,
-            RunpodLifecycleError::NetworkVolumeNotFound => Self::NetworkVolumeNotFound,
-            RunpodLifecycleError::ProvisionerPodNotFound => Self::ProvisionerPodNotFound,
-            RunpodLifecycleError::EndpointNotFound => Self::EndpointNotFound,
-            RunpodLifecycleError::TemplateNotFound => Self::TemplateNotFound,
-            RunpodLifecycleError::InvalidRuntimeState => Self::InvalidRuntimeState,
+            RunpodLifecycleError::RunPodSecretError(_) => Self::RunpodSecretUnavailable,
+            RunpodLifecycleError::RunPodApiError(_) => Self::RunpodApiFailed,
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable) => {
+                Self::ProvisionerUnavailable
+            }
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid) => {
+                Self::ProvisionerResponseInvalid
+            }
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed) => {
+                Self::ProvisionerFailed
+            }
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingVolume) => {
+                Self::NetworkVolumeNotFound
+            }
+            RunpodLifecycleError::InvalidRuntimeState(
+                RunpodRuntimeStateError::MissingProvisionerPod,
+            ) => Self::ProvisionerPodNotFound,
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingEndpoint) => {
+                Self::EndpointNotFound
+            }
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingTemplate) => {
+                Self::TemplateNotFound
+            }
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid) => {
+                Self::InvalidRuntimeState
+            }
         }
     }
 }

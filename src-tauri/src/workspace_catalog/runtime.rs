@@ -21,6 +21,8 @@ pub fn decode_runtime(
 ) -> Result<WorkspaceRuntime, WorkspaceCatalogError> {
     match runtime_type {
         runtimes::runpod::RUNTIME_TYPE => runtimes::runpod::decode(runtime_json),
-        _ => Err(WorkspaceCatalogError::Corrupt),
+        unknown_runtime_type => Err(WorkspaceCatalogError::DataInvalid {
+            message: format!("unknown runtime type: {}", unknown_runtime_type),
+        }),
     }
 }

@@ -3,7 +3,10 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
-        runpod_runtime::{RunpodLifecycleError, RunpodProvisionStep, RunpodProvisionerStatus},
+        runpod::{
+            RunpodLifecycleError, RunpodProvisionStep, RunpodProvisionerError,
+            RunpodRuntimeStateError,
+        },
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
@@ -14,6 +17,7 @@ use crate::{
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
+use super::super::provider::RunpodProvisionerStatus;
 use super::{
     super::{
         contracts::RunpodContractResolver,
@@ -25,7 +29,10 @@ use super::{
             StartRunpodProvisionerPodParams,
         },
     },
-    helpers::{load_running_operation, mark_operation_state, mark_running_step, persist_workspace},
+    helpers::{
+        load_running_operation, mark_operation_state, mark_running_step, persist_workspace,
+        runpod_resources_are_empty,
+    },
 };
 
 // Keep polling until the worker container is reachable; 12 * 5s = 60s warm-up window.
@@ -57,7 +64,7 @@ where
                 &operation,
                 LifecycleOperationState::Failed,
                 RunpodProvisionStep::CreateNetworkVolume,
-                Some(RunpodLifecycleError::InvalidRuntimeState),
+                Some(invalid_runtime_state()),
             )
             .await?;
             return Ok(());
@@ -222,7 +229,7 @@ where
                 gpu_type_id: runtime.placement.gpu_type_id.clone(),
                 network_volume_id: volume_id,
                 template_id: template_id.clone(),
-                keep_alive_limits: runtime.placement.keep_alive_limits.clone(),
+                keep_alive_limits: None,
             })
             .await
         {
@@ -260,7 +267,7 @@ where
         Err(error) => {
             let lifecycle_error = lifecycle_error_for(&error);
             let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-            workspace.state = if runtime.resources.is_empty() {
+            workspace.state = if runpod_resources_are_empty(&runtime.resources) {
                 WorkspaceState::Invalid {
                     reason: WorkspaceRuntimeInvalidReason::ProvisionFailed,
                 }
@@ -287,25 +294,41 @@ where
 
 fn lifecycle_error_for(error: &RunpodRuntimeError) -> RunpodLifecycleError {
     match error {
-        RunpodRuntimeError::RunpodSecretUnavailable => {
-            RunpodLifecycleError::RunpodSecretUnavailable
+        RunpodRuntimeError::RunpodSecretUnavailable => RunpodLifecycleError::RunPodSecretError(
+            crate::secrets_storage::SecretsStorageError::KeyNotFound,
+        ),
+        RunpodRuntimeError::RunpodApiFailed(reason) => {
+            RunpodLifecycleError::RunPodApiError(reason.clone().into())
         }
-        RunpodRuntimeError::RunpodApiFailed(reason) => RunpodLifecycleError::RunpodApiFailed {
-            reason: reason.clone(),
-        },
-        RunpodRuntimeError::ProvisionerUnavailable => RunpodLifecycleError::ProvisionerUnavailable,
+        RunpodRuntimeError::ProvisionerUnavailable => {
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable)
+        }
         RunpodRuntimeError::ProvisionerResponseInvalid => {
-            RunpodLifecycleError::ProvisionerResponseInvalid
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid)
         }
-        RunpodRuntimeError::ProvisionerFailed => RunpodLifecycleError::ProvisionerFailed,
-        RunpodRuntimeError::NetworkVolumeNotFound => RunpodLifecycleError::NetworkVolumeNotFound,
-        RunpodRuntimeError::ProvisionerPodNotFound => RunpodLifecycleError::ProvisionerPodNotFound,
-        RunpodRuntimeError::EndpointNotFound => RunpodLifecycleError::EndpointNotFound,
-        RunpodRuntimeError::TemplateNotFound => RunpodLifecycleError::TemplateNotFound,
+        RunpodRuntimeError::ProvisionerFailed => {
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed)
+        }
+        RunpodRuntimeError::NetworkVolumeNotFound => {
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingVolume)
+        }
+        RunpodRuntimeError::ProvisionerPodNotFound => RunpodLifecycleError::InvalidRuntimeState(
+            RunpodRuntimeStateError::MissingProvisionerPod,
+        ),
+        RunpodRuntimeError::EndpointNotFound => {
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingEndpoint)
+        }
+        RunpodRuntimeError::TemplateNotFound => {
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingTemplate)
+        }
         RunpodRuntimeError::InvalidRuntimeState
         | RunpodRuntimeError::WorkspaceNotFound
         | RunpodRuntimeError::WorkspaceAlreadyExists
         | RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. }
-        | RunpodRuntimeError::StorageUnavailable => RunpodLifecycleError::InvalidRuntimeState,
+        | RunpodRuntimeError::StorageUnavailable => invalid_runtime_state(),
     }
+}
+
+fn invalid_runtime_state() -> RunpodLifecycleError {
+    RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid)
 }

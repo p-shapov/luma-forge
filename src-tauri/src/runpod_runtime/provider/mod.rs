@@ -6,20 +6,30 @@ pub mod mapping;
 pub mod provisioner;
 
 use crate::{
-    domain::{
-        runpod_runtime::{
-            ProviderApiError, RunpodEndpointKeepAliveLimits, RunpodPlacementOptions,
-            RunpodProvisionerStatus,
-        },
-        workflow_preset::ModelAsset,
-    },
+    domain::{runpod::RunpodPlacementOptions, workflow_preset::ModelAsset},
     shared::AppFuture,
 };
 
-use super::errors::RunpodRuntimeError;
+use super::errors::{ProviderApiError, RunpodRuntimeError};
 use crate::secrets_storage::{
     ApiKeyIdentityProvider, SecretStore, SecretsStorageError, SecretsStorageService,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunpodEndpointKeepAliveLimits {
+    pub default_seconds: u32,
+    pub min_seconds: u32,
+    pub max_seconds: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunpodProvisionerStatus {
+    Pending,
+    Starting,
+    Running,
+    Succeeded,
+    Failed,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateRunpodNetworkVolumeParams {
@@ -193,7 +203,7 @@ where
     ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut options = self.api.placement_options().await?;
-            options.max_network_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
+            options.max_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
             Ok(options)
         })
     }
@@ -368,9 +378,8 @@ mod tests {
 
     use crate::{
         domain::{
-            runpod_runtime::{
-                RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits,
-                RunpodGpuPlacementOption, RunpodLifecycleError,
+            runpod::{
+                RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodLifecycleError,
             },
             secrets::ApiKeyIdentity,
         },
@@ -404,7 +413,7 @@ mod tests {
         ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>> {
             Box::pin(async {
                 Ok(RunpodPlacementOptions {
-                    max_network_volume_size_gb: None,
+                    max_volume_size_gb: None,
                     datacenters: vec![RunpodDatacenterPlacementOption {
                         id: "dc".to_string(),
                         name: "Datacenter".to_string(),
@@ -412,7 +421,6 @@ mod tests {
                             id: "gpu".to_string(),
                             name: "GPU".to_string(),
                             vram_gb: 24,
-                            availability_score: 100,
                         }],
                     }],
                 })
@@ -674,7 +682,7 @@ mod tests {
             .await
             .expect("placement options");
 
-        assert_eq!(options.max_network_volume_size_gb, Some(4_000));
+        assert_eq!(options.max_volume_size_gb, Some(4_000));
     }
 
     #[tokio::test]
@@ -763,7 +771,9 @@ mod tests {
     #[tokio::test]
     async fn get_provisioner_status_maps_worker_auth_failure_to_provisioner_error() {
         let worker_state = Arc::new(Mutex::new(WorkerState {
-            result: Some(Err(RunpodLifecycleError::ProvisionerResponseInvalid)),
+            result: Some(Err(RunpodLifecycleError::ProvisionerError(
+                crate::domain::runpod::RunpodProvisionerError::ResponseInvalid,
+            ))),
             ..WorkerState::default()
         }));
         let provider = provider(Arc::default(), Arc::clone(&worker_state));

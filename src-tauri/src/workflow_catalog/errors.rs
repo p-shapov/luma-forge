@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkflowCatalogError {
-    ParseFailed,
-    ValidationFailed,
+    ParseFailed { message: String },
+    ValidationFailed { message: String },
 }
