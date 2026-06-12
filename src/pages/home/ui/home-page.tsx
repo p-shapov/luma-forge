@@ -131,6 +131,7 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: stringifyJson({
       workflowPresetId: "",
+      workflowRevisionVersion: "",
       remotePlacement: {
         gpuCloudProviderId: "runpod",
         datacenterId: "",

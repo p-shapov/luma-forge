@@ -43,6 +43,7 @@ export type CleanupWorkspaceResponse = {
 
 export type CreateWorkspaceRequest = {
 	workflowPresetId: string,
+	workflowRevisionVersion: string,
 	remotePlacement: RemotePlacementPlanInput,
 };
 
@@ -187,9 +188,18 @@ export type WorkflowExecutionTypeDto = "t2i";
 
 export type WorkflowPresetResponse = {
 	id: string,
-	version: string,
 	name: string,
 	executionType: WorkflowExecutionTypeDto,
+	revisions: WorkflowRevisionResponse[],
+};
+
+export type WorkflowReferenceResponse = {
+	id: string,
+	version: string,
+};
+
+export type WorkflowRevisionResponse = {
+	version: string,
 	requiresHuggingFaceApiKey: boolean,
 	remoteRuntimeRequirements: RemoteRuntimeRequirementsResponse,
 	requiredModelAssets: ModelAssetResponse[],
@@ -216,7 +226,7 @@ export type WorkspaceIdRequest = {
 
 export type WorkspaceResponse = {
 	id: string,
-	workflowPreset: WorkflowPresetResponse,
+	workflow: WorkflowReferenceResponse,
 	state: WorkspaceStateResponse,
 	runtime: WorkspaceRuntimeResponse,
 };
