@@ -77,18 +77,18 @@ Catalog resolution should happen at application boundaries, not inside the repos
 
 The repository should read and write persisted workspace data only. It should not know how to load bundled workflow catalogs.
 
-Use an explicit resolver boundary for callers that need the full preset:
+Callers that need executable workflow details should resolve the preset from the catalog, then resolve the referenced revision through `WorkflowPreset`:
 
 ```rust
-pub trait WorkflowPresetResolver {
-    fn resolve_workflow_preset(
+impl WorkflowPreset {
+    pub fn resolve_revision(
         &self,
         reference: &WorkflowReference,
-    ) -> Result<WorkflowPreset, WorkflowCatalogError>;
+    ) -> Option<&WorkflowRevision>;
 }
 ```
 
-The concrete implementation can wrap `WorkflowCatalogService` or the bundled catalog reader, depending on the caller boundary.
+`resolve_revision` must return `None` unless `self.id == reference.id` and exactly one revision has `version == reference.version`.
 
 ## Create Workspace Flow
 
@@ -110,12 +110,9 @@ Provisioning must resolve the full `WorkflowPreset` from `workspace.workflow` be
 
 Resolution must require the workflow id to match exactly. If no matching preset exists, provisioning fails explicitly. After resolving the preset, provisioning must resolve the referenced revision by matching `WorkflowRevision.version == Workspace.workflow.version`.
 
-The existing contract resolver should stop reading `workspace.workflow_preset` and instead receive either:
+The existing contract resolver should stop reading `workspace.workflow_preset` and should receive the already resolved `WorkflowRevision`.
 
-- the resolved `WorkflowRevision`, or
-- a resolver plus `Workspace`.
-
-Prefer passing the resolved revision into the resolver to keep catalog lookup separate from runtime contract selection.
+Passing the resolved revision into the contract resolver keeps catalog lookup separate from runtime contract selection.
 
 ## Workspace Reads and Events
 
