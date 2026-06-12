@@ -15,11 +15,11 @@
                 "gpu_cloud_provider_id": "runpod",
                 "endpoint_contract": {
                   "id": "comfyui-py312-cu126-torch291",
-                  "version": "1.0.15"
+                  "version": "1.0.16"
                 },
                 "provisioner_contract": {
                   "id": "luma-forge-provisioner",
-                  "version": "1.0.7"
+                  "version": "1.0.8"
                 }
               }
             ]
