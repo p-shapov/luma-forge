@@ -7,8 +7,8 @@ use crate::{
     commands::{NativeCommandError, NativeCommandErrorCode},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::{
-        lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner,
-        providers::runpod::RunpodRuntimeProvider, service::RunpodRuntimeService,
+        lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner, provider::RunpodRuntimeProvider,
+        service::RunpodRuntimeService,
     },
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},

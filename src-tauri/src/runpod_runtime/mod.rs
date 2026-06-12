@@ -9,9 +9,6 @@ pub mod lifecycle {
     pub(crate) mod runner;
 }
 pub mod provider;
-pub mod providers {
-    pub mod runpod;
-}
 pub mod service;
 
 #[cfg(test)]

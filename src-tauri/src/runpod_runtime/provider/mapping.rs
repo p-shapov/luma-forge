@@ -402,7 +402,7 @@ mod tests {
 
     use super::*;
     use crate::domain::runpod_runtime::RunpodEndpointKeepAliveLimits;
-    use crate::runpod_runtime::providers::runpod::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
+    use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
 
     #[test]
     fn workspace_resource_name_is_deterministic() {
