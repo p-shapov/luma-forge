@@ -10,12 +10,12 @@ use crate::domain::{
         ProvisionedRemoteResources, ProvisionedRemoteRuntime,
     },
     workspace::{
-        Workspace, WorkspaceCatalog, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
-        WorkspaceRuntimeInvalidReason, WorkspaceState,
+        Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
+        WorkspaceState,
     },
 };
 
-use super::{catalog::WorkflowPresetResponse, placement::RemotePlacementPlanInput};
+use super::{catalog::WorkflowPresetResolvedResponse, placement::RemotePlacementPlanInput};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +27,7 @@ pub struct WorkspaceCatalogResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceResponse {
     pub id: String,
-    pub workflow_preset: WorkflowPresetResponse,
+    pub workflow_preset: WorkflowPresetResolvedResponse,
     pub state: WorkspaceStateResponse,
     pub runtime: WorkspaceRuntimeResponse,
 }
@@ -95,6 +95,7 @@ pub struct WorkspaceIdRequest {
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspaceRequest {
     pub workflow_preset_id: String,
+    pub workflow_revision_version: String,
     pub remote_placement: RemotePlacementPlanInput,
 }
 
@@ -239,21 +240,16 @@ pub struct WorkspaceDeletedEvent {
     pub workspace_id: String,
 }
 
-impl From<WorkspaceCatalog> for WorkspaceCatalogResponse {
-    fn from(value: WorkspaceCatalog) -> Self {
+impl WorkspaceResponse {
+    pub fn from_parts(
+        workspace: Workspace,
+        workflow: crate::domain::workflow_preset::WorkflowPresetResolved,
+    ) -> Self {
         Self {
-            workspaces: value.workspaces.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<Workspace> for WorkspaceResponse {
-    fn from(value: Workspace) -> Self {
-        Self {
-            id: value.id,
-            workflow_preset: value.workflow_preset.into(),
-            state: value.state.into(),
-            runtime: value.runtime.into(),
+            id: workspace.id,
+            workflow_preset: workflow.into(),
+            state: workspace.state.into(),
+            runtime: workspace.runtime.into(),
         }
     }
 }
@@ -319,28 +315,6 @@ impl From<ProvisionedRemoteResources> for ProvisionedRemoteResourcesResponse {
             volume_id: value.volume_id,
             provisioner_id: value.provisioner_id,
             endpoint_id: value.endpoint_id,
-        }
-    }
-}
-
-impl From<crate::provisioned_remote::service::ProvisionWorkspaceResponse>
-    for ProvisionWorkspaceResponse
-{
-    fn from(value: crate::provisioned_remote::service::ProvisionWorkspaceResponse) -> Self {
-        Self {
-            workspace: value.workspace.into(),
-            operation: value.operation.into(),
-        }
-    }
-}
-
-impl From<crate::provisioned_remote::service::CleanupWorkspaceResponse>
-    for CleanupWorkspaceResponse
-{
-    fn from(value: crate::provisioned_remote::service::CleanupWorkspaceResponse) -> Self {
-        Self {
-            workspace: value.workspace.into(),
-            operation: value.operation.into(),
         }
     }
 }
