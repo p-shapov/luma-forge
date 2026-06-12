@@ -83,12 +83,17 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiError {
+    #[error("api request was unauthorized")]
     Unauthorized,
+    #[error("api request has insufficient permissions")]
     InsufficientPermissions,
+    #[error("api request was rate limited")]
     RateLimited,
+    #[error("api request timed out")]
     Timeout,
+    #[error("api request failed: {message}")]
     RequestFailed { message: String },
 }

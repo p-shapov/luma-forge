@@ -37,28 +37,17 @@ where
     }
 
     pub async fn identity(&self) -> Result<ApiKeyIdentity, SecretsStorageError> {
-        let secret = self
-            .store
-            .read(self.key)
-            .await?
-            .ok_or(SecretsStorageError::KeyNotFound)?;
+        let secret = self.stored_secret().await?;
 
         self.identity.identity(&secret).await
     }
 
     pub async fn retrieve(&self) -> Result<ApiSecret, SecretsStorageError> {
-        self.store
-            .read(self.key)
-            .await?
-            .ok_or(SecretsStorageError::KeyNotFound)
+        self.stored_secret().await
     }
 
     pub async fn hmac_sha256_hex(&self, message: &str) -> Result<String, SecretsStorageError> {
-        let secret = self
-            .store
-            .read(self.key)
-            .await?
-            .ok_or(SecretsStorageError::KeyNotFound)?;
+        let secret = self.stored_secret().await?;
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.expose_secret().as_bytes())
             .map_err(|_| SecretsStorageError::StoreUnavailable)?;
 
@@ -72,6 +61,13 @@ where
         }
 
         self.store.delete(self.key).await
+    }
+
+    async fn stored_secret(&self) -> Result<ApiSecret, SecretsStorageError> {
+        self.store
+            .read(self.key)
+            .await?
+            .ok_or(SecretsStorageError::KeyNotFound)
     }
 }
 

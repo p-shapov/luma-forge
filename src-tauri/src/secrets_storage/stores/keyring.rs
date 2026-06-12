@@ -31,12 +31,8 @@ where
 }
 
 fn keyring_entry(service_name: &str, key: SecretKey) -> Result<Entry, SecretsStorageError> {
-    let account = serde_json::to_string(&key)
-        .map_err(|_| SecretsStorageError::StoreUnavailable)?
-        .trim_matches('"')
-        .to_string();
-
-    Entry::new(service_name, &account).map_err(|_| SecretsStorageError::StoreUnavailable)
+    Entry::new(service_name, key.storage_account_name())
+        .map_err(|_| SecretsStorageError::StoreUnavailable)
 }
 
 impl SecretStore for KeyringSecretStore {
@@ -118,14 +114,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keyring_entry_uses_serialized_secret_key_as_account() {
+    fn keyring_entry_uses_secret_key_storage_account_name() {
+        assert_eq!(SecretKey::RunpodApiKey.storage_account_name(), "runpod");
         assert_eq!(
-            serde_json::to_string(&SecretKey::RunpodApiKey).expect("secret key"),
-            "\"runpod\""
-        );
-        assert_eq!(
-            serde_json::to_string(&SecretKey::HuggingFaceApiKey).expect("secret key"),
-            "\"hugging-face\""
+            SecretKey::HuggingFaceApiKey.storage_account_name(),
+            "hugging-face"
         );
     }
 

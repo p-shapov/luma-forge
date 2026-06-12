@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
@@ -9,10 +8,17 @@ use crate::{
 };
 
 use crate::secrets_storage::{
-    errors::SecretsStorageError, identity::ApiKeyIdentityProvider, stores::ApiSecret,
+    errors::SecretsStorageError,
+    identities::{
+        identity_http_client, identity_request_error, identity_response_error,
+        identity_status_error,
+    },
+    identity::ApiKeyIdentityProvider,
+    stores::ApiSecret,
 };
 
 const HUGGING_FACE_WHOAMI_ENDPOINT: &str = "https://huggingface.co/api/whoami-v2";
+const HUGGING_FACE_PROVIDER_NAME: &str = "Hugging Face";
 const HUGGING_FACE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HUGGING_FACE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -23,22 +29,8 @@ pub struct HuggingFaceIdentityProvider {
 
 impl HuggingFaceIdentityProvider {
     pub fn try_new_default() -> Result<Self, SecretsStorageError> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(HUGGING_FACE_CONNECT_TIMEOUT)
-            .timeout(HUGGING_FACE_REQUEST_TIMEOUT)
-            .build()
-            .map_err(|err| {
-                SecretsStorageError::IdentityRequestFailed(if err.is_timeout() {
-                    ApiError::Timeout
-                } else {
-                    ApiError::RequestFailed {
-                        message: err.to_string(),
-                    }
-                })
-            })?;
-
         Ok(Self {
-            http,
+            http: identity_http_client(HUGGING_FACE_CONNECT_TIMEOUT, HUGGING_FACE_REQUEST_TIMEOUT)?,
             whoami_endpoint: HUGGING_FACE_WHOAMI_ENDPOINT.to_string(),
         })
     }
@@ -53,26 +45,16 @@ impl HuggingFaceIdentityProvider {
             .bearer_auth(secret.expose_secret())
             .send()
             .await
-            .map_err(|err| {
-                SecretsStorageError::IdentityRequestFailed(if err.is_timeout() {
-                    ApiError::Timeout
-                } else {
-                    ApiError::RequestFailed {
-                        message: err.to_string(),
-                    }
-                })
-            })?;
+            .map_err(identity_request_error)?;
 
-        if let Some(error) = map_status_error(response.status()) {
+        if let Some(error) = identity_status_error(HUGGING_FACE_PROVIDER_NAME, response.status()) {
             return Err(error);
         }
 
         let response = response
             .json::<serde_json::Value>()
             .await
-            .map_err(|error| SecretsStorageError::IdentityResponseInvalid {
-                message: error.to_string(),
-            })?;
+            .map_err(identity_response_error)?;
 
         map_whoami_response(response)
     }
@@ -123,26 +105,6 @@ struct WhoamiFineGrainedPermissions {
 struct WhoamiFineGrainedRepoPermissions {
     #[serde(default)]
     permissions: Vec<String>,
-}
-
-fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
-    if status.is_success() {
-        return None;
-    }
-
-    match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Some(
-            SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized),
-        ),
-        StatusCode::TOO_MANY_REQUESTS => Some(SecretsStorageError::IdentityRequestFailed(
-            ApiError::RateLimited,
-        )),
-        _ => Some(SecretsStorageError::IdentityRequestFailed(
-            ApiError::RequestFailed {
-                message: "Hugging Face API request failed".to_string(),
-            },
-        )),
-    }
 }
 
 fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, SecretsStorageError> {
@@ -216,7 +178,6 @@ impl WhoamiFineGrainedPermissions {
 
 #[cfg(test)]
 mod tests {
-    use reqwest::StatusCode;
     use serde_json::json;
 
     use crate::domain::secrets::ApiKeyIdentity;
@@ -415,13 +376,16 @@ mod tests {
     #[test]
     fn maps_unauthorized_status() {
         assert_eq!(
-            map_status_error(StatusCode::UNAUTHORIZED),
+            identity_status_error(
+                HUGGING_FACE_PROVIDER_NAME,
+                reqwest::StatusCode::UNAUTHORIZED
+            ),
             Some(SecretsStorageError::IdentityRequestFailed(
                 ApiError::Unauthorized
             ))
         );
         assert_eq!(
-            map_status_error(StatusCode::FORBIDDEN),
+            identity_status_error(HUGGING_FACE_PROVIDER_NAME, reqwest::StatusCode::FORBIDDEN),
             Some(SecretsStorageError::IdentityRequestFailed(
                 ApiError::Unauthorized
             ))

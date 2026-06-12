@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -9,10 +8,17 @@ use crate::{
 };
 
 use crate::secrets_storage::{
-    errors::SecretsStorageError, identity::ApiKeyIdentityProvider, stores::ApiSecret,
+    errors::SecretsStorageError,
+    identities::{
+        identity_http_client, identity_request_error, identity_response_error,
+        identity_status_error,
+    },
+    identity::ApiKeyIdentityProvider,
+    stores::ApiSecret,
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
+const RUNPOD_PROVIDER_NAME: &str = "RunPod";
 const RUNPOD_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const RUNPOD_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const RUNPOD_IDENTITY_QUERY: &str =
@@ -25,22 +31,8 @@ pub struct RunpodIdentityProvider {
 
 impl RunpodIdentityProvider {
     pub fn try_new_default() -> Result<Self, SecretsStorageError> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(RUNPOD_CONNECT_TIMEOUT)
-            .timeout(RUNPOD_REQUEST_TIMEOUT)
-            .build()
-            .map_err(|err| {
-                SecretsStorageError::IdentityRequestFailed(if err.is_timeout() {
-                    ApiError::Timeout
-                } else {
-                    ApiError::RequestFailed {
-                        message: err.to_string(),
-                    }
-                })
-            })?;
-
         Ok(Self {
-            http,
+            http: identity_http_client(RUNPOD_CONNECT_TIMEOUT, RUNPOD_REQUEST_TIMEOUT)?,
             endpoint: RUNPOD_GRAPHQL_ENDPOINT.to_string(),
         })
     }
@@ -58,26 +50,16 @@ impl RunpodIdentityProvider {
             })
             .send()
             .await
-            .map_err(|err| {
-                SecretsStorageError::IdentityRequestFailed(if err.is_timeout() {
-                    ApiError::Timeout
-                } else {
-                    ApiError::RequestFailed {
-                        message: err.to_string(),
-                    }
-                })
-            })?;
+            .map_err(identity_request_error)?;
 
-        if let Some(error) = map_status_error(response.status()) {
+        if let Some(error) = identity_status_error(RUNPOD_PROVIDER_NAME, response.status()) {
             return Err(error);
         }
 
         let response = response
             .json::<GraphQlResponse<RunpodIdentityData>>()
             .await
-            .map_err(|error| SecretsStorageError::IdentityResponseInvalid {
-                message: error.to_string(),
-            })?;
+            .map_err(identity_response_error)?;
 
         map_graphql_response(secret.expose_secret(), response)
     }
@@ -126,26 +108,6 @@ struct RunpodApiKey {
     id: Option<String>,
     #[serde(rename = "isActive")]
     is_active: bool,
-}
-
-fn map_status_error(status: StatusCode) -> Option<SecretsStorageError> {
-    if status.is_success() {
-        return None;
-    }
-
-    match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Some(
-            SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized),
-        ),
-        StatusCode::TOO_MANY_REQUESTS => Some(SecretsStorageError::IdentityRequestFailed(
-            ApiError::RateLimited,
-        )),
-        _ => Some(SecretsStorageError::IdentityRequestFailed(
-            ApiError::RequestFailed {
-                message: "RunPod API request failed".to_string(),
-            },
-        )),
-    }
 }
 
 fn map_graphql_response(
@@ -229,15 +191,13 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
         SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized)
     } else {
         SecretsStorageError::IdentityResponseInvalid {
-            message: "API key is invalid or missing".to_string(),
+            message: "API key is invalid".to_string(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use reqwest::StatusCode;
-
     use crate::domain::secrets::ApiKeyIdentity;
 
     use super::*;
@@ -408,13 +368,13 @@ mod tests {
     #[test]
     fn maps_unauthorized_status() {
         assert_eq!(
-            map_status_error(StatusCode::UNAUTHORIZED),
+            identity_status_error(RUNPOD_PROVIDER_NAME, reqwest::StatusCode::UNAUTHORIZED),
             Some(SecretsStorageError::IdentityRequestFailed(
                 ApiError::Unauthorized
             ))
         );
         assert_eq!(
-            map_status_error(StatusCode::FORBIDDEN),
+            identity_status_error(RUNPOD_PROVIDER_NAME, reqwest::StatusCode::FORBIDDEN),
             Some(SecretsStorageError::IdentityRequestFailed(
                 ApiError::Unauthorized
             ))
