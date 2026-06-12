@@ -8,6 +8,11 @@ use crate::{
 
 use super::RunpodProvisionerStatus;
 
+const STATUS_IDLE: &str = "idle";
+const STATUS_RUNNING: &str = "running";
+const STATUS_SUCCEEDED: &str = "succeeded";
+const STATUS_FAILED: &str = "failed";
+
 pub trait ProvisionerWorkerApi: Send + Sync {
     fn get_status<'a>(
         &'a self,
@@ -71,10 +76,10 @@ pub fn map_status_response(
     response: ProvisionerStatusResponse,
 ) -> Result<RunpodProvisionerStatus, RunpodLifecycleError> {
     match response.status.as_str() {
-        "idle" => Ok(RunpodProvisionerStatus::Pending),
-        "running" => Ok(RunpodProvisionerStatus::Running),
-        "succeeded" => Ok(RunpodProvisionerStatus::Succeeded),
-        "failed" => {
+        STATUS_IDLE => Ok(RunpodProvisionerStatus::Pending),
+        STATUS_RUNNING => Ok(RunpodProvisionerStatus::Running),
+        STATUS_SUCCEEDED => Ok(RunpodProvisionerStatus::Succeeded),
+        STATUS_FAILED => {
             let _error = response.error.ok_or_else(provisioner_response_invalid)?;
             Ok(RunpodProvisionerStatus::Failed)
         }

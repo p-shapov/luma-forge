@@ -1,8 +1,8 @@
-pub mod api;
-pub mod client;
-pub mod config;
-pub mod mapping;
-pub mod provisioner;
+mod api;
+mod client;
+mod config;
+mod mapping;
+mod provisioner;
 
 pub use client::{
     CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,

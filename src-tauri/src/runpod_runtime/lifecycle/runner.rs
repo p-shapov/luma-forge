@@ -1,9 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use crate::{
     domain::lifecycle_operation::LifecycleOperationId,
     lifecycle_journal::LifecycleJournalRepository,
-    runpod_runtime::{events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient},
+    runpod_runtime::{
+        errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
+    },
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
@@ -78,19 +80,23 @@ where
         let workflow_catalog = context.workflow_catalog;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
-        spawn_background_task(context.task_spawner.as_ref(), async move {
-            let _ = provision::run_once(
-                &operation_id,
-                &workspace_repository,
-                &lifecycle_journal,
-                &workflow_catalog,
-                runpod_client.as_ref(),
-                &event_sink,
-                PROVISIONER_POLL_INTERVAL,
-            )
-            .await;
-            registry.complete(&operation_id);
-        });
+        spawn_lifecycle_runner(
+            context.task_spawner.as_ref(),
+            registry,
+            operation_id.clone(),
+            async move {
+                provision::run_once(
+                    &operation_id,
+                    &workspace_repository,
+                    &lifecycle_journal,
+                    &workflow_catalog,
+                    runpod_client.as_ref(),
+                    &event_sink,
+                    PROVISIONER_POLL_INTERVAL,
+                )
+                .await
+            },
+        );
     }
 
     fn spawn_cleanup(
@@ -110,17 +116,21 @@ where
         let lifecycle_journal = context.lifecycle_journal;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
-        spawn_background_task(context.task_spawner.as_ref(), async move {
-            let _ = cleanup::run_once(
-                &operation_id,
-                &workspace_repository,
-                &lifecycle_journal,
-                runpod_client.as_ref(),
-                &event_sink,
-            )
-            .await;
-            registry.complete(&operation_id);
-        });
+        spawn_lifecycle_runner(
+            context.task_spawner.as_ref(),
+            registry,
+            operation_id.clone(),
+            async move {
+                cleanup::run_once(
+                    &operation_id,
+                    &workspace_repository,
+                    &lifecycle_journal,
+                    runpod_client.as_ref(),
+                    &event_sink,
+                )
+                .await
+            },
+        );
     }
 
     fn spawn_delete(
@@ -140,16 +150,36 @@ where
         let lifecycle_journal = context.lifecycle_journal;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
-        spawn_background_task(context.task_spawner.as_ref(), async move {
-            let _ = delete::run_once(
-                &operation_id,
-                &workspace_repository,
-                &lifecycle_journal,
-                runpod_client.as_ref(),
-                &event_sink,
-            )
-            .await;
-            registry.complete(&operation_id);
-        });
+        spawn_lifecycle_runner(
+            context.task_spawner.as_ref(),
+            registry,
+            operation_id.clone(),
+            async move {
+                delete::run_once(
+                    &operation_id,
+                    &workspace_repository,
+                    &lifecycle_journal,
+                    runpod_client.as_ref(),
+                    &event_sink,
+                )
+                .await
+            },
+        );
     }
+}
+
+fn spawn_lifecycle_runner<F, T>(
+    task_spawner: &dyn BackgroundTaskSpawner,
+    registry: LifecycleOperationRegistry,
+    operation_id: LifecycleOperationId,
+    lifecycle: F,
+) where
+    F: Future<Output = Result<T, RunpodRuntimeError>> + Send + 'static,
+    T: Send + 'static,
+{
+    spawn_background_task(task_spawner, async move {
+        if lifecycle.await.is_ok() {
+            registry.complete(&operation_id);
+        }
+    });
 }

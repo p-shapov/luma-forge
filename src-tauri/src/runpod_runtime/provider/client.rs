@@ -5,10 +5,8 @@ use crate::{
     shared::AppFuture,
 };
 
-use super::super::errors::{ProviderApiError, RunpodRuntimeError};
-use crate::secrets_storage::{
-    ApiKeyIdentityProvider, SecretStore, SecretsStorageError, SecretsStorageService,
-};
+use super::super::errors::RunpodRuntimeError;
+use crate::secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunpodEndpointKeepAliveLimits {
@@ -121,7 +119,7 @@ use super::{
         NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT, PROVISIONER_WORKSPACE_MOUNT_PATH,
         RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
-    mapping,
+    mapping::{self, map_secret_error},
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
 
@@ -212,11 +210,7 @@ where
     ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             self.api
-                .create_network_volume(CreateNetworkVolumeRequest {
-                    datacenter_id: params.data_center_id,
-                    name: mapping::workspace_resource_name(&params.workspace_id, "volume"),
-                    size_gb: params.size_gb,
-                })
+                .create_network_volume(network_volume_request(params))
                 .await
         })
     }
@@ -233,38 +227,15 @@ where
         params: StartRunpodProvisionerPodParams,
     ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
-            let bearer_token = self
-                .runpod_secrets
-                .hmac_sha256_hex(&params.workspace_id)
-                .await
-                .map_err(map_secret_error)?;
-            let hugging_face_api_key = if params.requires_hugging_face_api_key {
-                Some(
-                    self.hugging_face_secrets
-                        .retrieve()
-                        .await
-                        .map_err(map_secret_error)?
-                        .expose_secret()
-                        .to_string(),
-                )
-            } else {
-                None
-            };
+            let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
+            let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
             let pod = self
                 .api
-                .create_provisioner_pod(CreateProvisionerPodRequest {
-                    datacenter_id: params.data_center_id,
-                    name: mapping::workspace_resource_name(&params.workspace_id, "provisioner"),
-                    image_ref: params.provisioner_image_ref,
-                    network_volume_id: params.network_volume_id,
-                    mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
+                .create_provisioner_pod(provisioner_pod_request(
+                    params,
                     bearer_token,
-                    job_id: params.workspace_id,
-                    requires_hugging_face_api_key: params.requires_hugging_face_api_key.to_string(),
-                    required_model_assets: serde_json::to_string(&params.required_model_assets)
-                        .map_err(|_| ProviderApiError::RequestFailed)?,
                     hugging_face_api_key,
-                })
+                ))
                 .await?;
 
             Ok(pod.id)
@@ -284,11 +255,7 @@ where
         provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>> {
         Box::pin(async move {
-            let bearer_token = self
-                .runpod_secrets
-                .hmac_sha256_hex(workspace_id)
-                .await
-                .map_err(map_secret_error)?;
+            let bearer_token = self.workspace_bearer_token(workspace_id).await?;
 
             self.provisioner_worker
                 .get_status(&provisioner_status_url(provisioner_pod_id), &bearer_token)
@@ -304,14 +271,7 @@ where
         Box::pin(async move {
             let template = self
                 .api
-                .create_serverless_template(CreateServerlessTemplateRequest {
-                    name: mapping::workspace_resource_name(
-                        &params.workspace_id,
-                        "endpoint-template",
-                    ),
-                    image_ref: params.endpoint_image_ref,
-                    mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
-                })
+                .create_serverless_template(serverless_template_request(params))
                 .await?;
 
             Ok(template.id)
@@ -325,16 +285,7 @@ where
         Box::pin(async move {
             let endpoint = self
                 .api
-                .create_serverless_endpoint(CreateServerlessEndpointRequest {
-                    datacenter_id: params.data_center_id,
-                    gpu_id: params.gpu_type_id,
-                    name: mapping::workspace_resource_name(&params.workspace_id, "endpoint"),
-                    template_id: params.template_id,
-                    network_volume_id: params.network_volume_id,
-                    keep_alive_limits: params
-                        .keep_alive_limits
-                        .unwrap_or(DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS),
-                })
+                .create_serverless_endpoint(serverless_endpoint_request(params))
                 .await?;
 
             Ok(endpoint.id)
@@ -356,15 +307,93 @@ where
     }
 }
 
-fn provisioner_status_url(pod_id: &str) -> String {
-    format!("https://{pod_id}-{PROVISIONER_PORT}.proxy.runpod.net/status")
+impl<RS, RI, HS, HI> RunpodRuntimeProvider<RS, RI, HS, HI>
+where
+    RS: SecretStore,
+    RI: ApiKeyIdentityProvider,
+    HS: SecretStore,
+    HI: ApiKeyIdentityProvider,
+{
+    async fn workspace_bearer_token(
+        &self,
+        workspace_id: &str,
+    ) -> Result<String, RunpodRuntimeError> {
+        self.runpod_secrets
+            .hmac_sha256_hex(workspace_id)
+            .await
+            .map_err(map_secret_error)
+    }
+
+    async fn hugging_face_api_key(
+        &self,
+        params: &StartRunpodProvisionerPodParams,
+    ) -> Result<Option<String>, RunpodRuntimeError> {
+        if !params.requires_hugging_face_api_key {
+            return Ok(None);
+        }
+
+        self.hugging_face_secrets
+            .retrieve()
+            .await
+            .map_err(map_secret_error)
+            .map(|secret| Some(secret.expose_secret().to_string()))
+    }
 }
 
-fn map_secret_error(error: SecretsStorageError) -> RunpodRuntimeError {
-    match error {
-        SecretsStorageError::KeyNotFound => RunpodRuntimeError::RunpodSecretUnavailable,
-        _ => ProviderApiError::RequestFailed.into(),
+fn network_volume_request(params: CreateRunpodNetworkVolumeParams) -> CreateNetworkVolumeRequest {
+    CreateNetworkVolumeRequest {
+        datacenter_id: params.data_center_id,
+        name: mapping::network_volume_name(&params.workspace_id),
+        size_gb: params.size_gb,
     }
+}
+
+fn provisioner_pod_request(
+    params: StartRunpodProvisionerPodParams,
+    bearer_token: String,
+    hugging_face_api_key: Option<String>,
+) -> CreateProvisionerPodRequest {
+    CreateProvisionerPodRequest {
+        datacenter_id: params.data_center_id,
+        name: mapping::provisioner_pod_name(&params.workspace_id),
+        image_ref: params.provisioner_image_ref,
+        network_volume_id: params.network_volume_id,
+        mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
+        bearer_token,
+        job_id: params.workspace_id,
+        requires_hugging_face_api_key: params.requires_hugging_face_api_key,
+        required_model_assets: params.required_model_assets,
+        hugging_face_api_key,
+    }
+}
+
+fn serverless_template_request(
+    params: CreateRunpodServerlessTemplateParams,
+) -> CreateServerlessTemplateRequest {
+    CreateServerlessTemplateRequest {
+        name: mapping::endpoint_template_name(&params.workspace_id),
+        image_ref: params.endpoint_image_ref,
+        mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
+    }
+}
+
+fn serverless_endpoint_request(
+    params: CreateRunpodServerlessEndpointParams,
+) -> CreateServerlessEndpointRequest {
+    CreateServerlessEndpointRequest {
+        datacenter_id: params.data_center_id,
+        gpu_id: params.gpu_type_id,
+        name: mapping::endpoint_name(&params.workspace_id),
+        template_id: params.template_id,
+        network_volume_id: params.network_volume_id,
+        keep_alive_limits: params
+            .keep_alive_limits
+            .unwrap_or(DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS),
+    }
+}
+
+fn provisioner_status_url(pod_id: &str) -> String {
+    format!("https://{pod_id}-{PROVISIONER_PORT}.proxy.runpod.net/status")
 }
 
 #[cfg(test)]
@@ -374,6 +403,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
+    use crate::secrets_storage::SecretsStorageError;
     use crate::{
         domain::{
             runpod::{
@@ -388,7 +418,6 @@ mod tests {
     use super::super::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
-    use serde_json::json;
 
     #[derive(Default)]
     struct ApiState {
@@ -718,23 +747,19 @@ mod tests {
         assert_eq!(request.name, "luma-forge-workspace-provisioner");
         assert_eq!(request.hugging_face_api_key, Some("hf-secret".to_string()));
         assert_eq!(request.job_id, "workspace");
-        assert_eq!(request.requires_hugging_face_api_key, "true");
+        assert!(request.requires_hugging_face_api_key);
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&request.required_model_assets)
-                .expect("required_model_assets should parse"),
-            json!([
-                {
-                    "id": "model",
-                    "name": "Model",
-                    "download_source": {
-                        "source_type": "huggingface",
-                        "repository_id": "owner/model",
-                        "file_path": "model.safetensors",
-                        "revision": "main"
-                    },
-                    "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
-                }
-            ])
+            request.required_model_assets,
+            vec![ModelAsset {
+                id: "model".to_string(),
+                name: "Model".to_string(),
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "owner/model".to_string(),
+                    file_path: "model.safetensors".to_string(),
+                    revision: "main".to_string(),
+                },
+                install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
+            }]
         );
         assert_eq!(request.bearer_token.len(), 64);
     }

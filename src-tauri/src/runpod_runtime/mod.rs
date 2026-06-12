@@ -6,6 +6,7 @@ pub mod lifecycle {
     pub mod delete;
     pub mod helpers;
     pub mod provision;
+    mod resource_cleanup;
     pub(crate) mod runner;
 }
 pub mod provider;

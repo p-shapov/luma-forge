@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    domain::runpod::RunpodPlacementOptions,
+    domain::{runpod::RunpodPlacementOptions, workflow_preset::ModelAsset},
     runpod_runtime::errors::RunpodRuntimeError,
     secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService},
     shared::AppFuture,
@@ -81,8 +81,8 @@ pub struct CreateProvisionerPodRequest {
     pub mount_path: String,
     pub bearer_token: String,
     pub job_id: String,
-    pub requires_hugging_face_api_key: String,
-    pub required_model_assets: String,
+    pub requires_hugging_face_api_key: bool,
+    pub required_model_assets: Vec<ModelAsset>,
     pub hugging_face_api_key: Option<String>,
 }
 
@@ -253,12 +253,9 @@ where
         request: CreateProvisionerPodRequest,
     ) -> AppFuture<'a, Result<RunpodId, RunpodRuntimeError>> {
         Box::pin(async move {
+            let body = provisioner_pod_create_body(&request)?;
             let response: PodResponse = self
-                .post_rest(
-                    "/pods",
-                    &provisioner_pod_create_body(&request),
-                    RunpodOperation::CreateProvisionerPod,
-                )
+                .post_rest("/pods", &body, RunpodOperation::CreateProvisionerPod)
                 .await?;
 
             Ok(RunpodId { id: response.id })

@@ -15,7 +15,12 @@ use super::{
         CreateNetworkVolumeRequest, CreateProvisionerPodRequest, CreateServerlessEndpointRequest,
         CreateServerlessTemplateRequest,
     },
-    config::PROVISIONER_PORT,
+    config::{
+        ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_ENDPOINT_WORKSPACE_MOUNT_PATH,
+        ENV_HUGGING_FACE_API_KEY, ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_JOB_ID,
+        ENV_PROVISIONER_REQUIRED_MODEL_ASSETS, ENV_PROVISIONER_REQUIRES_HF_KEY,
+        PROVISIONER_COMPUTE_TYPE, PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
+    },
 };
 
 const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
@@ -33,9 +38,30 @@ const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
     }
   }
 }"#;
+const RESOURCE_PREFIX: &str = "luma-forge";
+const NETWORK_VOLUME_SUFFIX: &str = "volume";
+const PROVISIONER_POD_SUFFIX: &str = "provisioner";
+const ENDPOINT_TEMPLATE_SUFFIX: &str = "endpoint-template";
+const ENDPOINT_SUFFIX: &str = "endpoint";
 
-pub fn workspace_resource_name(workspace_id: &str, suffix: &str) -> String {
-    format!("luma-forge-{workspace_id}-{suffix}")
+pub(super) fn network_volume_name(workspace_id: &str) -> String {
+    workspace_resource_name(workspace_id, NETWORK_VOLUME_SUFFIX)
+}
+
+pub(super) fn provisioner_pod_name(workspace_id: &str) -> String {
+    workspace_resource_name(workspace_id, PROVISIONER_POD_SUFFIX)
+}
+
+pub(super) fn endpoint_template_name(workspace_id: &str) -> String {
+    workspace_resource_name(workspace_id, ENDPOINT_TEMPLATE_SUFFIX)
+}
+
+pub(super) fn endpoint_name(workspace_id: &str) -> String {
+    workspace_resource_name(workspace_id, ENDPOINT_SUFFIX)
+}
+
+fn workspace_resource_name(workspace_id: &str, suffix: &str) -> String {
+    format!("{RESOURCE_PREFIX}-{workspace_id}-{suffix}")
 }
 
 #[derive(Serialize)]
@@ -196,44 +222,42 @@ pub(super) fn network_volume_create_body(
     }
 }
 
-pub(super) fn provisioner_pod_create_body(request: &CreateProvisionerPodRequest) -> PodCreateBody {
+pub(super) fn provisioner_pod_create_body(
+    request: &CreateProvisionerPodRequest,
+) -> Result<PodCreateBody, RunpodRuntimeError> {
+    let required_model_assets = serde_json::to_string(&request.required_model_assets)
+        .map_err(|_| provider_request_failed())?;
     let mut env = HashMap::from([
         (
-            "LUMA_FORGE_PROVISIONER_BEARER_TOKEN".to_string(),
+            ENV_PROVISIONER_BEARER_TOKEN.to_string(),
             request.bearer_token.clone(),
         ),
+        (ENV_PROVISIONER_JOB_ID.to_string(), request.job_id.clone()),
         (
-            "LUMA_FORGE_PROVISIONER_JOB_ID".to_string(),
-            request.job_id.clone(),
+            ENV_PROVISIONER_REQUIRES_HF_KEY.to_string(),
+            request.requires_hugging_face_api_key.to_string(),
         ),
         (
-            "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY".to_string(),
-            request.requires_hugging_face_api_key.clone(),
-        ),
-        (
-            "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS".to_string(),
-            request.required_model_assets.clone(),
+            ENV_PROVISIONER_REQUIRED_MODEL_ASSETS.to_string(),
+            required_model_assets,
         ),
     ]);
 
     if let Some(hugging_face_api_key) = request.hugging_face_api_key.clone() {
-        env.insert(
-            "LUMA_FORGE_HUGGING_FACE_API_KEY".to_string(),
-            hugging_face_api_key,
-        );
+        env.insert(ENV_HUGGING_FACE_API_KEY.to_string(), hugging_face_api_key);
     }
 
-    PodCreateBody {
+    Ok(PodCreateBody {
         datacenter_ids: vec![request.datacenter_id.clone()],
-        compute_type: "CPU".to_string(),
+        compute_type: PROVISIONER_COMPUTE_TYPE.to_string(),
         gpu_type_ids: Vec::new(),
         image_ref: request.image_ref.clone(),
         network_volume_id: request.network_volume_id.clone(),
         mount_path: request.mount_path.clone(),
         name: request.name.clone(),
-        ports: vec![format!("{PROVISIONER_PORT}/http")],
+        ports: vec![worker_port()],
         env,
-    }
+    })
 }
 
 pub(super) fn endpoint_template_create_body(
@@ -241,7 +265,7 @@ pub(super) fn endpoint_template_create_body(
 ) -> TemplateCreateBody {
     let mut env = HashMap::new();
     env.insert(
-        "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH".to_string(),
+        ENV_ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
         request.mount_path.clone(),
     );
 
@@ -249,7 +273,7 @@ pub(super) fn endpoint_template_create_body(
         image_ref: request.image_ref.clone(),
         name: request.name.clone(),
         is_serverless: true,
-        ports: vec![format!("{PROVISIONER_PORT}/http")],
+        ports: vec![worker_port()],
         env,
     }
 }
@@ -264,9 +288,13 @@ pub(super) fn endpoint_create_body(
         name: request.name.clone(),
         network_volume_id: request.network_volume_id.clone(),
         template_id: request.template_id.clone(),
-        workers_max: 1,
-        workers_min: 0,
+        workers_max: ENDPOINT_WORKERS_MAX,
+        workers_min: ENDPOINT_WORKERS_MIN,
     }
+}
+
+fn worker_port() -> String {
+    format!("{PROVISIONER_PORT}/{WORKER_PORT_PROTOCOL}")
 }
 
 pub(super) async fn parse_json_response<T>(
@@ -341,32 +369,15 @@ pub(super) fn map_placement_response(
     }
 
     let data = response.data.ok_or_else(provider_request_failed)?;
+    let gpu_types_by_id: HashMap<&str, &PlacementGpuType> = data
+        .gpu_types
+        .iter()
+        .map(|gpu| (gpu.id.as_str(), gpu))
+        .collect();
     let datacenters = data
         .datacenters
         .into_iter()
-        .map(|datacenter| {
-            let gpu_options = datacenter
-                .gpu_availability
-                .into_iter()
-                .filter_map(|availability| {
-                    data.gpu_types
-                        .iter()
-                        .find(|gpu| gpu.id == availability.gpu_type_id)
-                        .map(|gpu| (availability, gpu))
-                })
-                .map(|(_, gpu)| RunpodGpuPlacementOption {
-                    id: gpu.id.clone(),
-                    name: gpu.display_name.clone(),
-                    vram_gb: gpu.memory_gb,
-                })
-                .collect();
-
-            RunpodDatacenterPlacementOption {
-                id: datacenter.id,
-                name: datacenter.name,
-                gpu_options,
-            }
-        })
+        .map(|datacenter| map_datacenter_placement(datacenter, &gpu_types_by_id))
         .collect();
 
     Ok(RunpodPlacementOptions {
@@ -375,19 +386,54 @@ pub(super) fn map_placement_response(
     })
 }
 
+fn map_datacenter_placement(
+    datacenter: PlacementDatacenter,
+    gpu_types_by_id: &HashMap<&str, &PlacementGpuType>,
+) -> RunpodDatacenterPlacementOption {
+    let gpu_options = datacenter
+        .gpu_availability
+        .into_iter()
+        .filter_map(|availability| gpu_types_by_id.get(availability.gpu_type_id.as_str()))
+        .map(|gpu| RunpodGpuPlacementOption {
+            id: gpu.id.clone(),
+            name: gpu.display_name.clone(),
+            vram_gb: gpu.memory_gb,
+        })
+        .collect();
+
+    RunpodDatacenterPlacementOption {
+        id: datacenter.id,
+        name: datacenter.name,
+        gpu_options,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
     use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
     use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
 
     #[test]
-    fn workspace_resource_name_is_deterministic() {
+    fn workspace_resource_names_are_deterministic() {
         assert_eq!(
-            workspace_resource_name("workspace-1", "volume"),
+            network_volume_name("workspace-1"),
             "luma-forge-workspace-1-volume"
+        );
+        assert_eq!(
+            provisioner_pod_name("workspace-1"),
+            "luma-forge-workspace-1-provisioner"
+        );
+        assert_eq!(
+            endpoint_template_name("workspace-1"),
+            "luma-forge-workspace-1-endpoint-template"
+        );
+        assert_eq!(
+            endpoint_name("workspace-1"),
+            "luma-forge-workspace-1-endpoint"
         );
     }
 
@@ -422,13 +468,24 @@ mod tests {
             mount_path: "/workspace".to_string(),
             bearer_token: "derived-token".to_string(),
             job_id: "job-1".to_string(),
-            requires_hugging_face_api_key: "false".to_string(),
-            required_model_assets: r#"[{"id":"model","name":"Model","download_source":{"source_type":"huggingface","repository_id":"owner/model","file_path":"model.safetensors","revision":"main"},"install_comfyui_relative_path":"models/checkpoints/model.safetensors"}]"#.to_string(),
+            requires_hugging_face_api_key: false,
+            required_model_assets: vec![ModelAsset {
+                id: "model".to_string(),
+                name: "Model".to_string(),
+                download_source: ModelAssetSource::Huggingface {
+                    repository_id: "owner/model".to_string(),
+                    file_path: "model.safetensors".to_string(),
+                    revision: "main".to_string(),
+                },
+                install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
+            }],
             hugging_face_api_key: Some("hf-key".to_string()),
         };
 
-        let body = serde_json::to_value(provisioner_pod_create_body(&request))
-            .expect("pod body should serialize");
+        let body = serde_json::to_value(
+            provisioner_pod_create_body(&request).expect("pod body should build"),
+        )
+        .expect("pod body should serialize");
         let expected_required_model_assets = json!([
             {
                 "id": "model",
