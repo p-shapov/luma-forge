@@ -643,13 +643,8 @@ In `src-tauri/src/commands/types/workspace.rs`, change:
 
 ```rust
 pub struct CreateWorkspaceRequest {
-    pub workflow: CreateWorkspaceWorkflowRequest,
+    pub workflow_preset_id: String,
     pub remote_placement: RemotePlacementPlanInput,
-}
-
-pub struct CreateWorkspaceWorkflowRequest {
-    pub preset_id: String,
-    pub version: String,
 }
 ```
 
@@ -679,23 +674,13 @@ Change `WorkspaceCatalogResponse` construction to accept already resolved respon
 
 - [ ] **Step 4: Update command handlers**
 
-In `src-tauri/src/commands/workspaces.rs`, create a reference:
+In `src-tauri/src/commands/workspaces.rs`, pass the preset id into provisioned-remote creation:
 
 ```rust
-let workflow_reference = WorkflowReference {
-    id: request.workflow.preset_id,
-    version: request.workflow.version,
-};
-let workflow_catalog = state.workflow_catalog.get_workflow_catalog()?;
-let workflow = workflow_catalog.resolve(&workflow_reference).ok_or_else(|| {
-    NativeCommandError::new(
-        NativeCommandErrorCode::WorkflowCatalogInvalid,
-        "workflow reference was not found",
-    )
-})?;
+workflow_preset_id: request.workflow_preset_id,
 ```
 
-Pass both `workflow_reference` and `workflow` into provisioned-remote creation. Return:
+Provisioned-remote creation resolves the latest workflow revision and persists that exact reference. Return:
 
 ```rust
 Ok(WorkspaceResponse::from_parts(workspace, workflow))
@@ -926,33 +911,15 @@ Run:
 bun run codegen:commands
 ```
 
-Expected: `src/generated/commands.ts` includes `workflow: { presetId, version }` on `CreateWorkspaceRequest`, workflow catalog presets with `revisions`, and workspace responses with `workflow: WorkflowReferenceResponse`.
+Expected: `src/generated/commands.ts` includes only `workflowPresetId` on `CreateWorkspaceRequest`, workflow catalog presets with `revisions`, and workspace responses with `workflow: WorkflowReferenceResponse`.
 
-- [ ] **Step 2: Update home diagnostics create request default**
+- [ ] **Step 2: Keep home diagnostics create request default on preset id only**
 
-In `src/pages/home/ui/home-page.tsx`, update the sample create request from:
+In `src/pages/home/ui/home-page.tsx`, keep the sample create request as:
 
 ```ts
 const request = {
   workflowPresetId: "",
-  remotePlacement: {
-    gpuCloudProviderId: "runpod",
-    datacenterId: "",
-    gpuId: "",
-    volumeSizeBytes: 0,
-    keepAliveLimits: null,
-  },
-};
-```
-
-to:
-
-```ts
-const request = {
-  workflow: {
-    presetId: "",
-    version: "",
-  },
   remotePlacement: {
     gpuCloudProviderId: "runpod",
     datacenterId: "",

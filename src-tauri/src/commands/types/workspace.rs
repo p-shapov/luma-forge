@@ -102,15 +102,8 @@ pub struct WorkspaceIdRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspaceRequest {
-    pub workflow: CreateWorkspaceWorkflowRequest,
+    pub workflow_preset_id: String,
     pub remote_placement: RemotePlacementPlanInput,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateWorkspaceWorkflowRequest {
-    pub preset_id: String,
-    pub version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -504,19 +497,16 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateWorkspaceRequest, CreateWorkspaceWorkflowRequest, LifecycleOperationPayloadResponse,
+        CreateWorkspaceRequest, LifecycleOperationPayloadResponse,
         ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
         ProvisionedRemoteResourcesResponse, ProvisionedRemoteWorkspaceResponse,
         WorkspaceRuntimeResponse,
     };
 
     #[test]
-    fn create_workspace_request_serializes_nested_workflow_reference() {
+    fn create_workspace_request_serializes_workflow_preset_id_only() {
         let request = CreateWorkspaceRequest {
-            workflow: CreateWorkspaceWorkflowRequest {
-                preset_id: "preset".to_string(),
-                version: "1.0.0".to_string(),
-            },
+            workflow_preset_id: "preset".to_string(),
             remote_placement: crate::commands::types::placement::RemotePlacementPlanInput {
                 gpu_cloud_provider_id:
                     crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
@@ -529,9 +519,8 @@ mod tests {
 
         let json = serde_json::to_value(&request).expect("request json");
 
-        assert_eq!(json["workflow"]["presetId"], "preset");
-        assert_eq!(json["workflow"]["version"], "1.0.0");
-        assert!(json.get("workflowPresetId").is_none());
+        assert_eq!(json["workflowPresetId"], "preset");
+        assert!(json.get("workflow").is_none());
         assert!(json.get("workflowRevisionVersion").is_none());
     }
 

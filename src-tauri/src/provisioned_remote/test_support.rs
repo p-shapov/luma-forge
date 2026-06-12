@@ -17,7 +17,6 @@ use crate::{
             RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits,
             RemoteGpuPlacementOption, RemotePlacementOptions, RemotePlacementPlan,
         },
-        workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceCatalog},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
@@ -646,7 +645,7 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
 pub(crate) fn draft_create_request(workspace_id: &str) -> CreateProvisionedRemoteWorkspaceRequest {
     CreateProvisionedRemoteWorkspaceRequest {
         workspace_id: workspace_id.to_string(),
-        workflow: workflow_reference(),
+        workflow_preset_id: "comfyui-hidream-o1-dev".to_string(),
         remote_placement: placement_plan(),
     }
 }
@@ -692,13 +691,6 @@ pub(crate) fn service_with_state_and_workspace_repository(
         Arc::new(TestBackgroundTaskSpawner),
         Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
     )
-}
-
-fn workflow_reference() -> WorkflowReference {
-    WorkflowReference {
-        id: "comfyui-hidream-o1-dev".to_string(),
-        version: "1.0.0".to_string(),
-    }
 }
 
 fn placement_plan() -> RemotePlacementPlan {

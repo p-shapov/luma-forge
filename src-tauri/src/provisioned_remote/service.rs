@@ -36,7 +36,7 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateProvisionedRemoteWorkspaceRequest {
     pub workspace_id: String,
-    pub workflow: WorkflowReference,
+    pub workflow_preset_id: String,
     pub remote_placement: RemotePlacementPlan,
 }
 
@@ -89,9 +89,20 @@ where
             return Err(ProvisionedRemoteError::InvalidRuntimeState);
         }
 
+        let workflow_catalog = self
+            .workflow_catalog
+            .get_workflow_catalog()
+            .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
+        let workflow = workflow_catalog
+            .resolve_latest(&request.workflow_preset_id)
+            .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
+
         let workspace = Workspace {
             id: request.workspace_id,
-            workflow: request.workflow,
+            workflow: WorkflowReference {
+                id: workflow.id,
+                version: workflow.version,
+            },
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
                 placement: request.remote_placement,
@@ -433,6 +444,7 @@ mod tests {
 
         assert_eq!(workspace.id, "workspace-1");
         assert_eq!(workspace.workflow.id, "comfyui-hidream-o1-dev");
+        assert_eq!(workspace.workflow.version, "1.0.0");
         assert_eq!(workspace.state, WorkspaceState::NotProvisioned);
         let WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
             placement,
@@ -453,24 +465,26 @@ mod tests {
     }
 
     #[test]
-    fn create_workspace_persists_unresolved_workflow_reference_without_provider_calls() {
+    fn create_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls() {
         let state = Arc::new(Mutex::new(ProviderState::default()));
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
-        request.workflow.version = "missing-revision".to_string();
+        request.workflow_preset_id = "missing-preset".to_string();
 
-        let workspace = block_on(service.create_workspace(request)).expect("request should pass");
+        let error = block_on(service.create_workspace(request)).expect_err("request should fail");
 
-        assert_eq!(workspace.workflow.version, "missing-revision");
+        assert_eq!(
+            error,
+            crate::provisioned_remote::errors::ProvisionedRemoteError::InvalidRuntimeState
+        );
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
         let persisted = block_on(
             service
                 .workspace_repository
                 .find_workspace_by_id("workspace-1"),
         )
-        .expect("repository read should succeed")
-        .expect("workspace should be persisted");
-        assert_eq!(persisted, workspace);
+        .expect("repository read should succeed");
+        assert_eq!(persisted, None);
     }
 
     #[test]

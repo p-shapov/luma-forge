@@ -109,6 +109,24 @@ impl WorkflowCatalog {
             required_model_assets: revision.required_model_assets.clone(),
         })
     }
+
+    pub fn resolve_latest(&self, preset_id: &str) -> Option<WorkflowPresetResolved> {
+        let preset = self
+            .workflow_presets
+            .iter()
+            .find(|preset| preset.id == preset_id)?;
+        let revision = preset.revisions.last()?;
+
+        Some(WorkflowPresetResolved {
+            id: preset.id.clone(),
+            version: revision.version.clone(),
+            name: preset.name.clone(),
+            execution_type: preset.execution_type,
+            requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
+            remote_runtime_requirements: revision.remote_runtime_requirements.clone(),
+            required_model_assets: revision.required_model_assets.clone(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -179,5 +197,26 @@ mod tests {
     #[test]
     fn workflow_catalog_rejects_missing_revision() {
         assert_eq!(catalog().resolve(&reference("2.0.0")), None);
+    }
+
+    #[test]
+    fn workflow_catalog_resolves_latest_revision_for_preset() {
+        let resolved = catalog()
+            .resolve_latest("workflow")
+            .expect("latest workflow revision should resolve");
+
+        assert_eq!(resolved.id, "workflow");
+        assert_eq!(resolved.version, "1.1.0");
+        assert_eq!(
+            resolved
+                .remote_runtime_requirements
+                .required_base_volume_size_bytes,
+            2
+        );
+    }
+
+    #[test]
+    fn workflow_catalog_rejects_latest_for_missing_preset() {
+        assert_eq!(catalog().resolve_latest("missing"), None);
     }
 }

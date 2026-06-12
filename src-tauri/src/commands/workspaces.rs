@@ -11,7 +11,7 @@ use crate::{
         },
         CommandResult,
     },
-    domain::{provisioned_remote::RemotePlacementPlan, workflow_preset::WorkflowReference},
+    domain::provisioned_remote::RemotePlacementPlan,
     provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
 };
 
@@ -21,17 +21,13 @@ pub async fn create_workspace(
     state: State<'_, AppState>,
     request: CreateWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
-    let workflow_reference = WorkflowReference {
-        id: request.workflow.preset_id,
-        version: request.workflow.version,
-    };
     let remote_placement: RemotePlacementPlan = request.remote_placement.into();
 
     let workspace = state
         .provisioned_remote
         .create_workspace(CreateProvisionedRemoteWorkspaceRequest {
             workspace_id: Uuid::new_v4().to_string(),
-            workflow: workflow_reference,
+            workflow_preset_id: request.workflow_preset_id,
             remote_placement,
         })
         .await?;
