@@ -12,8 +12,8 @@ use crate::{
             RunpodResources, RunpodRuntimeStateError,
         },
         workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntimeInvalidReason,
-            WorkspaceState,
+            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntime,
+            WorkspaceRuntimeInvalidReason, WorkspaceState,
         },
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
@@ -181,6 +181,53 @@ pub fn failure_state_for_resources(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunpodWorkspaceFailure {
+    Provision,
+    Cleanup,
+    Delete,
+}
+
+impl RunpodWorkspaceFailure {
+    fn invalid_reason(self) -> WorkspaceRuntimeInvalidReason {
+        match self {
+            Self::Provision => WorkspaceRuntimeInvalidReason::ProvisionFailed,
+            Self::Cleanup => WorkspaceRuntimeInvalidReason::CleanupFailed,
+            Self::Delete => WorkspaceRuntimeInvalidReason::DeleteFailed,
+        }
+    }
+
+    fn cleanup_reason(self) -> WorkspaceCleanupRequiredReason {
+        match self {
+            Self::Provision => WorkspaceCleanupRequiredReason::ProvisionFailed,
+            Self::Cleanup => WorkspaceCleanupRequiredReason::CleanupFailed,
+            Self::Delete => WorkspaceCleanupRequiredReason::DeleteFailed,
+        }
+    }
+}
+
+pub async fn mark_workspace_failed<W>(
+    workspace: &mut Workspace,
+    workspace_repository: &W,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    failure: RunpodWorkspaceFailure,
+) -> Result<(), RunpodRuntimeError>
+where
+    W: WorkspaceCatalogRepository,
+{
+    let failed_state = {
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        failure_state_for_resources(
+            &runtime.resources,
+            failure.invalid_reason(),
+            failure.cleanup_reason(),
+        )
+    };
+    workspace.state = failed_state;
+    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    Ok(())
+}
+
 pub fn runpod_resources_are_empty(resources: &RunpodResources) -> bool {
     resources.network_volume_id.is_none()
         && resources.provisioner_pod_id.is_none()
@@ -223,6 +270,29 @@ pub fn lifecycle_error_for(error: &RunpodRuntimeError) -> RunpodLifecycleError {
         | RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. }
         | RunpodRuntimeError::StorageUnavailable => invalid_runtime_state(),
     }
+}
+
+pub async fn mark_operation_failed<L, S>(
+    lifecycle_journal: &L,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    operation: &LifecycleOperation,
+    failed_step: S,
+    error: &RunpodRuntimeError,
+) -> Result<(), RunpodRuntimeError>
+where
+    L: LifecycleJournalRepository,
+    S: RunpodStepPayload,
+{
+    mark_operation_state(
+        lifecycle_journal,
+        event_sink,
+        operation,
+        LifecycleOperationState::Failed,
+        failed_step,
+        Some(lifecycle_error_for(error)),
+    )
+    .await
+    .map(|_| ())
 }
 
 pub fn invalid_runtime_state() -> RunpodLifecycleError {

@@ -4,10 +4,7 @@ use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
         runpod::RunpodCleanupStep,
-        workspace::{
-            WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
-            WorkspaceState,
-        },
+        workspace::WorkspaceState,
     },
     lifecycle_journal::LifecycleJournalRepository,
     workspace_catalog::WorkspaceCatalogRepository,
@@ -18,8 +15,8 @@ use super::{
         errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
     },
     helpers::{
-        failure_state_for_resources, invalid_runtime_state, lifecycle_error_for,
-        load_running_operation, mark_operation_state, persist_workspace,
+        invalid_runtime_state, load_running_operation, mark_operation_failed, mark_operation_state,
+        mark_workspace_failed, persist_workspace, RunpodWorkspaceFailure,
     },
     resource_cleanup,
 };
@@ -87,21 +84,19 @@ where
             .await?;
         }
         Err(error) => {
-            let lifecycle_error = lifecycle_error_for(&error);
-            let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-            workspace.state = failure_state_for_resources(
-                &runtime.resources,
-                WorkspaceRuntimeInvalidReason::CleanupFailed,
-                WorkspaceCleanupRequiredReason::CleanupFailed,
-            );
-            persist_workspace(workspace_repository, event_sink, &workspace).await?;
-            mark_operation_state(
+            mark_workspace_failed(
+                &mut workspace,
+                workspace_repository,
+                event_sink,
+                RunpodWorkspaceFailure::Cleanup,
+            )
+            .await?;
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 failed_step.clone(),
-                Some(lifecycle_error),
+                &error,
             )
             .await?;
         }

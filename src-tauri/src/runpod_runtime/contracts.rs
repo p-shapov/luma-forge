@@ -3,9 +3,7 @@ use crate::domain::{
 };
 
 use super::errors::RunpodRuntimeError;
-use crate::workflow_catalog::reader::{
-    BundledEndpointContractCatalogReader, BundledProvisionerContractCatalogReader,
-};
+use crate::workflow_catalog::WorkflowCatalogService;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunpodRuntimeContracts {
@@ -18,12 +16,13 @@ pub struct RunpodContractResolver;
 impl RunpodContractResolver {
     pub fn resolve(
         workflow: &WorkflowPresetResolved,
+        workflow_catalog: &WorkflowCatalogService,
     ) -> Result<RunpodRuntimeContracts, RunpodRuntimeError> {
-        let endpoint_catalog = BundledEndpointContractCatalogReader
-            .read_endpoint_contract_catalog()
+        let endpoint_catalog = workflow_catalog
+            .get_endpoint_contract_catalog()
             .map_err(|_| RunpodRuntimeError::InvalidRuntimeState)?;
-        let provisioner_catalog = BundledProvisionerContractCatalogReader
-            .read_provisioner_contract_catalog()
+        let provisioner_catalog = workflow_catalog
+            .get_provisioner_contract_catalog()
             .map_err(|_| RunpodRuntimeError::InvalidRuntimeState)?;
 
         let endpoint_contract = endpoint_catalog

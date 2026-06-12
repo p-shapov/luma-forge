@@ -5,10 +5,7 @@ use crate::{
         lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
         runpod::{RunpodPlacementPlan, RunpodProvisionStep, RunpodRuntime},
         workflow_preset::WorkflowPresetResolved,
-        workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntime,
-            WorkspaceRuntimeInvalidReason, WorkspaceState,
-        },
+        workspace::{Workspace, WorkspaceId, WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::LifecycleJournalRepository,
     workflow_catalog::WorkflowCatalogService,
@@ -28,8 +25,8 @@ use super::{
         },
     },
     helpers::{
-        failure_state_for_resources, invalid_runtime_state, lifecycle_error_for,
-        load_running_operation, mark_operation_state, mark_running_step, persist_workspace,
+        invalid_runtime_state, load_running_operation, mark_operation_failed, mark_operation_state,
+        mark_running_step, mark_workspace_failed, persist_workspace, RunpodWorkspaceFailure,
     },
 };
 
@@ -155,21 +152,19 @@ where
             .await?;
         }
         Err(error) => {
-            let lifecycle_error = lifecycle_error_for(&error);
-            let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-            workspace.state = failure_state_for_resources(
-                &runtime.resources,
-                WorkspaceRuntimeInvalidReason::ProvisionFailed,
-                WorkspaceCleanupRequiredReason::ProvisionFailed,
-            );
-            persist_workspace(workspace_repository, event_sink, &workspace).await?;
-            mark_operation_state(
+            mark_workspace_failed(
+                &mut workspace,
+                workspace_repository,
+                event_sink,
+                RunpodWorkspaceFailure::Provision,
+            )
+            .await?;
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 failed_step,
-                Some(lifecycle_error),
+                &error,
             )
             .await?;
         }
@@ -182,13 +177,13 @@ fn resolve_provisioning_inputs(
     workspace: &Workspace,
     workflow_catalog: &WorkflowCatalogService,
 ) -> Result<ProvisioningInputs, RunpodRuntimeError> {
-    let workflow_catalog = workflow_catalog
+    let workflows = workflow_catalog
         .get_workflow_catalog()
         .map_err(|_| RunpodRuntimeError::InvalidRuntimeState)?;
-    let workflow = workflow_catalog
+    let workflow = workflows
         .resolve(&workspace.workflow)
         .ok_or(RunpodRuntimeError::InvalidRuntimeState)?;
-    let contracts = RunpodContractResolver::resolve(&workflow)?;
+    let contracts = RunpodContractResolver::resolve(&workflow, workflow_catalog)?;
 
     Ok(ProvisioningInputs {
         placement: runpod_runtime(workspace).placement.clone(),
