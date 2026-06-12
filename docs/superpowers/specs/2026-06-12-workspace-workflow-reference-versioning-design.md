@@ -56,6 +56,16 @@ pub struct WorkflowRevision {
     pub remote_runtime_requirements: RemoteRuntimeRequirements,
     pub required_model_assets: Vec<ModelAsset>,
 }
+
+pub struct WorkflowPresetResolved {
+    pub id: String,
+    pub version: String,
+    pub name: String,
+    pub execution_type: WorkflowExecutionType,
+    pub requires_hugging_face_api_key: bool,
+    pub remote_runtime_requirements: RemoteRuntimeRequirements,
+    pub required_model_assets: Vec<ModelAsset>,
+}
 ```
 
 `WorkflowReference.version` selects a revision inside the referenced preset. `WorkflowPreset.revisions` must contain unique `WorkflowRevision.version` values. `WorkflowRevision` carries revision-specific executable requirements such as Hugging Face key requirements, remote runtime requirements, and required model assets.
@@ -77,24 +87,24 @@ Catalog resolution should happen at application boundaries, not inside the repos
 
 The repository should read and write persisted workspace data only. It should not know how to load bundled workflow catalogs.
 
-Callers that need executable workflow details should resolve the preset from the catalog, then resolve the referenced revision through `WorkflowPreset`:
+Callers that need executable workflow details should resolve `WorkflowReference` through `WorkflowCatalog`, mirroring `RuntimeCatalog::resolve`:
 
 ```rust
-impl WorkflowPreset {
-    pub fn resolve_revision(
+impl WorkflowCatalog {
+    pub fn resolve(
         &self,
         reference: &WorkflowReference,
-    ) -> Option<&WorkflowRevision>;
+    ) -> Option<WorkflowPresetResolved>;
 }
 ```
 
-`resolve_revision` must return `None` unless `self.id == reference.id` and exactly one revision has `version == reference.version`.
+`resolve` must return `None` unless exactly one preset has `id == reference.id` and exactly one revision inside that preset has `version == reference.version`. `WorkflowPresetResolved` contains preset-level metadata plus the selected revision's executable requirements.
 
 ## Create Workspace Flow
 
 `create_workspace` should accept `workflow_preset_id` and `workflow_revision_version`.
 
-The command loads the workflow catalog, finds the requested preset by id, and resolves the requested revision by version. Workspace creation validates the selected placement against that revision, then persists only:
+The command loads the workflow catalog and resolves the requested workflow reference. Workspace creation validates the selected placement against the resolved workflow, then persists only:
 
 - `workspace.id`
 - `workspace.workflow.id`
@@ -106,13 +116,13 @@ The workspace must not persist the full preset or revision payload.
 
 ## Provisioning Flow
 
-Provisioning must resolve the full `WorkflowPreset` from `workspace.workflow` before selecting endpoint and provisioner contracts.
+Provisioning must resolve `WorkflowPresetResolved` from `workspace.workflow` before selecting endpoint and provisioner contracts.
 
-Resolution must require the workflow id to match exactly. If no matching preset exists, provisioning fails explicitly. After resolving the preset, provisioning must resolve the referenced revision by matching `WorkflowRevision.version == Workspace.workflow.version`.
+Resolution must require the workflow id and version to match exactly. If no matching preset revision exists, provisioning fails explicitly.
 
-The existing contract resolver should stop reading `workspace.workflow_preset` and should receive the already resolved `WorkflowRevision`.
+The existing contract resolver should stop reading `workspace.workflow_preset` and should receive the already resolved `WorkflowPresetResolved`.
 
-Passing the resolved revision into the contract resolver keeps catalog lookup separate from runtime contract selection.
+Passing the resolved workflow into the contract resolver keeps catalog lookup separate from runtime contract selection.
 
 ## Workspace Reads and Events
 
@@ -157,7 +167,7 @@ Update native tests for:
 - SQLite schema validates `workflow_id` and `workflow_version`.
 - SQLite insert, update, list, and find round-trip workflow references.
 - create workspace resolves and persists the requested preset id and revision version exactly.
-- provisioning resolves the full preset by workflow reference and resolves its referenced revision.
+- provisioning resolves `WorkflowPresetResolved` by workflow reference.
 - missing workflow reference fails explicitly.
 - workflow catalog validation rejects duplicate preset ids and duplicate revision versions inside a preset.
 
