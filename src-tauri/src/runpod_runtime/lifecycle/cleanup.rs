@@ -15,10 +15,10 @@ use super::{
         errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
     },
     helpers::{
-        invalid_runtime_state, load_running_operation, mark_operation_failed, mark_operation_state,
-        mark_workspace_failed, persist_workspace, RunpodWorkspaceFailure,
+        delete_remote_resources, invalid_runtime_state, load_running_operation,
+        mark_operation_failed, mark_operation_state, mark_workspace_failed, persist_workspace,
+        RunpodWorkspaceFailure,
     },
-    resource_cleanup,
 };
 
 pub async fn run_once<W, L>(
@@ -54,7 +54,7 @@ where
     let mut failed_step = RunpodCleanupStep::DeleteEndpoint;
 
     let result = async {
-        resource_cleanup::delete_remote_resources(
+        delete_remote_resources(
             &mut workspace,
             workspace_repository,
             lifecycle_journal,

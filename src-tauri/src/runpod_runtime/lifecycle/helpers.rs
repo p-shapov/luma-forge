@@ -9,11 +9,11 @@ use crate::{
         runpod::{
             RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
             RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodProvisionerError,
-            RunpodResources, RunpodRuntimeStateError,
+            RunpodRuntimeStateError,
         },
         workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntime,
-            WorkspaceRuntimeInvalidReason, WorkspaceState,
+            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntimeInvalidReason,
+            WorkspaceState,
         },
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},

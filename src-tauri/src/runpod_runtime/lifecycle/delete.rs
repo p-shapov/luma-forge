@@ -17,11 +17,10 @@ use super::{
         service::map_workspace_catalog_error,
     },
     helpers::{
-        invalid_runtime_state, load_running_operation, map_lifecycle_journal_error,
-        mark_operation_failed, mark_operation_state, mark_running_step, mark_workspace_failed,
-        RunpodWorkspaceFailure,
+        delete_remote_resources, invalid_runtime_state, load_running_operation,
+        map_lifecycle_journal_error, mark_operation_failed, mark_operation_state,
+        mark_running_step, mark_workspace_failed, RunpodWorkspaceFailure,
     },
-    resource_cleanup,
 };
 
 pub async fn run_once<W, L>(
@@ -73,7 +72,7 @@ where
     let mut failed_step = RunpodDeleteStep::DeleteEndpoint;
 
     let result = async {
-        resource_cleanup::delete_remote_resources(
+        delete_remote_resources(
             &mut workspace,
             workspace_repository,
             lifecycle_journal,
