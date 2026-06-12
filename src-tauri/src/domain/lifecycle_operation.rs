@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-pub use super::provisioned_remote::RunpodLifecycleOperationPayload;
+pub use super::runpod_runtime::RunpodLifecycleOperationPayload;
 
 pub type LifecycleOperationId = String;
 pub type WorkspaceId = String;
@@ -42,8 +42,8 @@ mod tests {
         RunpodLifecycleOperationPayload,
     };
     use crate::domain::{
-        provisioned_remote::ProviderApiError,
-        provisioned_remote::{
+        runpod_runtime::ProviderApiError,
+        runpod_runtime::{
             RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError, RunpodProvisionStep,
         },
     };

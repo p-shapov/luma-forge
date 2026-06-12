@@ -12,7 +12,7 @@ When adding a new workspace runtime, keep runtime-specific orchestration behind 
 
 ## RunPod Runtime
 
-`provisioned_remote` currently contains the RunPod runtime implementation for workspace setup, lifecycle operation creation, background lifecycle execution, deletion, and RunPod API integration. `RunpodRuntimeService` owns the service-level workflow surface and receives one concrete `RunpodRuntimeClient`.
+`runpod_runtime` currently contains the RunPod runtime implementation for workspace setup, lifecycle operation creation, background lifecycle execution, deletion, and RunPod API integration. `RunpodRuntimeService` owns the service-level workflow surface and receives one concrete `RunpodRuntimeClient`.
 
 RunPod API adapters must return only UI-safe errors and snapshots. Do not return raw provider responses, request bodies, API keys, bearer tokens, worker tokens, Hugging Face keys, credential-bearing URLs, SDK debug output, or environment dumps.
 

@@ -1,4 +1,4 @@
-use crate::domain::provisioned_remote::RunpodEndpointKeepAliveLimits;
+use crate::domain::runpod_runtime::RunpodEndpointKeepAliveLimits;
 
 pub const RUNPOD_REST_BASE_URL: &str = "https://rest.runpod.io/v1";
 pub const RUNPOD_GRAPHQL_URL: &str = "https://api.runpod.io/graphql";

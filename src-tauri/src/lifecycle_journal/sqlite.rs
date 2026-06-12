@@ -438,8 +438,8 @@ pub mod tests {
             lifecycle_operation::{
                 LifecycleOperationPayload, LifecycleOperationState, RunpodLifecycleOperationPayload,
             },
-            provisioned_remote::ProviderApiError,
-            provisioned_remote::{RunpodLifecycleError, RunpodProvisionStep},
+            runpod_runtime::ProviderApiError,
+            runpod_runtime::{RunpodLifecycleError, RunpodProvisionStep},
         },
         lifecycle_journal::schema,
     };

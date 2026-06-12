@@ -93,8 +93,8 @@ def update_provisioner_workflow_catalog(
     for preset in workflow_presets:
         if not isinstance(preset, dict):
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        for provider_requirement in _remote_provider_requirements(preset):
-            provisioner_contract = _dict_value(provider_requirement, "provisioner_contract")
+        for runtime_requirements in _runpod_runtime_requirements(preset):
+            provisioner_contract = _dict_value(runtime_requirements, "provisioner_contract")
             if provisioner_contract.get("id") == contract_id:
                 provisioner_contract["version"] = contract_version
                 updated = True
@@ -139,9 +139,13 @@ def _dict_value(value: dict[str, Any], key: str) -> dict[str, Any]:
     return item
 
 
-def _remote_provider_requirements(preset: dict[str, Any]) -> list[Any]:
-    remote_runtime_requirements = _dict_value(preset, "remote_runtime_requirements")
-    return _list_value(remote_runtime_requirements, "provider_requirements")
+def _runpod_runtime_requirements(preset: dict[str, Any]) -> list[dict[str, Any]]:
+    requirements: list[dict[str, Any]] = []
+    for revision in _list_value(preset, "revisions"):
+        if not isinstance(revision, dict):
+            raise ReleaseToolError("workflow catalog contains a malformed revision entry")
+        requirements.append(_dict_value(revision, "runpod_runtime_requirements"))
+    return requirements
 
 
 def _list_value(value: dict[str, Any], key: str) -> list[Any]:

@@ -363,7 +363,7 @@ mod tests {
     };
 
     use crate::domain::{
-        provisioned_remote::{
+        runpod_runtime::{
             RunpodEndpointKeepAliveLimits, RunpodPlacementPlan, RunpodResources, RunpodRuntime,
         },
         workflow_preset::WorkflowReference,

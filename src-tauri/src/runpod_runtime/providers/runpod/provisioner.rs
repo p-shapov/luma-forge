@@ -2,7 +2,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::provisioned_remote::{ProvisionedRemoteProvisionerStatus, RunpodLifecycleError},
+    domain::runpod_runtime::{RunpodLifecycleError, RunpodProvisionerStatus},
     shared::AppFuture,
 };
 
@@ -11,7 +11,7 @@ pub trait ProvisionerWorkerApi: Send + Sync {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>>;
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodLifecycleError>>;
 }
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>> {
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodLifecycleError>> {
         Box::pin(async move {
             let response = self
                 .http
@@ -67,16 +67,16 @@ pub struct ProvisionerWorkerErrorResponse {
 
 pub fn map_status_response(
     response: ProvisionerStatusResponse,
-) -> Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError> {
+) -> Result<RunpodProvisionerStatus, RunpodLifecycleError> {
     match response.status.as_str() {
-        "idle" => Ok(ProvisionedRemoteProvisionerStatus::Pending),
-        "running" => Ok(ProvisionedRemoteProvisionerStatus::Running),
-        "succeeded" => Ok(ProvisionedRemoteProvisionerStatus::Succeeded),
+        "idle" => Ok(RunpodProvisionerStatus::Pending),
+        "running" => Ok(RunpodProvisionerStatus::Running),
+        "succeeded" => Ok(RunpodProvisionerStatus::Succeeded),
         "failed" => {
             let _error = response
                 .error
                 .ok_or(RunpodLifecycleError::ProvisionerResponseInvalid)?;
-            Ok(ProvisionedRemoteProvisionerStatus::Failed)
+            Ok(RunpodProvisionerStatus::Failed)
         }
         _ => Err(RunpodLifecycleError::ProvisionerResponseInvalid),
     }
@@ -102,21 +102,21 @@ mod tests {
                 status: "idle".to_string(),
                 error: None,
             }),
-            Ok(ProvisionedRemoteProvisionerStatus::Pending)
+            Ok(RunpodProvisionerStatus::Pending)
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "running".to_string(),
                 error: None,
             }),
-            Ok(ProvisionedRemoteProvisionerStatus::Running)
+            Ok(RunpodProvisionerStatus::Running)
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "succeeded".to_string(),
                 error: None,
             }),
-            Ok(ProvisionedRemoteProvisionerStatus::Succeeded)
+            Ok(RunpodProvisionerStatus::Succeeded)
         );
     }
 
@@ -130,7 +130,7 @@ mod tests {
                     _message: "download failed".to_string(),
                 }),
             }),
-            Ok(ProvisionedRemoteProvisionerStatus::Failed)
+            Ok(RunpodProvisionerStatus::Failed)
         );
     }
 

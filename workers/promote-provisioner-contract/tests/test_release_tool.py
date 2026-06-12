@@ -123,9 +123,9 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
         self.assertEqual(
             "1.0.1",
-            updated["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
-                "provisioner_contract"
-            ]["version"],
+            updated["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"]["provisioner_contract"][
+                "version"
+            ],
         )
 
     def test_cli_resolve_provisioner_writes_next_catalog_revision(self):
@@ -176,7 +176,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
             self.assertEqual(
                 "1.0.1",
-                updated_workflow["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                updated_workflow["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"][
                     "provisioner_contract"
                 ]["version"],
             )
@@ -209,10 +209,10 @@ def _workflow_catalog():
         "workflow_presets": [
             {
                 "id": "preset",
-                "remote_runtime_requirements": {
-                    "provider_requirements": [
-                        {
-                            "gpu_cloud_provider_id": "runpod",
+                "revisions": [
+                    {
+                        "version": "1.0.0",
+                        "runpod_runtime_requirements": {
                             "endpoint_contract": {
                                 "id": "comfyui-py312-cu126-torch291",
                                 "version": "1.0.0",
@@ -221,9 +221,9 @@ def _workflow_catalog():
                                 "id": "luma-forge-provisioner",
                                 "version": "1.0.0",
                             },
-                        }
-                    ],
-                },
+                        },
+                    }
+                ],
             }
         ]
     }

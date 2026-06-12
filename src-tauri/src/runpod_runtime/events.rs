@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProvisionedRemoteEvent {
+pub enum RunpodRuntimeEvent {
     LifecycleOperationChanged {
         workspace_id: String,
         operation_id: String,
@@ -19,6 +19,6 @@ pub enum ProvisionedRemoteEvent {
     },
 }
 
-pub trait ProvisionedRemoteEventSink: EventSink<ProvisionedRemoteEvent> {}
+pub trait RunpodRuntimeEventSink: EventSink<RunpodRuntimeEvent> {}
 
-impl<T> ProvisionedRemoteEventSink for T where T: EventSink<ProvisionedRemoteEvent> {}
+impl<T> RunpodRuntimeEventSink for T where T: EventSink<RunpodRuntimeEvent> {}

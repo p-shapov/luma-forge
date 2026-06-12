@@ -1,15 +1,14 @@
 use crate::{
     domain::{
-        provisioned_remote::{
-            ProvisionedRemoteProvisionerStatus, RunpodEndpointKeepAliveLimits,
-            RunpodPlacementOptions,
+        runpod_runtime::{
+            RunpodEndpointKeepAliveLimits, RunpodPlacementOptions, RunpodProvisionerStatus,
         },
         workflow_preset::ModelAsset,
     },
     shared::AppFuture,
 };
 
-use super::errors::ProvisionedRemoteError;
+use super::errors::RunpodRuntimeError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateRunpodNetworkVolumeParams {
@@ -47,51 +46,51 @@ pub struct CreateRunpodServerlessEndpointParams {
 pub trait RunpodRuntimeClient: Send + Sync {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>>;
 
     fn create_network_volume<'a>(
         &'a self,
         params: CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>>;
 
     fn delete_network_volume<'a>(
         &'a self,
         network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 
     fn start_provisioner_pod<'a>(
         &'a self,
         params: StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>>;
 
     fn terminate_provisioner_pod<'a>(
         &'a self,
         provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 
     fn get_provisioner_status<'a>(
         &'a self,
         workspace_id: &'a str,
         provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>>;
 
     fn create_serverless_template<'a>(
         &'a self,
         params: CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>>;
 
     fn create_serverless_endpoint<'a>(
         &'a self,
         params: CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>>;
 
     fn delete_serverless_endpoint<'a>(
         &'a self,
         endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 
     fn delete_template<'a>(
         &'a self,
         template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 }

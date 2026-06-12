@@ -120,9 +120,8 @@ def update_runtime_workflow_catalog(
     for preset in workflow_presets:
         if not isinstance(preset, dict):
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        provider_requirements = _remote_provider_requirements(preset)
-        for provider_requirement in provider_requirements:
-            endpoint_contract = _dict_value(provider_requirement, "endpoint_contract")
+        for runtime_requirements in _runpod_runtime_requirements(preset):
+            endpoint_contract = _dict_value(runtime_requirements, "endpoint_contract")
             if endpoint_contract.get("id") == contract_id:
                 endpoint_contract["version"] = contract_version
                 updated = True
@@ -185,9 +184,13 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
         handle.write("\n")
 
 
-def _remote_provider_requirements(preset: dict[str, Any]) -> list[Any]:
-    remote_runtime_requirements = _dict_value(preset, "remote_runtime_requirements")
-    return _list_value(remote_runtime_requirements, "provider_requirements")
+def _runpod_runtime_requirements(preset: dict[str, Any]) -> list[dict[str, Any]]:
+    requirements: list[dict[str, Any]] = []
+    for revision in _list_value(preset, "revisions"):
+        if not isinstance(revision, dict):
+            raise ReleaseToolError("workflow catalog contains a malformed revision entry")
+        requirements.append(_dict_value(revision, "runpod_runtime_requirements"))
+    return requirements
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

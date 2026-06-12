@@ -4,7 +4,7 @@ pub mod app;
 pub mod commands;
 pub mod domain;
 pub mod lifecycle_journal;
-pub mod provisioned_remote;
+pub mod runpod_runtime;
 pub mod secrets_storage;
 pub mod shared;
 pub mod sqlite;

@@ -4,7 +4,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::domain::{
     lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
-    provisioned_remote::{
+    runpod_runtime::{
         RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError, RunpodLifecycleOperationPayload,
         RunpodProvisionStep, RunpodResources, RunpodRuntime,
     },
@@ -342,10 +342,10 @@ impl From<RunpodResources> for RunpodResourcesResponse {
     }
 }
 
-impl From<crate::provisioned_remote::service::ProvisionWorkspaceResponse>
+impl From<crate::runpod_runtime::service::ProvisionWorkspaceResponse>
     for ProvisionWorkspaceResponse
 {
-    fn from(value: crate::provisioned_remote::service::ProvisionWorkspaceResponse) -> Self {
+    fn from(value: crate::runpod_runtime::service::ProvisionWorkspaceResponse) -> Self {
         Self {
             workspace: value.workspace.into(),
             operation: value.operation.into(),
@@ -353,10 +353,8 @@ impl From<crate::provisioned_remote::service::ProvisionWorkspaceResponse>
     }
 }
 
-impl From<crate::provisioned_remote::service::CleanupWorkspaceResponse>
-    for CleanupWorkspaceResponse
-{
-    fn from(value: crate::provisioned_remote::service::CleanupWorkspaceResponse) -> Self {
+impl From<crate::runpod_runtime::service::CleanupWorkspaceResponse> for CleanupWorkspaceResponse {
+    fn from(value: crate::runpod_runtime::service::CleanupWorkspaceResponse) -> Self {
         Self {
             workspace: value.workspace.into(),
             operation: value.operation.into(),
@@ -364,8 +362,8 @@ impl From<crate::provisioned_remote::service::CleanupWorkspaceResponse>
     }
 }
 
-impl From<crate::provisioned_remote::service::DeleteWorkspaceResponse> for DeleteWorkspaceResponse {
-    fn from(value: crate::provisioned_remote::service::DeleteWorkspaceResponse) -> Self {
+impl From<crate::runpod_runtime::service::DeleteWorkspaceResponse> for DeleteWorkspaceResponse {
+    fn from(value: crate::runpod_runtime::service::DeleteWorkspaceResponse) -> Self {
         Self {
             workspace_id: value.workspace_id,
             operation: value.operation.into(),

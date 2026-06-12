@@ -11,7 +11,7 @@ pub fn encode_runtime(
     runtime: &WorkspaceRuntime,
 ) -> Result<EncodedWorkspaceRuntime, WorkspaceCatalogError> {
     match runtime {
-        WorkspaceRuntime::Runpod(runtime) => runtimes::provisioned_remote::encode(runtime),
+        WorkspaceRuntime::Runpod(runtime) => runtimes::runpod::encode(runtime),
     }
 }
 
@@ -20,9 +20,7 @@ pub fn decode_runtime(
     runtime_json: &str,
 ) -> Result<WorkspaceRuntime, WorkspaceCatalogError> {
     match runtime_type {
-        runtimes::provisioned_remote::RUNTIME_TYPE => {
-            runtimes::provisioned_remote::decode(runtime_json)
-        }
+        runtimes::runpod::RUNTIME_TYPE => runtimes::runpod::decode(runtime_json),
         _ => Err(WorkspaceCatalogError::Corrupt),
     }
 }

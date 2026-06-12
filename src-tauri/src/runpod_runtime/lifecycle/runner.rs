@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     domain::lifecycle_operation::LifecycleOperationId,
     lifecycle_journal::LifecycleJournalRepository,
-    provisioned_remote::{events::ProvisionedRemoteEventSink, provider::RunpodRuntimeClient},
+    runpod_runtime::{events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient},
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
@@ -14,7 +14,7 @@ use super::{cleanup, delete, provision};
 pub(crate) type LifecycleOperationRegistry = InFlightRegistry<LifecycleOperationId>;
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
-pub(crate) struct ProvisionedRemoteLifecycleRunnerContext<W, L>
+pub(crate) struct RunpodRuntimeLifecycleRunnerContext<W, L>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
@@ -24,45 +24,45 @@ where
     pub(crate) workflow_catalog: WorkflowCatalogService,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
-    pub(crate) event_sink: Arc<dyn ProvisionedRemoteEventSink>,
+    pub(crate) event_sink: Arc<dyn RunpodRuntimeEventSink>,
     pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-pub(crate) trait ProvisionedRemoteLifecycleRunner<W, L>: Send + Sync
+pub(crate) trait RunpodRuntimeLifecycleRunner<W, L>: Send + Sync
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
 {
     fn spawn_provision(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     );
 
     fn spawn_cleanup(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     );
 
     fn spawn_delete(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     );
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BackgroundProvisionedRemoteLifecycleRunner;
+pub(crate) struct BackgroundRunpodRuntimeLifecycleRunner;
 
-impl<W, L> ProvisionedRemoteLifecycleRunner<W, L> for BackgroundProvisionedRemoteLifecycleRunner
+impl<W, L> RunpodRuntimeLifecycleRunner<W, L> for BackgroundRunpodRuntimeLifecycleRunner
 where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
 {
     fn spawn_provision(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     ) {
         if !context
@@ -95,7 +95,7 @@ where
 
     fn spawn_cleanup(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     ) {
         if !context
@@ -125,7 +125,7 @@ where
 
     fn spawn_delete(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     ) {
         if !context

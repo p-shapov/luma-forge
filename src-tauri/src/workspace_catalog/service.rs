@@ -50,8 +50,8 @@ mod tests {
 
     use crate::{
         domain::{
-            provisioned_remote::{RunpodEndpointKeepAliveLimits, RunpodPlacementPlan},
-            provisioned_remote::{RunpodResources, RunpodRuntime},
+            runpod_runtime::{RunpodEndpointKeepAliveLimits, RunpodPlacementPlan},
+            runpod_runtime::{RunpodResources, RunpodRuntime},
             workflow_preset::WorkflowReference,
             workspace::{Workspace, WorkspaceCatalog, WorkspaceRuntime, WorkspaceState},
         },

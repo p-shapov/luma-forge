@@ -83,7 +83,7 @@ mod tests {
     };
 
     use crate::{
-        domain::{provisioned_remote::ProviderApiError, secrets::ApiKeyIdentity},
+        domain::{runpod_runtime::ProviderApiError, secrets::ApiKeyIdentity},
         shared::AppFuture,
     };
 

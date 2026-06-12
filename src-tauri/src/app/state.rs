@@ -1,6 +1,6 @@
 use crate::{
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    provisioned_remote::service::RunpodRuntimeService,
+    runpod_runtime::service::RunpodRuntimeService,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,

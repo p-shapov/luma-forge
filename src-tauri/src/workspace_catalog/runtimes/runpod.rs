@@ -1,4 +1,4 @@
-use crate::domain::{provisioned_remote::RunpodRuntime, workspace::WorkspaceRuntime};
+use crate::domain::{runpod_runtime::RunpodRuntime, workspace::WorkspaceRuntime};
 
 use super::super::{errors::WorkspaceCatalogError, runtime::EncodedWorkspaceRuntime};
 

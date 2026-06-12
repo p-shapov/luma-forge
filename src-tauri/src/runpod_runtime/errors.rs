@@ -1,9 +1,7 @@
-use crate::domain::{
-    provisioned_remote::ProviderApiError, provisioned_remote::RunpodLifecycleError,
-};
+use crate::domain::{runpod_runtime::ProviderApiError, runpod_runtime::RunpodLifecycleError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProvisionedRemoteError {
+pub enum RunpodRuntimeError {
     WorkspaceNotFound,
     WorkspaceAlreadyExists,
     LifecycleOperationAlreadyRunning { workspace_id: String },
@@ -20,13 +18,13 @@ pub enum ProvisionedRemoteError {
     StorageUnavailable,
 }
 
-impl From<ProviderApiError> for ProvisionedRemoteError {
+impl From<ProviderApiError> for RunpodRuntimeError {
     fn from(error: ProviderApiError) -> Self {
         Self::RunpodApiFailed(error)
     }
 }
 
-impl From<RunpodLifecycleError> for ProvisionedRemoteError {
+impl From<RunpodLifecycleError> for RunpodRuntimeError {
     fn from(error: RunpodLifecycleError) -> Self {
         match error {
             RunpodLifecycleError::AppInterrupted => Self::InvalidRuntimeState,

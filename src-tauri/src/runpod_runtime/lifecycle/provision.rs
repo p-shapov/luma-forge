@@ -3,9 +3,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
-        provisioned_remote::{
-            ProvisionedRemoteProvisionerStatus, RunpodLifecycleError, RunpodProvisionStep,
-        },
+        runpod_runtime::{RunpodLifecycleError, RunpodProvisionStep, RunpodProvisionerStatus},
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
@@ -18,9 +16,9 @@ use crate::{
 
 use super::{
     super::{
-        contracts::ProvisionedRemoteContractResolver,
-        errors::ProvisionedRemoteError,
-        events::ProvisionedRemoteEventSink,
+        contracts::RunpodContractResolver,
+        errors::RunpodRuntimeError,
+        events::RunpodRuntimeEventSink,
         provider::{
             CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
             CreateRunpodServerlessTemplateParams, RunpodRuntimeClient,
@@ -39,9 +37,9 @@ pub async fn run_once<W, L>(
     lifecycle_journal: &L,
     workflow_catalog: &WorkflowCatalogService,
     runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     provisioner_poll_interval: Duration,
-) -> Result<(), ProvisionedRemoteError>
+) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
@@ -73,11 +71,11 @@ where
         let runtime_state = runtime.clone();
         let workflow_catalog = workflow_catalog
             .get_workflow_catalog()
-            .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
+            .map_err(|_| RunpodRuntimeError::InvalidRuntimeState)?;
         let resolved_workflow = workflow_catalog
             .resolve(&workspace.workflow)
-            .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
-        let contracts = ProvisionedRemoteContractResolver::resolve(&resolved_workflow)?;
+            .ok_or(RunpodRuntimeError::InvalidRuntimeState)?;
+        let contracts = RunpodContractResolver::resolve(&resolved_workflow)?;
         let provider = runpod_client;
 
         mark_running_step(
@@ -144,21 +142,21 @@ where
                     has_seen_initial_status = true;
                     startup_probe_attempts = 0;
                     match status {
-                        ProvisionedRemoteProvisionerStatus::Pending
-                        | ProvisionedRemoteProvisionerStatus::Starting
-                        | ProvisionedRemoteProvisionerStatus::Running => {
+                        RunpodProvisionerStatus::Pending
+                        | RunpodProvisionerStatus::Starting
+                        | RunpodProvisionerStatus::Running => {
                             if !provisioner_poll_interval.is_zero() {
                                 tokio::time::sleep(provisioner_poll_interval).await;
                             }
                         }
-                        ProvisionedRemoteProvisionerStatus::Succeeded => break,
-                        ProvisionedRemoteProvisionerStatus::Failed => {
+                        RunpodProvisionerStatus::Succeeded => break,
+                        RunpodProvisionerStatus::Failed => {
                             provisioner_failed = true;
                             break;
                         }
                     }
                 }
-                Err(ProvisionedRemoteError::ProvisionerUnavailable)
+                Err(RunpodRuntimeError::ProvisionerUnavailable)
                     if !has_seen_initial_status
                         && !provisioner_poll_interval.is_zero()
                         && startup_probe_attempts < MAX_PROVISIONER_STARTUP_PROBE_ATTEMPTS =>
@@ -186,7 +184,7 @@ where
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
         if provisioner_failed {
-            return Err(ProvisionedRemoteError::ProvisionerFailed);
+            return Err(RunpodRuntimeError::ProvisionerFailed);
         }
 
         failed_step = RunpodProvisionStep::CreateTemplate;
@@ -243,7 +241,7 @@ where
         workspace.state = WorkspaceState::Ready;
         persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
-        Ok::<(), ProvisionedRemoteError>(())
+        Ok::<(), RunpodRuntimeError>(())
     }
     .await;
 
@@ -287,33 +285,27 @@ where
     Ok(())
 }
 
-fn lifecycle_error_for(error: &ProvisionedRemoteError) -> RunpodLifecycleError {
+fn lifecycle_error_for(error: &RunpodRuntimeError) -> RunpodLifecycleError {
     match error {
-        ProvisionedRemoteError::RunpodSecretUnavailable => {
+        RunpodRuntimeError::RunpodSecretUnavailable => {
             RunpodLifecycleError::RunpodSecretUnavailable
         }
-        ProvisionedRemoteError::RunpodApiFailed(reason) => RunpodLifecycleError::RunpodApiFailed {
+        RunpodRuntimeError::RunpodApiFailed(reason) => RunpodLifecycleError::RunpodApiFailed {
             reason: reason.clone(),
         },
-        ProvisionedRemoteError::ProvisionerUnavailable => {
-            RunpodLifecycleError::ProvisionerUnavailable
-        }
-        ProvisionedRemoteError::ProvisionerResponseInvalid => {
+        RunpodRuntimeError::ProvisionerUnavailable => RunpodLifecycleError::ProvisionerUnavailable,
+        RunpodRuntimeError::ProvisionerResponseInvalid => {
             RunpodLifecycleError::ProvisionerResponseInvalid
         }
-        ProvisionedRemoteError::ProvisionerFailed => RunpodLifecycleError::ProvisionerFailed,
-        ProvisionedRemoteError::NetworkVolumeNotFound => {
-            RunpodLifecycleError::NetworkVolumeNotFound
-        }
-        ProvisionedRemoteError::ProvisionerPodNotFound => {
-            RunpodLifecycleError::ProvisionerPodNotFound
-        }
-        ProvisionedRemoteError::EndpointNotFound => RunpodLifecycleError::EndpointNotFound,
-        ProvisionedRemoteError::TemplateNotFound => RunpodLifecycleError::TemplateNotFound,
-        ProvisionedRemoteError::InvalidRuntimeState
-        | ProvisionedRemoteError::WorkspaceNotFound
-        | ProvisionedRemoteError::WorkspaceAlreadyExists
-        | ProvisionedRemoteError::LifecycleOperationAlreadyRunning { .. }
-        | ProvisionedRemoteError::StorageUnavailable => RunpodLifecycleError::InvalidRuntimeState,
+        RunpodRuntimeError::ProvisionerFailed => RunpodLifecycleError::ProvisionerFailed,
+        RunpodRuntimeError::NetworkVolumeNotFound => RunpodLifecycleError::NetworkVolumeNotFound,
+        RunpodRuntimeError::ProvisionerPodNotFound => RunpodLifecycleError::ProvisionerPodNotFound,
+        RunpodRuntimeError::EndpointNotFound => RunpodLifecycleError::EndpointNotFound,
+        RunpodRuntimeError::TemplateNotFound => RunpodLifecycleError::TemplateNotFound,
+        RunpodRuntimeError::InvalidRuntimeState
+        | RunpodRuntimeError::WorkspaceNotFound
+        | RunpodRuntimeError::WorkspaceAlreadyExists
+        | RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. }
+        | RunpodRuntimeError::StorageUnavailable => RunpodLifecycleError::InvalidRuntimeState,
     }
 }

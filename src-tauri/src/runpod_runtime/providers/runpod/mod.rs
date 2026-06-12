@@ -6,11 +6,9 @@ pub mod provisioner;
 use std::sync::Arc;
 
 use crate::{
-    domain::provisioned_remote::{
-        ProviderApiError, ProvisionedRemoteProvisionerStatus, RunpodPlacementOptions,
-    },
-    provisioned_remote::{
-        errors::ProvisionedRemoteError,
+    domain::runpod_runtime::{ProviderApiError, RunpodPlacementOptions, RunpodProvisionerStatus},
+    runpod_runtime::{
+        errors::RunpodRuntimeError,
         provider::{
             CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
             CreateRunpodServerlessTemplateParams, RunpodRuntimeClient,
@@ -36,14 +34,14 @@ use self::{
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
 
-pub struct RunpodProvisionedRemoteProvider<RS, RI, HS, HI> {
+pub struct RunpodRuntimeProvider<RS, RI, HS, HI> {
     api: Arc<dyn RunpodApi>,
     provisioner_worker: Arc<dyn ProvisionerWorkerApi>,
     runpod_secrets: Arc<SecretsStorageService<RS, RI>>,
     hugging_face_secrets: SecretsStorageService<HS, HI>,
 }
 
-impl<RS, RI, HS, HI> RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> RunpodRuntimeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore + 'static,
     RI: ApiKeyIdentityProvider + 'static,
@@ -98,7 +96,7 @@ where
     }
 }
 
-impl<RS, RI, HS, HI> RunpodRuntimeClient for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> RunpodRuntimeClient for RunpodRuntimeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
@@ -107,7 +105,7 @@ where
 {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut options = self.api.placement_options().await?;
             options.max_network_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
@@ -118,7 +116,7 @@ where
     fn create_network_volume<'a>(
         &'a self,
         params: CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             self.api
                 .create_network_volume(CreateNetworkVolumeRequest {
@@ -133,14 +131,14 @@ where
     fn delete_network_volume<'a>(
         &'a self,
         network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move { self.api.delete_network_volume(network_volume_id).await })
     }
 
     fn start_provisioner_pod<'a>(
         &'a self,
         params: StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -183,7 +181,7 @@ where
     fn terminate_provisioner_pod<'a>(
         &'a self,
         provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move { self.api.delete_provisioner_pod(provisioner_pod_id).await })
     }
 
@@ -191,7 +189,7 @@ where
         &'a self,
         workspace_id: &'a str,
         provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>> {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -209,7 +207,7 @@ where
     fn create_serverless_template<'a>(
         &'a self,
         params: CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let template = self
                 .api
@@ -230,7 +228,7 @@ where
     fn create_serverless_endpoint<'a>(
         &'a self,
         params: CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let endpoint = self
                 .api
@@ -253,14 +251,14 @@ where
     fn delete_serverless_endpoint<'a>(
         &'a self,
         endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move { self.api.delete_endpoint(endpoint_id).await })
     }
 
     fn delete_template<'a>(
         &'a self,
         template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move { self.api.delete_template(template_id).await })
     }
 }
@@ -269,9 +267,9 @@ fn provisioner_status_url(pod_id: &str) -> String {
     format!("https://{pod_id}-{PROVISIONER_PORT}.proxy.runpod.net/status")
 }
 
-fn map_secret_error(error: SecretsStorageError) -> ProvisionedRemoteError {
+fn map_secret_error(error: SecretsStorageError) -> RunpodRuntimeError {
     match error {
-        SecretsStorageError::KeyNotFound => ProvisionedRemoteError::RunpodSecretUnavailable,
+        SecretsStorageError::KeyNotFound => RunpodRuntimeError::RunpodSecretUnavailable,
         _ => ProviderApiError::RequestFailed.into(),
     }
 }
@@ -285,7 +283,7 @@ mod tests {
 
     use crate::{
         domain::{
-            provisioned_remote::{
+            runpod_runtime::{
                 RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits,
                 RunpodGpuPlacementOption, RunpodLifecycleError,
             },
@@ -306,7 +304,7 @@ mod tests {
         provisioner_pod_requests: Vec<CreateProvisionerPodRequest>,
         template_requests: Vec<CreateServerlessTemplateRequest>,
         endpoint_requests: Vec<CreateServerlessEndpointRequest>,
-        create_serverless_endpoint_error: Option<ProvisionedRemoteError>,
+        create_serverless_endpoint_error: Option<RunpodRuntimeError>,
         deleted_endpoints: Vec<String>,
         deleted_templates: Vec<String>,
     }
@@ -318,7 +316,7 @@ mod tests {
     impl RunpodApi for FakeApi {
         fn placement_options<'a>(
             &'a self,
-        ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>> {
             Box::pin(async {
                 Ok(RunpodPlacementOptions {
                     max_network_volume_size_gb: None,
@@ -339,7 +337,7 @@ mod tests {
         fn create_network_volume<'a>(
             &'a self,
             request: CreateNetworkVolumeRequest,
-        ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -353,14 +351,14 @@ mod tests {
         fn delete_network_volume<'a>(
             &'a self,
             _volume_id: &'a str,
-        ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn create_provisioner_pod<'a>(
             &'a self,
             request: CreateProvisionerPodRequest,
-        ) -> AppFuture<'a, Result<RunpodId, ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<RunpodId, RunpodRuntimeError>> {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -376,14 +374,14 @@ mod tests {
         fn delete_provisioner_pod<'a>(
             &'a self,
             _pod_id: &'a str,
-        ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
             Box::pin(async { Ok(()) })
         }
 
         fn create_serverless_template<'a>(
             &'a self,
             request: CreateServerlessTemplateRequest,
-        ) -> AppFuture<'a, Result<RunpodId, ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<RunpodId, RunpodRuntimeError>> {
             Box::pin(async move {
                 self.state
                     .lock()
@@ -399,7 +397,7 @@ mod tests {
         fn create_serverless_endpoint<'a>(
             &'a self,
             request: CreateServerlessEndpointRequest,
-        ) -> AppFuture<'a, Result<RunpodEndpoint, ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<RunpodEndpoint, RunpodRuntimeError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("api state");
                 state.endpoint_requests.push(request);
@@ -418,7 +416,7 @@ mod tests {
         fn delete_endpoint<'a>(
             &'a self,
             endpoint_id: &'a str,
-        ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("api state");
                 state.deleted_endpoints.push(endpoint_id.to_string());
@@ -429,7 +427,7 @@ mod tests {
         fn delete_template<'a>(
             &'a self,
             template_id: &'a str,
-        ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("api state");
                 state.deleted_templates.push(template_id.to_string());
@@ -441,7 +439,7 @@ mod tests {
     #[derive(Default)]
     struct WorkerState {
         calls: Vec<(String, String)>,
-        result: Option<Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>>,
+        result: Option<Result<RunpodProvisionerStatus, RunpodLifecycleError>>,
     }
 
     struct FakeWorker {
@@ -453,8 +451,7 @@ mod tests {
             &'a self,
             status_url: &'a str,
             bearer_token: &'a str,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>>
-        {
+        ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodLifecycleError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("worker state");
                 state
@@ -463,7 +460,7 @@ mod tests {
                 state
                     .result
                     .clone()
-                    .unwrap_or(Ok(ProvisionedRemoteProvisionerStatus::Running))
+                    .unwrap_or(Ok(RunpodProvisionerStatus::Running))
             })
         }
     }
@@ -534,18 +531,14 @@ mod tests {
     fn provider(
         api_state: Arc<Mutex<ApiState>>,
         worker_state: Arc<Mutex<WorkerState>>,
-    ) -> RunpodProvisionedRemoteProvider<
-        FakeStore,
-        FakeIdentityProvider,
-        FakeStore,
-        FakeIdentityProvider,
-    > {
+    ) -> RunpodRuntimeProvider<FakeStore, FakeIdentityProvider, FakeStore, FakeIdentityProvider>
+    {
         let runpod_store = FakeStore::default();
         runpod_store.insert(SecretKey::RunpodApiKey, "runpod-secret");
         let hugging_face_store = FakeStore::default();
         hugging_face_store.insert(SecretKey::HuggingFaceApiKey, "hf-secret");
 
-        RunpodProvisionedRemoteProvider::with_clients(
+        RunpodRuntimeProvider::with_clients(
             Arc::new(FakeApi { state: api_state }),
             Arc::new(FakeWorker {
                 state: worker_state,
@@ -692,10 +685,7 @@ mod tests {
 
         let result = provider.get_provisioner_status("workspace", "pod").await;
 
-        assert_eq!(
-            result,
-            Err(ProvisionedRemoteError::ProvisionerResponseInvalid)
-        );
+        assert_eq!(result, Err(RunpodRuntimeError::ProvisionerResponseInvalid));
         assert_eq!(
             worker_state.lock().expect("worker state").calls[0].0,
             "https://pod-8000.proxy.runpod.net/status"

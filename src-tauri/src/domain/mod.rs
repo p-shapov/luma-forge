@@ -1,5 +1,5 @@
 pub mod lifecycle_operation;
-pub mod provisioned_remote;
+pub mod runpod_runtime;
 pub mod runtime_contract;
 pub mod secrets;
 pub mod workflow_preset;

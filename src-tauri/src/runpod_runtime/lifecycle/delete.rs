@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     domain::{
-        lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
-        provisioned_remote::{RunpodCleanupStep, RunpodLifecycleError},
+        lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
+        runpod_runtime::{RunpodDeleteStep, RunpodLifecycleError},
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
@@ -15,10 +15,16 @@ use crate::{
 
 use super::{
     super::{
-        errors::ProvisionedRemoteError, events::ProvisionedRemoteEventSink,
+        errors::RunpodRuntimeError,
+        events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
         provider::RunpodRuntimeClient,
+        service::map_workspace_catalog_error,
     },
-    helpers::{load_running_operation, mark_operation_state, mark_running_step, persist_workspace},
+    cleanup::lifecycle_error_for,
+    helpers::{
+        load_running_operation, map_lifecycle_journal_error, mark_operation_state,
+        mark_running_step, persist_workspace,
+    },
 };
 
 pub async fn run_once<W, L>(
@@ -26,8 +32,8 @@ pub async fn run_once<W, L>(
     workspace_repository: &W,
     lifecycle_journal: &L,
     runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
-) -> Result<(), ProvisionedRemoteError>
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+) -> Result<Option<LifecycleOperation>, RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
@@ -38,20 +44,36 @@ where
         .await
     {
         Ok(Some(workspace)) => workspace,
-        Ok(None) | Err(_) => {
+        Ok(None) => {
+            mark_operation_state(
+                lifecycle_journal,
+                event_sink,
+                &operation,
+                LifecycleOperationState::Completed,
+                RunpodDeleteStep::DeleteLocalWorkspace,
+                None,
+            )
+            .await?;
+            lifecycle_journal
+                .delete_for_workspace(&operation.workspace_id)
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+            return Ok(None);
+        }
+        Err(_) => {
             mark_operation_state(
                 lifecycle_journal,
                 event_sink,
                 &operation,
                 LifecycleOperationState::Failed,
-                RunpodCleanupStep::DeleteEndpoint,
+                RunpodDeleteStep::DeleteEndpoint,
                 Some(RunpodLifecycleError::InvalidRuntimeState),
             )
             .await?;
-            return Ok(());
+            return Ok(None);
         }
     };
-    let mut failed_step = RunpodCleanupStep::DeleteEndpoint;
+    let mut failed_step = RunpodDeleteStep::DeleteEndpoint;
 
     let result = async {
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
@@ -61,7 +83,7 @@ where
             Some(runpod_client)
         };
         if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
-            failed_step = RunpodCleanupStep::DeleteEndpoint;
+            failed_step = RunpodDeleteStep::DeleteEndpoint;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -71,11 +93,11 @@ where
             )
             .await?;
             match provider
-                .expect("provider should exist when endpoint exists")
+                .expect("client should exist when endpoint exists")
                 .delete_serverless_endpoint(&endpoint_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::EndpointNotFound) => {
+                Ok(()) | Err(RunpodRuntimeError::EndpointNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.endpoint_id = None;
                     workspace =
@@ -87,7 +109,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(template_id) = runtime.resources.template_id.clone() {
-            failed_step = RunpodCleanupStep::DeleteTemplate;
+            failed_step = RunpodDeleteStep::DeleteTemplate;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -97,11 +119,11 @@ where
             )
             .await?;
             match provider
-                .expect("provider should exist when template exists")
+                .expect("client should exist when template exists")
                 .delete_template(&template_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::TemplateNotFound) => {
+                Ok(()) | Err(RunpodRuntimeError::TemplateNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.template_id = None;
                     workspace =
@@ -113,7 +135,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(provisioner_id) = runtime.resources.provisioner_pod_id.clone() {
-            failed_step = RunpodCleanupStep::TerminateProvisionerPod;
+            failed_step = RunpodDeleteStep::TerminateProvisionerPod;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -123,11 +145,11 @@ where
             )
             .await?;
             match provider
-                .expect("provider should exist when provisioner exists")
+                .expect("client should exist when provisioner exists")
                 .terminate_provisioner_pod(&provisioner_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::ProvisionerPodNotFound) => {
+                Ok(()) | Err(RunpodRuntimeError::ProvisionerPodNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.provisioner_pod_id = None;
                     workspace =
@@ -139,7 +161,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(volume_id) = runtime.resources.network_volume_id.clone() {
-            failed_step = RunpodCleanupStep::DeleteNetworkVolume;
+            failed_step = RunpodDeleteStep::DeleteNetworkVolume;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -149,11 +171,11 @@ where
             )
             .await?;
             match provider
-                .expect("provider should exist when volume exists")
+                .expect("client should exist when volume exists")
                 .delete_network_volume(&volume_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::NetworkVolumeNotFound) => {
+                Ok(()) | Err(RunpodRuntimeError::NetworkVolumeNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.network_volume_id = None;
                     workspace =
@@ -163,15 +185,50 @@ where
             }
         }
 
-        workspace.state = WorkspaceState::NotProvisioned;
-        persist_workspace(workspace_repository, event_sink, &workspace).await?;
-        Ok::<(), ProvisionedRemoteError>(())
+        failed_step = RunpodDeleteStep::DeleteLocalWorkspace;
+        mark_running_step(
+            lifecycle_journal,
+            event_sink,
+            &operation,
+            failed_step.clone(),
+            None,
+        )
+        .await?;
+        Ok::<(), RunpodRuntimeError>(())
     }
     .await;
 
     match result {
         Ok(()) => {
-            mark_operation_state(
+            if let Err(error) = workspace_repository
+                .delete_workspace(&workspace.id)
+                .await
+                .map_err(map_workspace_catalog_error)
+            {
+                let lifecycle_error = lifecycle_error_for(&error);
+                let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+                workspace.state = if runtime.resources.is_empty() {
+                    WorkspaceState::Invalid {
+                        reason: WorkspaceRuntimeInvalidReason::DeleteFailed,
+                    }
+                } else {
+                    WorkspaceState::CleanupRequired {
+                        reason: WorkspaceCleanupRequiredReason::DeleteFailed,
+                    }
+                };
+                persist_workspace(workspace_repository, event_sink, &workspace).await?;
+                mark_operation_state(
+                    lifecycle_journal,
+                    event_sink,
+                    &operation,
+                    LifecycleOperationState::Failed,
+                    failed_step.clone(),
+                    Some(lifecycle_error),
+                )
+                .await?;
+                return Err(error);
+            }
+            let completed_operation = mark_operation_state(
                 lifecycle_journal,
                 event_sink,
                 &operation,
@@ -180,17 +237,25 @@ where
                 None,
             )
             .await?;
+            lifecycle_journal
+                .delete_for_workspace(&operation.workspace_id)
+                .await
+                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+            event_sink.emit(RunpodRuntimeEvent::WorkspaceDeleted {
+                workspace_id: workspace.id.clone(),
+            });
+            Ok(Some(completed_operation))
         }
         Err(error) => {
             let lifecycle_error = lifecycle_error_for(&error);
             let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
             workspace.state = if runtime.resources.is_empty() {
                 WorkspaceState::Invalid {
-                    reason: WorkspaceRuntimeInvalidReason::CleanupFailed,
+                    reason: WorkspaceRuntimeInvalidReason::DeleteFailed,
                 }
             } else {
                 WorkspaceState::CleanupRequired {
-                    reason: WorkspaceCleanupRequiredReason::CleanupFailed,
+                    reason: WorkspaceCleanupRequiredReason::DeleteFailed,
                 }
             };
             persist_workspace(workspace_repository, event_sink, &workspace).await?;
@@ -203,39 +268,7 @@ where
                 Some(lifecycle_error),
             )
             .await?;
+            Ok(None)
         }
-    }
-
-    Ok(())
-}
-
-pub(super) fn lifecycle_error_for(error: &ProvisionedRemoteError) -> RunpodLifecycleError {
-    match error {
-        ProvisionedRemoteError::RunpodSecretUnavailable => {
-            RunpodLifecycleError::RunpodSecretUnavailable
-        }
-        ProvisionedRemoteError::RunpodApiFailed(reason) => RunpodLifecycleError::RunpodApiFailed {
-            reason: reason.clone(),
-        },
-        ProvisionedRemoteError::ProvisionerUnavailable => {
-            RunpodLifecycleError::ProvisionerUnavailable
-        }
-        ProvisionedRemoteError::ProvisionerResponseInvalid => {
-            RunpodLifecycleError::ProvisionerResponseInvalid
-        }
-        ProvisionedRemoteError::ProvisionerFailed => RunpodLifecycleError::ProvisionerFailed,
-        ProvisionedRemoteError::NetworkVolumeNotFound => {
-            RunpodLifecycleError::NetworkVolumeNotFound
-        }
-        ProvisionedRemoteError::ProvisionerPodNotFound => {
-            RunpodLifecycleError::ProvisionerPodNotFound
-        }
-        ProvisionedRemoteError::EndpointNotFound => RunpodLifecycleError::EndpointNotFound,
-        ProvisionedRemoteError::TemplateNotFound => RunpodLifecycleError::TemplateNotFound,
-        ProvisionedRemoteError::InvalidRuntimeState
-        | ProvisionedRemoteError::WorkspaceNotFound
-        | ProvisionedRemoteError::WorkspaceAlreadyExists
-        | ProvisionedRemoteError::LifecycleOperationAlreadyRunning { .. }
-        | ProvisionedRemoteError::StorageUnavailable => RunpodLifecycleError::InvalidRuntimeState,
     }
 }

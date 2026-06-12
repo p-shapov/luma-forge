@@ -11,8 +11,8 @@ use crate::{
         },
         CommandResult,
     },
-    domain::provisioned_remote::RunpodPlacementPlan,
-    provisioned_remote::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
+    domain::runpod_runtime::RunpodPlacementPlan,
+    runpod_runtime::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
 
 #[tauri::command]

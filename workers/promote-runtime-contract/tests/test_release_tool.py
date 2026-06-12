@@ -310,21 +310,21 @@ runtime:
 
         self.assertEqual(
             "1.0.1",
-            updated["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
-                "endpoint_contract"
-            ]["version"],
+            updated["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"]["endpoint_contract"][
+                "version"
+            ],
         )
         self.assertEqual(
             "1.0.1",
-            updated["workflow_presets"][1]["remote_runtime_requirements"]["provider_requirements"][0][
-                "endpoint_contract"
-            ]["version"],
+            updated["workflow_presets"][1]["revisions"][0]["runpod_runtime_requirements"]["endpoint_contract"][
+                "version"
+            ],
         )
         self.assertEqual(
             "9.9.9",
-            updated["workflow_presets"][2]["remote_runtime_requirements"]["provider_requirements"][0][
-                "endpoint_contract"
-            ]["version"],
+            updated["workflow_presets"][2]["revisions"][0]["runpod_runtime_requirements"]["endpoint_contract"][
+                "version"
+            ],
         )
 
     def test_update_runtime_workflow_catalog_rejects_missing_endpoint_contract_reference(self):
@@ -337,12 +337,12 @@ runtime:
 
     def test_update_runtime_workflow_catalog_rejects_mismatched_endpoint_contract_id(self):
         workflow_catalog = _workflow_catalog()
-        workflow_catalog["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
-            "endpoint_contract"
-        ]["id"] = "other-runtime"
-        workflow_catalog["workflow_presets"][1]["remote_runtime_requirements"]["provider_requirements"][0][
-            "endpoint_contract"
-        ]["id"] = "other-runtime"
+        workflow_catalog["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"]["endpoint_contract"][
+            "id"
+        ] = "other-runtime"
+        workflow_catalog["workflow_presets"][1]["revisions"][0]["runpod_runtime_requirements"]["endpoint_contract"][
+            "id"
+        ] = "other-runtime"
 
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "does not reference endpoint contract"):
             release_tool.update_runtime_workflow_catalog(
@@ -392,7 +392,7 @@ runtime:
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
             self.assertEqual(
                 "1.0.1",
-                updated_workflow["workflow_presets"][0]["remote_runtime_requirements"]["provider_requirements"][0][
+                updated_workflow["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"][
                     "endpoint_contract"
                 ]["version"],
             )
@@ -460,45 +460,45 @@ def _workflow_catalog():
         "workflow_presets": [
             {
                 "id": "comfyui-hidream-o1-dev",
-                "remote_runtime_requirements": {
-                    "provider_requirements": [
-                        {
-                            "gpu_cloud_provider_id": "runpod",
+                "revisions": [
+                    {
+                        "version": "1.0.0",
+                        "runpod_runtime_requirements": {
                             "endpoint_contract": {
                                 "id": "comfyui-py312-cu126-torch291",
                                 "version": "1.0.0",
                             },
-                        }
-                    ],
-                },
+                        },
+                    }
+                ],
             },
             {
                 "id": "other-comfyui-preset",
-                "remote_runtime_requirements": {
-                    "provider_requirements": [
-                        {
-                            "gpu_cloud_provider_id": "runpod",
+                "revisions": [
+                    {
+                        "version": "1.0.0",
+                        "runpod_runtime_requirements": {
                             "endpoint_contract": {
                                 "id": "comfyui-py312-cu126-torch291",
                                 "version": "1.0.0",
                             },
-                        }
-                    ],
-                },
+                        },
+                    }
+                ],
             },
             {
                 "id": "other-runtime-preset",
-                "remote_runtime_requirements": {
-                    "provider_requirements": [
-                        {
-                            "gpu_cloud_provider_id": "runpod",
+                "revisions": [
+                    {
+                        "version": "1.0.0",
+                        "runpod_runtime_requirements": {
                             "endpoint_contract": {
                                 "id": "other-runtime",
                                 "version": "9.9.9",
                             },
-                        }
-                    ],
-                },
+                        },
+                    }
+                ],
             },
         ]
     }

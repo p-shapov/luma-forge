@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{provisioned_remote::RunpodRuntime, workflow_preset::WorkflowReference};
+use super::{runpod_runtime::RunpodRuntime, workflow_preset::WorkflowReference};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -56,7 +56,7 @@ pub struct WorkspaceCatalog {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        provisioned_remote::{RunpodPlacementPlan, RunpodResources, RunpodRuntime},
+        runpod_runtime::{RunpodPlacementPlan, RunpodResources, RunpodRuntime},
         workflow_preset::WorkflowReference,
     };
 

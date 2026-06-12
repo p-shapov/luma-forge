@@ -6,7 +6,7 @@ use crate::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
             LifecycleOperationState, WorkspaceId,
         },
-        provisioned_remote::{
+        runpod_runtime::{
             RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
             RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodResources,
         },
@@ -20,18 +20,18 @@ use crate::{
 };
 
 use super::super::{
-    errors::ProvisionedRemoteError,
-    events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
+    errors::RunpodRuntimeError,
+    events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
     service::map_workspace_catalog_error,
 };
 
 pub fn map_lifecycle_journal_error(
     error: LifecycleJournalError,
     workspace_id: &WorkspaceId,
-) -> ProvisionedRemoteError {
+) -> RunpodRuntimeError {
     match error {
         LifecycleJournalError::RunningOperationExists => {
-            ProvisionedRemoteError::LifecycleOperationAlreadyRunning {
+            RunpodRuntimeError::LifecycleOperationAlreadyRunning {
                 workspace_id: workspace_id.clone(),
             }
         }
@@ -39,14 +39,14 @@ pub fn map_lifecycle_journal_error(
         | LifecycleJournalError::StorageUnavailable
         | LifecycleJournalError::QueryFailed
         | LifecycleJournalError::Corrupt
-        | LifecycleJournalError::SchemaMismatch => ProvisionedRemoteError::StorageUnavailable,
+        | LifecycleJournalError::SchemaMismatch => RunpodRuntimeError::StorageUnavailable,
     }
 }
 
 pub async fn load_running_operation<L>(
     lifecycle_journal: &L,
     operation_id: &LifecycleOperationId,
-) -> Result<LifecycleOperation, ProvisionedRemoteError>
+) -> Result<LifecycleOperation, RunpodRuntimeError>
 where
     L: LifecycleJournalRepository,
 {
@@ -56,19 +56,19 @@ where
         .map_err(|error| map_lifecycle_journal_error(error, &String::new()))?
         .into_iter()
         .find(|operation| operation.operation_id == *operation_id)
-        .ok_or(ProvisionedRemoteError::StorageUnavailable)
+        .ok_or(RunpodRuntimeError::StorageUnavailable)
 }
 
 pub async fn mark_running_step<L, S>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     operation: &LifecycleOperation,
     step: S,
     error: Option<RunpodLifecycleError>,
-) -> Result<(), ProvisionedRemoteError>
+) -> Result<(), RunpodRuntimeError>
 where
     L: LifecycleJournalRepository,
-    S: ProvisionedRemoteStepPayload,
+    S: RunpodStepPayload,
 {
     mark_operation_state(
         lifecycle_journal,
@@ -84,22 +84,22 @@ where
 
 pub async fn mark_operation_state<L, S>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     operation: &LifecycleOperation,
     state: LifecycleOperationState,
     step: S,
     error: Option<RunpodLifecycleError>,
-) -> Result<LifecycleOperation, ProvisionedRemoteError>
+) -> Result<LifecycleOperation, RunpodRuntimeError>
 where
     L: LifecycleJournalRepository,
-    S: ProvisionedRemoteStepPayload,
+    S: RunpodStepPayload,
 {
     let payload = step.into_payload(error);
     let operation = lifecycle_journal
         .mark_state(&operation.operation_id, state, &payload)
         .await
         .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
-    event_sink.emit(ProvisionedRemoteEvent::LifecycleOperationChanged {
+    event_sink.emit(RunpodRuntimeEvent::LifecycleOperationChanged {
         workspace_id: operation.workspace_id.clone(),
         operation_id: operation.operation_id.clone(),
         operation: operation.clone(),
@@ -109,9 +109,9 @@ where
 
 pub async fn persist_workspace<W>(
     workspace_repository: &W,
-    event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     workspace: &Workspace,
-) -> Result<Workspace, ProvisionedRemoteError>
+) -> Result<Workspace, RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
 {
@@ -119,18 +119,18 @@ where
         .update_workspace(workspace)
         .await
         .map_err(map_workspace_catalog_error)?;
-    event_sink.emit(ProvisionedRemoteEvent::WorkspaceChanged {
+    event_sink.emit(RunpodRuntimeEvent::WorkspaceChanged {
         workspace_id: workspace.id.clone(),
         workspace: Box::new(workspace.clone()),
     });
     Ok(workspace)
 }
 
-pub trait ProvisionedRemoteStepPayload {
+pub trait RunpodStepPayload {
     fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload;
 }
 
-impl ProvisionedRemoteStepPayload for RunpodProvisionStep {
+impl RunpodStepPayload for RunpodProvisionStep {
     fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
             step: Some(self),
@@ -139,7 +139,7 @@ impl ProvisionedRemoteStepPayload for RunpodProvisionStep {
     }
 }
 
-impl ProvisionedRemoteStepPayload for RunpodCleanupStep {
+impl RunpodStepPayload for RunpodCleanupStep {
     fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
             step: Some(self),
@@ -148,7 +148,7 @@ impl ProvisionedRemoteStepPayload for RunpodCleanupStep {
     }
 }
 
-impl ProvisionedRemoteStepPayload for RunpodDeleteStep {
+impl RunpodStepPayload for RunpodDeleteStep {
     fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: Some(self),

@@ -12,10 +12,10 @@ use crate::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
             LifecycleOperationState, WorkspaceId,
         },
-        provisioned_remote::{
-            ProvisionedRemoteProvisionerStatus, RunpodDatacenterPlacementOption,
-            RunpodEndpointKeepAliveLimits, RunpodGpuPlacementOption, RunpodPlacementOptions,
-            RunpodPlacementPlan,
+        runpod_runtime::{
+            RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits,
+            RunpodGpuPlacementOption, RunpodPlacementOptions, RunpodPlacementPlan,
+            RunpodProvisionerStatus,
         },
         workspace::{Workspace, WorkspaceCatalog},
     },
@@ -26,12 +26,12 @@ use crate::{
 };
 
 use super::{
-    errors::ProvisionedRemoteError,
+    errors::RunpodRuntimeError,
     lifecycle::{
         self,
         runner::{
-            BackgroundProvisionedRemoteLifecycleRunner, ProvisionedRemoteLifecycleRunner,
-            ProvisionedRemoteLifecycleRunnerContext,
+            BackgroundRunpodRuntimeLifecycleRunner, RunpodRuntimeLifecycleRunner,
+            RunpodRuntimeLifecycleRunnerContext,
         },
     },
     provider::{
@@ -53,14 +53,14 @@ impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ManualLifecycleRunner;
 
-impl<W, L> ProvisionedRemoteLifecycleRunner<W, L> for ManualLifecycleRunner
+impl<W, L> RunpodRuntimeLifecycleRunner<W, L> for ManualLifecycleRunner
 where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
 {
     fn spawn_provision(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     ) {
         if context
@@ -73,7 +73,7 @@ where
 
     fn spawn_cleanup(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     ) {
         if context
@@ -86,7 +86,7 @@ where
 
     fn spawn_delete(
         &self,
-        context: ProvisionedRemoteLifecycleRunnerContext<W, L>,
+        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
         operation_id: LifecycleOperationId,
     ) {
         if context
@@ -102,17 +102,17 @@ pub(crate) trait ManualLifecycleRunnerExt {
     fn run_provision_once_for_test<'a>(
         &'a self,
         operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 
     fn run_cleanup_once_for_test<'a>(
         &'a self,
         operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 
     fn run_delete_once_for_test<'a>(
         &'a self,
         operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 }
 
 impl<W, L> ManualLifecycleRunnerExt for RunpodRuntimeService<W, L>
@@ -123,7 +123,7 @@ where
     fn run_provision_once_for_test<'a>(
         &'a self,
         operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let operation_id = operation_id.to_string();
             let context = self.lifecycle_runner_context();
@@ -145,7 +145,7 @@ where
     fn run_cleanup_once_for_test<'a>(
         &'a self,
         operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let operation_id = operation_id.to_string();
             let context = self.lifecycle_runner_context();
@@ -165,7 +165,7 @@ where
     fn run_delete_once_for_test<'a>(
         &'a self,
         operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let operation_id = operation_id.to_string();
             let context = self.lifecycle_runner_context();
@@ -185,22 +185,21 @@ where
 }
 
 #[derive(Default)]
-pub(crate) struct ProviderState {
+pub(crate) struct RunpodClientState {
     pub(crate) calls: Vec<&'static str>,
     pub(crate) provisioner_image_refs: Vec<String>,
     pub(crate) endpoint_image_refs: Vec<String>,
-    pub(crate) placement_options_result:
-        Option<Result<RunpodPlacementOptions, ProvisionedRemoteError>>,
-    pub(crate) provisioner_status_results: Vec<ProvisionedRemoteProvisionerStatus>,
-    pub(crate) create_network_volume_error: Option<ProvisionedRemoteError>,
-    pub(crate) start_provisioner_pod_error: Option<ProvisionedRemoteError>,
-    pub(crate) terminate_provisioner_pod_error: Option<ProvisionedRemoteError>,
-    pub(crate) get_provisioner_status_error: Option<ProvisionedRemoteError>,
-    pub(crate) create_serverless_template_error: Option<ProvisionedRemoteError>,
-    pub(crate) create_serverless_endpoint_error: Option<ProvisionedRemoteError>,
-    pub(crate) delete_serverless_endpoint_error: Option<ProvisionedRemoteError>,
-    pub(crate) delete_template_error: Option<ProvisionedRemoteError>,
-    pub(crate) delete_network_volume_error: Option<ProvisionedRemoteError>,
+    pub(crate) placement_options_result: Option<Result<RunpodPlacementOptions, RunpodRuntimeError>>,
+    pub(crate) provisioner_status_results: Vec<RunpodProvisionerStatus>,
+    pub(crate) create_network_volume_error: Option<RunpodRuntimeError>,
+    pub(crate) start_provisioner_pod_error: Option<RunpodRuntimeError>,
+    pub(crate) terminate_provisioner_pod_error: Option<RunpodRuntimeError>,
+    pub(crate) get_provisioner_status_error: Option<RunpodRuntimeError>,
+    pub(crate) create_serverless_template_error: Option<RunpodRuntimeError>,
+    pub(crate) create_serverless_endpoint_error: Option<RunpodRuntimeError>,
+    pub(crate) delete_serverless_endpoint_error: Option<RunpodRuntimeError>,
+    pub(crate) delete_template_error: Option<RunpodRuntimeError>,
+    pub(crate) delete_network_volume_error: Option<RunpodRuntimeError>,
 }
 
 #[derive(Clone, Default)]
@@ -224,20 +223,20 @@ pub(crate) fn placement_options() -> RunpodPlacementOptions {
     }
 }
 
-struct FakeProvider {
-    state: Arc<Mutex<ProviderState>>,
+struct FakeRunpodRuntimeClient {
+    state: Arc<Mutex<RunpodClientState>>,
 }
 
-impl FakeProvider {
-    fn new(state: Arc<Mutex<ProviderState>>) -> Self {
+impl FakeRunpodRuntimeClient {
+    fn new(state: Arc<Mutex<RunpodClientState>>) -> Self {
         Self { state }
     }
 }
 
-impl RunpodRuntimeClient for FakeProvider {
+impl RunpodRuntimeClient for FakeRunpodRuntimeClient {
     fn placement_options<'a>(
         &'a self,
-    ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("placement_options");
@@ -252,7 +251,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn create_network_volume<'a>(
         &'a self,
         _params: CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("create_network_volume");
@@ -267,7 +266,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn delete_network_volume<'a>(
         &'a self,
         _network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("delete_network_volume");
@@ -282,7 +281,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn start_provisioner_pod<'a>(
         &'a self,
         params: StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("start_provisioner_pod");
@@ -300,7 +299,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn terminate_provisioner_pod<'a>(
         &'a self,
         _provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("terminate_provisioner_pod");
@@ -316,7 +315,7 @@ impl RunpodRuntimeClient for FakeProvider {
         &'a self,
         _workspace_id: &'a str,
         _provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("get_provisioner_status");
@@ -325,7 +324,7 @@ impl RunpodRuntimeClient for FakeProvider {
             }
 
             if state.provisioner_status_results.is_empty() {
-                Ok(ProvisionedRemoteProvisionerStatus::Pending)
+                Ok(RunpodProvisionerStatus::Pending)
             } else {
                 Ok(state.provisioner_status_results.remove(0))
             }
@@ -335,7 +334,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn create_serverless_template<'a>(
         &'a self,
         params: CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("create_serverless_template");
@@ -351,7 +350,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn create_serverless_endpoint<'a>(
         &'a self,
         _params: CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("create_serverless_endpoint");
@@ -366,7 +365,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn delete_serverless_endpoint<'a>(
         &'a self,
         _endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("delete_serverless_endpoint");
@@ -381,7 +380,7 @@ impl RunpodRuntimeClient for FakeProvider {
     fn delete_template<'a>(
         &'a self,
         _template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("delete_template");
@@ -668,27 +667,27 @@ pub(crate) fn draft_create_request(workspace_id: &str) -> CreateRunpodWorkspaceR
 }
 
 pub(crate) fn service_with_state(
-    state: Arc<Mutex<ProviderState>>,
+    state: Arc<Mutex<RunpodClientState>>,
 ) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
     RunpodRuntimeService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
         WorkflowCatalogService::new(),
-        Arc::new(FakeProvider::new(state)),
+        Arc::new(FakeRunpodRuntimeClient::new(state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
-        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
+        Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     )
 }
 
 pub(crate) fn service_without_lifecycle_spawning(
-    state: Arc<Mutex<ProviderState>>,
+    state: Arc<Mutex<RunpodClientState>>,
 ) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
     RunpodRuntimeService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
         WorkflowCatalogService::new(),
-        Arc::new(FakeProvider::new(state)),
+        Arc::new(FakeRunpodRuntimeClient::new(state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
         Arc::new(ManualLifecycleRunner),
@@ -696,17 +695,17 @@ pub(crate) fn service_without_lifecycle_spawning(
 }
 
 pub(crate) fn service_with_state_and_workspace_repository(
-    provider_state: Arc<Mutex<ProviderState>>,
+    client_state: Arc<Mutex<RunpodClientState>>,
     workspace_repository: InMemoryWorkspaceRepository,
 ) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
     RunpodRuntimeService::new(
         workspace_repository,
         InMemoryLifecycleJournalRepository::default(),
         WorkflowCatalogService::new(),
-        Arc::new(FakeProvider::new(provider_state)),
+        Arc::new(FakeRunpodRuntimeClient::new(client_state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
-        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
+        Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     )
 }
 
@@ -759,7 +758,7 @@ pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::provisioned_remote::RunpodLifecycleOperationPayload;
+    use crate::domain::runpod_runtime::RunpodLifecycleOperationPayload;
 
     fn provision_payload() -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {

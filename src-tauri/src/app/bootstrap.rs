@@ -3,12 +3,12 @@ use std::{fs, sync::Arc};
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    app::{background::TauriBackgroundTaskSpawner, events::TauriProvisionedRemoteEventSink},
+    app::{background::TauriBackgroundTaskSpawner, events::TauriRunpodRuntimeEventSink},
     commands::{NativeCommandError, NativeCommandErrorCode},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    provisioned_remote::{
-        lifecycle::runner::BackgroundProvisionedRemoteLifecycleRunner,
-        providers::runpod::RunpodProvisionedRemoteProvider, service::RunpodRuntimeService,
+    runpod_runtime::{
+        lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner,
+        providers::runpod::RunpodRuntimeProvider, service::RunpodRuntimeService,
     },
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
@@ -57,21 +57,19 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
 
     let runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
-    let provider_runpod_secrets = build_runpod_secrets(&app_identifier)?;
-    let provider_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
+    let runtime_runpod_secrets = build_runpod_secrets(&app_identifier)?;
+    let runtime_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
 
-    let runpod_provider = RunpodProvisionedRemoteProvider::new(
-        provider_runpod_secrets,
-        provider_hugging_face_secrets,
-    );
+    let runpod_provider =
+        RunpodRuntimeProvider::new(runtime_runpod_secrets, runtime_hugging_face_secrets);
     let runpod_runtime = RunpodRuntimeService::new(
         workspace_repository,
         lifecycle_journal,
         workflow_catalog.clone(),
         Arc::new(runpod_provider),
-        Arc::new(TauriProvisionedRemoteEventSink::new(app_handle.clone())),
+        Arc::new(TauriRunpodRuntimeEventSink::new(app_handle.clone())),
         Arc::new(TauriBackgroundTaskSpawner),
-        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
+        Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     );
 
     runpod_runtime
