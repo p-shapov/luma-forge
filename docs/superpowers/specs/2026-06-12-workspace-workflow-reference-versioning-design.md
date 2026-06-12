@@ -130,7 +130,7 @@ The persisted domain workspace should expose `workflow: WorkflowReference`.
 
 Command response DTOs may keep the current `workflowPreset` shape for frontend stability by resolving each workspace reference before conversion. That preserves the frontend-facing contract while keeping persistence normalized.
 
-If a workspace references a missing workflow preset during a read, the command should return an explicit native error rather than silently omitting the workspace or substituting a different preset.
+If a workspace references a missing workflow preset or revision during a read, the command should return an explicit native error rather than silently omitting the workspace or substituting a different preset or revision.
 
 Do not mutate `WorkspaceState` only because the bundled catalog no longer contains the referenced workflow. Lifecycle state remains persisted runtime state; catalog compatibility is a derived read or operation failure.
 
@@ -166,6 +166,7 @@ Update native tests for:
 - `Workspace` serialization stores `workflow` reference, not an embedded preset.
 - SQLite schema validates `workflow_id` and `workflow_version`.
 - SQLite insert, update, list, and find round-trip workflow references.
+- workflow catalog resolution returns `WorkflowPresetResolved` with preset metadata and the selected revision's executable requirements.
 - create workspace resolves and persists the requested preset id and revision version exactly.
 - provisioning resolves `WorkflowPresetResolved` by workflow reference.
 - missing workflow reference fails explicitly.
