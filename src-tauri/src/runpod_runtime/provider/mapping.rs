@@ -34,11 +34,6 @@ const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
   }
 }"#;
 
-pub fn not_implemented(operation: &str) -> RunpodRuntimeError {
-    let _ = operation;
-    ProviderApiError::RequestFailed.into()
-}
-
 pub fn workspace_resource_name(workspace_id: &str, suffix: &str) -> String {
     format!("luma-forge-{workspace_id}-{suffix}")
 }
