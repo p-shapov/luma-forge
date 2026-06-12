@@ -28,7 +28,7 @@
 - Modify `src-tauri/src/provisioned_remote/lifecycle/provision.rs`: resolve workflow before provisioning.
 - Modify `src-tauri/src/app/events.rs`: resolve workflow references before emitting workspace events.
 - Modify `src/generated/commands.ts`: regenerate with `bun run codegen:commands`.
-- Modify `src/pages/home/ui/home-page.tsx`: add `workflowRevisionVersion` to the diagnostics create-workspace sample request.
+- Modify `src/pages/home/ui/home-page.tsx`: add workflow revision selection to the diagnostics create-workspace sample request.
 
 ---
 
@@ -643,9 +643,13 @@ In `src-tauri/src/commands/types/workspace.rs`, change:
 
 ```rust
 pub struct CreateWorkspaceRequest {
-    pub workflow_preset_id: String,
-    pub workflow_revision_version: String,
+    pub workflow: CreateWorkspaceWorkflowRequest,
     pub remote_placement: RemotePlacementPlanInput,
+}
+
+pub struct CreateWorkspaceWorkflowRequest {
+    pub preset_id: String,
+    pub version: String,
 }
 ```
 
@@ -679,8 +683,8 @@ In `src-tauri/src/commands/workspaces.rs`, create a reference:
 
 ```rust
 let workflow_reference = WorkflowReference {
-    id: request.workflow_preset_id,
-    version: request.workflow_revision_version,
+    id: request.workflow.preset_id,
+    version: request.workflow.version,
 };
 let workflow_catalog = state.workflow_catalog.get_workflow_catalog()?;
 let workflow = workflow_catalog.resolve(&workflow_reference).ok_or_else(|| {
@@ -922,7 +926,7 @@ Run:
 bun run codegen:commands
 ```
 
-Expected: `src/generated/commands.ts` includes `workflowRevisionVersion` on `CreateWorkspaceRequest`, workflow catalog presets with `revisions`, and workspace responses with flattened resolved `workflowPreset`.
+Expected: `src/generated/commands.ts` includes `workflow: { presetId, version }` on `CreateWorkspaceRequest`, workflow catalog presets with `revisions`, and workspace responses with `workflow: WorkflowReferenceResponse`.
 
 - [ ] **Step 2: Update home diagnostics create request default**
 
@@ -945,8 +949,10 @@ to:
 
 ```ts
 const request = {
-  workflowPresetId: "",
-  workflowRevisionVersion: "",
+  workflow: {
+    presetId: "",
+    version: "",
+  },
   remotePlacement: {
     gpuCloudProviderId: "runpod",
     datacenterId: "",

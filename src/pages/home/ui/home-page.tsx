@@ -130,8 +130,10 @@ const commandProbes: CommandProbe[] = [
     label: "createWorkspace",
     inputType: "json",
     initialInput: stringifyJson({
-      workflowPresetId: "",
-      workflowRevisionVersion: "",
+      workflow: {
+        presetId: "",
+        version: "",
+      },
       remotePlacement: {
         gpuCloudProviderId: "runpod",
         datacenterId: "",

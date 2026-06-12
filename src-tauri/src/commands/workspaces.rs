@@ -22,8 +22,8 @@ pub async fn create_workspace(
     request: CreateWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
     let workflow_reference = WorkflowReference {
-        id: request.workflow_preset_id,
-        version: request.workflow_revision_version,
+        id: request.workflow.preset_id,
+        version: request.workflow.version,
     };
     let remote_placement: RemotePlacementPlan = request.remote_placement.into();
 

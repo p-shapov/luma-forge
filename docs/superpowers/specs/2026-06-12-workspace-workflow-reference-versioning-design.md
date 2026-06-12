@@ -102,9 +102,9 @@ impl WorkflowCatalog {
 
 ## Create Workspace Flow
 
-`create_workspace` should accept `workflow_preset_id` and `workflow_revision_version`.
+`create_workspace` should accept a nested workflow request with `preset_id` and `version`.
 
-The command loads the workflow catalog and resolves the requested workflow reference. Workspace creation validates the selected placement against the resolved workflow, then persists only:
+Workspace creation persists the selected workflow reference and placement without resolving executable workflow details. It persists only:
 
 - `workspace.id`
 - `workspace.workflow.id`

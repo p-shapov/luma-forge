@@ -42,9 +42,13 @@ export type CleanupWorkspaceResponse = {
 };
 
 export type CreateWorkspaceRequest = {
-	workflowPresetId: string,
-	workflowRevisionVersion: string,
+	workflow: CreateWorkspaceWorkflowRequest,
 	remotePlacement: RemotePlacementPlanInput,
+};
+
+export type CreateWorkspaceWorkflowRequest = {
+	presetId: string,
+	version: string,
 };
 
 export type DeleteWorkspaceResponse = {

@@ -102,9 +102,15 @@ pub struct WorkspaceIdRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspaceRequest {
-    pub workflow_preset_id: String,
-    pub workflow_revision_version: String,
+    pub workflow: CreateWorkspaceWorkflowRequest,
     pub remote_placement: RemotePlacementPlanInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceWorkflowRequest {
+    pub preset_id: String,
+    pub version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -498,10 +504,36 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LifecycleOperationPayloadResponse, ProvisionedRemoteLifecycleOperationPayloadResponse,
-        ProvisionedRemoteProvisionStepResponse, ProvisionedRemoteResourcesResponse,
-        ProvisionedRemoteWorkspaceResponse, WorkspaceRuntimeResponse,
+        CreateWorkspaceRequest, CreateWorkspaceWorkflowRequest, LifecycleOperationPayloadResponse,
+        ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
+        ProvisionedRemoteResourcesResponse, ProvisionedRemoteWorkspaceResponse,
+        WorkspaceRuntimeResponse,
     };
+
+    #[test]
+    fn create_workspace_request_serializes_nested_workflow_reference() {
+        let request = CreateWorkspaceRequest {
+            workflow: CreateWorkspaceWorkflowRequest {
+                preset_id: "preset".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            remote_placement: crate::commands::types::placement::RemotePlacementPlanInput {
+                gpu_cloud_provider_id:
+                    crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
+                datacenter_id: "dc".to_string(),
+                gpu_id: "gpu".to_string(),
+                volume_size_bytes: 1,
+                keep_alive_limits: None,
+            },
+        };
+
+        let json = serde_json::to_value(&request).expect("request json");
+
+        assert_eq!(json["workflow"]["presetId"], "preset");
+        assert_eq!(json["workflow"]["version"], "1.0.0");
+        assert!(json.get("workflowPresetId").is_none());
+        assert!(json.get("workflowRevisionVersion").is_none());
+    }
 
     #[test]
     fn workspace_runtime_response_serializes_provisioned_remote_variant() {
