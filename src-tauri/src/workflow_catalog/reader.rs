@@ -18,21 +18,13 @@ pub struct BundledProvisionerContractCatalogReader;
 
 impl BundledWorkflowCatalogReader {
     pub fn read_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
-        serde_json::from_str(WORKFLOW_CATALOG_JSON).map_err(|error| {
-            WorkflowCatalogError::ParseFailed {
-                message: error.to_string(),
-            }
-        })
+        serde_json::from_str(WORKFLOW_CATALOG_JSON).map_err(parse_error)
     }
 }
 
 impl BundledEndpointContractCatalogReader {
     pub fn read_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
-        serde_json::from_str(ENDPOINT_CONTRACTS_JSON).map_err(|error| {
-            WorkflowCatalogError::ParseFailed {
-                message: error.to_string(),
-            }
-        })
+        serde_json::from_str(ENDPOINT_CONTRACTS_JSON).map_err(parse_error)
     }
 }
 
@@ -40,11 +32,13 @@ impl BundledProvisionerContractCatalogReader {
     pub fn read_provisioner_contract_catalog(
         &self,
     ) -> Result<RuntimeCatalog, WorkflowCatalogError> {
-        serde_json::from_str(PROVISIONER_CONTRACTS_JSON).map_err(|error| {
-            WorkflowCatalogError::ParseFailed {
-                message: error.to_string(),
-            }
-        })
+        serde_json::from_str(PROVISIONER_CONTRACTS_JSON).map_err(parse_error)
+    }
+}
+
+fn parse_error(error: serde_json::Error) -> WorkflowCatalogError {
+    WorkflowCatalogError::ParseFailed {
+        message: error.to_string(),
     }
 }
 

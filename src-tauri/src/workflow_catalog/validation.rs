@@ -1,47 +1,37 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    runtime_contract::RuntimeCatalog,
-    workflow_preset::{ModelAssetSource, WorkflowPreset},
+    runtime_contract::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
+    workflow_preset::{ModelAsset, ModelAssetSource, WorkflowPreset, WorkflowRevision},
 };
 
 use super::errors::WorkflowCatalogError;
+
+const EMPTY_RUNTIME_CATALOG: &str = "catalog is empty";
+const INVALID_CONTRACT_ID: &str = "contract ID is empty or duplicate";
+const EMPTY_CONTRACT_REVISIONS: &str = "contract has no revisions";
+const INVALID_CONTRACT_REVISION: &str =
+    "revision version is empty, duplicate, or image reference is empty";
+const EMPTY_WORKFLOWS: &str = "workflows are empty";
+const INVALID_WORKFLOW_ID: &str = "workflow ID is empty, duplicate, or name is empty";
+const EMPTY_WORKFLOW_REVISIONS: &str = "workflow has no revisions";
+const INVALID_WORKFLOW_REVISION_VERSION: &str = "revision version is empty or duplicate";
+const ZERO_REQUIRED_VOLUME_SIZE: &str = "required volume size is zero";
+const MISSING_ENDPOINT_CONTRACT: &str = "endpoint contract is missing";
+const MISSING_PROVISIONER_CONTRACT: &str = "provisioner contract is missing";
+const INVALID_MODEL_ASSET: &str =
+    "model asset ID, name, install path, or download source is invalid";
 
 pub(super) fn validate_runtime_catalog(
     catalog: &RuntimeCatalog,
 ) -> Result<(), WorkflowCatalogError> {
     if catalog.contracts.is_empty() {
-        return Err(WorkflowCatalogError::ValidationFailed {
-            message: "catalog is empty".to_string(),
-        });
+        return validation_error(EMPTY_RUNTIME_CATALOG);
     }
 
     let mut contract_ids = HashSet::new();
     for contract in &catalog.contracts {
-        if contract.id.trim().is_empty() || !contract_ids.insert(contract.id.as_str()) {
-            return Err(WorkflowCatalogError::ValidationFailed {
-                message: "contract ID is empty or duplicate".to_string(),
-            });
-        }
-
-        if contract.revisions.is_empty() {
-            return Err(WorkflowCatalogError::ValidationFailed {
-                message: "contract has no revisions".to_string(),
-            });
-        }
-
-        let mut revision_versions = HashSet::new();
-        for revision in &contract.revisions {
-            if revision.version.trim().is_empty()
-                || !revision_versions.insert(revision.version.as_str())
-                || revision.image_ref.trim().is_empty()
-            {
-                return Err(WorkflowCatalogError::ValidationFailed {
-                    message: "revision version is empty, duplicate, or image reference is empty"
-                        .to_string(),
-                });
-            }
-        }
+        validate_runtime_contract(contract, &mut contract_ids)?;
     }
 
     Ok(())
@@ -53,70 +43,142 @@ pub(super) fn validate_workflows(
     provisioner_contract_catalog: &RuntimeCatalog,
 ) -> Result<(), WorkflowCatalogError> {
     if workflows.is_empty() {
-        return Err(WorkflowCatalogError::ValidationFailed {
-            message: "workflows are empty".to_string(),
-        });
+        return validation_error(EMPTY_WORKFLOWS);
     }
 
     let mut workflow_ids = HashSet::new();
     for workflow in workflows {
-        if workflow.id.trim().is_empty()
-            || !workflow_ids.insert(workflow.id.as_str())
-            || workflow.name.trim().is_empty()
-        {
-            return Err(WorkflowCatalogError::ValidationFailed {
-                message: "workflow ID is empty, duplicate, or name is empty".to_string(),
-            });
-        }
+        validate_workflow(
+            workflow,
+            &mut workflow_ids,
+            endpoint_contract_catalog,
+            provisioner_contract_catalog,
+        )?;
+    }
 
-        if workflow.revisions.is_empty() {
-            return Err(WorkflowCatalogError::ValidationFailed {
-                message: "workflow has no revisions".to_string(),
-            });
-        }
+    Ok(())
+}
 
-        let mut revision_versions = HashSet::new();
-        for revision in &workflow.revisions {
-            if revision.version.trim().is_empty()
-                || !revision_versions.insert(revision.version.as_str())
-            {
-                return Err(WorkflowCatalogError::ValidationFailed {
-                    message: "revision version is empty or duplicate".to_string(),
-                });
-            }
+fn validate_runtime_contract<'catalog>(
+    contract: &'catalog RuntimeContract,
+    contract_ids: &mut HashSet<&'catalog str>,
+) -> Result<(), WorkflowCatalogError> {
+    if contract.id.trim().is_empty() || !contract_ids.insert(contract.id.as_str()) {
+        return validation_error(INVALID_CONTRACT_ID);
+    }
 
-            if revision.required_volume_size_gb == 0
-                || endpoint_contract_catalog
-                    .resolve(&revision.runpod_runtime_requirements.endpoint_contract)
-                    .is_none()
-                || provisioner_contract_catalog
-                    .resolve(&revision.runpod_runtime_requirements.provisioner_contract)
-                    .is_none()
-            {
-                return Err(WorkflowCatalogError::ValidationFailed { message: "required volume size is zero, endpoint contract is missing, or provisioner contract is missing".to_string() });
-            }
+    if contract.revisions.is_empty() {
+        return validation_error(EMPTY_CONTRACT_REVISIONS);
+    }
 
-            for asset in &revision.required_model_assets {
-                let install_path = asset.install_comfyui_relative_path.trim();
-                if asset.id.trim().is_empty()
-                    || asset.name.trim().is_empty()
-                    || install_path.is_empty()
-                    || install_path.starts_with('/')
-                    || install_path.starts_with('\\')
-                    || install_path.contains('\\')
-                    || !install_path
-                        .split('/')
-                        .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
-                    || !is_valid_model_asset_source(&asset.download_source)
-                {
-                    return Err(WorkflowCatalogError::ValidationFailed {
-                        message:
-                            "model asset ID, name, install path, or download source is invalid"
-                                .to_string(),
-                    });
-                }
-            }
-        }
+    let mut revision_versions = HashSet::new();
+    for revision in &contract.revisions {
+        validate_runtime_contract_revision(revision, &mut revision_versions)?;
+    }
+
+    Ok(())
+}
+
+fn validate_runtime_contract_revision<'contract>(
+    revision: &'contract RuntimeContractRevision,
+    revision_versions: &mut HashSet<&'contract str>,
+) -> Result<(), WorkflowCatalogError> {
+    if revision.version.trim().is_empty()
+        || !revision_versions.insert(revision.version.as_str())
+        || revision.image_ref.trim().is_empty()
+    {
+        return validation_error(INVALID_CONTRACT_REVISION);
+    }
+
+    Ok(())
+}
+
+fn validate_workflow<'catalog>(
+    workflow: &'catalog WorkflowPreset,
+    workflow_ids: &mut HashSet<&'catalog str>,
+    endpoint_contract_catalog: &RuntimeCatalog,
+    provisioner_contract_catalog: &RuntimeCatalog,
+) -> Result<(), WorkflowCatalogError> {
+    if workflow.id.trim().is_empty()
+        || !workflow_ids.insert(workflow.id.as_str())
+        || workflow.name.trim().is_empty()
+    {
+        return validation_error(INVALID_WORKFLOW_ID);
+    }
+
+    if workflow.revisions.is_empty() {
+        return validation_error(EMPTY_WORKFLOW_REVISIONS);
+    }
+
+    let mut revision_versions = HashSet::new();
+    for revision in &workflow.revisions {
+        validate_workflow_revision(
+            revision,
+            &mut revision_versions,
+            endpoint_contract_catalog,
+            provisioner_contract_catalog,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn validate_workflow_revision<'workflow>(
+    revision: &'workflow WorkflowRevision,
+    revision_versions: &mut HashSet<&'workflow str>,
+    endpoint_contract_catalog: &RuntimeCatalog,
+    provisioner_contract_catalog: &RuntimeCatalog,
+) -> Result<(), WorkflowCatalogError> {
+    if revision.version.trim().is_empty() || !revision_versions.insert(revision.version.as_str()) {
+        return validation_error(INVALID_WORKFLOW_REVISION_VERSION);
+    }
+
+    validate_runtime_requirements(
+        revision,
+        endpoint_contract_catalog,
+        provisioner_contract_catalog,
+    )?;
+
+    for asset in &revision.required_model_assets {
+        validate_model_asset(asset)?;
+    }
+
+    Ok(())
+}
+
+fn validate_runtime_requirements(
+    revision: &WorkflowRevision,
+    endpoint_contract_catalog: &RuntimeCatalog,
+    provisioner_contract_catalog: &RuntimeCatalog,
+) -> Result<(), WorkflowCatalogError> {
+    if revision.required_volume_size_gb == 0 {
+        return validation_error(ZERO_REQUIRED_VOLUME_SIZE);
+    }
+
+    if endpoint_contract_catalog
+        .resolve(&revision.runpod_runtime_requirements.endpoint_contract)
+        .is_none()
+    {
+        return validation_error(MISSING_ENDPOINT_CONTRACT);
+    }
+
+    if provisioner_contract_catalog
+        .resolve(&revision.runpod_runtime_requirements.provisioner_contract)
+        .is_none()
+    {
+        return validation_error(MISSING_PROVISIONER_CONTRACT);
+    }
+
+    Ok(())
+}
+
+fn validate_model_asset(asset: &ModelAsset) -> Result<(), WorkflowCatalogError> {
+    if asset.id.trim().is_empty()
+        || asset.name.trim().is_empty()
+        || !is_safe_relative_path(&asset.install_comfyui_relative_path)
+        || !is_valid_model_asset_source(&asset.download_source)
+    {
+        return validation_error(INVALID_MODEL_ASSET);
     }
 
     Ok(())
@@ -129,15 +191,8 @@ fn is_valid_model_asset_source(source: &ModelAssetSource) -> bool {
             file_path,
             revision,
         } => {
-            let file_path = file_path.trim();
             is_valid_hugging_face_repository_id(repository_id)
-                && !file_path.is_empty()
-                && !file_path.starts_with('/')
-                && !file_path.starts_with('\\')
-                && !file_path.contains('\\')
-                && file_path
-                    .split('/')
-                    .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+                && is_safe_relative_path(file_path)
                 && !revision.trim().is_empty()
         }
     }
@@ -158,6 +213,23 @@ fn is_safe_hugging_face_name(value: &str) -> bool {
         && value
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+}
+
+fn is_safe_relative_path(path: &str) -> bool {
+    let path = path.trim();
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.starts_with('\\')
+        && !path.contains('\\')
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
+fn validation_error<T>(message: &'static str) -> Result<T, WorkflowCatalogError> {
+    Err(WorkflowCatalogError::ValidationFailed {
+        message: message.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -272,6 +344,20 @@ mod tests {
     }
 
     #[test]
+    fn validate_runtime_catalog_rejects_empty_revision_image_ref() {
+        let mut catalog = runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15");
+        catalog.contracts[0].revisions[0].image_ref = " ".to_string();
+
+        assert_eq!(
+            validate_runtime_catalog(&catalog),
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "revision version is empty, duplicate, or image reference is empty"
+                    .to_string()
+            })
+        );
+    }
+
+    #[test]
     fn validate_workflows_accepts_valid_workflow() {
         let workflows = vec![valid_workflow("comfyui-hidream-o1-dev")];
         assert_eq!(
@@ -347,7 +433,9 @@ mod tests {
                 &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
                 &runtime_catalog("luma-forge-provisioner", "1.0.6"),
             ),
-            Err(WorkflowCatalogError::ValidationFailed { message: "required volume size is zero, endpoint contract is missing, or provisioner contract is missing".to_string() }    )
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "required volume size is zero".to_string()
+            })
         );
     }
 
@@ -387,6 +475,30 @@ mod tests {
         workflow.revisions[0].required_model_assets[0].install_comfyui_relative_path =
             "../outside.safetensors".to_string();
         let workflows = vec![workflow];
+        assert_eq!(
+            validate_workflows(
+                &workflows,
+                &runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15"),
+                &runtime_catalog("luma-forge-provisioner", "1.0.6")
+            ),
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "model asset ID, name, install path, or download source is invalid"
+                    .to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_workflows_rejects_invalid_model_asset_source_paths() {
+        let mut workflow = valid_workflow("comfyui-hidream-o1-dev");
+        workflow.revisions[0].required_model_assets[0].download_source =
+            ModelAssetSource::Huggingface {
+                repository_id: "Comfy-Org/HiDream-O1-Image".to_string(),
+                file_path: "../hidream.safetensors".to_string(),
+                revision: "e469681accde36057e32e4a3125e39929a1bcd68".to_string(),
+            };
+        let workflows = vec![workflow];
+
         assert_eq!(
             validate_workflows(
                 &workflows,
