@@ -17,7 +17,6 @@ use super::{
     super::{
         errors::ProvisionedRemoteError,
         events::{ProvisionedRemoteEvent, ProvisionedRemoteEventSink},
-        provider::{DeleteEndpointParams, DeleteVolumeParams, TerminateProvisionerParams},
         registry::ProvisionedRemoteProviderRegistry,
         service::map_workspace_catalog_error,
     },
@@ -95,15 +94,38 @@ where
             .await?;
             match provider
                 .expect("provider should exist when endpoint exists")
-                .delete_endpoint(DeleteEndpointParams {
-                    workspace_id: workspace.id.clone(),
-                    endpoint_id,
-                })
+                .delete_serverless_endpoint(&endpoint_id)
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.endpoint_id = None;
+                    workspace =
+                        persist_workspace(workspace_repository, event_sink, &workspace).await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        if let Some(template_id) = runtime.resources.template_id.clone() {
+            failed_step = ProvisionedRemoteDeleteStep::DeleteTemplate;
+            mark_running_step(
+                lifecycle_journal,
+                event_sink,
+                &operation,
+                failed_step.clone(),
+                None,
+            )
+            .await?;
+            match provider
+                .expect("provider should exist when template exists")
+                .delete_template(&template_id)
+                .await
+            {
+                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
+                    let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+                    runtime.resources.template_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
                 }
@@ -124,10 +146,7 @@ where
             .await?;
             match provider
                 .expect("provider should exist when provisioner exists")
-                .terminate_provisioner(TerminateProvisionerParams {
-                    workspace_id: workspace.id.clone(),
-                    provisioner_id,
-                })
+                .terminate_provisioner_pod(&provisioner_id)
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteProvisionerNotFound) => {
@@ -153,10 +172,7 @@ where
             .await?;
             match provider
                 .expect("provider should exist when volume exists")
-                .delete_volume(DeleteVolumeParams {
-                    workspace_id: workspace.id.clone(),
-                    volume_id,
-                })
+                .delete_network_volume(&volume_id)
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteVolumeNotFound) => {

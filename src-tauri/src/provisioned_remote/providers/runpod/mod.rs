@@ -12,11 +12,9 @@ use crate::{
     provisioned_remote::{
         errors::ProvisionedRemoteError,
         provider::{
-            CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-            GetProvisionerStatusParams, ProvisionedRemoteEndpointProvider,
-            ProvisionedRemotePlacementOptionsProvider, ProvisionedRemoteProvider,
-            ProvisionedRemoteProvisionerProvider, ProvisionedRemoteVolumeProvider,
-            StartProvisionerParams, TerminateProvisionerParams,
+            CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
+            CreateRunpodServerlessTemplateParams, RunpodRuntimeClient,
+            StartRunpodProvisionerPodParams,
         },
     },
     secrets_storage::{
@@ -27,8 +25,8 @@ use crate::{
 
 use self::{
     api::{
-        CreateEndpointRequest, CreateNetworkVolumeRequest, CreateProvisionerPodRequest,
-        HttpRunpodApi, RunpodApi,
+        CreateNetworkVolumeRequest, CreateProvisionerPodRequest, CreateServerlessEndpointRequest,
+        CreateServerlessTemplateRequest, HttpRunpodApi, RunpodApi,
     },
     config::{
         DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, ENDPOINT_WORKSPACE_MOUNT_PATH,
@@ -100,15 +98,14 @@ where
     }
 }
 
-impl<RS, RI, HS, HI> ProvisionedRemotePlacementOptionsProvider
-    for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
+impl<RS, RI, HS, HI> RunpodRuntimeClient for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
     RI: ApiKeyIdentityProvider,
-    HS: Send + Sync,
-    HI: Send + Sync,
+    HS: SecretStore,
+    HI: ApiKeyIdentityProvider,
 {
-    fn get_provider_placement_options<'a>(
+    fn placement_options<'a>(
         &'a self,
     ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
         Box::pin(async move {
@@ -117,53 +114,32 @@ where
             Ok(options)
         })
     }
-}
 
-impl<RS, RI, HS, HI> ProvisionedRemoteVolumeProvider
-    for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
-where
-    RS: SecretStore,
-    RI: ApiKeyIdentityProvider,
-    HS: Send + Sync,
-    HI: Send + Sync,
-{
-    fn create_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
-        params: CreateVolumeParams,
+        params: CreateRunpodNetworkVolumeParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
-            let volume = self
-                .api
+            self.api
                 .create_network_volume(CreateNetworkVolumeRequest {
-                    datacenter_id: params.datacenter_id,
+                    datacenter_id: params.data_center_id,
                     name: mapping::workspace_resource_name(&params.workspace_id, "volume"),
                     size_gb: params.size_gb,
                 })
-                .await?;
-
-            Ok(volume)
+                .await
         })
     }
 
-    fn delete_volume<'a>(
+    fn delete_network_volume<'a>(
         &'a self,
-        params: DeleteVolumeParams,
+        network_volume_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
-        Box::pin(async move { self.api.delete_network_volume(&params.volume_id).await })
+        Box::pin(async move { self.api.delete_network_volume(network_volume_id).await })
     }
-}
 
-impl<RS, RI, HS, HI> ProvisionedRemoteProvisionerProvider
-    for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
-where
-    RS: SecretStore,
-    RI: ApiKeyIdentityProvider,
-    HS: SecretStore,
-    HI: ApiKeyIdentityProvider,
-{
-    fn start_provisioner<'a>(
+    fn start_provisioner_pod<'a>(
         &'a self,
-        params: StartProvisionerParams,
+        params: StartRunpodProvisionerPodParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let bearer_token = self
@@ -186,10 +162,10 @@ where
             let pod = self
                 .api
                 .create_provisioner_pod(CreateProvisionerPodRequest {
-                    datacenter_id: params.datacenter_id,
+                    datacenter_id: params.data_center_id,
                     name: mapping::workspace_resource_name(&params.workspace_id, "provisioner"),
                     image_ref: params.provisioner_image_ref,
-                    network_volume_id: params.volume_id,
+                    network_volume_id: params.network_volume_id,
                     mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
                     bearer_token,
                     job_id: params.workspace_id,
@@ -204,68 +180,66 @@ where
         })
     }
 
-    fn terminate_provisioner<'a>(
+    fn terminate_provisioner_pod<'a>(
         &'a self,
-        params: TerminateProvisionerParams,
+        provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
-        Box::pin(async move {
-            self.api
-                .delete_provisioner_pod(&params.provisioner_id)
-                .await
-        })
+        Box::pin(async move { self.api.delete_provisioner_pod(provisioner_pod_id).await })
     }
 
     fn get_provisioner_status<'a>(
         &'a self,
-        params: GetProvisionerStatusParams,
+        workspace_id: &'a str,
+        provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>> {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
-                .hmac_sha256_hex(&params.workspace_id)
+                .hmac_sha256_hex(workspace_id)
                 .await
                 .map_err(map_secret_error)?;
 
             self.provisioner_worker
-                .get_status(
-                    &provisioner_status_url(&params.provisioner_id),
-                    &bearer_token,
-                )
+                .get_status(&provisioner_status_url(provisioner_pod_id), &bearer_token)
                 .await
                 .map_err(Into::into)
         })
     }
-}
 
-impl<RS, RI, HS, HI> ProvisionedRemoteEndpointProvider
-    for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
-where
-    RS: SecretStore,
-    RI: ApiKeyIdentityProvider,
-    HS: Send + Sync,
-    HI: Send + Sync,
-{
-    fn create_endpoint<'a>(
+    fn create_serverless_template<'a>(
         &'a self,
-        params: CreateEndpointParams,
+        params: CreateRunpodServerlessTemplateParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
-            let endpoint = self
+            let template = self
                 .api
-                .create_endpoint(CreateEndpointRequest {
-                    datacenter_id: params.datacenter_id,
-                    gpu_id: params.gpu_id,
-                    endpoint_name: mapping::workspace_resource_name(
-                        &params.workspace_id,
-                        "endpoint",
-                    ),
-                    template_name: mapping::workspace_resource_name(
+                .create_serverless_template(CreateServerlessTemplateRequest {
+                    name: mapping::workspace_resource_name(
                         &params.workspace_id,
                         "endpoint-template",
                     ),
                     image_ref: params.endpoint_image_ref,
-                    network_volume_id: params.volume_id,
                     mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
+                })
+                .await?;
+
+            Ok(template.id)
+        })
+    }
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        params: CreateRunpodServerlessEndpointParams,
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+        Box::pin(async move {
+            let endpoint = self
+                .api
+                .create_serverless_endpoint(CreateServerlessEndpointRequest {
+                    datacenter_id: params.data_center_id,
+                    gpu_id: params.gpu_type_id,
+                    name: mapping::workspace_resource_name(&params.workspace_id, "endpoint"),
+                    template_id: params.template_id,
+                    network_volume_id: params.network_volume_id,
                     keep_alive_limits: params
                         .keep_alive_limits
                         .unwrap_or(DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS),
@@ -276,25 +250,19 @@ where
         })
     }
 
-    fn delete_endpoint<'a>(
+    fn delete_serverless_endpoint<'a>(
         &'a self,
-        params: DeleteEndpointParams,
+        endpoint_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
-        Box::pin(async move {
-            self.api
-                .delete_endpoint_and_template(&params.endpoint_id)
-                .await
-        })
+        Box::pin(async move { self.api.delete_endpoint(endpoint_id).await })
     }
-}
 
-impl<RS, RI, HS, HI> ProvisionedRemoteProvider for RunpodProvisionedRemoteProvider<RS, RI, HS, HI>
-where
-    RS: SecretStore,
-    RI: ApiKeyIdentityProvider,
-    HS: SecretStore,
-    HI: ApiKeyIdentityProvider,
-{
+    fn delete_template<'a>(
+        &'a self,
+        template_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        Box::pin(async move { self.api.delete_template(template_id).await })
+    }
 }
 
 fn provisioner_status_url(pod_id: &str) -> String {
@@ -334,9 +302,11 @@ mod tests {
 
     #[derive(Default)]
     struct ApiState {
-        create_volume_requests: Vec<CreateNetworkVolumeRequest>,
+        create_network_volume_requests: Vec<CreateNetworkVolumeRequest>,
         provisioner_pod_requests: Vec<CreateProvisionerPodRequest>,
-        endpoint_requests: Vec<CreateEndpointRequest>,
+        template_requests: Vec<CreateServerlessTemplateRequest>,
+        endpoint_requests: Vec<CreateServerlessEndpointRequest>,
+        create_serverless_endpoint_error: Option<ProvisionedRemoteError>,
         deleted_endpoints: Vec<String>,
         deleted_templates: Vec<String>,
     }
@@ -374,7 +344,7 @@ mod tests {
                 self.state
                     .lock()
                     .expect("api state")
-                    .create_volume_requests
+                    .create_network_volume_requests
                     .push(request);
                 Ok("volume".to_string())
             })
@@ -410,31 +380,59 @@ mod tests {
             Box::pin(async { Ok(()) })
         }
 
-        fn create_endpoint<'a>(
+        fn create_serverless_template<'a>(
             &'a self,
-            request: CreateEndpointRequest,
-        ) -> AppFuture<'a, Result<RunpodEndpoint, ProvisionedRemoteError>> {
+            request: CreateServerlessTemplateRequest,
+        ) -> AppFuture<'a, Result<RunpodId, ProvisionedRemoteError>> {
             Box::pin(async move {
                 self.state
                     .lock()
                     .expect("api state")
-                    .endpoint_requests
+                    .template_requests
                     .push(request);
+                Ok(RunpodId {
+                    id: "template".to_string(),
+                })
+            })
+        }
+
+        fn create_serverless_endpoint<'a>(
+            &'a self,
+            request: CreateServerlessEndpointRequest,
+        ) -> AppFuture<'a, Result<RunpodEndpoint, ProvisionedRemoteError>> {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("api state");
+                state.endpoint_requests.push(request);
+                if let Some(error) = state.create_serverless_endpoint_error.clone() {
+                    return Err(error);
+                }
+
                 Ok(RunpodEndpoint {
                     id: "endpoint".to_string(),
+                    template_id: "template".to_string(),
                     url: "https://endpoint.example".to_string(),
                 })
             })
         }
 
-        fn delete_endpoint_and_template<'a>(
+        fn delete_endpoint<'a>(
             &'a self,
             endpoint_id: &'a str,
         ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("api state");
                 state.deleted_endpoints.push(endpoint_id.to_string());
-                state.deleted_templates.push("template".to_string());
+                Ok(())
+            })
+        }
+
+        fn delete_template<'a>(
+            &'a self,
+            template_id: &'a str,
+        ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+            Box::pin(async move {
+                let mut state = self.state.lock().expect("api state");
+                state.deleted_templates.push(template_id.to_string());
                 Ok(())
             })
         }
@@ -569,10 +567,9 @@ mod tests {
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
         let volume = provider
-            .create_volume(CreateVolumeParams {
+            .create_network_volume(CreateRunpodNetworkVolumeParams {
                 workspace_id: "workspace".to_string(),
-                datacenter_id: "dc".to_string(),
-                gpu_id: "gpu".to_string(),
+                data_center_id: "dc".to_string(),
                 size_gb: 75,
             })
             .await
@@ -580,7 +577,10 @@ mod tests {
 
         assert_eq!(volume, "volume");
         assert_eq!(
-            api_state.lock().expect("api state").create_volume_requests,
+            api_state
+                .lock()
+                .expect("api state")
+                .create_network_volume_requests,
             vec![CreateNetworkVolumeRequest {
                 datacenter_id: "dc".to_string(),
                 name: "luma-forge-workspace-volume".to_string(),
@@ -594,7 +594,7 @@ mod tests {
         let provider = provider(Arc::default(), Arc::default());
 
         let options = provider
-            .get_provider_placement_options()
+            .placement_options()
             .await
             .expect("placement options");
 
@@ -602,16 +602,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_provisioner_derives_token_and_injects_hf_when_required() {
+    async fn start_provisioner_pod_derives_token_and_injects_hf_when_required() {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
         let provisioner_id = provider
-            .start_provisioner(StartProvisionerParams {
+            .start_provisioner_pod(StartRunpodProvisionerPodParams {
                 workspace_id: "workspace".to_string(),
-                datacenter_id: "dc".to_string(),
-                gpu_id: "gpu".to_string(),
-                volume_id: "volume".to_string(),
+                data_center_id: "dc".to_string(),
+                network_volume_id: "volume".to_string(),
                 provisioner_image_ref: "image".to_string(),
                 requires_hugging_face_api_key: true,
                 required_model_assets: vec![ModelAsset {
@@ -659,16 +658,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_provisioner_omits_hf_when_not_required() {
+    async fn start_provisioner_pod_omits_hf_when_not_required() {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
         provider
-            .start_provisioner(StartProvisionerParams {
+            .start_provisioner_pod(StartRunpodProvisionerPodParams {
                 workspace_id: "workspace".to_string(),
-                datacenter_id: "dc".to_string(),
-                gpu_id: "gpu".to_string(),
-                volume_id: "volume".to_string(),
+                data_center_id: "dc".to_string(),
+                network_volume_id: "volume".to_string(),
                 provisioner_image_ref: "image".to_string(),
                 requires_hugging_face_api_key: false,
                 required_model_assets: Vec::new(),
@@ -696,12 +694,7 @@ mod tests {
         }));
         let provider = provider(Arc::default(), Arc::clone(&worker_state));
 
-        let result = provider
-            .get_provisioner_status(GetProvisionerStatusParams {
-                workspace_id: "workspace".to_string(),
-                provisioner_id: "pod".to_string(),
-            })
-            .await;
+        let result = provider.get_provisioner_status("workspace", "pod").await;
 
         assert_eq!(
             result,
@@ -714,31 +707,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_endpoint_uses_default_keep_alive_limits_when_missing() {
+    async fn creates_serverless_template_then_endpoint_from_template_id() {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
-        provider
-            .create_endpoint(CreateEndpointParams {
+        let template_id = provider
+            .create_serverless_template(CreateRunpodServerlessTemplateParams {
                 workspace_id: "workspace".to_string(),
-                datacenter_id: "dc".to_string(),
-                gpu_id: "gpu".to_string(),
-                volume_id: "volume".to_string(),
                 endpoint_image_ref: "image".to_string(),
+            })
+            .await
+            .expect("template");
+        let endpoint_id = provider
+            .create_serverless_endpoint(CreateRunpodServerlessEndpointParams {
+                workspace_id: "workspace".to_string(),
+                data_center_id: "dc".to_string(),
+                gpu_type_id: "gpu".to_string(),
+                network_volume_id: "volume".to_string(),
+                template_id: template_id.clone(),
                 keep_alive_limits: None,
             })
             .await
             .expect("endpoint");
 
-        let request = &api_state.lock().expect("api state").endpoint_requests[0];
-        assert_eq!(request.mount_path, ENDPOINT_WORKSPACE_MOUNT_PATH);
-        assert_eq!(request.endpoint_name, "luma-forge-workspace-endpoint");
+        assert_eq!(template_id, "template");
+        assert_eq!(endpoint_id, "endpoint");
+        let state = api_state.lock().expect("api state");
+        let template_request = &state.template_requests[0];
+        let endpoint_request = &state.endpoint_requests[0];
+        assert_eq!(template_request.mount_path, ENDPOINT_WORKSPACE_MOUNT_PATH);
         assert_eq!(
-            request.template_name,
+            template_request.name,
             "luma-forge-workspace-endpoint-template"
         );
+        assert_eq!(endpoint_request.name, "luma-forge-workspace-endpoint");
+        assert_eq!(endpoint_request.template_id, "template");
         assert_eq!(
-            request.keep_alive_limits,
+            endpoint_request.keep_alive_limits,
             RunpodEndpointKeepAliveLimits {
                 default_seconds: 300,
                 min_seconds: 0,
@@ -753,12 +758,13 @@ mod tests {
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
         provider
-            .delete_endpoint(DeleteEndpointParams {
-                workspace_id: "workspace".to_string(),
-                endpoint_id: "endpoint".to_string(),
-            })
+            .delete_serverless_endpoint("endpoint")
             .await
             .expect("delete endpoint");
+        provider
+            .delete_template("template")
+            .await
+            .expect("delete template");
 
         let state = api_state.lock().expect("api state");
         assert_eq!(state.deleted_endpoints, vec!["endpoint".to_string()]);

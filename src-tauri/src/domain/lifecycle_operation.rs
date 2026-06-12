@@ -43,7 +43,10 @@ mod tests {
     };
     use crate::domain::{
         provisioned_remote::ProviderApiError,
-        provisioned_remote::{ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep},
+        provisioned_remote::{
+            ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep,
+            ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep,
+        },
     };
     use serde_json::json;
     use time::OffsetDateTime;
@@ -77,6 +80,33 @@ mod tests {
         let object = json.as_object().expect("payload should be object");
         assert!(!object.contains_key("workspace_id"));
         assert!(!object.contains_key("message"));
+    }
+
+    #[test]
+    fn provision_step_serializes_create_template() {
+        let step = ProvisionedRemoteProvisionStep::CreateTemplate;
+
+        let json = serde_json::to_value(step).expect("step json");
+
+        assert_eq!(json, json!("create_template"));
+    }
+
+    #[test]
+    fn cleanup_step_serializes_delete_template() {
+        let step = ProvisionedRemoteCleanupStep::DeleteTemplate;
+
+        let json = serde_json::to_value(step).expect("step json");
+
+        assert_eq!(json, json!("delete_template"));
+    }
+
+    #[test]
+    fn delete_step_serializes_delete_template() {
+        let step = ProvisionedRemoteDeleteStep::DeleteTemplate;
+
+        let json = serde_json::to_value(step).expect("step json");
+
+        assert_eq!(json, json!("delete_template"));
     }
 
     #[test]

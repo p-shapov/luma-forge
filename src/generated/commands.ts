@@ -102,15 +102,15 @@ export type ProvisionWorkspaceResponse = {
 	operation: LifecycleOperationResponse,
 };
 
-export type ProvisionedRemoteCleanupStepResponse = "delete_endpoint" | "terminate_provisioner" | "delete_volume";
+export type ProvisionedRemoteCleanupStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner" | "delete_volume";
 
-export type ProvisionedRemoteDeleteStepResponse = "delete_endpoint" | "terminate_provisioner" | "delete_volume" | "delete_local_workspace";
+export type ProvisionedRemoteDeleteStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner" | "delete_volume" | "delete_local_workspace";
 
 export type ProvisionedRemoteLifecycleErrorResponse = "app_interrupted" | "provider_adapter_unavailable" | "provider_secret_unavailable" | "provider_api_failed" | "provisioner_unavailable" | "provisioner_response_invalid" | "provisioner_failed" | "remote_volume_not_found" | "remote_provisioner_not_found" | "remote_endpoint_not_found" | "invalid_runtime_state";
 
 export type ProvisionedRemoteLifecycleOperationPayloadResponse = { operation: "provision"; step: ProvisionedRemoteProvisionStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null } | { operation: "cleanup"; step: ProvisionedRemoteCleanupStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null } | { operation: "delete"; step: ProvisionedRemoteDeleteStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null };
 
-export type ProvisionedRemoteProvisionStepResponse = "create_volume" | "start_provisioner" | "poll_provisioner" | "terminate_provisioner" | "create_endpoint";
+export type ProvisionedRemoteProvisionStepResponse = "create_volume" | "start_provisioner" | "poll_provisioner" | "terminate_provisioner" | "create_template" | "create_endpoint";
 
 export type RemoteDatacenterPlacementOptionResponse = {
 	id: string,

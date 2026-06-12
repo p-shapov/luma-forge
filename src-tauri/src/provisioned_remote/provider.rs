@@ -1,7 +1,9 @@
 use crate::{
     domain::{
-        provisioned_remote::ProvisionedRemoteProvisionerStatus,
-        provisioned_remote::{RunpodEndpointKeepAliveLimits, RunpodPlacementOptions},
+        provisioned_remote::{
+            ProvisionedRemoteProvisionerStatus, RunpodEndpointKeepAliveLimits,
+            RunpodPlacementOptions,
+        },
         workflow_preset::ModelAsset,
     },
     shared::AppFuture,
@@ -10,111 +12,86 @@ use crate::{
 use super::errors::ProvisionedRemoteError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateVolumeParams {
+pub struct CreateRunpodNetworkVolumeParams {
     pub workspace_id: String,
-    pub datacenter_id: String,
-    pub gpu_id: String,
+    pub data_center_id: String,
     pub size_gb: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeleteVolumeParams {
+pub struct StartRunpodProvisionerPodParams {
     pub workspace_id: String,
-    pub volume_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StartProvisionerParams {
-    pub workspace_id: String,
-    pub datacenter_id: String,
-    pub gpu_id: String,
-    pub volume_id: String,
+    pub data_center_id: String,
+    pub network_volume_id: String,
     pub provisioner_image_ref: String,
     pub requires_hugging_face_api_key: bool,
     pub required_model_assets: Vec<ModelAsset>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TerminateProvisionerParams {
+pub struct CreateRunpodServerlessTemplateParams {
     pub workspace_id: String,
-    pub provisioner_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GetProvisionerStatusParams {
-    pub workspace_id: String,
-    pub provisioner_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CreateEndpointParams {
-    pub workspace_id: String,
-    pub datacenter_id: String,
-    pub gpu_id: String,
-    pub volume_id: String,
     pub endpoint_image_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateRunpodServerlessEndpointParams {
+    pub workspace_id: String,
+    pub data_center_id: String,
+    pub gpu_type_id: String,
+    pub network_volume_id: String,
+    pub template_id: String,
     pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimits>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeleteEndpointParams {
-    pub workspace_id: String,
-    pub endpoint_id: String,
-}
-
-pub trait ProvisionedRemotePlacementOptionsProvider {
-    fn get_provider_placement_options<'a>(
+pub trait RunpodRuntimeClient: Send + Sync {
+    fn placement_options<'a>(
         &'a self,
     ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>>;
-}
 
-pub trait ProvisionedRemoteVolumeProvider {
-    fn create_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
-        params: CreateVolumeParams,
+        params: CreateRunpodNetworkVolumeParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
-    fn delete_volume<'a>(
+    fn delete_network_volume<'a>(
         &'a self,
-        params: DeleteVolumeParams,
+        network_volume_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
-}
 
-pub trait ProvisionedRemoteProvisionerProvider {
-    fn start_provisioner<'a>(
+    fn start_provisioner_pod<'a>(
         &'a self,
-        params: StartProvisionerParams,
+        params: StartRunpodProvisionerPodParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
-    fn terminate_provisioner<'a>(
+    fn terminate_provisioner_pod<'a>(
         &'a self,
-        params: TerminateProvisionerParams,
+        provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
 
     fn get_provisioner_status<'a>(
         &'a self,
-        params: GetProvisionerStatusParams,
+        workspace_id: &'a str,
+        provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>>;
-}
 
-pub trait ProvisionedRemoteEndpointProvider {
-    fn create_endpoint<'a>(
+    fn create_serverless_template<'a>(
         &'a self,
-        params: CreateEndpointParams,
+        params: CreateRunpodServerlessTemplateParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
-    fn delete_endpoint<'a>(
+    fn create_serverless_endpoint<'a>(
         &'a self,
-        params: DeleteEndpointParams,
-    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
-}
+        params: CreateRunpodServerlessEndpointParams,
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
-pub trait ProvisionedRemoteProvider:
-    ProvisionedRemotePlacementOptionsProvider
-    + ProvisionedRemoteVolumeProvider
-    + ProvisionedRemoteProvisionerProvider
-    + ProvisionedRemoteEndpointProvider
-    + Send
-    + Sync
-{
+    fn delete_serverless_endpoint<'a>(
+        &'a self,
+        endpoint_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
+
+    fn delete_template<'a>(
+        &'a self,
+        template_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>>;
 }

@@ -35,11 +35,8 @@ use super::{
         },
     },
     provider::{
-        CreateEndpointParams, CreateVolumeParams, DeleteEndpointParams, DeleteVolumeParams,
-        GetProvisionerStatusParams, ProvisionedRemoteEndpointProvider,
-        ProvisionedRemotePlacementOptionsProvider, ProvisionedRemoteProvider,
-        ProvisionedRemoteProvisionerProvider, ProvisionedRemoteVolumeProvider,
-        StartProvisionerParams, TerminateProvisionerParams,
+        CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
+        CreateRunpodServerlessTemplateParams, RunpodRuntimeClient, StartRunpodProvisionerPodParams,
     },
     registry::ProvisionedRemoteProviderRegistry,
     service::{CreateProvisionedRemoteWorkspaceRequest, ProvisionedRemoteService},
@@ -196,13 +193,15 @@ pub(crate) struct ProviderState {
     pub(crate) placement_options_result:
         Option<Result<RunpodPlacementOptions, ProvisionedRemoteError>>,
     pub(crate) provisioner_status_results: Vec<ProvisionedRemoteProvisionerStatus>,
-    pub(crate) create_volume_error: Option<ProvisionedRemoteError>,
-    pub(crate) start_provisioner_error: Option<ProvisionedRemoteError>,
-    pub(crate) terminate_provisioner_error: Option<ProvisionedRemoteError>,
+    pub(crate) create_network_volume_error: Option<ProvisionedRemoteError>,
+    pub(crate) start_provisioner_pod_error: Option<ProvisionedRemoteError>,
+    pub(crate) terminate_provisioner_pod_error: Option<ProvisionedRemoteError>,
     pub(crate) get_provisioner_status_error: Option<ProvisionedRemoteError>,
-    pub(crate) create_endpoint_error: Option<ProvisionedRemoteError>,
-    pub(crate) delete_endpoint_error: Option<ProvisionedRemoteError>,
-    pub(crate) delete_volume_error: Option<ProvisionedRemoteError>,
+    pub(crate) create_serverless_template_error: Option<ProvisionedRemoteError>,
+    pub(crate) create_serverless_endpoint_error: Option<ProvisionedRemoteError>,
+    pub(crate) delete_serverless_endpoint_error: Option<ProvisionedRemoteError>,
+    pub(crate) delete_template_error: Option<ProvisionedRemoteError>,
+    pub(crate) delete_network_volume_error: Option<ProvisionedRemoteError>,
 }
 
 #[derive(Clone, Default)]
@@ -236,13 +235,13 @@ impl FakeProvider {
     }
 }
 
-impl ProvisionedRemotePlacementOptionsProvider for FakeProvider {
-    fn get_provider_placement_options<'a>(
+impl RunpodRuntimeClient for FakeProvider {
+    fn placement_options<'a>(
         &'a self,
     ) -> AppFuture<'a, Result<RunpodPlacementOptions, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("get_provider_placement_options");
+            state.calls.push("placement_options");
 
             state
                 .placement_options_result
@@ -250,17 +249,15 @@ impl ProvisionedRemotePlacementOptionsProvider for FakeProvider {
                 .unwrap_or_else(|| Ok(placement_options()))
         })
     }
-}
 
-impl ProvisionedRemoteVolumeProvider for FakeProvider {
-    fn create_volume<'a>(
+    fn create_network_volume<'a>(
         &'a self,
-        _params: CreateVolumeParams,
+        _params: CreateRunpodNetworkVolumeParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("create_volume");
-            if let Some(error) = state.create_volume_error.clone() {
+            state.calls.push("create_network_volume");
+            if let Some(error) = state.create_network_volume_error.clone() {
                 return Err(error);
             }
 
@@ -268,34 +265,32 @@ impl ProvisionedRemoteVolumeProvider for FakeProvider {
         })
     }
 
-    fn delete_volume<'a>(
+    fn delete_network_volume<'a>(
         &'a self,
-        _params: DeleteVolumeParams,
+        _network_volume_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("delete_volume");
-            if let Some(error) = state.delete_volume_error.clone() {
+            state.calls.push("delete_network_volume");
+            if let Some(error) = state.delete_network_volume_error.clone() {
                 return Err(error);
             }
 
             Ok(())
         })
     }
-}
 
-impl ProvisionedRemoteProvisionerProvider for FakeProvider {
-    fn start_provisioner<'a>(
+    fn start_provisioner_pod<'a>(
         &'a self,
-        params: StartProvisionerParams,
+        params: StartRunpodProvisionerPodParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("start_provisioner");
+            state.calls.push("start_provisioner_pod");
             state
                 .provisioner_image_refs
                 .push(params.provisioner_image_ref);
-            if let Some(error) = state.start_provisioner_error.clone() {
+            if let Some(error) = state.start_provisioner_pod_error.clone() {
                 return Err(error);
             }
 
@@ -303,14 +298,14 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
         })
     }
 
-    fn terminate_provisioner<'a>(
+    fn terminate_provisioner_pod<'a>(
         &'a self,
-        _params: TerminateProvisionerParams,
+        _provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("terminate_provisioner");
-            if let Some(error) = state.terminate_provisioner_error.clone() {
+            state.calls.push("terminate_provisioner_pod");
+            if let Some(error) = state.terminate_provisioner_pod_error.clone() {
                 return Err(error);
             }
 
@@ -320,7 +315,8 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
 
     fn get_provisioner_status<'a>(
         &'a self,
-        _params: GetProvisionerStatusParams,
+        _workspace_id: &'a str,
+        _provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
@@ -336,18 +332,31 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
             }
         })
     }
-}
 
-impl ProvisionedRemoteEndpointProvider for FakeProvider {
-    fn create_endpoint<'a>(
+    fn create_serverless_template<'a>(
         &'a self,
-        params: CreateEndpointParams,
+        params: CreateRunpodServerlessTemplateParams,
     ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("create_endpoint");
+            state.calls.push("create_serverless_template");
             state.endpoint_image_refs.push(params.endpoint_image_ref);
-            if let Some(error) = state.create_endpoint_error.clone() {
+            if let Some(error) = state.create_serverless_template_error.clone() {
+                return Err(error);
+            }
+
+            Ok("template".to_string())
+        })
+    }
+
+    fn create_serverless_endpoint<'a>(
+        &'a self,
+        _params: CreateRunpodServerlessEndpointParams,
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("create_serverless_endpoint");
+            if let Some(error) = state.create_serverless_endpoint_error.clone() {
                 return Err(error);
             }
 
@@ -355,14 +364,29 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
         })
     }
 
-    fn delete_endpoint<'a>(
+    fn delete_serverless_endpoint<'a>(
         &'a self,
-        _params: DeleteEndpointParams,
+        _endpoint_id: &'a str,
     ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
-            state.calls.push("delete_endpoint");
-            if let Some(error) = state.delete_endpoint_error.clone() {
+            state.calls.push("delete_serverless_endpoint");
+            if let Some(error) = state.delete_serverless_endpoint_error.clone() {
+                return Err(error);
+            }
+
+            Ok(())
+        })
+    }
+
+    fn delete_template<'a>(
+        &'a self,
+        _template_id: &'a str,
+    ) -> AppFuture<'a, Result<(), ProvisionedRemoteError>> {
+        Box::pin(async move {
+            let mut state = self.state.lock().expect("state lock should succeed");
+            state.calls.push("delete_template");
+            if let Some(error) = state.delete_template_error.clone() {
                 return Err(error);
             }
 
@@ -370,8 +394,6 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
         })
     }
 }
-
-impl ProvisionedRemoteProvider for FakeProvider {}
 
 #[derive(Clone, Default)]
 pub(crate) struct InMemoryWorkspaceRepository {

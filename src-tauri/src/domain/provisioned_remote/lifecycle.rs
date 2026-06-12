@@ -35,6 +35,7 @@ pub enum ProvisionedRemoteProvisionStep {
     StartProvisioner,
     PollProvisioner,
     TerminateProvisioner,
+    CreateTemplate,
     CreateEndpoint,
 }
 
@@ -42,6 +43,7 @@ pub enum ProvisionedRemoteProvisionStep {
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionedRemoteCleanupStep {
     DeleteEndpoint,
+    DeleteTemplate,
     TerminateProvisioner,
     DeleteVolume,
 }
@@ -50,6 +52,7 @@ pub enum ProvisionedRemoteCleanupStep {
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionedRemoteDeleteStep {
     DeleteEndpoint,
+    DeleteTemplate,
     TerminateProvisioner,
     DeleteVolume,
     DeleteLocalWorkspace,

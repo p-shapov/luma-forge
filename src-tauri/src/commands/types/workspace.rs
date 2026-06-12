@@ -190,6 +190,7 @@ pub enum ProvisionedRemoteProvisionStepResponse {
     StartProvisioner,
     PollProvisioner,
     TerminateProvisioner,
+    CreateTemplate,
     CreateEndpoint,
 }
 
@@ -197,6 +198,7 @@ pub enum ProvisionedRemoteProvisionStepResponse {
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionedRemoteCleanupStepResponse {
     DeleteEndpoint,
+    DeleteTemplate,
     TerminateProvisioner,
     DeleteVolume,
 }
@@ -205,6 +207,7 @@ pub enum ProvisionedRemoteCleanupStepResponse {
 #[serde(rename_all = "snake_case")]
 pub enum ProvisionedRemoteDeleteStepResponse {
     DeleteEndpoint,
+    DeleteTemplate,
     TerminateProvisioner,
     DeleteVolume,
     DeleteLocalWorkspace,
@@ -436,6 +439,7 @@ impl From<ProvisionedRemoteProvisionStep> for ProvisionedRemoteProvisionStepResp
             ProvisionedRemoteProvisionStep::StartProvisioner => Self::StartProvisioner,
             ProvisionedRemoteProvisionStep::PollProvisioner => Self::PollProvisioner,
             ProvisionedRemoteProvisionStep::TerminateProvisioner => Self::TerminateProvisioner,
+            ProvisionedRemoteProvisionStep::CreateTemplate => Self::CreateTemplate,
             ProvisionedRemoteProvisionStep::CreateEndpoint => Self::CreateEndpoint,
         }
     }
@@ -445,6 +449,7 @@ impl From<ProvisionedRemoteCleanupStep> for ProvisionedRemoteCleanupStepResponse
     fn from(value: ProvisionedRemoteCleanupStep) -> Self {
         match value {
             ProvisionedRemoteCleanupStep::DeleteEndpoint => Self::DeleteEndpoint,
+            ProvisionedRemoteCleanupStep::DeleteTemplate => Self::DeleteTemplate,
             ProvisionedRemoteCleanupStep::TerminateProvisioner => Self::TerminateProvisioner,
             ProvisionedRemoteCleanupStep::DeleteVolume => Self::DeleteVolume,
         }
@@ -455,6 +460,7 @@ impl From<ProvisionedRemoteDeleteStep> for ProvisionedRemoteDeleteStepResponse {
     fn from(value: ProvisionedRemoteDeleteStep) -> Self {
         match value {
             ProvisionedRemoteDeleteStep::DeleteEndpoint => Self::DeleteEndpoint,
+            ProvisionedRemoteDeleteStep::DeleteTemplate => Self::DeleteTemplate,
             ProvisionedRemoteDeleteStep::TerminateProvisioner => Self::TerminateProvisioner,
             ProvisionedRemoteDeleteStep::DeleteVolume => Self::DeleteVolume,
             ProvisionedRemoteDeleteStep::DeleteLocalWorkspace => Self::DeleteLocalWorkspace,
@@ -498,6 +504,7 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 mod tests {
     use super::{
         CreateWorkspaceRequest, LifecycleOperationPayloadResponse,
+        ProvisionedRemoteCleanupStepResponse, ProvisionedRemoteDeleteStepResponse,
         ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
         RunpodResourcesResponse, RunpodWorkspaceResponse, WorkspaceRuntimeResponse,
     };
@@ -575,5 +582,49 @@ mod tests {
         assert!(json.contains(r#""runtimeType":"provisioned_remote""#));
         assert!(json.contains(r#""operation":"provision""#));
         assert!(json.contains(r#""step":"create_volume""#));
+    }
+
+    #[test]
+    fn lifecycle_operation_response_serializes_create_template_step() {
+        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayloadResponse::Provision {
+                step: Some(ProvisionedRemoteProvisionStepResponse::CreateTemplate),
+                error: None,
+            },
+        );
+
+        let json = serde_json::to_string(&response).expect("payload json");
+
+        assert!(json.contains(r#""step":"create_template""#));
+    }
+
+    #[test]
+    fn lifecycle_operation_response_serializes_cleanup_delete_template_step() {
+        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayloadResponse::Cleanup {
+                step: Some(ProvisionedRemoteCleanupStepResponse::DeleteTemplate),
+                error: None,
+            },
+        );
+
+        let json = serde_json::to_string(&response).expect("payload json");
+
+        assert!(json.contains(r#""operation":"cleanup""#));
+        assert!(json.contains(r#""step":"delete_template""#));
+    }
+
+    #[test]
+    fn lifecycle_operation_response_serializes_delete_delete_template_step() {
+        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
+            ProvisionedRemoteLifecycleOperationPayloadResponse::Delete {
+                step: Some(ProvisionedRemoteDeleteStepResponse::DeleteTemplate),
+                error: None,
+            },
+        );
+
+        let json = serde_json::to_string(&response).expect("payload json");
+
+        assert!(json.contains(r#""operation":"delete""#));
+        assert!(json.contains(r#""step":"delete_template""#));
     }
 }

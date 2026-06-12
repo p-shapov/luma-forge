@@ -12,7 +12,10 @@ use crate::{
 };
 
 use super::{
-    api::{CreateEndpointRequest, CreateNetworkVolumeRequest, CreateProvisionerPodRequest},
+    api::{
+        CreateNetworkVolumeRequest, CreateProvisionerPodRequest, CreateServerlessEndpointRequest,
+        CreateServerlessTemplateRequest,
+    },
     config::PROVISIONER_PORT,
 };
 
@@ -173,26 +176,6 @@ pub(super) struct EndpointResponse {
     pub(super) url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub(super) struct EndpointDetailsResponse {
-    #[serde(rename = "templateId")]
-    template_id: Option<String>,
-    template: Option<EndpointTemplateResponse>,
-}
-
-impl EndpointDetailsResponse {
-    pub(super) fn template_id(self) -> Result<String, ProvisionedRemoteError> {
-        self.template_id
-            .or_else(|| self.template.map(|template| template.id))
-            .ok_or_else(provider_request_failed)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct EndpointTemplateResponse {
-    id: String,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub(super) enum RunpodOperation {
     PlacementOptions,
@@ -203,7 +186,6 @@ pub(super) enum RunpodOperation {
     CreateTemplate,
     DeleteTemplate,
     CreateEndpoint,
-    GetEndpoint,
     DeleteEndpoint,
 }
 
@@ -264,7 +246,9 @@ pub(super) fn provisioner_pod_create_body(request: &CreateProvisionerPodRequest)
     }
 }
 
-pub(super) fn endpoint_template_create_body(request: &CreateEndpointRequest) -> TemplateCreateBody {
+pub(super) fn endpoint_template_create_body(
+    request: &CreateServerlessTemplateRequest,
+) -> TemplateCreateBody {
     let mut env = HashMap::new();
     env.insert(
         "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH".to_string(),
@@ -273,7 +257,7 @@ pub(super) fn endpoint_template_create_body(request: &CreateEndpointRequest) -> 
 
     TemplateCreateBody {
         image_ref: request.image_ref.clone(),
-        name: request.template_name.clone(),
+        name: request.name.clone(),
         is_serverless: true,
         ports: vec![format!("{PROVISIONER_PORT}/http")],
         env,
@@ -281,16 +265,15 @@ pub(super) fn endpoint_template_create_body(request: &CreateEndpointRequest) -> 
 }
 
 pub(super) fn endpoint_create_body(
-    request: &CreateEndpointRequest,
-    template_id: &str,
+    request: &CreateServerlessEndpointRequest,
 ) -> EndpointCreateBody {
     EndpointCreateBody {
         datacenter_ids: vec![request.datacenter_id.clone()],
         gpu_type_ids: vec![request.gpu_id.clone()],
         idle_timeout: request.keep_alive_limits.default_seconds,
-        name: request.endpoint_name.clone(),
+        name: request.name.clone(),
         network_volume_id: request.network_volume_id.clone(),
-        template_id: template_id.to_string(),
+        template_id: request.template_id.clone(),
         workers_max: 1,
         workers_min: 0,
     }
@@ -331,9 +314,9 @@ fn map_status_error(status: StatusCode, operation: RunpodOperation) -> Provision
             RunpodOperation::DeleteProvisionerPod => {
                 ProvisionedRemoteError::RemoteProvisionerNotFound
             }
-            RunpodOperation::GetEndpoint
-            | RunpodOperation::DeleteEndpoint
-            | RunpodOperation::DeleteTemplate => ProvisionedRemoteError::RemoteEndpointNotFound,
+            RunpodOperation::DeleteEndpoint | RunpodOperation::DeleteTemplate => {
+                ProvisionedRemoteError::RemoteEndpointNotFound
+            }
             _ => provider_request_failed(),
         },
         _ => provider_request_failed(),
@@ -518,14 +501,17 @@ mod tests {
 
     #[test]
     fn endpoint_creation_serializes_template_before_endpoint_bodies() {
-        let request = CreateEndpointRequest {
+        let template_request = CreateServerlessTemplateRequest {
+            name: "luma-forge-workspace-endpoint-template".to_string(),
+            image_ref: "ghcr.io/luma/endpoint:latest".to_string(),
+            mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
+        };
+        let endpoint_request = CreateServerlessEndpointRequest {
             datacenter_id: "US-TX-1".to_string(),
             gpu_id: "NVIDIA GeForce RTX 4090".to_string(),
-            endpoint_name: "luma-forge-workspace-endpoint".to_string(),
-            template_name: "luma-forge-workspace-endpoint-template".to_string(),
-            image_ref: "ghcr.io/luma/endpoint:latest".to_string(),
+            name: "luma-forge-workspace-endpoint".to_string(),
+            template_id: "template-1".to_string(),
             network_volume_id: "volume-1".to_string(),
-            mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
             keep_alive_limits: RunpodEndpointKeepAliveLimits {
                 default_seconds: 300,
                 min_seconds: 0,
@@ -533,9 +519,9 @@ mod tests {
             },
         };
 
-        let template_body = serde_json::to_value(endpoint_template_create_body(&request))
+        let template_body = serde_json::to_value(endpoint_template_create_body(&template_request))
             .expect("template body should serialize");
-        let endpoint_body = serde_json::to_value(endpoint_create_body(&request, "template-1"))
+        let endpoint_body = serde_json::to_value(endpoint_create_body(&endpoint_request))
             .expect("endpoint body should serialize");
 
         assert_eq!(
@@ -580,27 +566,15 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_details_response_resolves_template_id_from_supported_shapes() {
-        let with_top_level_id: EndpointDetailsResponse =
-            serde_json::from_value(json!({ "templateId": "template-1" }))
-                .expect("endpoint should deserialize");
-        let with_nested_id: EndpointDetailsResponse =
-            serde_json::from_value(json!({ "template": { "id": "template-2" } }))
-                .expect("endpoint should deserialize");
-        let without_template: EndpointDetailsResponse =
-            serde_json::from_value(json!({})).expect("endpoint should deserialize");
+    fn endpoint_response_preserves_id_and_url_without_template_id() {
+        let response: EndpointResponse = serde_json::from_value(json!({
+            "id": "endpoint-1",
+            "url": "https://endpoint.example",
+        }))
+        .expect("endpoint should deserialize");
 
-        assert_eq!(
-            with_top_level_id.template_id(),
-            Ok("template-1".to_string())
-        );
-        assert_eq!(with_nested_id.template_id(), Ok("template-2".to_string()));
-        assert_eq!(
-            without_template.template_id(),
-            Err(ProvisionedRemoteError::ProviderApiFailed(
-                ProviderApiError::RequestFailed
-            ))
-        );
+        assert_eq!(response.id, "endpoint-1");
+        assert_eq!(response.url, Some("https://endpoint.example".to_string()));
     }
 
     #[test]
@@ -658,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn placement_response_maps_available_gpu_options() {
+    fn placement_response_preserves_runpod_gb_units() {
         let response = GraphqlResponse {
             data: Some(PlacementQueryData {
                 gpu_types: vec![PlacementGpuType {

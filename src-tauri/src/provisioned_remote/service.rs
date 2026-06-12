@@ -134,7 +134,7 @@ where
     ) -> Result<RunpodPlacementOptions, ProvisionedRemoteError> {
         self.provider_registry
             .for_provider()?
-            .get_provider_placement_options()
+            .placement_options()
             .await
     }
 
@@ -507,7 +507,7 @@ mod tests {
         assert_eq!(options, placement_options());
         assert_eq!(
             state.lock().expect("state lock").calls,
-            vec!["get_provider_placement_options"]
+            vec!["placement_options"]
         );
     }
 
@@ -680,6 +680,7 @@ mod tests {
         );
         assert_eq!(runtime.resources.provisioner_pod_id, None);
         assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
+        assert_eq!(runtime.resources.template_id.as_deref(), Some("template"));
 
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
@@ -690,12 +691,13 @@ mod tests {
         assert_eq!(
             state.lock().expect("state lock").calls,
             vec![
-                "create_volume",
-                "start_provisioner",
+                "create_network_volume",
+                "start_provisioner_pod",
                 "get_provisioner_status",
                 "get_provisioner_status",
-                "terminate_provisioner",
-                "create_endpoint",
+                "terminate_provisioner_pod",
+                "create_serverless_template",
+                "create_serverless_endpoint",
             ]
         );
         let state = state.lock().expect("state lock");
@@ -721,7 +723,7 @@ mod tests {
     #[tokio::test]
     async fn provision_runner_failure_preserves_resources_and_sets_cleanup_required() {
         let state = Arc::new(Mutex::new(ProviderState {
-            start_provisioner_error: Some(
+            start_provisioner_pod_error: Some(
                 crate::provisioned_remote::errors::ProvisionedRemoteError::ProvisionerUnavailable,
             ),
             ..ProviderState::default()
@@ -776,6 +778,196 @@ mod tests {
                     error: Some(ProvisionedRemoteLifecycleError::ProvisionerUnavailable),
                 }
             )
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_runner_deletes_template_when_endpoint_creation_fails() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            create_serverless_endpoint_error: Some(ProviderApiError::RequestFailed.into()),
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("provision runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::CleanupRequired {
+                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
+            }
+        );
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "create_network_volume",
+                "start_provisioner_pod",
+                "get_provisioner_status",
+                "terminate_provisioner_pod",
+                "create_serverless_template",
+                "create_serverless_endpoint",
+                "delete_template",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_runner_reports_create_template_when_template_creation_fails() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            create_serverless_template_error: Some(ProviderApiError::RequestFailed.into()),
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("provision runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation read should succeed")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateTemplate
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+                        reason: ProviderApiError::RequestFailed,
+                    }),
+                }
+            )
+        );
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "create_network_volume",
+                "start_provisioner_pod",
+                "get_provisioner_status",
+                "terminate_provisioner_pod",
+                "create_serverless_template",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn provision_runner_preserves_template_id_when_endpoint_creation_and_template_delete_fail(
+    ) {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            create_serverless_endpoint_error: Some(ProviderApiError::RequestFailed.into()),
+            delete_template_error: Some(ProviderApiError::RequestFailed.into()),
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+
+        service
+            .run_provision_once_for_test(&operation_id)
+            .await
+            .expect("provision runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace read should succeed")
+            .expect("workspace should exist");
+        assert_eq!(
+            workspace.state,
+            WorkspaceState::CleanupRequired {
+                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
+            }
+        );
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id.as_deref(), Some("template"));
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation read should succeed")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Provision {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateEndpoint
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+                        reason: ProviderApiError::RequestFailed,
+                    }),
+                }
+            )
+        );
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "create_network_volume",
+                "start_provisioner_pod",
+                "get_provisioner_status",
+                "terminate_provisioner_pod",
+                "create_serverless_template",
+                "create_serverless_endpoint",
+                "delete_template",
+            ]
         );
     }
 
@@ -841,10 +1033,10 @@ mod tests {
         assert_eq!(
             state.lock().expect("state lock").calls,
             vec![
-                "create_volume",
-                "start_provisioner",
+                "create_network_volume",
+                "start_provisioner_pod",
                 "get_provisioner_status",
-                "terminate_provisioner",
+                "terminate_provisioner_pod",
             ]
         );
     }
@@ -894,11 +1086,12 @@ mod tests {
         assert_eq!(
             state.lock().expect("state lock").calls,
             vec![
-                "create_volume",
-                "start_provisioner",
+                "create_network_volume",
+                "start_provisioner_pod",
                 "get_provisioner_status",
-                "terminate_provisioner",
-                "create_endpoint",
+                "terminate_provisioner_pod",
+                "create_serverless_template",
+                "create_serverless_endpoint",
             ]
         );
     }
@@ -1125,8 +1318,10 @@ mod tests {
             .await
             .expect("provision should complete");
 
-        state.lock().expect("state lock").delete_endpoint_error =
-            Some(ProviderApiError::RequestFailed.into());
+        state
+            .lock()
+            .expect("state lock")
+            .delete_serverless_endpoint_error = Some(ProviderApiError::RequestFailed.into());
         let cleanup_operation_id = service
             .cleanup_workspace("workspace-1")
             .await
@@ -1151,6 +1346,71 @@ mod tests {
         );
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
+    }
+
+    #[tokio::test]
+    async fn cleanup_runner_reports_delete_template_when_template_cleanup_fails() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let provision_operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        service
+            .run_provision_once_for_test(&provision_operation_id)
+            .await
+            .expect("provision should complete");
+
+        state.lock().expect("state lock").delete_template_error =
+            Some(ProviderApiError::RequestFailed.into());
+        let cleanup_operation_id = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start")
+            .operation
+            .operation_id;
+        service
+            .run_cleanup_once_for_test(&cleanup_operation_id)
+            .await
+            .expect("cleanup runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id.as_deref(), Some("template"));
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Cleanup {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteCleanupStep::DeleteTemplate
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+                        reason: ProviderApiError::RequestFailed,
+                    }),
+                }
+            )
+        );
     }
 
     #[tokio::test]
@@ -1336,7 +1596,72 @@ mod tests {
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
-            vec!["delete_volume"]
+            vec!["delete_network_volume"]
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_runner_reports_delete_template_when_template_delete_fails() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let provision_operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        service
+            .run_provision_once_for_test(&provision_operation_id)
+            .await
+            .expect("provision should complete");
+
+        state.lock().expect("state lock").delete_template_error =
+            Some(ProviderApiError::RequestFailed.into());
+        let delete_operation_id = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should start")
+            .operation
+            .operation_id;
+        service
+            .run_delete_once_for_test(&delete_operation_id)
+            .await
+            .expect("delete runner should record failure");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id.as_deref(), Some("template"));
+
+        let latest = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should load")
+            .expect("operation should exist");
+        assert_eq!(latest.state, LifecycleOperationState::Failed);
+        assert_eq!(
+            latest.payload,
+            LifecycleOperationPayload::ProvisionedRemote(
+                ProvisionedRemoteLifecycleOperationPayload::Delete {
+                    step: Some(
+                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteTemplate
+                    ),
+                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+                        reason: ProviderApiError::RequestFailed,
+                    }),
+                }
+            )
         );
     }
 

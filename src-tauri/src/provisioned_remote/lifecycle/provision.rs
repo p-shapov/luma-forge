@@ -23,8 +23,8 @@ use super::{
         errors::ProvisionedRemoteError,
         events::ProvisionedRemoteEventSink,
         provider::{
-            CreateEndpointParams, CreateVolumeParams, GetProvisionerStatusParams,
-            StartProvisionerParams, TerminateProvisionerParams,
+            CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
+            CreateRunpodServerlessTemplateParams, StartRunpodProvisionerPodParams,
         },
         registry::ProvisionedRemoteProviderRegistry,
     },
@@ -91,10 +91,9 @@ where
         )
         .await?;
         let volume_id = provider
-            .create_volume(CreateVolumeParams {
+            .create_network_volume(CreateRunpodNetworkVolumeParams {
                 workspace_id: workspace.id.clone(),
-                datacenter_id: runtime_state.placement.data_center_id.clone(),
-                gpu_id: runtime_state.placement.gpu_type_id.clone(),
+                data_center_id: runtime_state.placement.data_center_id.clone(),
                 size_gb: runtime_state.placement.volume_size_gb,
             })
             .await?;
@@ -113,11 +112,10 @@ where
         .await?;
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         let provisioner_id = provider
-            .start_provisioner(StartProvisionerParams {
+            .start_provisioner_pod(StartRunpodProvisionerPodParams {
                 workspace_id: workspace.id.clone(),
-                datacenter_id: runtime.placement.data_center_id.clone(),
-                gpu_id: runtime.placement.gpu_type_id.clone(),
-                volume_id: volume_id.clone(),
+                data_center_id: runtime.placement.data_center_id.clone(),
+                network_volume_id: volume_id.clone(),
                 provisioner_image_ref: contracts.provisioner_contract.image_ref.clone(),
                 requires_hugging_face_api_key: resolved_workflow.requires_hugging_face_api_key,
                 required_model_assets: resolved_workflow.required_model_assets.clone(),
@@ -141,10 +139,7 @@ where
             )
             .await?;
             let status = provider
-                .get_provisioner_status(GetProvisionerStatusParams {
-                    workspace_id: workspace.id.clone(),
-                    provisioner_id: provisioner_id.clone(),
-                })
+                .get_provisioner_status(&workspace.id, &provisioner_id)
                 .await;
             match status {
                 Ok(status) => {
@@ -187,12 +182,7 @@ where
             None,
         )
         .await?;
-        provider
-            .terminate_provisioner(TerminateProvisionerParams {
-                workspace_id: workspace.id.clone(),
-                provisioner_id,
-            })
-            .await?;
+        provider.terminate_provisioner_pod(&provisioner_id).await?;
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.provisioner_pod_id = None;
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
@@ -201,6 +191,24 @@ where
             return Err(ProvisionedRemoteError::ProvisionerFailed);
         }
 
+        failed_step = ProvisionedRemoteProvisionStep::CreateTemplate;
+        mark_running_step(
+            lifecycle_journal,
+            event_sink,
+            &operation,
+            ProvisionedRemoteProvisionStep::CreateTemplate,
+            None,
+        )
+        .await?;
+        let template_id = provider
+            .create_serverless_template(CreateRunpodServerlessTemplateParams {
+                workspace_id: workspace.id.clone(),
+                endpoint_image_ref: contracts.endpoint_contract.image_ref.clone(),
+            })
+            .await?;
+        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+        runtime.resources.template_id = Some(template_id.clone());
+        workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
         failed_step = ProvisionedRemoteProvisionStep::CreateEndpoint;
         mark_running_step(
             lifecycle_journal,
@@ -211,16 +219,27 @@ where
         )
         .await?;
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        let endpoint_id = provider
-            .create_endpoint(CreateEndpointParams {
+        let endpoint_id = match provider
+            .create_serverless_endpoint(CreateRunpodServerlessEndpointParams {
                 workspace_id: workspace.id.clone(),
-                datacenter_id: runtime.placement.data_center_id.clone(),
-                gpu_id: runtime.placement.gpu_type_id.clone(),
-                volume_id,
-                endpoint_image_ref: contracts.endpoint_contract.image_ref.clone(),
+                data_center_id: runtime.placement.data_center_id.clone(),
+                gpu_type_id: runtime.placement.gpu_type_id.clone(),
+                network_volume_id: volume_id,
+                template_id: template_id.clone(),
                 keep_alive_limits: runtime.placement.keep_alive_limits.clone(),
             })
-            .await?;
+            .await
+        {
+            Ok(endpoint_id) => endpoint_id,
+            Err(error) => {
+                if provider.delete_template(&template_id).await.is_ok() {
+                    let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+                    runtime.resources.template_id = None;
+                    let _ = persist_workspace(workspace_repository, event_sink, &workspace).await;
+                }
+                return Err(error);
+            }
+        };
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.endpoint_id = Some(endpoint_id);
         workspace.state = WorkspaceState::Ready;
