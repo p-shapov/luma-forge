@@ -13,6 +13,7 @@ use crate::{
         },
     },
     lifecycle_journal::LifecycleJournalRepository,
+    workflow_catalog::BundledWorkflowCatalogReader,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -70,7 +71,14 @@ where
         failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
         let runtime_state = runtime.clone();
-        let contracts = ProvisionedRemoteContractResolver::resolve(&workspace, &runtime_state)?;
+        let workflow_catalog = BundledWorkflowCatalogReader
+            .read_workflow_catalog()
+            .map_err(|_| ProvisionedRemoteError::InvalidRuntimeState)?;
+        let resolved_workflow = workflow_catalog
+            .resolve(&workspace.workflow)
+            .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
+        let contracts =
+            ProvisionedRemoteContractResolver::resolve(&resolved_workflow, &runtime_state)?;
         let provider = provider_registry.for_provider(runtime_state.provider_id())?;
 
         mark_running_step(
@@ -110,10 +118,8 @@ where
                 gpu_id: runtime.placement.gpu_id.clone(),
                 volume_id: volume_id.clone(),
                 provisioner_image_ref: contracts.provisioner_contract.image_ref.clone(),
-                requires_hugging_face_api_key: workspace
-                    .workflow_preset
-                    .requires_hugging_face_api_key,
-                required_model_assets: workspace.workflow_preset.required_model_assets.clone(),
+                requires_hugging_face_api_key: resolved_workflow.requires_hugging_face_api_key,
+                required_model_assets: resolved_workflow.required_model_assets.clone(),
             })
             .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;

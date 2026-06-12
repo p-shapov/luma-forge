@@ -1,6 +1,6 @@
 use crate::domain::{
     provisioned_remote::ProvisionedRemoteRuntime, runtime_contract::RuntimeContractResolved,
-    workspace::Workspace,
+    workflow_preset::WorkflowPresetResolved,
 };
 
 use super::errors::ProvisionedRemoteError;
@@ -18,11 +18,10 @@ pub struct ProvisionedRemoteContractResolver;
 
 impl ProvisionedRemoteContractResolver {
     pub fn resolve(
-        workspace: &Workspace,
+        workflow: &WorkflowPresetResolved,
         runtime: &ProvisionedRemoteRuntime,
     ) -> Result<ProvisionedRemoteRuntimeContracts, ProvisionedRemoteError> {
-        let provider_requirements = workspace
-            .workflow_preset
+        let provider_requirements = workflow
             .remote_runtime_requirements
             .resolve_provider_requirements(runtime.provider_id())
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;

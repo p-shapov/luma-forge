@@ -9,7 +9,7 @@ use crate::{
         provisioned_remote::GpuCloudProviderId,
         provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
         provisioned_remote::{RemotePlacementOptions, RemotePlacementPlan},
-        workflow_preset::WorkflowPreset,
+        workflow_preset::{WorkflowPresetResolved, WorkflowReference},
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
     shared::BackgroundTaskSpawner,
@@ -35,7 +35,8 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateProvisionedRemoteWorkspaceRequest {
     pub workspace_id: String,
-    pub workflow_preset: WorkflowPreset,
+    pub workflow: WorkflowReference,
+    pub resolved_workflow: WorkflowPresetResolved,
     pub remote_placement: RemotePlacementPlan,
 }
 
@@ -86,14 +87,14 @@ where
         }
 
         request
-            .workflow_preset
+            .resolved_workflow
             .remote_runtime_requirements
             .resolve_provider_requirements(request.remote_placement.gpu_cloud_provider_id)
             .ok_or(ProvisionedRemoteError::InvalidRuntimeState)?;
 
         let workspace = Workspace {
             id: request.workspace_id,
-            workflow_preset: request.workflow_preset,
+            workflow: request.workflow,
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
                 placement: request.remote_placement,
@@ -417,9 +418,26 @@ mod tests {
             InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, ProviderState,
             WorkspaceRepositoryState,
         },
+        workflow_catalog::BundledWorkflowCatalogReader,
         workspace_catalog::WorkspaceCatalogRepository,
     };
     use std::sync::{Arc, Mutex};
+
+    fn bundled_workflow_create_request(
+        workspace_id: &str,
+    ) -> super::CreateProvisionedRemoteWorkspaceRequest {
+        let mut request = draft_create_request(workspace_id);
+        request.workflow = crate::domain::workflow_preset::WorkflowReference {
+            id: "comfyui-hidream-o1-dev".to_string(),
+            version: "1.0.0".to_string(),
+        };
+        request.resolved_workflow = BundledWorkflowCatalogReader
+            .read_workflow_catalog()
+            .expect("bundled workflow catalog should load")
+            .resolve(&request.workflow)
+            .expect("bundled workflow should resolve");
+        request
+    }
 
     #[test]
     fn create_workspace_persists_not_provisioned_workspace_without_provider_calls() {
@@ -430,6 +448,7 @@ mod tests {
             .expect("workspace should be created");
 
         assert_eq!(workspace.id, "workspace-1");
+        assert_eq!(workspace.workflow.id, "preset");
         assert_eq!(workspace.state, WorkspaceState::NotProvisioned);
         let WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
             placement,
@@ -455,7 +474,7 @@ mod tests {
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
         request
-            .workflow_preset
+            .resolved_workflow
             .remote_runtime_requirements
             .provider_requirements
             .clear();
@@ -642,7 +661,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_workspace(bundled_workflow_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -689,13 +708,13 @@ mod tests {
         assert_eq!(
             state.provisioner_image_refs,
             vec![
-                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
+                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:e890fabcd11d95bab36d2495c6b49d802ad72ab7350ecf5c3595d22b1fb66089"
             ]
         );
         assert_eq!(
             state.endpoint_image_refs,
             vec![
-                "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:ac7b4ee14423f5e74f444a03c429dece830fc4f72b01847df18b2a5b960cdd1a"
+                "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c7253ac8abbca0c4d849110132c327595ff224ab953eeb93462f16f52f74f3a1"
             ]
         );
         assert_ne!(state.provisioner_image_refs, vec!["luma-forge-provisioner"]);
@@ -715,7 +734,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state);
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_workspace(bundled_workflow_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -771,7 +790,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_workspace(bundled_workflow_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let operation_id = service
@@ -838,7 +857,7 @@ mod tests {
         }));
         let service = service_with_state(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_workspace(bundled_workflow_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
 
@@ -1023,7 +1042,7 @@ mod tests {
         }));
         let service = service_without_lifecycle_spawning(state.clone());
         service
-            .create_workspace(draft_create_request("workspace-1"))
+            .create_workspace(bundled_workflow_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let provision_operation_id = service

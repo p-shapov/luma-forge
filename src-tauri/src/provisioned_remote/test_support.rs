@@ -20,7 +20,7 @@ use crate::{
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
             RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
-            WorkflowPreset,
+            WorkflowPresetResolved, WorkflowReference,
         },
         workspace::{Workspace, WorkspaceCatalog},
     },
@@ -648,7 +648,8 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
 pub(crate) fn draft_create_request(workspace_id: &str) -> CreateProvisionedRemoteWorkspaceRequest {
     CreateProvisionedRemoteWorkspaceRequest {
         workspace_id: workspace_id.to_string(),
-        workflow_preset: workflow_preset(),
+        workflow: workflow_reference(),
+        resolved_workflow: resolved_workflow(),
         remote_placement: placement_plan(),
     }
 }
@@ -693,8 +694,15 @@ pub(crate) fn service_with_state_and_workspace_repository(
     )
 }
 
-fn workflow_preset() -> WorkflowPreset {
-    WorkflowPreset {
+fn workflow_reference() -> WorkflowReference {
+    WorkflowReference {
+        id: "preset".to_string(),
+        version: "1.0.0".to_string(),
+    }
+}
+
+fn resolved_workflow() -> WorkflowPresetResolved {
+    WorkflowPresetResolved {
         id: "preset".to_string(),
         version: "1.0.0".to_string(),
         name: "Preset".to_string(),
@@ -705,16 +713,16 @@ fn workflow_preset() -> WorkflowPreset {
             provider_requirements: vec![RemoteProviderRuntimeRequirements {
                 gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
                 endpoint_contract: RuntimeContractReference {
-                    id: "comfyui-py312-cu126-torch291".to_string(),
-                    version: "1.0.15".to_string(),
+                    id: "endpoint".to_string(),
+                    version: "1.0.0".to_string(),
                 },
                 provisioner_contract: RuntimeContractReference {
-                    id: "luma-forge-provisioner".to_string(),
-                    version: "1.0.6".to_string(),
+                    id: "provisioner".to_string(),
+                    version: "1.0.0".to_string(),
                 },
             }],
         },
-        required_model_assets: vec![],
+        required_model_assets: Vec::new(),
     }
 }
 
