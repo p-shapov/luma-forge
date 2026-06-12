@@ -2,9 +2,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::provisioned_remote::{
-        ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus,
-    },
+    domain::provisioned_remote::{ProvisionedRemoteProvisionerStatus, RunpodLifecycleError},
     shared::AppFuture,
 };
 
@@ -13,7 +11,7 @@ pub trait ProvisionerWorkerApi: Send + Sync {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteLifecycleError>>;
+    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>>;
 }
 
 #[derive(Clone)]
@@ -32,8 +30,7 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteLifecycleError>>
-    {
+    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>> {
         Box::pin(async move {
             let response = self
                 .http
@@ -41,13 +38,13 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
                 .bearer_auth(bearer_token)
                 .send()
                 .await
-                .map_err(|_| ProvisionedRemoteLifecycleError::ProvisionerUnavailable)?;
+                .map_err(|_| RunpodLifecycleError::ProvisionerUnavailable)?;
 
             map_http_status(response.status())?;
             let status = response
                 .json::<ProvisionerStatusResponse>()
                 .await
-                .map_err(|_| ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)?;
+                .map_err(|_| RunpodLifecycleError::ProvisionerResponseInvalid)?;
 
             map_status_response(status)
         })
@@ -70,7 +67,7 @@ pub struct ProvisionerWorkerErrorResponse {
 
 pub fn map_status_response(
     response: ProvisionerStatusResponse,
-) -> Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteLifecycleError> {
+) -> Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError> {
     match response.status.as_str() {
         "idle" => Ok(ProvisionedRemoteProvisionerStatus::Pending),
         "running" => Ok(ProvisionedRemoteProvisionerStatus::Running),
@@ -78,21 +75,19 @@ pub fn map_status_response(
         "failed" => {
             let _error = response
                 .error
-                .ok_or(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)?;
+                .ok_or(RunpodLifecycleError::ProvisionerResponseInvalid)?;
             Ok(ProvisionedRemoteProvisionerStatus::Failed)
         }
-        _ => Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid),
+        _ => Err(RunpodLifecycleError::ProvisionerResponseInvalid),
     }
 }
 
-fn map_http_status(status: StatusCode) -> Result<(), ProvisionedRemoteLifecycleError> {
+fn map_http_status(status: StatusCode) -> Result<(), RunpodLifecycleError> {
     match status {
         status if status.is_success() => Ok(()),
-        StatusCode::UNAUTHORIZED => {
-            Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)
-        }
-        StatusCode::CONFLICT => Err(ProvisionedRemoteLifecycleError::ProvisionerFailed),
-        _ => Err(ProvisionedRemoteLifecycleError::ProvisionerUnavailable),
+        StatusCode::UNAUTHORIZED => Err(RunpodLifecycleError::ProvisionerResponseInvalid),
+        StatusCode::CONFLICT => Err(RunpodLifecycleError::ProvisionerFailed),
+        _ => Err(RunpodLifecycleError::ProvisionerUnavailable),
     }
 }
 
@@ -146,14 +141,14 @@ mod tests {
                 status: "failed".to_string(),
                 error: None,
             }),
-            Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)
+            Err(RunpodLifecycleError::ProvisionerResponseInvalid)
         );
         assert_eq!(
             map_status_response(ProvisionerStatusResponse {
                 status: "other".to_string(),
                 error: None,
             }),
-            Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)
+            Err(RunpodLifecycleError::ProvisionerResponseInvalid)
         );
     }
 
@@ -162,15 +157,15 @@ mod tests {
         assert_eq!(map_http_status(StatusCode::OK), Ok(()));
         assert_eq!(
             map_http_status(StatusCode::UNAUTHORIZED),
-            Err(ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid)
+            Err(RunpodLifecycleError::ProvisionerResponseInvalid)
         );
         assert_eq!(
             map_http_status(StatusCode::CONFLICT),
-            Err(ProvisionedRemoteLifecycleError::ProvisionerFailed)
+            Err(RunpodLifecycleError::ProvisionerFailed)
         );
         assert_eq!(
             map_http_status(StatusCode::INTERNAL_SERVER_ERROR),
-            Err(ProvisionedRemoteLifecycleError::ProvisionerUnavailable)
+            Err(RunpodLifecycleError::ProvisionerUnavailable)
         );
     }
 }

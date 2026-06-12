@@ -271,7 +271,7 @@ fn provisioner_status_url(pod_id: &str) -> String {
 
 fn map_secret_error(error: SecretsStorageError) -> ProvisionedRemoteError {
     match error {
-        SecretsStorageError::KeyNotFound => ProvisionedRemoteError::ProviderSecretUnavailable,
+        SecretsStorageError::KeyNotFound => ProvisionedRemoteError::RunpodSecretUnavailable,
         _ => ProviderApiError::RequestFailed.into(),
     }
 }
@@ -286,8 +286,8 @@ mod tests {
     use crate::{
         domain::{
             provisioned_remote::{
-                ProvisionedRemoteLifecycleError, RunpodDatacenterPlacementOption,
-                RunpodEndpointKeepAliveLimits, RunpodGpuPlacementOption,
+                RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits,
+                RunpodGpuPlacementOption, RunpodLifecycleError,
             },
             secrets::ApiKeyIdentity,
         },
@@ -441,7 +441,7 @@ mod tests {
     #[derive(Default)]
     struct WorkerState {
         calls: Vec<(String, String)>,
-        result: Option<Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteLifecycleError>>,
+        result: Option<Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>>,
     }
 
     struct FakeWorker {
@@ -453,10 +453,8 @@ mod tests {
             &'a self,
             status_url: &'a str,
             bearer_token: &'a str,
-        ) -> AppFuture<
-            'a,
-            Result<ProvisionedRemoteProvisionerStatus, ProvisionedRemoteLifecycleError>,
-        > {
+        ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerStatus, RunpodLifecycleError>>
+        {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("worker state");
                 state
@@ -562,7 +560,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_volume_builds_network_volume_request() {
+    async fn create_network_volume_builds_network_volume_request() {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
@@ -687,9 +685,7 @@ mod tests {
     #[tokio::test]
     async fn get_provisioner_status_maps_worker_auth_failure_to_provisioner_error() {
         let worker_state = Arc::new(Mutex::new(WorkerState {
-            result: Some(Err(
-                ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid,
-            )),
+            result: Some(Err(RunpodLifecycleError::ProvisionerResponseInvalid)),
             ..WorkerState::default()
         }));
         let provider = provider(Arc::default(), Arc::clone(&worker_state));

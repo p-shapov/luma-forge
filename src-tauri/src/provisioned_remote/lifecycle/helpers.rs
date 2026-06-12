@@ -7,9 +7,8 @@ use crate::{
             LifecycleOperationState, WorkspaceId,
         },
         provisioned_remote::{
-            ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep,
-            ProvisionedRemoteLifecycleError, ProvisionedRemoteLifecycleOperationPayload,
-            ProvisionedRemoteProvisionStep, RunpodResources,
+            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
+            RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodResources,
         },
         workspace::{
             Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntimeInvalidReason,
@@ -65,7 +64,7 @@ pub async fn mark_running_step<L, S>(
     event_sink: &Arc<dyn ProvisionedRemoteEventSink>,
     operation: &LifecycleOperation,
     step: S,
-    error: Option<ProvisionedRemoteLifecycleError>,
+    error: Option<RunpodLifecycleError>,
 ) -> Result<(), ProvisionedRemoteError>
 where
     L: LifecycleJournalRepository,
@@ -89,7 +88,7 @@ pub async fn mark_operation_state<L, S>(
     operation: &LifecycleOperation,
     state: LifecycleOperationState,
     step: S,
-    error: Option<ProvisionedRemoteLifecycleError>,
+    error: Option<RunpodLifecycleError>,
 ) -> Result<LifecycleOperation, ProvisionedRemoteError>
 where
     L: LifecycleJournalRepository,
@@ -128,51 +127,33 @@ where
 }
 
 pub trait ProvisionedRemoteStepPayload {
-    fn into_payload(
-        self,
-        error: Option<ProvisionedRemoteLifecycleError>,
-    ) -> LifecycleOperationPayload;
+    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload;
 }
 
-impl ProvisionedRemoteStepPayload for ProvisionedRemoteProvisionStep {
-    fn into_payload(
-        self,
-        error: Option<ProvisionedRemoteLifecycleError>,
-    ) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision {
-                step: Some(self),
-                error,
-            },
-        )
+impl ProvisionedRemoteStepPayload for RunpodProvisionStep {
+    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+            step: Some(self),
+            error,
+        })
     }
 }
 
-impl ProvisionedRemoteStepPayload for ProvisionedRemoteCleanupStep {
-    fn into_payload(
-        self,
-        error: Option<ProvisionedRemoteLifecycleError>,
-    ) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Cleanup {
-                step: Some(self),
-                error,
-            },
-        )
+impl ProvisionedRemoteStepPayload for RunpodCleanupStep {
+    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+            step: Some(self),
+            error,
+        })
     }
 }
 
-impl ProvisionedRemoteStepPayload for ProvisionedRemoteDeleteStep {
-    fn into_payload(
-        self,
-        error: Option<ProvisionedRemoteLifecycleError>,
-    ) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: Some(self),
-                error,
-            },
-        )
+impl ProvisionedRemoteStepPayload for RunpodDeleteStep {
+    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: Some(self),
+            error,
+        })
     }
 }
 
@@ -192,29 +173,25 @@ pub fn payload_with_app_interrupted_error(
     payload: &LifecycleOperationPayload,
 ) -> LifecycleOperationPayload {
     match payload {
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision { step, .. },
-        ) => LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision {
-                step: step.clone(),
-                error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
-            },
-        ),
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Cleanup { step, .. },
-        ) => LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Cleanup {
-                step: step.clone(),
-                error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
-            },
-        ),
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete { step, .. },
-        ) => LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: step.clone(),
-                error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
-            },
-        ),
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+            step,
+            ..
+        }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+            step: step.clone(),
+            error: Some(RunpodLifecycleError::AppInterrupted),
+        }),
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+            step,
+            ..
+        }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+            step: step.clone(),
+            error: Some(RunpodLifecycleError::AppInterrupted),
+        }),
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step, ..
+        }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: step.clone(),
+            error: Some(RunpodLifecycleError::AppInterrupted),
+        }),
     }
 }

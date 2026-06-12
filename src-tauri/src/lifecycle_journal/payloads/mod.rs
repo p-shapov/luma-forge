@@ -1,1 +1,1 @@
-pub mod provisioned_remote;
+pub mod runpod;

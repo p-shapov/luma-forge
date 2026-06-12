@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-pub use super::provisioned_remote::ProvisionedRemoteLifecycleOperationPayload;
+pub use super::provisioned_remote::RunpodLifecycleOperationPayload;
 
 pub type LifecycleOperationId = String;
 pub type WorkspaceId = String;
@@ -32,20 +32,19 @@ pub enum LifecycleOperationState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "runtime_type", rename_all = "snake_case")]
 pub enum LifecycleOperationPayload {
-    ProvisionedRemote(ProvisionedRemoteLifecycleOperationPayload),
+    Runpod(RunpodLifecycleOperationPayload),
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState,
-        ProvisionedRemoteLifecycleOperationPayload,
+        RunpodLifecycleOperationPayload,
     };
     use crate::domain::{
         provisioned_remote::ProviderApiError,
         provisioned_remote::{
-            ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep,
-            ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep,
+            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError, RunpodProvisionStep,
         },
     };
     use serde_json::json;
@@ -53,25 +52,24 @@ mod tests {
 
     #[test]
     fn lifecycle_payload_serializes_operation_kind_inside_runtime_payload() {
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision {
-                step: Some(ProvisionedRemoteProvisionStep::CreateVolume),
-                error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+        let payload =
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(RunpodProvisionStep::CreateNetworkVolume),
+                error: Some(RunpodLifecycleError::RunpodApiFailed {
                     reason: ProviderApiError::RateLimited,
                 }),
-            },
-        );
+            });
 
         let json = serde_json::to_value(&payload).expect("payload json");
 
         assert_eq!(
             json,
             json!({
-                "runtime_type": "provisioned_remote",
-                "operation": "provision",
-                "step": "create_volume",
-                "error": {
-                    "provider_api_failed": {
+                    "runtime_type": "runpod",
+                    "operation": "provision",
+                    "step": "create_network_volume",
+                    "error": {
+                        "runpod_api_failed": {
                         "reason": "rate_limited"
                     }
                 }
@@ -84,7 +82,7 @@ mod tests {
 
     #[test]
     fn provision_step_serializes_create_template() {
-        let step = ProvisionedRemoteProvisionStep::CreateTemplate;
+        let step = RunpodProvisionStep::CreateTemplate;
 
         let json = serde_json::to_value(step).expect("step json");
 
@@ -93,7 +91,7 @@ mod tests {
 
     #[test]
     fn cleanup_step_serializes_delete_template() {
-        let step = ProvisionedRemoteCleanupStep::DeleteTemplate;
+        let step = RunpodCleanupStep::DeleteTemplate;
 
         let json = serde_json::to_value(step).expect("step json");
 
@@ -102,7 +100,7 @@ mod tests {
 
     #[test]
     fn delete_step_serializes_delete_template() {
-        let step = ProvisionedRemoteDeleteStep::DeleteTemplate;
+        let step = RunpodDeleteStep::DeleteTemplate;
 
         let json = serde_json::to_value(step).expect("step json");
 
@@ -129,8 +127,8 @@ mod tests {
             operation_id: "operation-1".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Running,
-            payload: LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
+            payload: LifecycleOperationPayload::Runpod(
+                RunpodLifecycleOperationPayload::Provision {
                     step: None,
                     error: None,
                 },
@@ -149,7 +147,7 @@ mod tests {
                 "workspace_id": "workspace-1",
                 "state": "running",
                 "payload": {
-                    "runtime_type": "provisioned_remote",
+                    "runtime_type": "runpod",
                     "operation": "provision",
                     "step": null,
                     "error": null

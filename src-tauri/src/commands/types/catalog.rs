@@ -9,14 +9,6 @@ use crate::domain::{
     },
 };
 
-use super::provider::GpuCloudProviderIdDto;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct GetProviderPlacementOptionsRequest {
-    pub provider_id: GpuCloudProviderIdDto,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCatalogResponse {

@@ -310,13 +310,10 @@ fn map_status_error(status: StatusCode, operation: RunpodOperation) -> Provision
         StatusCode::FORBIDDEN => ProviderApiError::InsufficientPermissions.into(),
         StatusCode::TOO_MANY_REQUESTS => ProviderApiError::RateLimited.into(),
         StatusCode::NOT_FOUND => match operation {
-            RunpodOperation::DeleteNetworkVolume => ProvisionedRemoteError::RemoteVolumeNotFound,
-            RunpodOperation::DeleteProvisionerPod => {
-                ProvisionedRemoteError::RemoteProvisionerNotFound
-            }
-            RunpodOperation::DeleteEndpoint | RunpodOperation::DeleteTemplate => {
-                ProvisionedRemoteError::RemoteEndpointNotFound
-            }
+            RunpodOperation::DeleteNetworkVolume => ProvisionedRemoteError::NetworkVolumeNotFound,
+            RunpodOperation::DeleteProvisionerPod => ProvisionedRemoteError::ProvisionerPodNotFound,
+            RunpodOperation::DeleteEndpoint => ProvisionedRemoteError::EndpointNotFound,
+            RunpodOperation::DeleteTemplate => ProvisionedRemoteError::TemplateNotFound,
             _ => provider_request_failed(),
         },
         _ => provider_request_failed(),
@@ -341,7 +338,7 @@ fn provider_request_failed() -> ProvisionedRemoteError {
 
 pub(super) fn map_secret_error(error: SecretsStorageError) -> ProvisionedRemoteError {
     match error {
-        SecretsStorageError::KeyNotFound => ProvisionedRemoteError::ProviderSecretUnavailable,
+        SecretsStorageError::KeyNotFound => ProvisionedRemoteError::RunpodSecretUnavailable,
         _ => ProviderApiError::RequestFailed.into(),
     }
 }
@@ -581,53 +578,53 @@ mod tests {
     fn maps_ui_safe_http_and_transport_errors() {
         assert_eq!(
             map_status_error(StatusCode::UNAUTHORIZED, RunpodOperation::CreateEndpoint),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::Unauthorized)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::Unauthorized)
         );
         assert_eq!(
             map_status_error(StatusCode::FORBIDDEN, RunpodOperation::CreateEndpoint),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::InsufficientPermissions)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::InsufficientPermissions)
         );
         assert_eq!(
             map_status_error(
                 StatusCode::TOO_MANY_REQUESTS,
                 RunpodOperation::CreateEndpoint
             ),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RateLimited)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::RateLimited)
         );
         assert_eq!(
             map_transport_error(true),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::Timeout)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::Timeout)
         );
         assert_eq!(
             map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteNetworkVolume),
-            ProvisionedRemoteError::RemoteVolumeNotFound
+            ProvisionedRemoteError::NetworkVolumeNotFound
         );
         assert_eq!(
             map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteProvisionerPod),
-            ProvisionedRemoteError::RemoteProvisionerNotFound
+            ProvisionedRemoteError::ProvisionerPodNotFound
         );
         assert_eq!(
             map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteEndpoint),
-            ProvisionedRemoteError::RemoteEndpointNotFound
+            ProvisionedRemoteError::EndpointNotFound
         );
         assert_eq!(
             map_status_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 RunpodOperation::CreateEndpoint
             ),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RequestFailed)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::RequestFailed)
         );
         assert_eq!(
             map_transport_error(false),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RequestFailed)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::RequestFailed)
         );
         assert_eq!(
             map_secret_error(SecretsStorageError::KeyNotFound),
-            ProvisionedRemoteError::ProviderSecretUnavailable
+            ProvisionedRemoteError::RunpodSecretUnavailable
         );
         assert_eq!(
             map_secret_error(SecretsStorageError::StoreUnavailable),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RequestFailed)
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::RequestFailed)
         );
     }
 

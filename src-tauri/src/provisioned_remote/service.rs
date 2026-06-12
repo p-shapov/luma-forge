@@ -3,8 +3,7 @@ use std::sync::Arc;
 use crate::{
     domain::{
         lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationPayload,
-            ProvisionedRemoteLifecycleOperationPayload,
+            LifecycleOperation, LifecycleOperationPayload, RunpodLifecycleOperationPayload,
         },
         provisioned_remote::{RunpodPlacementOptions, RunpodPlacementPlan},
         provisioned_remote::{RunpodResources, RunpodRuntime},
@@ -151,12 +150,11 @@ where
             return Err(ProvisionedRemoteError::InvalidRuntimeState);
         }
 
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision {
+        let payload =
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: None,
                 error: None,
-            },
-        );
+            });
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
@@ -175,12 +173,10 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<CleanupWorkspaceResponse, ProvisionedRemoteError> {
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Cleanup {
-                step: None,
-                error: None,
-            },
-        );
+        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+            step: None,
+            error: None,
+        });
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
@@ -199,12 +195,10 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<DeleteWorkspaceResponse, ProvisionedRemoteError> {
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: None,
-                error: None,
-            },
-        );
+        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: None,
+            error: None,
+        });
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
@@ -409,12 +403,11 @@ mod tests {
     use crate::{
         domain::{
             lifecycle_operation::{
-                LifecycleOperationPayload, LifecycleOperationState,
-                ProvisionedRemoteLifecycleOperationPayload,
+                LifecycleOperationPayload, LifecycleOperationState, RunpodLifecycleOperationPayload,
             },
             provisioned_remote::ProviderApiError,
             provisioned_remote::{
-                ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus, RunpodRuntime,
+                ProvisionedRemoteProvisionerStatus, RunpodLifecycleError, RunpodRuntime,
             },
             workspace::{
                 WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
@@ -557,12 +550,10 @@ mod tests {
         assert_eq!(response.operation.state, LifecycleOperationState::Running);
         assert_eq!(
             response.operation.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: None,
-                    error: None,
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: None,
+                error: None,
+            })
         );
         let persisted = service
             .workspace_repository
@@ -799,12 +790,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: Some(crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::StartProvisioner),
-                    error: Some(ProvisionedRemoteLifecycleError::ProvisionerUnavailable),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodProvisionStep::StartProvisionerPod
+                ),
+                error: Some(RunpodLifecycleError::ProvisionerUnavailable),
+            })
         );
     }
 
@@ -901,16 +892,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateTemplate
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
-                        reason: ProviderApiError::RequestFailed,
-                    }),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(crate::domain::provisioned_remote::RunpodProvisionStep::CreateTemplate),
+                error: Some(RunpodLifecycleError::RunpodApiFailed {
+                    reason: ProviderApiError::RequestFailed,
+                }),
+            })
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
@@ -973,16 +960,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateEndpoint
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
-                        reason: ProviderApiError::RequestFailed,
-                    }),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(crate::domain::provisioned_remote::RunpodProvisionStep::CreateEndpoint),
+                error: Some(RunpodLifecycleError::RunpodApiFailed {
+                    reason: ProviderApiError::RequestFailed,
+                }),
+            })
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
@@ -1048,14 +1031,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::TerminateProvisioner
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::ProvisionerFailed),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodProvisionStep::TerminateProvisionerPod
+                ),
+                error: Some(RunpodLifecycleError::ProvisionerFailed),
+            })
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
@@ -1161,14 +1142,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateVolume
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodProvisionStep::CreateNetworkVolume
+                ),
+                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+            })
         );
     }
 
@@ -1218,14 +1197,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteProvisionStep::CreateVolume
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodProvisionStep::CreateNetworkVolume
+                ),
+                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+            })
         );
         let workspace = service
             .workspace_repository
@@ -1258,12 +1235,10 @@ mod tests {
         assert_eq!(response.workspace, workspace);
         assert_eq!(
             response.operation.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Cleanup {
-                    step: None,
-                    error: None,
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+                step: None,
+                error: None,
+            })
         );
         let persisted = service
             .workspace_repository
@@ -1312,14 +1287,10 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Cleanup {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteCleanupStep::DeleteEndpoint
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+                step: Some(crate::domain::provisioned_remote::RunpodCleanupStep::DeleteEndpoint),
+                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+            })
         );
     }
 
@@ -1427,16 +1398,73 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Cleanup {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteCleanupStep::DeleteTemplate
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
-                        reason: ProviderApiError::RequestFailed,
-                    }),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
+                step: Some(crate::domain::provisioned_remote::RunpodCleanupStep::DeleteTemplate),
+                error: Some(RunpodLifecycleError::RunpodApiFailed {
+                    reason: ProviderApiError::RequestFailed,
+                }),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_runner_treats_endpoint_and_template_not_found_as_resource_deleted() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_runpod_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let provision_operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        service
+            .run_provision_once_for_test(&provision_operation_id)
+            .await
+            .expect("provision should complete");
+
+        {
+            let mut provider_state = state.lock().expect("state lock");
+            provider_state.calls.clear();
+            provider_state.delete_serverless_endpoint_error =
+                Some(crate::provisioned_remote::errors::ProvisionedRemoteError::EndpointNotFound);
+            provider_state.delete_template_error =
+                Some(crate::provisioned_remote::errors::ProvisionedRemoteError::TemplateNotFound);
+        }
+        let cleanup_operation_id = service
+            .cleanup_workspace("workspace-1")
+            .await
+            .expect("cleanup should start")
+            .operation
+            .operation_id;
+        service
+            .run_cleanup_once_for_test(&cleanup_operation_id)
+            .await
+            .expect("cleanup should complete");
+
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(workspace.state, WorkspaceState::NotProvisioned);
+        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(runtime.resources.network_volume_id, None);
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "delete_serverless_endpoint",
+                "delete_template",
+                "delete_network_volume"
+            ]
         );
     }
 
@@ -1457,14 +1485,12 @@ mod tests {
         assert_eq!(response.operation.state, LifecycleOperationState::Completed);
         assert_eq!(
             response.operation.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Delete {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteLocalWorkspace
-                    ),
-                    error: None,
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodDeleteStep::DeleteLocalWorkspace
+                ),
+                error: None,
+            })
         );
         assert!(service
             .workspace_repository
@@ -1521,14 +1547,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Delete {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteLocalWorkspace
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodDeleteStep::DeleteLocalWorkspace
+                ),
+                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+            })
         );
     }
 
@@ -1539,12 +1563,10 @@ mod tests {
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: None,
-                error: None,
-            },
-        );
+        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: None,
+            error: None,
+        });
         let operation_id = service
             .lifecycle_journal
             .create_operation(&"workspace-1".to_string(), &payload)
@@ -1591,12 +1613,10 @@ mod tests {
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: None,
-                error: None,
-            },
-        );
+        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: None,
+            error: None,
+        });
         let operation_id = service
             .lifecycle_journal
             .create_operation(&"workspace-1".to_string(), &payload)
@@ -1679,16 +1699,75 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Delete {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteTemplate
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
-                        reason: ProviderApiError::RequestFailed,
-                    }),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+                step: Some(crate::domain::provisioned_remote::RunpodDeleteStep::DeleteTemplate),
+                error: Some(RunpodLifecycleError::RunpodApiFailed {
+                    reason: ProviderApiError::RequestFailed,
+                }),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_runner_treats_endpoint_and_template_not_found_as_resource_deleted() {
+        let state = Arc::new(Mutex::new(ProviderState {
+            provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
+            ..ProviderState::default()
+        }));
+        let service = service_without_lifecycle_spawning(state.clone());
+        service
+            .create_runpod_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let provision_operation_id = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision should start")
+            .operation
+            .operation_id;
+        service
+            .run_provision_once_for_test(&provision_operation_id)
+            .await
+            .expect("provision should complete");
+
+        {
+            let mut provider_state = state.lock().expect("state lock");
+            provider_state.calls.clear();
+            provider_state.delete_serverless_endpoint_error =
+                Some(crate::provisioned_remote::errors::ProvisionedRemoteError::EndpointNotFound);
+            provider_state.delete_template_error =
+                Some(crate::provisioned_remote::errors::ProvisionedRemoteError::TemplateNotFound);
+        }
+        let delete_operation_id = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should start")
+            .operation
+            .operation_id;
+        service
+            .run_delete_once_for_test(&delete_operation_id)
+            .await
+            .expect("delete should complete");
+
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_none());
+        assert_eq!(
+            service
+                .get_latest_lifecycle_operation("workspace-1")
+                .await
+                .expect("operation lookup should succeed"),
+            None
+        );
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec![
+                "delete_serverless_endpoint",
+                "delete_template",
+                "delete_network_volume"
+            ]
         );
     }
 
@@ -1711,12 +1790,10 @@ mod tests {
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: None,
-                error: None,
-            },
-        );
+        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: None,
+            error: None,
+        });
         let operation_id = service
             .lifecycle_journal
             .create_operation(&"workspace-1".to_string(), &payload)
@@ -1751,14 +1828,12 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Delete {
-                    step: Some(
-                        crate::domain::provisioned_remote::ProvisionedRemoteDeleteStep::DeleteLocalWorkspace
-                    ),
-                    error: Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+                step: Some(
+                    crate::domain::provisioned_remote::RunpodDeleteStep::DeleteLocalWorkspace
+                ),
+                error: Some(RunpodLifecycleError::InvalidRuntimeState),
+            })
         );
     }
 
@@ -1848,12 +1923,10 @@ mod tests {
         assert_eq!(stale.state, LifecycleOperationState::Stale);
         assert_eq!(
             stale.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: None,
-                    error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: None,
+                error: Some(RunpodLifecycleError::AppInterrupted),
+            })
         );
         assert_eq!(stale.operation_id, operation.operation_id);
         let workspace = service
@@ -1915,12 +1988,10 @@ mod tests {
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let payload = LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Delete {
-                step: None,
-                error: None,
-            },
-        );
+        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+            step: None,
+            error: None,
+        });
         let operation = service
             .lifecycle_journal
             .create_operation(&"workspace-1".to_string(), &payload)
@@ -1946,12 +2017,10 @@ mod tests {
         assert_eq!(stale.state, LifecycleOperationState::Stale);
         assert_eq!(
             stale.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Delete {
-                    step: None,
-                    error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
+                step: None,
+                error: Some(RunpodLifecycleError::AppInterrupted),
+            })
         );
     }
 
@@ -1993,12 +2062,10 @@ mod tests {
         assert_eq!(stale.state, LifecycleOperationState::Stale);
         assert_eq!(
             stale.payload,
-            LifecycleOperationPayload::ProvisionedRemote(
-                ProvisionedRemoteLifecycleOperationPayload::Provision {
-                    step: None,
-                    error: Some(ProvisionedRemoteLifecycleError::AppInterrupted),
-                }
-            )
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: None,
+                error: Some(RunpodLifecycleError::AppInterrupted),
+            })
         );
     }
 }

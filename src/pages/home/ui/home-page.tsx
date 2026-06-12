@@ -2,8 +2,7 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import type {
-  CreateWorkspaceRequest,
-  GetProviderPlacementOptionsRequest,
+  CreateRunpodWorkspaceRequest,
   WorkspaceIdRequest,
 } from "@/generated/commands";
 
@@ -56,16 +55,10 @@ const commandProbes: CommandProbe[] = [
     run: commands.getWorkflowCatalog,
   },
   {
-    id: "get-provider-placement-options",
-    label: "getProviderPlacementOptions",
-    inputType: "json",
-    initialInput: stringifyJson({
-      providerId: "runpod",
-    }),
-    run: async request =>
-      commands.getProviderPlacementOptions(
-        request as GetProviderPlacementOptionsRequest,
-      ),
+    id: "get-runpod-placement-options",
+    label: "getRunpodPlacementOptions",
+    inputType: "none",
+    run: commands.getRunpodPlacementOptions,
   },
   {
     id: "get-workspace-catalog",
@@ -126,13 +119,12 @@ const commandProbes: CommandProbe[] = [
     run: commands.deleteHuggingFaceApiKey,
   },
   {
-    id: "create-workspace",
-    label: "createWorkspace",
+    id: "create-runpod-workspace",
+    label: "createRunpodWorkspace",
     inputType: "json",
     initialInput: stringifyJson({
       workflowPresetId: "",
-      remotePlacement: {
-        gpuCloudProviderId: "runpod",
+      placement: {
         datacenterId: "",
         gpuId: "",
         volumeSizeGb: 0,
@@ -140,7 +132,7 @@ const commandProbes: CommandProbe[] = [
       },
     }),
     run: async request =>
-      commands.createWorkspace(request as CreateWorkspaceRequest),
+      commands.createRunpodWorkspace(request as CreateRunpodWorkspaceRequest),
   },
   {
     id: "provision-workspace",

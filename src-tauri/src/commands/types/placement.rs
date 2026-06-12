@@ -6,11 +6,9 @@ use crate::domain::provisioned_remote::{
     RunpodPlacementOptions, RunpodPlacementPlan,
 };
 
-use super::provider::GpuCloudProviderIdDto;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteGpuPlacementOptionResponse {
+pub struct RunpodGpuPlacementOptionResponse {
     pub id: String,
     pub name: String,
     pub vram_gb: u64,
@@ -19,22 +17,22 @@ pub struct RemoteGpuPlacementOptionResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteDatacenterPlacementOptionResponse {
+pub struct RunpodDatacenterPlacementOptionResponse {
     pub id: String,
     pub name: String,
-    pub gpu_options: Vec<RemoteGpuPlacementOptionResponse>,
+    pub gpu_options: Vec<RunpodGpuPlacementOptionResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemotePlacementOptionsResponse {
+pub struct RunpodPlacementOptionsResponse {
     pub max_network_volume_size_gb: Option<u64>,
-    pub datacenters: Vec<RemoteDatacenterPlacementOptionResponse>,
+    pub datacenters: Vec<RunpodDatacenterPlacementOptionResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteEndpointKeepAliveLimitsDto {
+pub struct RunpodEndpointKeepAliveLimitsDto {
     pub default_seconds: u32,
     pub min_seconds: u32,
     pub max_seconds: u32,
@@ -42,16 +40,15 @@ pub struct RemoteEndpointKeepAliveLimitsDto {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemotePlacementPlanInput {
-    pub gpu_cloud_provider_id: GpuCloudProviderIdDto,
+pub struct RunpodPlacementPlanInput {
     pub datacenter_id: String,
     pub gpu_id: String,
     pub volume_size_gb: u64,
-    pub keep_alive_limits: Option<RemoteEndpointKeepAliveLimitsDto>,
+    pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimitsDto>,
 }
 
-impl From<RemoteEndpointKeepAliveLimitsDto> for RunpodEndpointKeepAliveLimits {
-    fn from(value: RemoteEndpointKeepAliveLimitsDto) -> Self {
+impl From<RunpodEndpointKeepAliveLimitsDto> for RunpodEndpointKeepAliveLimits {
+    fn from(value: RunpodEndpointKeepAliveLimitsDto) -> Self {
         Self {
             default_seconds: value.default_seconds,
             min_seconds: value.min_seconds,
@@ -60,7 +57,7 @@ impl From<RemoteEndpointKeepAliveLimitsDto> for RunpodEndpointKeepAliveLimits {
     }
 }
 
-impl From<RunpodEndpointKeepAliveLimits> for RemoteEndpointKeepAliveLimitsDto {
+impl From<RunpodEndpointKeepAliveLimits> for RunpodEndpointKeepAliveLimitsDto {
     fn from(value: RunpodEndpointKeepAliveLimits) -> Self {
         Self {
             default_seconds: value.default_seconds,
@@ -70,8 +67,8 @@ impl From<RunpodEndpointKeepAliveLimits> for RemoteEndpointKeepAliveLimitsDto {
     }
 }
 
-impl From<RemotePlacementPlanInput> for RunpodPlacementPlan {
-    fn from(value: RemotePlacementPlanInput) -> Self {
+impl From<RunpodPlacementPlanInput> for RunpodPlacementPlan {
+    fn from(value: RunpodPlacementPlanInput) -> Self {
         Self {
             data_center_id: value.datacenter_id,
             gpu_type_id: value.gpu_id,
@@ -81,10 +78,9 @@ impl From<RemotePlacementPlanInput> for RunpodPlacementPlan {
     }
 }
 
-impl From<RunpodPlacementPlan> for RemotePlacementPlanInput {
+impl From<RunpodPlacementPlan> for RunpodPlacementPlanInput {
     fn from(value: RunpodPlacementPlan) -> Self {
         Self {
-            gpu_cloud_provider_id: GpuCloudProviderIdDto::Runpod,
             datacenter_id: value.data_center_id,
             gpu_id: value.gpu_type_id,
             volume_size_gb: value.volume_size_gb,
@@ -93,7 +89,7 @@ impl From<RunpodPlacementPlan> for RemotePlacementPlanInput {
     }
 }
 
-impl From<RunpodGpuPlacementOption> for RemoteGpuPlacementOptionResponse {
+impl From<RunpodGpuPlacementOption> for RunpodGpuPlacementOptionResponse {
     fn from(value: RunpodGpuPlacementOption) -> Self {
         Self {
             id: value.id,
@@ -104,7 +100,7 @@ impl From<RunpodGpuPlacementOption> for RemoteGpuPlacementOptionResponse {
     }
 }
 
-impl From<RunpodDatacenterPlacementOption> for RemoteDatacenterPlacementOptionResponse {
+impl From<RunpodDatacenterPlacementOption> for RunpodDatacenterPlacementOptionResponse {
     fn from(value: RunpodDatacenterPlacementOption) -> Self {
         Self {
             id: value.id,
@@ -114,7 +110,7 @@ impl From<RunpodDatacenterPlacementOption> for RemoteDatacenterPlacementOptionRe
     }
 }
 
-impl From<RunpodPlacementOptions> for RemotePlacementOptionsResponse {
+impl From<RunpodPlacementOptions> for RunpodPlacementOptionsResponse {
     fn from(value: RunpodPlacementOptions) -> Self {
         Self {
             max_network_volume_size_gb: value.max_network_volume_size_gb,
@@ -129,8 +125,7 @@ mod tests {
 
     #[test]
     fn placement_plan_input_uses_gb_domain_value() {
-        let plan = RunpodPlacementPlan::from(RemotePlacementPlanInput {
-            gpu_cloud_provider_id: GpuCloudProviderIdDto::Runpod,
+        let plan = RunpodPlacementPlan::from(RunpodPlacementPlanInput {
             datacenter_id: "dc".to_string(),
             gpu_id: "gpu".to_string(),
             volume_size_gb: 19,
@@ -142,8 +137,7 @@ mod tests {
 
     #[test]
     fn placement_plan_input_preserves_zero_volume_for_later_validation() {
-        let plan = RunpodPlacementPlan::from(RemotePlacementPlanInput {
-            gpu_cloud_provider_id: GpuCloudProviderIdDto::Runpod,
+        let plan = RunpodPlacementPlan::from(RunpodPlacementPlanInput {
             datacenter_id: "dc".to_string(),
             gpu_id: "gpu".to_string(),
             volume_size_gb: 0,
@@ -155,7 +149,7 @@ mod tests {
 
     #[test]
     fn placement_plan_response_uses_gb_volume_field() {
-        let input = RemotePlacementPlanInput::from(RunpodPlacementPlan {
+        let input = RunpodPlacementPlanInput::from(RunpodPlacementPlan {
             data_center_id: "dc".to_string(),
             gpu_type_id: "gpu".to_string(),
             volume_size_gb: 19,
@@ -167,7 +161,7 @@ mod tests {
 
     #[test]
     fn placement_options_response_uses_gb_fields() {
-        let response = RemotePlacementOptionsResponse::from(RunpodPlacementOptions {
+        let response = RunpodPlacementOptionsResponse::from(RunpodPlacementOptions {
             max_network_volume_size_gb: Some(4_000),
             datacenters: vec![RunpodDatacenterPlacementOption {
                 id: "dc".to_string(),

@@ -5,9 +5,8 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use crate::domain::{
     lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
     provisioned_remote::{
-        ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep, ProvisionedRemoteLifecycleError,
-        ProvisionedRemoteLifecycleOperationPayload, ProvisionedRemoteProvisionStep,
-        RunpodResources, RunpodRuntime,
+        RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError, RunpodLifecycleOperationPayload,
+        RunpodProvisionStep, RunpodResources, RunpodRuntime,
     },
     workflow_preset::WorkflowReference,
     workspace::{
@@ -16,7 +15,7 @@ use crate::domain::{
     },
 };
 
-use super::placement::RemotePlacementPlanInput;
+use super::placement::RunpodPlacementPlanInput;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -81,7 +80,7 @@ pub enum WorkspaceRuntimeResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RunpodWorkspaceResponse {
-    pub placement: RemotePlacementPlanInput,
+    pub placement: RunpodPlacementPlanInput,
     pub resources: RunpodResourcesResponse,
 }
 
@@ -101,9 +100,9 @@ pub struct WorkspaceIdRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateWorkspaceRequest {
+pub struct CreateRunpodWorkspaceRequest {
     pub workflow_preset_id: String,
-    pub remote_placement: RemotePlacementPlanInput,
+    pub placement: RunpodPlacementPlanInput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -163,68 +162,69 @@ pub enum LifecycleOperationStateResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "runtimeType", rename_all = "snake_case")]
 pub enum LifecycleOperationPayloadResponse {
-    ProvisionedRemote(ProvisionedRemoteLifecycleOperationPayloadResponse),
+    Runpod(RunpodLifecycleOperationPayloadResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "operation", rename_all = "snake_case")]
-pub enum ProvisionedRemoteLifecycleOperationPayloadResponse {
+pub enum RunpodLifecycleOperationPayloadResponse {
     Provision {
-        step: Option<ProvisionedRemoteProvisionStepResponse>,
-        error: Option<ProvisionedRemoteLifecycleErrorResponse>,
+        step: Option<RunpodProvisionStepResponse>,
+        error: Option<RunpodLifecycleErrorResponse>,
     },
     Cleanup {
-        step: Option<ProvisionedRemoteCleanupStepResponse>,
-        error: Option<ProvisionedRemoteLifecycleErrorResponse>,
+        step: Option<RunpodCleanupStepResponse>,
+        error: Option<RunpodLifecycleErrorResponse>,
     },
     Delete {
-        step: Option<ProvisionedRemoteDeleteStepResponse>,
-        error: Option<ProvisionedRemoteLifecycleErrorResponse>,
+        step: Option<RunpodDeleteStepResponse>,
+        error: Option<RunpodLifecycleErrorResponse>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteProvisionStepResponse {
-    CreateVolume,
-    StartProvisioner,
+pub enum RunpodProvisionStepResponse {
+    CreateNetworkVolume,
+    StartProvisionerPod,
     PollProvisioner,
-    TerminateProvisioner,
+    TerminateProvisionerPod,
     CreateTemplate,
     CreateEndpoint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteCleanupStepResponse {
+pub enum RunpodCleanupStepResponse {
     DeleteEndpoint,
     DeleteTemplate,
-    TerminateProvisioner,
-    DeleteVolume,
+    TerminateProvisionerPod,
+    DeleteNetworkVolume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteDeleteStepResponse {
+pub enum RunpodDeleteStepResponse {
     DeleteEndpoint,
     DeleteTemplate,
-    TerminateProvisioner,
-    DeleteVolume,
+    TerminateProvisionerPod,
+    DeleteNetworkVolume,
     DeleteLocalWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteLifecycleErrorResponse {
+pub enum RunpodLifecycleErrorResponse {
     AppInterrupted,
-    ProviderSecretUnavailable,
-    ProviderApiFailed,
+    RunpodSecretUnavailable,
+    RunpodApiFailed,
     ProvisionerUnavailable,
     ProvisionerResponseInvalid,
     ProvisionerFailed,
-    RemoteVolumeNotFound,
-    RemoteProvisionerNotFound,
-    RemoteEndpointNotFound,
+    NetworkVolumeNotFound,
+    ProvisionerPodNotFound,
+    EndpointNotFound,
+    TemplateNotFound,
     InvalidRuntimeState,
 }
 
@@ -401,29 +401,23 @@ impl From<LifecycleOperationState> for LifecycleOperationStateResponse {
 impl From<LifecycleOperationPayload> for LifecycleOperationPayloadResponse {
     fn from(value: LifecycleOperationPayload) -> Self {
         match value {
-            LifecycleOperationPayload::ProvisionedRemote(payload) => {
-                Self::ProvisionedRemote(payload.into())
-            }
+            LifecycleOperationPayload::Runpod(payload) => Self::Runpod(payload.into()),
         }
     }
 }
 
-impl From<ProvisionedRemoteLifecycleOperationPayload>
-    for ProvisionedRemoteLifecycleOperationPayloadResponse
-{
-    fn from(value: ProvisionedRemoteLifecycleOperationPayload) -> Self {
+impl From<RunpodLifecycleOperationPayload> for RunpodLifecycleOperationPayloadResponse {
+    fn from(value: RunpodLifecycleOperationPayload) -> Self {
         match value {
-            ProvisionedRemoteLifecycleOperationPayload::Provision { step, error } => {
-                Self::Provision {
-                    step: step.map(Into::into),
-                    error: error.map(Into::into),
-                }
-            }
-            ProvisionedRemoteLifecycleOperationPayload::Cleanup { step, error } => Self::Cleanup {
+            RunpodLifecycleOperationPayload::Provision { step, error } => Self::Provision {
                 step: step.map(Into::into),
                 error: error.map(Into::into),
             },
-            ProvisionedRemoteLifecycleOperationPayload::Delete { step, error } => Self::Delete {
+            RunpodLifecycleOperationPayload::Cleanup { step, error } => Self::Cleanup {
+                step: step.map(Into::into),
+                error: error.map(Into::into),
+            },
+            RunpodLifecycleOperationPayload::Delete { step, error } => Self::Delete {
                 step: step.map(Into::into),
                 error: error.map(Into::into),
             },
@@ -431,61 +425,56 @@ impl From<ProvisionedRemoteLifecycleOperationPayload>
     }
 }
 
-impl From<ProvisionedRemoteProvisionStep> for ProvisionedRemoteProvisionStepResponse {
-    fn from(value: ProvisionedRemoteProvisionStep) -> Self {
+impl From<RunpodProvisionStep> for RunpodProvisionStepResponse {
+    fn from(value: RunpodProvisionStep) -> Self {
         match value {
-            ProvisionedRemoteProvisionStep::CreateVolume => Self::CreateVolume,
-            ProvisionedRemoteProvisionStep::StartProvisioner => Self::StartProvisioner,
-            ProvisionedRemoteProvisionStep::PollProvisioner => Self::PollProvisioner,
-            ProvisionedRemoteProvisionStep::TerminateProvisioner => Self::TerminateProvisioner,
-            ProvisionedRemoteProvisionStep::CreateTemplate => Self::CreateTemplate,
-            ProvisionedRemoteProvisionStep::CreateEndpoint => Self::CreateEndpoint,
+            RunpodProvisionStep::CreateNetworkVolume => Self::CreateNetworkVolume,
+            RunpodProvisionStep::StartProvisionerPod => Self::StartProvisionerPod,
+            RunpodProvisionStep::PollProvisioner => Self::PollProvisioner,
+            RunpodProvisionStep::TerminateProvisionerPod => Self::TerminateProvisionerPod,
+            RunpodProvisionStep::CreateTemplate => Self::CreateTemplate,
+            RunpodProvisionStep::CreateEndpoint => Self::CreateEndpoint,
         }
     }
 }
 
-impl From<ProvisionedRemoteCleanupStep> for ProvisionedRemoteCleanupStepResponse {
-    fn from(value: ProvisionedRemoteCleanupStep) -> Self {
+impl From<RunpodCleanupStep> for RunpodCleanupStepResponse {
+    fn from(value: RunpodCleanupStep) -> Self {
         match value {
-            ProvisionedRemoteCleanupStep::DeleteEndpoint => Self::DeleteEndpoint,
-            ProvisionedRemoteCleanupStep::DeleteTemplate => Self::DeleteTemplate,
-            ProvisionedRemoteCleanupStep::TerminateProvisioner => Self::TerminateProvisioner,
-            ProvisionedRemoteCleanupStep::DeleteVolume => Self::DeleteVolume,
+            RunpodCleanupStep::DeleteEndpoint => Self::DeleteEndpoint,
+            RunpodCleanupStep::DeleteTemplate => Self::DeleteTemplate,
+            RunpodCleanupStep::TerminateProvisionerPod => Self::TerminateProvisionerPod,
+            RunpodCleanupStep::DeleteNetworkVolume => Self::DeleteNetworkVolume,
         }
     }
 }
 
-impl From<ProvisionedRemoteDeleteStep> for ProvisionedRemoteDeleteStepResponse {
-    fn from(value: ProvisionedRemoteDeleteStep) -> Self {
+impl From<RunpodDeleteStep> for RunpodDeleteStepResponse {
+    fn from(value: RunpodDeleteStep) -> Self {
         match value {
-            ProvisionedRemoteDeleteStep::DeleteEndpoint => Self::DeleteEndpoint,
-            ProvisionedRemoteDeleteStep::DeleteTemplate => Self::DeleteTemplate,
-            ProvisionedRemoteDeleteStep::TerminateProvisioner => Self::TerminateProvisioner,
-            ProvisionedRemoteDeleteStep::DeleteVolume => Self::DeleteVolume,
-            ProvisionedRemoteDeleteStep::DeleteLocalWorkspace => Self::DeleteLocalWorkspace,
+            RunpodDeleteStep::DeleteEndpoint => Self::DeleteEndpoint,
+            RunpodDeleteStep::DeleteTemplate => Self::DeleteTemplate,
+            RunpodDeleteStep::TerminateProvisionerPod => Self::TerminateProvisionerPod,
+            RunpodDeleteStep::DeleteNetworkVolume => Self::DeleteNetworkVolume,
+            RunpodDeleteStep::DeleteLocalWorkspace => Self::DeleteLocalWorkspace,
         }
     }
 }
 
-impl From<ProvisionedRemoteLifecycleError> for ProvisionedRemoteLifecycleErrorResponse {
-    fn from(value: ProvisionedRemoteLifecycleError) -> Self {
+impl From<RunpodLifecycleError> for RunpodLifecycleErrorResponse {
+    fn from(value: RunpodLifecycleError) -> Self {
         match value {
-            ProvisionedRemoteLifecycleError::AppInterrupted => Self::AppInterrupted,
-            ProvisionedRemoteLifecycleError::ProviderSecretUnavailable => {
-                Self::ProviderSecretUnavailable
-            }
-            ProvisionedRemoteLifecycleError::ProviderApiFailed { .. } => Self::ProviderApiFailed,
-            ProvisionedRemoteLifecycleError::ProvisionerUnavailable => Self::ProvisionerUnavailable,
-            ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid => {
-                Self::ProvisionerResponseInvalid
-            }
-            ProvisionedRemoteLifecycleError::ProvisionerFailed => Self::ProvisionerFailed,
-            ProvisionedRemoteLifecycleError::RemoteVolumeNotFound => Self::RemoteVolumeNotFound,
-            ProvisionedRemoteLifecycleError::RemoteProvisionerNotFound => {
-                Self::RemoteProvisionerNotFound
-            }
-            ProvisionedRemoteLifecycleError::RemoteEndpointNotFound => Self::RemoteEndpointNotFound,
-            ProvisionedRemoteLifecycleError::InvalidRuntimeState => Self::InvalidRuntimeState,
+            RunpodLifecycleError::AppInterrupted => Self::AppInterrupted,
+            RunpodLifecycleError::RunpodSecretUnavailable => Self::RunpodSecretUnavailable,
+            RunpodLifecycleError::RunpodApiFailed { .. } => Self::RunpodApiFailed,
+            RunpodLifecycleError::ProvisionerUnavailable => Self::ProvisionerUnavailable,
+            RunpodLifecycleError::ProvisionerResponseInvalid => Self::ProvisionerResponseInvalid,
+            RunpodLifecycleError::ProvisionerFailed => Self::ProvisionerFailed,
+            RunpodLifecycleError::NetworkVolumeNotFound => Self::NetworkVolumeNotFound,
+            RunpodLifecycleError::ProvisionerPodNotFound => Self::ProvisionerPodNotFound,
+            RunpodLifecycleError::EndpointNotFound => Self::EndpointNotFound,
+            RunpodLifecycleError::TemplateNotFound => Self::TemplateNotFound,
+            RunpodLifecycleError::InvalidRuntimeState => Self::InvalidRuntimeState,
         }
     }
 }
@@ -499,19 +488,17 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateWorkspaceRequest, LifecycleOperationPayloadResponse,
-        ProvisionedRemoteCleanupStepResponse, ProvisionedRemoteDeleteStepResponse,
-        ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
-        RunpodResourcesResponse, RunpodWorkspaceResponse, WorkspaceRuntimeResponse,
+        CreateRunpodWorkspaceRequest, LifecycleOperationPayloadResponse, RunpodCleanupStepResponse,
+        RunpodDeleteStepResponse, RunpodLifecycleOperationPayloadResponse,
+        RunpodProvisionStepResponse, RunpodResourcesResponse, RunpodWorkspaceResponse,
+        WorkspaceRuntimeResponse,
     };
 
     #[test]
-    fn create_workspace_request_serializes_workflow_preset_id_only() {
-        let request = CreateWorkspaceRequest {
+    fn create_runpod_workspace_request_serializes_workflow_preset_id_only() {
+        let request = CreateRunpodWorkspaceRequest {
             workflow_preset_id: "preset".to_string(),
-            remote_placement: crate::commands::types::placement::RemotePlacementPlanInput {
-                gpu_cloud_provider_id:
-                    crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
+            placement: crate::commands::types::placement::RunpodPlacementPlanInput {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 volume_size_gb: 1,
@@ -529,9 +516,7 @@ mod tests {
     #[test]
     fn workspace_runtime_response_serializes_runpod_variant() {
         let response = WorkspaceRuntimeResponse::Runpod(RunpodWorkspaceResponse {
-            placement: crate::commands::types::placement::RemotePlacementPlanInput {
-                gpu_cloud_provider_id:
-                    crate::commands::types::provider::GpuCloudProviderIdDto::Runpod,
+            placement: crate::commands::types::placement::RunpodPlacementPlanInput {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 volume_size_gb: 1,
@@ -547,7 +532,7 @@ mod tests {
         let json = serde_json::to_value(&response).expect("runtime json");
 
         assert_eq!(json["runtimeType"], "runpod");
-        assert_eq!(json["placement"]["gpuCloudProviderId"], "runpod");
+        assert!(json["placement"].get("gpuCloudProviderId").is_none());
         assert_eq!(json["resources"]["endpointId"], "endpoint");
         assert!(json["resources"].get("endpoint").is_none());
         assert_eq!(
@@ -566,25 +551,25 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_provision_payload_step() {
-        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayloadResponse::Provision {
-                step: Some(ProvisionedRemoteProvisionStepResponse::CreateVolume),
+        let response = LifecycleOperationPayloadResponse::Runpod(
+            RunpodLifecycleOperationPayloadResponse::Provision {
+                step: Some(RunpodProvisionStepResponse::CreateNetworkVolume),
                 error: None,
             },
         );
 
         let json = serde_json::to_string(&response).expect("payload json");
 
-        assert!(json.contains(r#""runtimeType":"provisioned_remote""#));
+        assert!(json.contains(r#""runtimeType":"runpod""#));
         assert!(json.contains(r#""operation":"provision""#));
-        assert!(json.contains(r#""step":"create_volume""#));
+        assert!(json.contains(r#""step":"create_network_volume""#));
     }
 
     #[test]
     fn lifecycle_operation_response_serializes_create_template_step() {
-        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayloadResponse::Provision {
-                step: Some(ProvisionedRemoteProvisionStepResponse::CreateTemplate),
+        let response = LifecycleOperationPayloadResponse::Runpod(
+            RunpodLifecycleOperationPayloadResponse::Provision {
+                step: Some(RunpodProvisionStepResponse::CreateTemplate),
                 error: None,
             },
         );
@@ -596,9 +581,9 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_cleanup_delete_template_step() {
-        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayloadResponse::Cleanup {
-                step: Some(ProvisionedRemoteCleanupStepResponse::DeleteTemplate),
+        let response = LifecycleOperationPayloadResponse::Runpod(
+            RunpodLifecycleOperationPayloadResponse::Cleanup {
+                step: Some(RunpodCleanupStepResponse::DeleteTemplate),
                 error: None,
             },
         );
@@ -611,9 +596,9 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_delete_delete_template_step() {
-        let response = LifecycleOperationPayloadResponse::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayloadResponse::Delete {
-                step: Some(ProvisionedRemoteDeleteStepResponse::DeleteTemplate),
+        let response = LifecycleOperationPayloadResponse::Runpod(
+            RunpodLifecycleOperationPayloadResponse::Delete {
+                step: Some(RunpodDeleteStepResponse::DeleteTemplate),
                 error: None,
             },
         );

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
-        provisioned_remote::{ProvisionedRemoteCleanupStep, ProvisionedRemoteLifecycleError},
+        provisioned_remote::{RunpodCleanupStep, RunpodLifecycleError},
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
@@ -44,14 +44,14 @@ where
                 event_sink,
                 &operation,
                 LifecycleOperationState::Failed,
-                ProvisionedRemoteCleanupStep::DeleteEndpoint,
-                Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                RunpodCleanupStep::DeleteEndpoint,
+                Some(RunpodLifecycleError::InvalidRuntimeState),
             )
             .await?;
             return Ok(());
         }
     };
-    let mut failed_step = ProvisionedRemoteCleanupStep::DeleteEndpoint;
+    let mut failed_step = RunpodCleanupStep::DeleteEndpoint;
 
     let result = async {
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
@@ -61,7 +61,7 @@ where
             Some(runpod_client)
         };
         if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
-            failed_step = ProvisionedRemoteCleanupStep::DeleteEndpoint;
+            failed_step = RunpodCleanupStep::DeleteEndpoint;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -75,7 +75,7 @@ where
                 .delete_serverless_endpoint(&endpoint_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::EndpointNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.endpoint_id = None;
                     workspace =
@@ -87,7 +87,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(template_id) = runtime.resources.template_id.clone() {
-            failed_step = ProvisionedRemoteCleanupStep::DeleteTemplate;
+            failed_step = RunpodCleanupStep::DeleteTemplate;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -101,7 +101,7 @@ where
                 .delete_template(&template_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::TemplateNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.template_id = None;
                     workspace =
@@ -113,7 +113,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(provisioner_id) = runtime.resources.provisioner_pod_id.clone() {
-            failed_step = ProvisionedRemoteCleanupStep::TerminateProvisioner;
+            failed_step = RunpodCleanupStep::TerminateProvisionerPod;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -127,7 +127,7 @@ where
                 .terminate_provisioner_pod(&provisioner_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteProvisionerNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::ProvisionerPodNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.provisioner_pod_id = None;
                     workspace =
@@ -139,7 +139,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(volume_id) = runtime.resources.network_volume_id.clone() {
-            failed_step = ProvisionedRemoteCleanupStep::DeleteVolume;
+            failed_step = RunpodCleanupStep::DeleteNetworkVolume;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -153,7 +153,7 @@ where
                 .delete_network_volume(&volume_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteVolumeNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::NetworkVolumeNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.network_volume_id = None;
                     workspace =
@@ -209,42 +209,33 @@ where
     Ok(())
 }
 
-pub(super) fn lifecycle_error_for(
-    error: &ProvisionedRemoteError,
-) -> ProvisionedRemoteLifecycleError {
+pub(super) fn lifecycle_error_for(error: &ProvisionedRemoteError) -> RunpodLifecycleError {
     match error {
-        ProvisionedRemoteError::ProviderSecretUnavailable => {
-            ProvisionedRemoteLifecycleError::ProviderSecretUnavailable
+        ProvisionedRemoteError::RunpodSecretUnavailable => {
+            RunpodLifecycleError::RunpodSecretUnavailable
         }
-        ProvisionedRemoteError::ProviderApiFailed(reason) => {
-            ProvisionedRemoteLifecycleError::ProviderApiFailed {
-                reason: reason.clone(),
-            }
-        }
+        ProvisionedRemoteError::RunpodApiFailed(reason) => RunpodLifecycleError::RunpodApiFailed {
+            reason: reason.clone(),
+        },
         ProvisionedRemoteError::ProvisionerUnavailable => {
-            ProvisionedRemoteLifecycleError::ProvisionerUnavailable
+            RunpodLifecycleError::ProvisionerUnavailable
         }
         ProvisionedRemoteError::ProvisionerResponseInvalid => {
-            ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid
+            RunpodLifecycleError::ProvisionerResponseInvalid
         }
-        ProvisionedRemoteError::ProvisionerFailed => {
-            ProvisionedRemoteLifecycleError::ProvisionerFailed
+        ProvisionedRemoteError::ProvisionerFailed => RunpodLifecycleError::ProvisionerFailed,
+        ProvisionedRemoteError::NetworkVolumeNotFound => {
+            RunpodLifecycleError::NetworkVolumeNotFound
         }
-        ProvisionedRemoteError::RemoteVolumeNotFound => {
-            ProvisionedRemoteLifecycleError::RemoteVolumeNotFound
+        ProvisionedRemoteError::ProvisionerPodNotFound => {
+            RunpodLifecycleError::ProvisionerPodNotFound
         }
-        ProvisionedRemoteError::RemoteProvisionerNotFound => {
-            ProvisionedRemoteLifecycleError::RemoteProvisionerNotFound
-        }
-        ProvisionedRemoteError::RemoteEndpointNotFound => {
-            ProvisionedRemoteLifecycleError::RemoteEndpointNotFound
-        }
+        ProvisionedRemoteError::EndpointNotFound => RunpodLifecycleError::EndpointNotFound,
+        ProvisionedRemoteError::TemplateNotFound => RunpodLifecycleError::TemplateNotFound,
         ProvisionedRemoteError::InvalidRuntimeState
         | ProvisionedRemoteError::WorkspaceNotFound
         | ProvisionedRemoteError::WorkspaceAlreadyExists
         | ProvisionedRemoteError::LifecycleOperationAlreadyRunning { .. }
-        | ProvisionedRemoteError::StorageUnavailable => {
-            ProvisionedRemoteLifecycleError::InvalidRuntimeState
-        }
+        | ProvisionedRemoteError::StorageUnavailable => RunpodLifecycleError::InvalidRuntimeState,
     }
 }

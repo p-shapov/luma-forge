@@ -6,9 +6,7 @@ pub fn encode_payload(
     payload: &LifecycleOperationPayload,
 ) -> Result<String, LifecycleJournalError> {
     match payload {
-        LifecycleOperationPayload::ProvisionedRemote(payload) => {
-            payloads::provisioned_remote::encode(payload)
-        }
+        LifecycleOperationPayload::Runpod(payload) => payloads::runpod::encode(payload),
     }
 }
 
@@ -23,9 +21,7 @@ pub fn decode_payload(
         .ok_or(LifecycleJournalError::Corrupt)?;
 
     match runtime_type {
-        payloads::provisioned_remote::RUNTIME_TYPE => {
-            payloads::provisioned_remote::decode(payload_json)
-        }
+        payloads::runpod::RUNTIME_TYPE => payloads::runpod::decode(payload_json),
         _ => Err(LifecycleJournalError::Corrupt),
     }
 }

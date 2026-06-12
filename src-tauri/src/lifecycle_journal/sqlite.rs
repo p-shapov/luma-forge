@@ -436,11 +436,10 @@ pub mod tests {
     use crate::{
         domain::{
             lifecycle_operation::{
-                LifecycleOperationPayload, LifecycleOperationState,
-                ProvisionedRemoteLifecycleOperationPayload,
+                LifecycleOperationPayload, LifecycleOperationState, RunpodLifecycleOperationPayload,
             },
             provisioned_remote::ProviderApiError,
-            provisioned_remote::{ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep},
+            provisioned_remote::{RunpodLifecycleError, RunpodProvisionStep},
         },
         lifecycle_journal::schema,
     };
@@ -470,12 +469,13 @@ pub mod tests {
     }
 
     fn provision_payload(
-        step: Option<ProvisionedRemoteProvisionStep>,
-        error: Option<ProvisionedRemoteLifecycleError>,
+        step: Option<RunpodProvisionStep>,
+        error: Option<RunpodLifecycleError>,
     ) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision { step, error },
-        )
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+            step,
+            error,
+        })
     }
 
     #[tokio::test]
@@ -647,8 +647,8 @@ pub mod tests {
         let repository = repository("mark-state").await;
         let initial_payload = provision_payload(None, None);
         let finished_payload = provision_payload(
-            Some(ProvisionedRemoteProvisionStep::CreateVolume),
-            Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+            Some(RunpodProvisionStep::CreateNetworkVolume),
+            Some(RunpodLifecycleError::RunpodApiFailed {
                 reason: ProviderApiError::RateLimited,
             }),
         );
@@ -860,11 +860,11 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn payload_round_trip_preserves_provisioned_remote_kind_step_and_error_detail() {
+    async fn payload_round_trip_preserves_runpod_kind_step_and_error_detail() {
         let repository = repository("payload-round-trip").await;
         let payload = provision_payload(
-            Some(ProvisionedRemoteProvisionStep::PollProvisioner),
-            Some(ProvisionedRemoteLifecycleError::ProviderApiFailed {
+            Some(RunpodProvisionStep::PollProvisioner),
+            Some(RunpodLifecycleError::RunpodApiFailed {
                 reason: ProviderApiError::Timeout,
             }),
         );

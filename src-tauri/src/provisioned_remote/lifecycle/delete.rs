@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
-        provisioned_remote::{ProvisionedRemoteDeleteStep, ProvisionedRemoteLifecycleError},
+        provisioned_remote::{RunpodDeleteStep, RunpodLifecycleError},
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
             WorkspaceState,
@@ -50,7 +50,7 @@ where
                 event_sink,
                 &operation,
                 LifecycleOperationState::Completed,
-                ProvisionedRemoteDeleteStep::DeleteLocalWorkspace,
+                RunpodDeleteStep::DeleteLocalWorkspace,
                 None,
             )
             .await?;
@@ -66,14 +66,14 @@ where
                 event_sink,
                 &operation,
                 LifecycleOperationState::Failed,
-                ProvisionedRemoteDeleteStep::DeleteEndpoint,
-                Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                RunpodDeleteStep::DeleteEndpoint,
+                Some(RunpodLifecycleError::InvalidRuntimeState),
             )
             .await?;
             return Ok(None);
         }
     };
-    let mut failed_step = ProvisionedRemoteDeleteStep::DeleteEndpoint;
+    let mut failed_step = RunpodDeleteStep::DeleteEndpoint;
 
     let result = async {
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
@@ -83,7 +83,7 @@ where
             Some(runpod_client)
         };
         if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
-            failed_step = ProvisionedRemoteDeleteStep::DeleteEndpoint;
+            failed_step = RunpodDeleteStep::DeleteEndpoint;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -97,7 +97,7 @@ where
                 .delete_serverless_endpoint(&endpoint_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::EndpointNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.endpoint_id = None;
                     workspace =
@@ -109,7 +109,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(template_id) = runtime.resources.template_id.clone() {
-            failed_step = ProvisionedRemoteDeleteStep::DeleteTemplate;
+            failed_step = RunpodDeleteStep::DeleteTemplate;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -123,7 +123,7 @@ where
                 .delete_template(&template_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::TemplateNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.template_id = None;
                     workspace =
@@ -135,7 +135,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(provisioner_id) = runtime.resources.provisioner_pod_id.clone() {
-            failed_step = ProvisionedRemoteDeleteStep::TerminateProvisioner;
+            failed_step = RunpodDeleteStep::TerminateProvisionerPod;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -149,7 +149,7 @@ where
                 .terminate_provisioner_pod(&provisioner_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteProvisionerNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::ProvisionerPodNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.provisioner_pod_id = None;
                     workspace =
@@ -161,7 +161,7 @@ where
 
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         if let Some(volume_id) = runtime.resources.network_volume_id.clone() {
-            failed_step = ProvisionedRemoteDeleteStep::DeleteVolume;
+            failed_step = RunpodDeleteStep::DeleteNetworkVolume;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
@@ -175,7 +175,7 @@ where
                 .delete_network_volume(&volume_id)
                 .await
             {
-                Ok(()) | Err(ProvisionedRemoteError::RemoteVolumeNotFound) => {
+                Ok(()) | Err(ProvisionedRemoteError::NetworkVolumeNotFound) => {
                     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
                     runtime.resources.network_volume_id = None;
                     workspace =
@@ -185,7 +185,7 @@ where
             }
         }
 
-        failed_step = ProvisionedRemoteDeleteStep::DeleteLocalWorkspace;
+        failed_step = RunpodDeleteStep::DeleteLocalWorkspace;
         mark_running_step(
             lifecycle_journal,
             event_sink,

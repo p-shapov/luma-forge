@@ -1,5 +1,5 @@
 use crate::domain::{
-    provisioned_remote::ProviderApiError, provisioned_remote::ProvisionedRemoteLifecycleError,
+    provisioned_remote::ProviderApiError, provisioned_remote::RunpodLifecycleError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7,45 +7,39 @@ pub enum ProvisionedRemoteError {
     WorkspaceNotFound,
     WorkspaceAlreadyExists,
     LifecycleOperationAlreadyRunning { workspace_id: String },
-    ProviderSecretUnavailable,
-    ProviderApiFailed(ProviderApiError),
+    RunpodSecretUnavailable,
+    RunpodApiFailed(ProviderApiError),
     ProvisionerUnavailable,
     ProvisionerResponseInvalid,
     ProvisionerFailed,
-    RemoteVolumeNotFound,
-    RemoteProvisionerNotFound,
-    RemoteEndpointNotFound,
+    NetworkVolumeNotFound,
+    ProvisionerPodNotFound,
+    EndpointNotFound,
+    TemplateNotFound,
     InvalidRuntimeState,
     StorageUnavailable,
 }
 
 impl From<ProviderApiError> for ProvisionedRemoteError {
     fn from(error: ProviderApiError) -> Self {
-        Self::ProviderApiFailed(error)
+        Self::RunpodApiFailed(error)
     }
 }
 
-impl From<ProvisionedRemoteLifecycleError> for ProvisionedRemoteError {
-    fn from(error: ProvisionedRemoteLifecycleError) -> Self {
+impl From<RunpodLifecycleError> for ProvisionedRemoteError {
+    fn from(error: RunpodLifecycleError) -> Self {
         match error {
-            ProvisionedRemoteLifecycleError::AppInterrupted => Self::InvalidRuntimeState,
-            ProvisionedRemoteLifecycleError::ProviderSecretUnavailable => {
-                Self::ProviderSecretUnavailable
-            }
-            ProvisionedRemoteLifecycleError::ProviderApiFailed { reason } => {
-                Self::ProviderApiFailed(reason)
-            }
-            ProvisionedRemoteLifecycleError::ProvisionerUnavailable => Self::ProvisionerUnavailable,
-            ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid => {
-                Self::ProvisionerResponseInvalid
-            }
-            ProvisionedRemoteLifecycleError::ProvisionerFailed => Self::ProvisionerFailed,
-            ProvisionedRemoteLifecycleError::RemoteVolumeNotFound => Self::RemoteVolumeNotFound,
-            ProvisionedRemoteLifecycleError::RemoteProvisionerNotFound => {
-                Self::RemoteProvisionerNotFound
-            }
-            ProvisionedRemoteLifecycleError::RemoteEndpointNotFound => Self::RemoteEndpointNotFound,
-            ProvisionedRemoteLifecycleError::InvalidRuntimeState => Self::InvalidRuntimeState,
+            RunpodLifecycleError::AppInterrupted => Self::InvalidRuntimeState,
+            RunpodLifecycleError::RunpodSecretUnavailable => Self::RunpodSecretUnavailable,
+            RunpodLifecycleError::RunpodApiFailed { reason } => Self::RunpodApiFailed(reason),
+            RunpodLifecycleError::ProvisionerUnavailable => Self::ProvisionerUnavailable,
+            RunpodLifecycleError::ProvisionerResponseInvalid => Self::ProvisionerResponseInvalid,
+            RunpodLifecycleError::ProvisionerFailed => Self::ProvisionerFailed,
+            RunpodLifecycleError::NetworkVolumeNotFound => Self::NetworkVolumeNotFound,
+            RunpodLifecycleError::ProvisionerPodNotFound => Self::ProvisionerPodNotFound,
+            RunpodLifecycleError::EndpointNotFound => Self::EndpointNotFound,
+            RunpodLifecycleError::TemplateNotFound => Self::TemplateNotFound,
+            RunpodLifecycleError::InvalidRuntimeState => Self::InvalidRuntimeState,
         }
     }
 }

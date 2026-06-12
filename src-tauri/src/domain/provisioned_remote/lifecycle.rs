@@ -14,62 +14,63 @@ pub enum ProvisionedRemoteProvisionerStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteLifecycleError {
+pub enum RunpodLifecycleError {
     AppInterrupted,
-    ProviderSecretUnavailable,
-    ProviderApiFailed { reason: ProviderApiError },
+    RunpodSecretUnavailable,
+    RunpodApiFailed { reason: ProviderApiError },
     ProvisionerUnavailable,
     ProvisionerResponseInvalid,
     ProvisionerFailed,
-    RemoteVolumeNotFound,
-    RemoteProvisionerNotFound,
-    RemoteEndpointNotFound,
+    NetworkVolumeNotFound,
+    ProvisionerPodNotFound,
+    EndpointNotFound,
+    TemplateNotFound,
     InvalidRuntimeState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteProvisionStep {
-    CreateVolume,
-    StartProvisioner,
+pub enum RunpodProvisionStep {
+    CreateNetworkVolume,
+    StartProvisionerPod,
     PollProvisioner,
-    TerminateProvisioner,
+    TerminateProvisionerPod,
     CreateTemplate,
     CreateEndpoint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteCleanupStep {
+pub enum RunpodCleanupStep {
     DeleteEndpoint,
     DeleteTemplate,
-    TerminateProvisioner,
-    DeleteVolume,
+    TerminateProvisionerPod,
+    DeleteNetworkVolume,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ProvisionedRemoteDeleteStep {
+pub enum RunpodDeleteStep {
     DeleteEndpoint,
     DeleteTemplate,
-    TerminateProvisioner,
-    DeleteVolume,
+    TerminateProvisionerPod,
+    DeleteNetworkVolume,
     DeleteLocalWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
-pub enum ProvisionedRemoteLifecycleOperationPayload {
+pub enum RunpodLifecycleOperationPayload {
     Provision {
-        step: Option<ProvisionedRemoteProvisionStep>,
-        error: Option<ProvisionedRemoteLifecycleError>,
+        step: Option<RunpodProvisionStep>,
+        error: Option<RunpodLifecycleError>,
     },
     Cleanup {
-        step: Option<ProvisionedRemoteCleanupStep>,
-        error: Option<ProvisionedRemoteLifecycleError>,
+        step: Option<RunpodCleanupStep>,
+        error: Option<RunpodLifecycleError>,
     },
     Delete {
-        step: Option<ProvisionedRemoteDeleteStep>,
-        error: Option<ProvisionedRemoteLifecycleError>,
+        step: Option<RunpodDeleteStep>,
+        error: Option<RunpodLifecycleError>,
     },
 }

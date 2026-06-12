@@ -4,8 +4,7 @@ use crate::{
     app::state::AppState,
     commands::{
         types::{
-            catalog::{GetProviderPlacementOptionsRequest, WorkflowCatalogResponse},
-            placement::RemotePlacementOptionsResponse,
+            catalog::WorkflowCatalogResponse, placement::RunpodPlacementOptionsResponse,
             workspace::WorkspaceCatalogResponse,
         },
         CommandResult,
@@ -22,10 +21,9 @@ pub fn get_workflow_catalog(state: State<'_, AppState>) -> CommandResult<Workflo
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_provider_placement_options(
+pub async fn get_runpod_placement_options(
     state: State<'_, AppState>,
-    _request: GetProviderPlacementOptionsRequest,
-) -> CommandResult<RemotePlacementOptionsResponse> {
+) -> CommandResult<RunpodPlacementOptionsResponse> {
     let options = state.runpod_runtime.get_runpod_placement_options().await?;
 
     Ok(options.into())

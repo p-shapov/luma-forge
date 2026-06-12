@@ -4,8 +4,7 @@ use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
         provisioned_remote::{
-            ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep,
-            ProvisionedRemoteProvisionerStatus,
+            ProvisionedRemoteProvisionerStatus, RunpodLifecycleError, RunpodProvisionStep,
         },
         workspace::{
             WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
@@ -59,17 +58,17 @@ where
                 event_sink,
                 &operation,
                 LifecycleOperationState::Failed,
-                ProvisionedRemoteProvisionStep::CreateVolume,
-                Some(ProvisionedRemoteLifecycleError::InvalidRuntimeState),
+                RunpodProvisionStep::CreateNetworkVolume,
+                Some(RunpodLifecycleError::InvalidRuntimeState),
             )
             .await?;
             return Ok(());
         }
     };
 
-    let mut failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
+    let mut failed_step = RunpodProvisionStep::CreateNetworkVolume;
     let result = async {
-        failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
+        failed_step = RunpodProvisionStep::CreateNetworkVolume;
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         let runtime_state = runtime.clone();
         let workflow_catalog = workflow_catalog
@@ -85,7 +84,7 @@ where
             lifecycle_journal,
             event_sink,
             &operation,
-            ProvisionedRemoteProvisionStep::CreateVolume,
+            RunpodProvisionStep::CreateNetworkVolume,
             None,
         )
         .await?;
@@ -100,12 +99,12 @@ where
         runtime.resources.network_volume_id = Some(volume_id.clone());
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
-        failed_step = ProvisionedRemoteProvisionStep::StartProvisioner;
+        failed_step = RunpodProvisionStep::StartProvisionerPod;
         mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
-            ProvisionedRemoteProvisionStep::StartProvisioner,
+            RunpodProvisionStep::StartProvisionerPod,
             None,
         )
         .await?;
@@ -128,12 +127,12 @@ where
         let mut has_seen_initial_status = false;
         let mut startup_probe_attempts = 0u32;
         loop {
-            failed_step = ProvisionedRemoteProvisionStep::PollProvisioner;
+            failed_step = RunpodProvisionStep::PollProvisioner;
             mark_running_step(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                ProvisionedRemoteProvisionStep::PollProvisioner,
+                RunpodProvisionStep::PollProvisioner,
                 None,
             )
             .await?;
@@ -172,12 +171,12 @@ where
             }
         }
 
-        failed_step = ProvisionedRemoteProvisionStep::TerminateProvisioner;
+        failed_step = RunpodProvisionStep::TerminateProvisionerPod;
         mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
-            ProvisionedRemoteProvisionStep::TerminateProvisioner,
+            RunpodProvisionStep::TerminateProvisionerPod,
             None,
         )
         .await?;
@@ -190,12 +189,12 @@ where
             return Err(ProvisionedRemoteError::ProvisionerFailed);
         }
 
-        failed_step = ProvisionedRemoteProvisionStep::CreateTemplate;
+        failed_step = RunpodProvisionStep::CreateTemplate;
         mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
-            ProvisionedRemoteProvisionStep::CreateTemplate,
+            RunpodProvisionStep::CreateTemplate,
             None,
         )
         .await?;
@@ -208,12 +207,12 @@ where
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.template_id = Some(template_id.clone());
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
-        failed_step = ProvisionedRemoteProvisionStep::CreateEndpoint;
+        failed_step = RunpodProvisionStep::CreateEndpoint;
         mark_running_step(
             lifecycle_journal,
             event_sink,
             &operation,
-            ProvisionedRemoteProvisionStep::CreateEndpoint,
+            RunpodProvisionStep::CreateEndpoint,
             None,
         )
         .await?;
@@ -255,7 +254,7 @@ where
                 event_sink,
                 &operation,
                 LifecycleOperationState::Completed,
-                ProvisionedRemoteProvisionStep::CreateEndpoint,
+                RunpodProvisionStep::CreateEndpoint,
                 None,
             )
             .await?;
@@ -288,40 +287,33 @@ where
     Ok(())
 }
 
-fn lifecycle_error_for(error: &ProvisionedRemoteError) -> ProvisionedRemoteLifecycleError {
+fn lifecycle_error_for(error: &ProvisionedRemoteError) -> RunpodLifecycleError {
     match error {
-        ProvisionedRemoteError::ProviderSecretUnavailable => {
-            ProvisionedRemoteLifecycleError::ProviderSecretUnavailable
+        ProvisionedRemoteError::RunpodSecretUnavailable => {
+            RunpodLifecycleError::RunpodSecretUnavailable
         }
-        ProvisionedRemoteError::ProviderApiFailed(reason) => {
-            ProvisionedRemoteLifecycleError::ProviderApiFailed {
-                reason: reason.clone(),
-            }
-        }
+        ProvisionedRemoteError::RunpodApiFailed(reason) => RunpodLifecycleError::RunpodApiFailed {
+            reason: reason.clone(),
+        },
         ProvisionedRemoteError::ProvisionerUnavailable => {
-            ProvisionedRemoteLifecycleError::ProvisionerUnavailable
+            RunpodLifecycleError::ProvisionerUnavailable
         }
         ProvisionedRemoteError::ProvisionerResponseInvalid => {
-            ProvisionedRemoteLifecycleError::ProvisionerResponseInvalid
+            RunpodLifecycleError::ProvisionerResponseInvalid
         }
-        ProvisionedRemoteError::ProvisionerFailed => {
-            ProvisionedRemoteLifecycleError::ProvisionerFailed
+        ProvisionedRemoteError::ProvisionerFailed => RunpodLifecycleError::ProvisionerFailed,
+        ProvisionedRemoteError::NetworkVolumeNotFound => {
+            RunpodLifecycleError::NetworkVolumeNotFound
         }
-        ProvisionedRemoteError::RemoteVolumeNotFound => {
-            ProvisionedRemoteLifecycleError::RemoteVolumeNotFound
+        ProvisionedRemoteError::ProvisionerPodNotFound => {
+            RunpodLifecycleError::ProvisionerPodNotFound
         }
-        ProvisionedRemoteError::RemoteProvisionerNotFound => {
-            ProvisionedRemoteLifecycleError::RemoteProvisionerNotFound
-        }
-        ProvisionedRemoteError::RemoteEndpointNotFound => {
-            ProvisionedRemoteLifecycleError::RemoteEndpointNotFound
-        }
+        ProvisionedRemoteError::EndpointNotFound => RunpodLifecycleError::EndpointNotFound,
+        ProvisionedRemoteError::TemplateNotFound => RunpodLifecycleError::TemplateNotFound,
         ProvisionedRemoteError::InvalidRuntimeState
         | ProvisionedRemoteError::WorkspaceNotFound
         | ProvisionedRemoteError::WorkspaceAlreadyExists
         | ProvisionedRemoteError::LifecycleOperationAlreadyRunning { .. }
-        | ProvisionedRemoteError::StorageUnavailable => {
-            ProvisionedRemoteLifecycleError::InvalidRuntimeState
-        }
+        | ProvisionedRemoteError::StorageUnavailable => RunpodLifecycleError::InvalidRuntimeState,
     }
 }

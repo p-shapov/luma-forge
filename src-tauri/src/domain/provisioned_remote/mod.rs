@@ -4,9 +4,8 @@ pub mod provider;
 pub mod runtime;
 
 pub use lifecycle::{
-    ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep, ProvisionedRemoteLifecycleError,
-    ProvisionedRemoteLifecycleOperationPayload, ProvisionedRemoteProvisionStep,
-    ProvisionedRemoteProvisionerStatus,
+    ProvisionedRemoteProvisionerStatus, RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
+    RunpodLifecycleOperationPayload, RunpodProvisionStep,
 };
 pub use placement::{
     RunpodDatacenterPlacementOption, RunpodEndpointKeepAliveLimits, RunpodGpuPlacementOption,

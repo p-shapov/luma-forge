@@ -24,8 +24,7 @@ pub enum NativeCommandErrorCode {
     WorkspaceStorageSchemaMismatch,
     WorkspaceAlreadyExists,
     WorkspaceNotFound,
-    ProviderUnavailable,
-    ProviderSecretUnavailable,
+    RunpodSecretUnavailable,
     ProviderUnauthorized,
     ProviderInsufficientPermissions,
     ProviderRateLimited,
@@ -111,7 +110,7 @@ impl From<SecretsStorageError> for NativeCommandError {
     fn from(error: SecretsStorageError) -> Self {
         match error {
             SecretsStorageError::SecretRequired => Self::new(
-                NativeCommandErrorCode::ProviderSecretUnavailable,
+                NativeCommandErrorCode::RunpodSecretUnavailable,
                 "api key is required",
             ),
             SecretsStorageError::KeyAlreadyExists => Self::new(
@@ -119,7 +118,7 @@ impl From<SecretsStorageError> for NativeCommandError {
                 "api key is already configured",
             ),
             SecretsStorageError::KeyNotFound => Self::new(
-                NativeCommandErrorCode::ProviderSecretUnavailable,
+                NativeCommandErrorCode::RunpodSecretUnavailable,
                 "api key is not configured",
             ),
             SecretsStorageError::StoreUnavailable => Self::new(
@@ -157,45 +156,47 @@ impl From<ProvisionedRemoteError> for NativeCommandError {
                 NativeCommandErrorCode::LifecycleOperationAlreadyRunning,
                 "workspace lifecycle operation is already running",
             ),
-            ProvisionedRemoteError::ProviderSecretUnavailable => Self::new(
-                NativeCommandErrorCode::ProviderSecretUnavailable,
+            ProvisionedRemoteError::RunpodSecretUnavailable => Self::new(
+                NativeCommandErrorCode::RunpodSecretUnavailable,
                 "api key is not configured",
             ),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::Unauthorized) => Self::new(
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::Unauthorized) => Self::new(
                 NativeCommandErrorCode::ProviderUnauthorized,
                 "remote provider request failed",
             ),
-            ProvisionedRemoteError::ProviderApiFailed(
-                ProviderApiError::InsufficientPermissions,
-            ) => Self::new(
-                NativeCommandErrorCode::ProviderInsufficientPermissions,
-                "remote provider request failed",
-            ),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RateLimited) => Self::new(
-                NativeCommandErrorCode::ProviderRateLimited,
-                "remote provider request failed",
-            ),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::Timeout) => Self::new(
-                NativeCommandErrorCode::ProviderTimeout,
-                "remote provider request failed",
-            ),
-            ProvisionedRemoteError::ProviderApiFailed(ProviderApiError::RequestFailed) => {
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::InsufficientPermissions) => {
                 Self::new(
-                    NativeCommandErrorCode::ProviderRequestFailed,
+                    NativeCommandErrorCode::ProviderInsufficientPermissions,
                     "remote provider request failed",
                 )
             }
-            ProvisionedRemoteError::RemoteVolumeNotFound => Self::new(
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::RateLimited) => Self::new(
+                NativeCommandErrorCode::ProviderRateLimited,
+                "remote provider request failed",
+            ),
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::Timeout) => Self::new(
+                NativeCommandErrorCode::ProviderTimeout,
+                "remote provider request failed",
+            ),
+            ProvisionedRemoteError::RunpodApiFailed(ProviderApiError::RequestFailed) => Self::new(
+                NativeCommandErrorCode::ProviderRequestFailed,
+                "remote provider request failed",
+            ),
+            ProvisionedRemoteError::NetworkVolumeNotFound => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote volume was not found",
             ),
-            ProvisionedRemoteError::RemoteProvisionerNotFound => Self::new(
+            ProvisionedRemoteError::ProvisionerPodNotFound => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote provisioner was not found",
             ),
-            ProvisionedRemoteError::RemoteEndpointNotFound => Self::new(
+            ProvisionedRemoteError::EndpointNotFound => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote endpoint was not found",
+            ),
+            ProvisionedRemoteError::TemplateNotFound => Self::new(
+                NativeCommandErrorCode::ProviderRequestFailed,
+                "remote template was not found",
             ),
             ProvisionedRemoteError::ProvisionerUnavailable => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerUnavailable,
@@ -276,7 +277,7 @@ mod tests {
 
     #[test]
     fn provider_unauthorized_maps_to_stable_code_without_provider_details() {
-        let error = NativeCommandError::from(ProvisionedRemoteError::ProviderApiFailed(
+        let error = NativeCommandError::from(ProvisionedRemoteError::RunpodApiFailed(
             ProviderApiError::Unauthorized,
         ));
 

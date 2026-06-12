@@ -44,7 +44,7 @@ fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
             commands::catalog::get_workflow_catalog,
-            commands::catalog::get_provider_placement_options,
+            commands::catalog::get_runpod_placement_options,
             commands::catalog::get_workspace_catalog,
             commands::secrets::setup_runpod_api_key,
             commands::secrets::get_runpod_api_key_identity,
@@ -52,7 +52,7 @@ fn command_builder() -> Builder<tauri::Wry> {
             commands::secrets::setup_hugging_face_api_key,
             commands::secrets::get_hugging_face_api_key_identity,
             commands::secrets::delete_hugging_face_api_key,
-            commands::workspaces::create_workspace,
+            commands::workspaces::create_runpod_workspace,
             commands::workspaces::provision_workspace,
             commands::workspaces::cleanup_workspace,
             commands::workspaces::delete_workspace,

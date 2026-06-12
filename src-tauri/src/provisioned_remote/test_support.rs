@@ -759,15 +759,13 @@ pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::provisioned_remote::ProvisionedRemoteLifecycleOperationPayload;
+    use crate::domain::provisioned_remote::RunpodLifecycleOperationPayload;
 
     fn provision_payload() -> LifecycleOperationPayload {
-        LifecycleOperationPayload::ProvisionedRemote(
-            ProvisionedRemoteLifecycleOperationPayload::Provision {
-                step: None,
-                error: None,
-            },
-        )
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+            step: None,
+            error: None,
+        })
     }
 
     #[test]

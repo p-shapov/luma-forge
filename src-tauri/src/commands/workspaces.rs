@@ -5,27 +5,27 @@ use crate::{
     app::state::AppState,
     commands::{
         types::workspace::{
-            CleanupWorkspaceResponse, CreateWorkspaceRequest, DeleteWorkspaceResponse,
+            CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
             LatestLifecycleOperationResponse, ProvisionWorkspaceResponse,
             RunningLifecycleOperationsResponse, WorkspaceIdRequest, WorkspaceResponse,
         },
         CommandResult,
     },
     domain::provisioned_remote::RunpodPlacementPlan,
-    provisioned_remote::service::CreateRunpodWorkspaceRequest,
+    provisioned_remote::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
 
 #[tauri::command]
 #[specta::specta]
-pub async fn create_workspace(
+pub async fn create_runpod_workspace(
     state: State<'_, AppState>,
-    request: CreateWorkspaceRequest,
+    request: CreateRunpodWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
-    let placement: RunpodPlacementPlan = request.remote_placement.into();
+    let placement: RunpodPlacementPlan = request.placement.into();
 
     let workspace = state
         .runpod_runtime
-        .create_runpod_workspace(CreateRunpodWorkspaceRequest {
+        .create_runpod_workspace(CreateRunpodWorkspaceServiceRequest {
             workspace_id: Uuid::new_v4().to_string(),
             workflow_preset_id: request.workflow_preset_id,
             placement,
