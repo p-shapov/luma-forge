@@ -4,11 +4,9 @@ use tauri_specta::Event;
 use crate::{
     commands::types::workspace::{
         LifecycleOperationChangedEvent, WorkspaceChangedEvent, WorkspaceDeletedEvent,
-        WorkspaceResponse,
     },
     provisioned_remote::events::ProvisionedRemoteEvent,
     shared::EventSink,
-    workflow_catalog::WorkflowCatalogService,
 };
 
 pub struct TauriProvisionedRemoteEventSink {
@@ -40,18 +38,11 @@ impl EventSink<ProvisionedRemoteEvent> for TauriProvisionedRemoteEventSink {
                 workspace_id,
                 workspace,
             } => {
-                let workspace = *workspace;
-                let event = WorkflowCatalogService::new()
-                    .get_workflow_catalog()
-                    .ok()
-                    .and_then(|catalog| catalog.resolve(&workspace.workflow))
-                    .map(|workflow| WorkspaceChangedEvent {
-                        workspace_id,
-                        workspace: WorkspaceResponse::from_parts(workspace, workflow),
-                    });
-                if let Some(event) = event {
-                    let _ = event.emit(&self.app_handle);
+                let _ = WorkspaceChangedEvent {
+                    workspace_id,
+                    workspace: (*workspace).into(),
                 }
+                .emit(&self.app_handle);
             }
             ProvisionedRemoteEvent::WorkspaceDeleted { workspace_id } => {
                 let _ = WorkspaceDeletedEvent { workspace_id }.emit(&self.app_handle);

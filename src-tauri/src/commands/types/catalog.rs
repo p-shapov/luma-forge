@@ -5,8 +5,7 @@ use crate::domain::{
     runtime_contract::RuntimeContractReference,
     workflow_preset::{
         ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements,
-        WorkflowCatalog, WorkflowExecutionType, WorkflowPreset, WorkflowPresetResolved,
-        WorkflowRevision,
+        WorkflowCatalog, WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
     },
 };
 
@@ -37,18 +36,6 @@ pub struct WorkflowPresetResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowRevisionResponse {
     pub version: String,
-    pub requires_hugging_face_api_key: bool,
-    pub remote_runtime_requirements: RemoteRuntimeRequirementsResponse,
-    pub required_model_assets: Vec<ModelAssetResponse>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowPresetResolvedResponse {
-    pub id: String,
-    pub version: String,
-    pub name: String,
-    pub execution_type: WorkflowExecutionTypeDto,
     pub requires_hugging_face_api_key: bool,
     pub remote_runtime_requirements: RemoteRuntimeRequirementsResponse,
     pub required_model_assets: Vec<ModelAssetResponse>,
@@ -124,24 +111,6 @@ impl From<WorkflowRevision> for WorkflowRevisionResponse {
     fn from(value: WorkflowRevision) -> Self {
         Self {
             version: value.version,
-            requires_hugging_face_api_key: value.requires_hugging_face_api_key,
-            remote_runtime_requirements: value.remote_runtime_requirements.into(),
-            required_model_assets: value
-                .required_model_assets
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-        }
-    }
-}
-
-impl From<WorkflowPresetResolved> for WorkflowPresetResolvedResponse {
-    fn from(value: WorkflowPresetResolved) -> Self {
-        Self {
-            id: value.id,
-            version: value.version,
-            name: value.name,
-            execution_type: value.execution_type.into(),
             requires_hugging_face_api_key: value.requires_hugging_face_api_key,
             remote_runtime_requirements: value.remote_runtime_requirements.into(),
             required_model_assets: value

@@ -46,7 +46,7 @@ pub async fn create_workspace(
         })
         .await?;
 
-    Ok(WorkspaceResponse::from_parts(workspace, workflow))
+    Ok(workspace.into())
 }
 
 #[tauri::command]
@@ -59,20 +59,7 @@ pub async fn provision_workspace(
         .provisioned_remote
         .provision_workspace(&request.workspace_id)
         .await?;
-    let workflow_catalog = state.workflow_catalog.get_workflow_catalog()?;
-    let workflow = workflow_catalog
-        .resolve(&response.workspace.workflow)
-        .ok_or_else(|| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkflowCatalogInvalid,
-                "workspace workflow reference was not found",
-            )
-        })?;
-
-    Ok(ProvisionWorkspaceResponse {
-        workspace: WorkspaceResponse::from_parts(response.workspace, workflow),
-        operation: response.operation.into(),
-    })
+    Ok(response.into())
 }
 
 #[tauri::command]
@@ -85,20 +72,7 @@ pub async fn cleanup_workspace(
         .provisioned_remote
         .cleanup_workspace(&request.workspace_id)
         .await?;
-    let workflow_catalog = state.workflow_catalog.get_workflow_catalog()?;
-    let workflow = workflow_catalog
-        .resolve(&response.workspace.workflow)
-        .ok_or_else(|| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkflowCatalogInvalid,
-                "workspace workflow reference was not found",
-            )
-        })?;
-
-    Ok(CleanupWorkspaceResponse {
-        workspace: WorkspaceResponse::from_parts(response.workspace, workflow),
-        operation: response.operation.into(),
-    })
+    Ok(response.into())
 }
 
 #[tauri::command]
