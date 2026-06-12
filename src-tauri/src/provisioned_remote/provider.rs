@@ -1,12 +1,9 @@
 use crate::{
     domain::{
-        placement::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
-        provider::GpuCloudProviderId,
+        provisioned_remote::GpuCloudProviderId,
+        provisioned_remote::ProvisionedRemoteProvisionerStatus,
+        provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
         workflow_preset::ModelAsset,
-        provisioned_remote::{
-            ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteProvisionerSnapshot,
-            ProvisionedRemoteProvisionerStatus, ProvisionedRemoteVolumeSnapshot,
-        },
     },
     shared::AppFuture,
 };
@@ -48,7 +45,6 @@ pub struct TerminateProvisionerParams {
 pub struct GetProvisionerStatusParams {
     pub workspace_id: String,
     pub provisioner_id: String,
-    pub status_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +73,7 @@ pub trait ProvisionedRemoteVolumeProvider {
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
     fn delete_volume<'a>(
         &'a self,
@@ -89,7 +85,7 @@ pub trait ProvisionedRemoteProvisionerProvider {
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerSnapshot, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
     fn terminate_provisioner<'a>(
         &'a self,
@@ -106,7 +102,7 @@ pub trait ProvisionedRemoteEndpointProvider {
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
     fn delete_endpoint<'a>(
         &'a self,

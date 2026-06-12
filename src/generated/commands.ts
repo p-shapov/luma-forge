@@ -106,30 +106,16 @@ export type ProvisionedRemoteCleanupStepResponse = "delete_endpoint" | "terminat
 
 export type ProvisionedRemoteDeleteStepResponse = "delete_endpoint" | "terminate_provisioner" | "delete_volume" | "delete_local_workspace";
 
-export type ProvisionedRemoteEndpointSnapshotResponse = {
-	id: string,
-	url: string,
-};
-
 export type ProvisionedRemoteLifecycleErrorResponse = "app_interrupted" | "provider_adapter_unavailable" | "provider_secret_unavailable" | "provider_api_failed" | "provisioner_unavailable" | "provisioner_response_invalid" | "provisioner_failed" | "remote_volume_not_found" | "remote_provisioner_not_found" | "remote_endpoint_not_found" | "invalid_runtime_state";
 
 export type ProvisionedRemoteLifecycleOperationPayloadResponse = { operation: "provision"; step: ProvisionedRemoteProvisionStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null } | { operation: "cleanup"; step: ProvisionedRemoteCleanupStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null } | { operation: "delete"; step: ProvisionedRemoteDeleteStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null };
 
 export type ProvisionedRemoteProvisionStepResponse = "create_volume" | "start_provisioner" | "poll_provisioner" | "terminate_provisioner" | "create_endpoint";
 
-export type ProvisionedRemoteProvisionerSnapshotResponse = {
-	id: string,
-	statusUrl: string,
-};
-
 export type ProvisionedRemoteResourcesResponse = {
-	volume: ProvisionedRemoteVolumeSnapshotResponse | null,
-	provisioner: ProvisionedRemoteProvisionerSnapshotResponse | null,
-	endpoint: ProvisionedRemoteEndpointSnapshotResponse | null,
-};
-
-export type ProvisionedRemoteVolumeSnapshotResponse = {
-	id: string,
+	volumeId: string | null,
+	provisionerId: string | null,
+	endpointId: string | null,
 };
 
 export type ProvisionedRemoteWorkspaceResponse = {

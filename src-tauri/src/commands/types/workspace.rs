@@ -5,11 +5,9 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use crate::domain::{
     lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
     provisioned_remote::{
-        ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep,
-        ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteLifecycleError,
+        ProvisionedRemoteCleanupStep, ProvisionedRemoteDeleteStep, ProvisionedRemoteLifecycleError,
         ProvisionedRemoteLifecycleOperationPayload, ProvisionedRemoteProvisionStep,
-        ProvisionedRemoteProvisionerSnapshot, ProvisionedRemoteResources, ProvisionedRemoteRuntime,
-        ProvisionedRemoteVolumeSnapshot,
+        ProvisionedRemoteResources, ProvisionedRemoteRuntime,
     },
     workspace::{
         Workspace, WorkspaceCatalog, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
@@ -82,29 +80,9 @@ pub struct ProvisionedRemoteWorkspaceResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionedRemoteResourcesResponse {
-    pub volume: Option<ProvisionedRemoteVolumeSnapshotResponse>,
-    pub provisioner: Option<ProvisionedRemoteProvisionerSnapshotResponse>,
-    pub endpoint: Option<ProvisionedRemoteEndpointSnapshotResponse>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ProvisionedRemoteVolumeSnapshotResponse {
-    pub id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ProvisionedRemoteProvisionerSnapshotResponse {
-    pub id: String,
-    pub status_url: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ProvisionedRemoteEndpointSnapshotResponse {
-    pub id: String,
-    pub url: String,
+    pub volume_id: Option<String>,
+    pub provisioner_id: Option<String>,
+    pub endpoint_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -338,33 +316,9 @@ impl From<ProvisionedRemoteRuntime> for ProvisionedRemoteWorkspaceResponse {
 impl From<ProvisionedRemoteResources> for ProvisionedRemoteResourcesResponse {
     fn from(value: ProvisionedRemoteResources) -> Self {
         Self {
-            volume: value.volume.map(Into::into),
-            provisioner: value.provisioner.map(Into::into),
-            endpoint: value.endpoint.map(Into::into),
-        }
-    }
-}
-
-impl From<ProvisionedRemoteVolumeSnapshot> for ProvisionedRemoteVolumeSnapshotResponse {
-    fn from(value: ProvisionedRemoteVolumeSnapshot) -> Self {
-        Self { id: value.id }
-    }
-}
-
-impl From<ProvisionedRemoteProvisionerSnapshot> for ProvisionedRemoteProvisionerSnapshotResponse {
-    fn from(value: ProvisionedRemoteProvisionerSnapshot) -> Self {
-        Self {
-            id: value.id,
-            status_url: value.status_url,
-        }
-    }
-}
-
-impl From<ProvisionedRemoteEndpointSnapshot> for ProvisionedRemoteEndpointSnapshotResponse {
-    fn from(value: ProvisionedRemoteEndpointSnapshot) -> Self {
-        Self {
-            id: value.id,
-            url: value.url,
+            volume_id: value.volume_id,
+            provisioner_id: value.provisioner_id,
+            endpoint_id: value.endpoint_id,
         }
     }
 }
@@ -526,10 +480,9 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LifecycleOperationPayloadResponse, ProvisionedRemoteEndpointSnapshotResponse,
-        ProvisionedRemoteLifecycleOperationPayloadResponse, ProvisionedRemoteProvisionStepResponse,
-        ProvisionedRemoteResourcesResponse, ProvisionedRemoteWorkspaceResponse,
-        WorkspaceRuntimeResponse,
+        LifecycleOperationPayloadResponse, ProvisionedRemoteLifecycleOperationPayloadResponse,
+        ProvisionedRemoteProvisionStepResponse, ProvisionedRemoteResourcesResponse,
+        ProvisionedRemoteWorkspaceResponse, WorkspaceRuntimeResponse,
     };
 
     #[test]
@@ -545,12 +498,9 @@ mod tests {
                     keep_alive_limits: None,
                 },
                 resources: ProvisionedRemoteResourcesResponse {
-                    volume: None,
-                    provisioner: None,
-                    endpoint: Some(ProvisionedRemoteEndpointSnapshotResponse {
-                        id: "endpoint".to_string(),
-                        url: "https://endpoint.example".to_string(),
-                    }),
+                    volume_id: None,
+                    provisioner_id: None,
+                    endpoint_id: Some("endpoint".to_string()),
                 },
             });
 
@@ -558,11 +508,8 @@ mod tests {
 
         assert_eq!(json["runtimeType"], "provisioned_remote");
         assert_eq!(json["placement"]["gpuCloudProviderId"], "runpod");
-        assert_eq!(json["resources"]["endpoint"]["id"], "endpoint");
-        assert_eq!(
-            json["resources"]["endpoint"]["url"],
-            "https://endpoint.example"
-        );
+        assert_eq!(json["resources"]["endpointId"], "endpoint");
+        assert!(json["resources"].get("endpoint").is_none());
         assert_eq!(
             json.as_object()
                 .expect("runtime response should be object")

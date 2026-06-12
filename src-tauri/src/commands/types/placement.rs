@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::domain::placement::{
+use crate::domain::provisioned_remote::{
     RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits, RemoteGpuPlacementOption,
     RemotePlacementOptions, RemotePlacementPlan,
 };

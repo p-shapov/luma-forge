@@ -56,9 +56,10 @@ pub struct WorkspaceCatalog {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        placement::RemotePlacementPlan,
-        provider::GpuCloudProviderId,
-        provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
+        provisioned_remote::{
+            GpuCloudProviderId, ProvisionedRemoteResources, ProvisionedRemoteRuntime,
+            RemotePlacementPlan,
+        },
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
             RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
@@ -77,9 +78,9 @@ mod tests {
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
                 placement: placement(),
                 resources: ProvisionedRemoteResources {
-                    volume: None,
-                    provisioner: None,
-                    endpoint: None,
+                    volume_id: None,
+                    provisioner_id: None,
+                    endpoint_id: Some("endpoint".to_string()),
                 },
             }),
         };
@@ -89,6 +90,8 @@ mod tests {
         assert_eq!(json["state"], "not_provisioned");
         assert_eq!(json["runtime"]["runtime_type"], "provisioned_remote");
         assert!(json["runtime"]["resources"].is_object());
+        assert_eq!(json["runtime"]["resources"]["endpoint_id"], "endpoint");
+        assert!(json["runtime"]["resources"].get("endpoint").is_none());
         assert_eq!(
             json["runtime"]
                 .as_object()
@@ -109,9 +112,9 @@ mod tests {
         let runtime = ProvisionedRemoteRuntime {
             placement: placement(),
             resources: ProvisionedRemoteResources {
-                volume: None,
-                provisioner: None,
-                endpoint: None,
+                volume_id: None,
+                provisioner_id: None,
+                endpoint_id: None,
             },
         };
 

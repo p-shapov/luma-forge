@@ -439,7 +439,7 @@ pub mod tests {
                 LifecycleOperationPayload, LifecycleOperationState,
                 ProvisionedRemoteLifecycleOperationPayload,
             },
-            provider::ProviderApiError,
+            provisioned_remote::ProviderApiError,
             provisioned_remote::{ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep},
         },
         lifecycle_journal::schema,

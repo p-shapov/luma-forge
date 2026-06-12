@@ -62,7 +62,7 @@ where
         } else {
             Some(provider_registry.for_provider(runtime.provider_id())?)
         };
-        if let Some(endpoint) = runtime.resources.endpoint.clone() {
+        if let Some(endpoint_id) = runtime.resources.endpoint_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::DeleteEndpoint;
             mark_running_step(
                 lifecycle_journal,
@@ -76,13 +76,13 @@ where
                 .expect("provider should exist when endpoint exists")
                 .delete_endpoint(DeleteEndpointParams {
                     workspace_id: workspace.id.clone(),
-                    endpoint_id: endpoint.id,
+                    endpoint_id,
                 })
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteEndpointNotFound) => {
                     let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-                    runtime.resources.endpoint = None;
+                    runtime.resources.endpoint_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
                 }
@@ -91,7 +91,7 @@ where
         }
 
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        if let Some(provisioner) = runtime.resources.provisioner.clone() {
+        if let Some(provisioner_id) = runtime.resources.provisioner_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::TerminateProvisioner;
             mark_running_step(
                 lifecycle_journal,
@@ -105,13 +105,13 @@ where
                 .expect("provider should exist when provisioner exists")
                 .terminate_provisioner(TerminateProvisionerParams {
                     workspace_id: workspace.id.clone(),
-                    provisioner_id: provisioner.id,
+                    provisioner_id,
                 })
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteProvisionerNotFound) => {
                     let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-                    runtime.resources.provisioner = None;
+                    runtime.resources.provisioner_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
                 }
@@ -120,7 +120,7 @@ where
         }
 
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        if let Some(volume) = runtime.resources.volume.clone() {
+        if let Some(volume_id) = runtime.resources.volume_id.clone() {
             failed_step = ProvisionedRemoteCleanupStep::DeleteVolume;
             mark_running_step(
                 lifecycle_journal,
@@ -134,13 +134,13 @@ where
                 .expect("provider should exist when volume exists")
                 .delete_volume(DeleteVolumeParams {
                     workspace_id: workspace.id.clone(),
-                    volume_id: volume.id,
+                    volume_id,
                 })
                 .await
             {
                 Ok(()) | Err(ProvisionedRemoteError::RemoteVolumeNotFound) => {
                     let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-                    runtime.resources.volume = None;
+                    runtime.resources.volume_id = None;
                     workspace =
                         persist_workspace(workspace_repository, event_sink, &workspace).await?;
                 }

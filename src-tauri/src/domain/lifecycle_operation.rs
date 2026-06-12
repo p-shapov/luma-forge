@@ -42,7 +42,7 @@ mod tests {
         ProvisionedRemoteLifecycleOperationPayload,
     };
     use crate::domain::{
-        provider::ProviderApiError,
+        provisioned_remote::ProviderApiError,
         provisioned_remote::{ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionStep},
     };
     use serde_json::json;

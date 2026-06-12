@@ -12,14 +12,10 @@ use crate::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
             LifecycleOperationState, WorkspaceId,
         },
-        placement::{
+        provisioned_remote::{
+            GpuCloudProviderId, ProvisionedRemoteProvisionerStatus,
             RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits,
             RemoteGpuPlacementOption, RemotePlacementOptions, RemotePlacementPlan,
-        },
-        provider::GpuCloudProviderId,
-        provisioned_remote::{
-            ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteProvisionerSnapshot,
-            ProvisionedRemoteProvisionerStatus, ProvisionedRemoteVolumeSnapshot,
         },
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
@@ -263,7 +259,7 @@ impl ProvisionedRemoteVolumeProvider for FakeProvider {
     fn create_volume<'a>(
         &'a self,
         _params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("create_volume");
@@ -271,9 +267,7 @@ impl ProvisionedRemoteVolumeProvider for FakeProvider {
                 return Err(error);
             }
 
-            Ok(ProvisionedRemoteVolumeSnapshot {
-                id: "volume".to_string(),
-            })
+            Ok("volume".to_string())
         })
     }
 
@@ -297,7 +291,7 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("start_provisioner");
@@ -308,10 +302,7 @@ impl ProvisionedRemoteProvisionerProvider for FakeProvider {
                 return Err(error);
             }
 
-            Ok(ProvisionedRemoteProvisionerSnapshot {
-                id: "provisioner".to_string(),
-                status_url: "https://status.example".to_string(),
-            })
+            Ok("provisioner".to_string())
         })
     }
 
@@ -354,7 +345,7 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let mut state = self.state.lock().expect("state lock should succeed");
             state.calls.push("create_endpoint");
@@ -363,10 +354,7 @@ impl ProvisionedRemoteEndpointProvider for FakeProvider {
                 return Err(error);
             }
 
-            Ok(ProvisionedRemoteEndpointSnapshot {
-                id: "endpoint".to_string(),
-                url: "https://endpoint.example".to_string(),
-            })
+            Ok("endpoint".to_string())
         })
     }
 

@@ -1,4 +1,4 @@
-use crate::domain::{provider::GpuCloudProviderId, workspace::WorkspaceRuntime};
+use crate::domain::{provisioned_remote::GpuCloudProviderId, workspace::WorkspaceRuntime};
 
 use super::{errors::WorkspaceCatalogError, runtimes};
 

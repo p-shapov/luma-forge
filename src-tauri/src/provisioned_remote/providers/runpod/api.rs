@@ -2,10 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{
-    domain::{
-        placement::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
-        provisioned_remote::ProvisionedRemoteVolumeSnapshot,
-    },
+    domain::provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementOptions},
     provisioned_remote::errors::ProvisionedRemoteError,
     secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService},
     shared::AppFuture,
@@ -27,7 +24,7 @@ pub trait RunpodApi: Send + Sync {
     fn create_network_volume<'a>(
         &'a self,
         request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>>;
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>>;
 
     fn delete_network_volume<'a>(
         &'a self,
@@ -225,7 +222,7 @@ where
     fn create_network_volume<'a>(
         &'a self,
         request: CreateNetworkVolumeRequest,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let response: NetworkVolumeResponse = self
                 .post_rest(
@@ -235,7 +232,7 @@ where
                 )
                 .await?;
 
-            Ok(ProvisionedRemoteVolumeSnapshot { id: response.id })
+            Ok(response.id)
         })
     }
 

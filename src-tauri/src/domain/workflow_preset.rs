@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{provider::GpuCloudProviderId, runtime_contract::RuntimeContractReference};
+use super::{provisioned_remote::GpuCloudProviderId, runtime_contract::RuntimeContractReference};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "source_type", rename_all = "snake_case")]

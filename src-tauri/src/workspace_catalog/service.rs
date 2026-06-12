@@ -50,9 +50,9 @@ mod tests {
 
     use crate::{
         domain::{
-            placement::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
-            provider::GpuCloudProviderId,
+            provisioned_remote::GpuCloudProviderId,
             provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
+            provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
             runtime_contract::RuntimeContractReference,
             workflow_preset::{
                 ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
@@ -374,9 +374,9 @@ mod tests {
                     }),
                 },
                 resources: ProvisionedRemoteResources {
-                    volume: None,
-                    provisioner: None,
-                    endpoint: None,
+                    volume_id: None,
+                    provisioner_id: None,
+                    endpoint_id: None,
                 },
             }),
         }

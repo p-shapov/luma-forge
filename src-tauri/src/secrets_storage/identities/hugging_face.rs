@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    domain::{provider::ProviderApiError, secrets::ApiKeyIdentity},
+    domain::{provisioned_remote::ProviderApiError, secrets::ApiKeyIdentity},
     shared::AppFuture,
 };
 
@@ -177,15 +177,12 @@ impl WhoamiFineGrainedPermissions {
         self.global
             .iter()
             .any(|permission| permission == "repo.content.read")
-            || self
-                .scoped
-                .iter()
-                .any(|repo_permission| {
-                    repo_permission
-                        .permissions
-                        .iter()
-                        .any(|permission| permission == "repo.content.read")
-                })
+            || self.scoped.iter().any(|repo_permission| {
+                repo_permission
+                    .permissions
+                    .iter()
+                    .any(|permission| permission == "repo.content.read")
+            })
     }
 }
 

@@ -139,7 +139,7 @@ fn is_safe_hugging_face_name(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::domain::{
-        provider::GpuCloudProviderId,
+        provisioned_remote::GpuCloudProviderId,
         runtime_contract::{RuntimeContract, RuntimeContractReference, RuntimeContractRevision},
         workflow_preset::{
             ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,

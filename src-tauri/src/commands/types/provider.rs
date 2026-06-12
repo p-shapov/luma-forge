@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::domain::provider::GpuCloudProviderId;
+use crate::domain::provisioned_remote::GpuCloudProviderId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub enum GpuCloudProviderIdDto {

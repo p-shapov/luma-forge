@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    domain::provider::ProviderApiError, provisioned_remote::errors::ProvisionedRemoteError,
-    secrets_storage::SecretsStorageError, workflow_catalog::WorkflowCatalogError,
-    workspace_catalog::WorkspaceCatalogError,
+    domain::provisioned_remote::ProviderApiError,
+    provisioned_remote::errors::ProvisionedRemoteError, secrets_storage::SecretsStorageError,
+    workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
 };
 
 pub type CommandResult<T> = Result<T, NativeCommandError>;

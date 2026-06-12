@@ -6,13 +6,9 @@ pub mod provisioner;
 use std::sync::Arc;
 
 use crate::{
-    domain::{
-        placement::RemotePlacementOptions,
-        provider::{GpuCloudProviderId, ProviderApiError},
-        provisioned_remote::{
-            ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteProvisionerSnapshot,
-            ProvisionedRemoteProvisionerStatus, ProvisionedRemoteVolumeSnapshot,
-        },
+    domain::provisioned_remote::{
+        GpuCloudProviderId, ProviderApiError, ProvisionedRemoteProvisionerStatus,
+        RemotePlacementOptions,
     },
     provisioned_remote::{
         errors::ProvisionedRemoteError,
@@ -36,9 +32,9 @@ use self::{
         HttpRunpodApi, RunpodApi,
     },
     config::{
-        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS,
-        ENDPOINT_WORKSPACE_MOUNT_PATH, PROVISIONER_WORKSPACE_MOUNT_PATH,
-        NETWORK_VOLUME_MAX_SIZE_BYTES, PROVISIONER_PORT, RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
+        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, ENDPOINT_WORKSPACE_MOUNT_PATH,
+        NETWORK_VOLUME_MAX_SIZE_BYTES, PROVISIONER_PORT, PROVISIONER_WORKSPACE_MOUNT_PATH,
+        RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
@@ -135,15 +131,18 @@ where
     fn create_volume<'a>(
         &'a self,
         params: CreateVolumeParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
-            self.api
+            let volume = self
+                .api
                 .create_network_volume(CreateNetworkVolumeRequest {
                     datacenter_id: params.datacenter_id,
                     name: mapping::workspace_resource_name(&params.workspace_id, "volume"),
                     size_gb: mapping::bytes_to_runpod_volume_gb(params.size_bytes),
                 })
-                .await
+                .await?;
+
+            Ok(volume)
         })
     }
 
@@ -166,7 +165,7 @@ where
     fn start_provisioner<'a>(
         &'a self,
         params: StartProvisionerParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteProvisionerSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let bearer_token = self
                 .runpod_secrets
@@ -202,10 +201,7 @@ where
                 })
                 .await?;
 
-            Ok(ProvisionedRemoteProvisionerSnapshot {
-                status_url: provisioner_status_url(&pod.id),
-                id: pod.id,
-            })
+            Ok(pod.id)
         })
     }
 
@@ -232,7 +228,10 @@ where
                 .map_err(map_secret_error)?;
 
             self.provisioner_worker
-                .get_status(&params.status_url, &bearer_token)
+                .get_status(
+                    &provisioner_status_url(&params.provisioner_id),
+                    &bearer_token,
+                )
                 .await
                 .map_err(Into::into)
         })
@@ -250,7 +249,7 @@ where
     fn create_endpoint<'a>(
         &'a self,
         params: CreateEndpointParams,
-    ) -> AppFuture<'a, Result<ProvisionedRemoteEndpointSnapshot, ProvisionedRemoteError>> {
+    ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
         Box::pin(async move {
             let endpoint = self
                 .api
@@ -274,10 +273,7 @@ where
                 })
                 .await?;
 
-            Ok(ProvisionedRemoteEndpointSnapshot {
-                id: endpoint.id,
-                url: endpoint.url,
-            })
+            Ok(endpoint.id)
         })
     }
 
@@ -325,11 +321,10 @@ mod tests {
 
     use crate::{
         domain::{
-            placement::{
-                RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits,
-                RemoteGpuPlacementOption,
+            provisioned_remote::{
+                ProvisionedRemoteLifecycleError, RemoteDatacenterPlacementOption,
+                RemoteEndpointKeepAliveLimits, RemoteGpuPlacementOption,
             },
-            provisioned_remote::ProvisionedRemoteLifecycleError,
             secrets::ApiKeyIdentity,
         },
         secrets_storage::{ApiSecret, SecretKey, SecretStore},
@@ -378,17 +373,14 @@ mod tests {
         fn create_network_volume<'a>(
             &'a self,
             request: CreateNetworkVolumeRequest,
-        ) -> AppFuture<'a, Result<ProvisionedRemoteVolumeSnapshot, ProvisionedRemoteError>>
-        {
+        ) -> AppFuture<'a, Result<String, ProvisionedRemoteError>> {
             Box::pin(async move {
                 self.state
                     .lock()
                     .expect("api state")
                     .create_volume_requests
                     .push(request);
-                Ok(ProvisionedRemoteVolumeSnapshot {
-                    id: "volume".to_string(),
-                })
+                Ok("volume".to_string())
             })
         }
 
@@ -590,7 +582,7 @@ mod tests {
             .await
             .expect("volume");
 
-        assert_eq!(volume.id, "volume");
+        assert_eq!(volume, "volume");
         assert_eq!(
             api_state.lock().expect("api state").create_volume_requests,
             vec![CreateNetworkVolumeRequest {
@@ -606,7 +598,7 @@ mod tests {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
-        let snapshot = provider
+        let provisioner_id = provider
             .start_provisioner(StartProvisionerParams {
                 workspace_id: "workspace".to_string(),
                 datacenter_id: "dc".to_string(),
@@ -622,19 +614,14 @@ mod tests {
                         file_path: "model.safetensors".to_string(),
                         revision: "main".to_string(),
                     },
-                    install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
+                    install_comfyui_relative_path: "models/checkpoints/model.safetensors"
+                        .to_string(),
                 }],
             })
             .await
             .expect("provisioner");
 
-        assert_eq!(
-            snapshot,
-            ProvisionedRemoteProvisionerSnapshot {
-                id: "pod".to_string(),
-                status_url: "https://pod-8000.proxy.runpod.net/status".to_string(),
-            }
-        );
+        assert_eq!(provisioner_id, "pod");
         let request = &api_state
             .lock()
             .expect("api state")
@@ -660,10 +647,7 @@ mod tests {
                 }
             ])
         );
-        assert_eq!(
-            request.bearer_token.len(),
-            64
-        );
+        assert_eq!(request.bearer_token.len(), 64);
     }
 
     #[tokio::test]
@@ -708,7 +692,6 @@ mod tests {
             .get_provisioner_status(GetProvisionerStatusParams {
                 workspace_id: "workspace".to_string(),
                 provisioner_id: "pod".to_string(),
-                status_url: "https://status.example".to_string(),
             })
             .await;
 
@@ -718,7 +701,7 @@ mod tests {
         );
         assert_eq!(
             worker_state.lock().expect("worker state").calls[0].0,
-            "https://status.example"
+            "https://pod-8000.proxy.runpod.net/status"
         );
     }
 

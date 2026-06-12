@@ -1,5 +1,5 @@
 use crate::domain::{
-    provider::ProviderApiError, provisioned_remote::ProvisionedRemoteLifecycleError,
+    provisioned_remote::ProviderApiError, provisioned_remote::ProvisionedRemoteLifecycleError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

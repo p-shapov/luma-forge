@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::domain::provider::GpuCloudProviderId;
+use crate::domain::provisioned_remote::GpuCloudProviderId;
 
 use super::{errors::ProvisionedRemoteError, provider::ProvisionedRemoteProvider};
 

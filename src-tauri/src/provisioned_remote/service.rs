@@ -6,9 +6,9 @@ use crate::{
             LifecycleOperation, LifecycleOperationPayload,
             ProvisionedRemoteLifecycleOperationPayload,
         },
-        placement::{RemotePlacementOptions, RemotePlacementPlan},
-        provider::GpuCloudProviderId,
+        provisioned_remote::GpuCloudProviderId,
         provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
+        provisioned_remote::{RemotePlacementOptions, RemotePlacementPlan},
         workflow_preset::WorkflowPreset,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
@@ -98,9 +98,9 @@ where
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
                 placement: request.remote_placement,
                 resources: ProvisionedRemoteResources {
-                    volume: None,
-                    provisioner: None,
-                    endpoint: None,
+                    volume_id: None,
+                    provisioner_id: None,
+                    endpoint_id: None,
                 },
             }),
         };
@@ -403,10 +403,10 @@ mod tests {
                 LifecycleOperationPayload, LifecycleOperationState,
                 ProvisionedRemoteLifecycleOperationPayload,
             },
-            provider::{GpuCloudProviderId, ProviderApiError},
+            provisioned_remote::{GpuCloudProviderId, ProviderApiError},
             provisioned_remote::{
                 ProvisionedRemoteLifecycleError, ProvisionedRemoteProvisionerStatus,
-                ProvisionedRemoteRuntime, ProvisionedRemoteVolumeSnapshot,
+                ProvisionedRemoteRuntime,
             },
             workspace::{WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceState},
         },
@@ -605,9 +605,7 @@ mod tests {
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
-            id: "existing-volume".to_string(),
-        });
+        runtime.resources.volume_id = Some("existing-volume".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)
@@ -666,23 +664,9 @@ mod tests {
             .expect("workspace should exist");
         assert_eq!(workspace.state, WorkspaceState::Ready);
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        assert_eq!(
-            runtime
-                .resources
-                .volume
-                .as_ref()
-                .map(|volume| volume.id.as_str()),
-            Some("volume")
-        );
-        assert_eq!(runtime.resources.provisioner, None);
-        assert_eq!(
-            runtime
-                .resources
-                .endpoint
-                .as_ref()
-                .map(|endpoint| endpoint.id.as_str()),
-            Some("endpoint")
-        );
+        assert_eq!(runtime.resources.volume_id.as_deref(), Some("volume"));
+        assert_eq!(runtime.resources.provisioner_id, None);
+        assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
 
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
@@ -758,16 +742,9 @@ mod tests {
             }
         );
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        assert_eq!(
-            runtime
-                .resources
-                .volume
-                .as_ref()
-                .map(|volume| volume.id.as_str()),
-            Some("volume")
-        );
-        assert_eq!(runtime.resources.provisioner, None);
-        assert_eq!(runtime.resources.endpoint, None);
+        assert_eq!(runtime.resources.volume_id.as_deref(), Some("volume"));
+        assert_eq!(runtime.resources.provisioner_id, None);
+        assert_eq!(runtime.resources.endpoint_id, None);
 
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
@@ -821,16 +798,9 @@ mod tests {
             }
         );
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        assert_eq!(
-            runtime
-                .resources
-                .volume
-                .as_ref()
-                .map(|volume| volume.id.as_str()),
-            Some("volume")
-        );
-        assert_eq!(runtime.resources.provisioner, None);
-        assert_eq!(runtime.resources.endpoint, None);
+        assert_eq!(runtime.resources.volume_id.as_deref(), Some("volume"));
+        assert_eq!(runtime.resources.provisioner_id, None);
+        assert_eq!(runtime.resources.endpoint_id, None);
 
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
@@ -1046,7 +1016,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_runner_preserves_endpoint_snapshot_when_endpoint_cleanup_fails() {
+    async fn cleanup_runner_preserves_endpoint_id_when_endpoint_cleanup_fails() {
         let state = Arc::new(Mutex::new(ProviderState {
             provisioner_status_results: vec![ProvisionedRemoteProvisionerStatus::Succeeded],
             ..ProviderState::default()
@@ -1092,12 +1062,7 @@ mod tests {
             }
         );
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        let endpoint = runtime
-            .resources
-            .endpoint
-            .as_ref()
-            .expect("endpoint snapshot should be preserved for retry");
-        assert_eq!(endpoint.id, "endpoint");
+        assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
     }
 
     #[tokio::test]
@@ -1245,9 +1210,7 @@ mod tests {
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
-            id: "volume".to_string(),
-        });
+        runtime.resources.volume_id = Some("volume".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)
@@ -1302,9 +1265,7 @@ mod tests {
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
-            id: "volume".to_string(),
-        });
+        runtime.resources.volume_id = Some("volume".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)
@@ -1478,9 +1439,7 @@ mod tests {
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume = Some(ProvisionedRemoteVolumeSnapshot {
-            id: "volume-1".to_string(),
-        });
+        runtime.resources.volume_id = Some("volume-1".to_string());
         service
             .workspace_repository
             .update_workspace(&workspace)

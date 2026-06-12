@@ -11,7 +11,7 @@ use crate::{
         },
         CommandResult, NativeCommandError, NativeCommandErrorCode,
     },
-    domain::placement::RemotePlacementPlan,
+    domain::provisioned_remote::RemotePlacementPlan,
     provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
 };
 

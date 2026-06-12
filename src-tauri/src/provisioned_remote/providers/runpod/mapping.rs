@@ -3,11 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
-    domain::{
-        placement::{
-            RemoteDatacenterPlacementOption, RemoteGpuPlacementOption, RemotePlacementOptions,
-        },
-        provider::ProviderApiError,
+    domain::provisioned_remote::{
+        ProviderApiError, RemoteDatacenterPlacementOption, RemoteGpuPlacementOption,
+        RemotePlacementOptions,
     },
     provisioned_remote::errors::ProvisionedRemoteError,
     secrets_storage::SecretsStorageError,
@@ -427,10 +425,8 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{
-        domain::placement::RemoteEndpointKeepAliveLimits,
-        provisioned_remote::providers::runpod::config::ENDPOINT_WORKSPACE_MOUNT_PATH,
-    };
+    use crate::domain::provisioned_remote::RemoteEndpointKeepAliveLimits;
+    use crate::provisioned_remote::providers::runpod::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
 
     #[test]
     fn bytes_to_runpod_volume_gb_rounds_up_to_decimal_gb() {

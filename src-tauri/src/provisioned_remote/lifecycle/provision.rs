@@ -69,9 +69,9 @@ where
     let result = async {
         failed_step = ProvisionedRemoteProvisionStep::CreateVolume;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        let runtime_snapshot = runtime.clone();
-        let contracts = ProvisionedRemoteContractResolver::resolve(&workspace, &runtime_snapshot)?;
-        let provider = provider_registry.for_provider(runtime_snapshot.provider_id())?;
+        let runtime_state = runtime.clone();
+        let contracts = ProvisionedRemoteContractResolver::resolve(&workspace, &runtime_state)?;
+        let provider = provider_registry.for_provider(runtime_state.provider_id())?;
 
         mark_running_step(
             lifecycle_journal,
@@ -81,16 +81,16 @@ where
             None,
         )
         .await?;
-        let volume = provider
+        let volume_id = provider
             .create_volume(CreateVolumeParams {
                 workspace_id: workspace.id.clone(),
-                datacenter_id: runtime_snapshot.placement.datacenter_id.clone(),
-                gpu_id: runtime_snapshot.placement.gpu_id.clone(),
-                size_bytes: runtime_snapshot.placement.volume_size_bytes,
+                datacenter_id: runtime_state.placement.datacenter_id.clone(),
+                gpu_id: runtime_state.placement.gpu_id.clone(),
+                size_bytes: runtime_state.placement.volume_size_bytes,
             })
             .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.volume = Some(volume.clone());
+        runtime.resources.volume_id = Some(volume_id.clone());
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
         failed_step = ProvisionedRemoteProvisionStep::StartProvisioner;
@@ -103,12 +103,12 @@ where
         )
         .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        let provisioner = provider
+        let provisioner_id = provider
             .start_provisioner(StartProvisionerParams {
                 workspace_id: workspace.id.clone(),
                 datacenter_id: runtime.placement.datacenter_id.clone(),
                 gpu_id: runtime.placement.gpu_id.clone(),
-                volume_id: volume.id.clone(),
+                volume_id: volume_id.clone(),
                 provisioner_image_ref: contracts.provisioner_contract.image_ref.clone(),
                 requires_hugging_face_api_key: workspace
                     .workflow_preset
@@ -117,7 +117,7 @@ where
             })
             .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.provisioner = Some(provisioner.clone());
+        runtime.resources.provisioner_id = Some(provisioner_id.clone());
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
         let mut provisioner_failed = false;
@@ -136,8 +136,7 @@ where
             let status = provider
                 .get_provisioner_status(GetProvisionerStatusParams {
                     workspace_id: workspace.id.clone(),
-                    provisioner_id: provisioner.id.clone(),
-                    status_url: provisioner.status_url.clone(),
+                    provisioner_id: provisioner_id.clone(),
                 })
                 .await;
             match status {
@@ -184,11 +183,11 @@ where
         provider
             .terminate_provisioner(TerminateProvisionerParams {
                 workspace_id: workspace.id.clone(),
-                provisioner_id: provisioner.id,
+                provisioner_id,
             })
             .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.provisioner = None;
+        runtime.resources.provisioner_id = None;
         workspace = persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
         if provisioner_failed {
@@ -205,18 +204,18 @@ where
         )
         .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &workspace.runtime;
-        let endpoint = provider
+        let endpoint_id = provider
             .create_endpoint(CreateEndpointParams {
                 workspace_id: workspace.id.clone(),
                 datacenter_id: runtime.placement.datacenter_id.clone(),
                 gpu_id: runtime.placement.gpu_id.clone(),
-                volume_id: volume.id,
+                volume_id,
                 endpoint_image_ref: contracts.endpoint_contract.image_ref.clone(),
                 keep_alive_limits: runtime.placement.keep_alive_limits.clone(),
             })
             .await?;
         let WorkspaceRuntime::ProvisionedRemote(runtime) = &mut workspace.runtime;
-        runtime.resources.endpoint = Some(endpoint);
+        runtime.resources.endpoint_id = Some(endpoint_id);
         workspace.state = WorkspaceState::Ready;
         persist_workspace(workspace_repository, event_sink, &workspace).await?;
 
