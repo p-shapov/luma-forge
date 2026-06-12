@@ -54,7 +54,8 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
             provider_id TEXT NOT NULL,
             state TEXT NOT NULL,
             state_reason TEXT,
-            workflow_preset_json TEXT NOT NULL,
+            workflow_id TEXT NOT NULL,
+            workflow_version TEXT NOT NULL,
             runtime_json TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -118,7 +119,13 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
                 primary_key_position: 0,
             },
             ExpectedColumn {
-                name: "workflow_preset_json",
+                name: "workflow_id",
+                column_type: "TEXT",
+                not_null: true,
+                primary_key_position: 0,
+            },
+            ExpectedColumn {
+                name: "workflow_version",
                 column_type: "TEXT",
                 not_null: true,
                 primary_key_position: 0,

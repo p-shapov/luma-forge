@@ -5,7 +5,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{
     domain::{
-        workflow_preset::WorkflowPreset,
+        workflow_preset::WorkflowReference,
         workspace::{
             Workspace, WorkspaceCatalog, WorkspaceCleanupRequiredReason,
             WorkspaceRuntimeInvalidReason, WorkspaceState,
@@ -52,7 +52,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
     ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>> {
         Box::pin(async move {
             let rows = sqlx::query(
-                "SELECT id, runtime_type, provider_id, state, state_reason, workflow_preset_json, runtime_json
+                "SELECT id, runtime_type, provider_id, state, state_reason, workflow_id, workflow_version, runtime_json
                  FROM workspaces ORDER BY created_at ASC",
             )
             .fetch_all(&self.pool)
@@ -75,7 +75,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             validate_id(id)?;
 
             let row = sqlx::query(
-                "SELECT id, runtime_type, provider_id, state, state_reason, workflow_preset_json, runtime_json
+                "SELECT id, runtime_type, provider_id, state, state_reason, workflow_id, workflow_version, runtime_json
                  FROM workspaces WHERE id = ?1",
             )
             .bind(id)
@@ -93,12 +93,11 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
     ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
         Box::pin(async move {
             validate_id(&workspace.id)?;
+            validate_workflow_reference(&workspace.workflow)?;
 
             let encoded = runtime::encode_runtime(&workspace.runtime)?;
             let provider_id = json_string(&encoded.provider_id)?;
             let state = workspace_state_columns(&workspace.state);
-            let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
-                .map_err(|_| WorkspaceCatalogError::Corrupt)?;
             let now = timestamp()?;
 
             sqlx::query(
@@ -108,19 +107,21 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                     provider_id,
                     state,
                     state_reason,
-                    workflow_preset_json,
+                    workflow_id,
+                    workflow_version,
                     runtime_json,
                     created_at,
                     updated_at
                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )
             .bind(&workspace.id)
             .bind(&encoded.runtime_type)
             .bind(provider_id)
             .bind(state.state)
             .bind(state.reason)
-            .bind(workflow_preset_json)
+            .bind(&workspace.workflow.id)
+            .bind(&workspace.workflow.version)
             .bind(&encoded.runtime_json)
             .bind(&now)
             .bind(&now)
@@ -144,12 +145,11 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
     ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
         Box::pin(async move {
             validate_id(&workspace.id)?;
+            validate_workflow_reference(&workspace.workflow)?;
 
             let encoded = runtime::encode_runtime(&workspace.runtime)?;
             let provider_id = json_string(&encoded.provider_id)?;
             let state = workspace_state_columns(&workspace.state);
-            let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
-                .map_err(|_| WorkspaceCatalogError::Corrupt)?;
             let now = timestamp()?;
 
             let result = sqlx::query(
@@ -158,16 +158,18 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                      provider_id = ?2,
                      state = ?3,
                      state_reason = ?4,
-                     workflow_preset_json = ?5,
-                     runtime_json = ?6,
-                     updated_at = ?7
-                 WHERE id = ?8",
+                     workflow_id = ?5,
+                     workflow_version = ?6,
+                     runtime_json = ?7,
+                     updated_at = ?8
+                 WHERE id = ?9",
             )
             .bind(&encoded.runtime_type)
             .bind(provider_id)
             .bind(state.state)
             .bind(state.reason)
-            .bind(workflow_preset_json)
+            .bind(&workspace.workflow.id)
+            .bind(&workspace.workflow.version)
             .bind(&encoded.runtime_json)
             .bind(now)
             .bind(&workspace.id)
@@ -213,6 +215,11 @@ fn validate_id(id: &str) -> Result<(), WorkspaceCatalogError> {
     }
 }
 
+fn validate_workflow_reference(workflow: &WorkflowReference) -> Result<(), WorkspaceCatalogError> {
+    validate_id(&workflow.id)?;
+    validate_id(&workflow.version)
+}
+
 fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, WorkspaceCatalogError> {
     let id = row
         .try_get::<String, _>("id")
@@ -229,14 +236,20 @@ fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, Worksp
     let state_reason = row
         .try_get::<Option<String>, _>("state_reason")
         .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let workflow_preset_json = row
-        .try_get::<String, _>("workflow_preset_json")
+    let workflow_id = row
+        .try_get::<String, _>("workflow_id")
+        .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
+    let workflow_version = row
+        .try_get::<String, _>("workflow_version")
         .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
     let runtime_json = row
         .try_get::<String, _>("runtime_json")
         .map_err(|_| WorkspaceCatalogError::SchemaMismatch)?;
-    let workflow_preset: WorkflowPreset =
-        serde_json::from_str(&workflow_preset_json).map_err(|_| WorkspaceCatalogError::Corrupt)?;
+    let workflow = WorkflowReference {
+        id: workflow_id,
+        version: workflow_version,
+    };
+    validate_workflow_reference(&workflow)?;
     let state = workspace_state_from_columns(&state, state_reason.as_deref())?;
     let runtime = runtime::decode_runtime(&runtime_type, &runtime_json)?;
     let encoded = runtime::encode_runtime(&runtime)?;
@@ -247,7 +260,7 @@ fn workspace_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Workspace, Worksp
 
     Ok(Workspace {
         id,
-        workflow_preset,
+        workflow,
         state,
         runtime,
     })
@@ -378,11 +391,7 @@ mod tests {
         provisioned_remote::GpuCloudProviderId,
         provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
         provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
-        runtime_contract::RuntimeContractReference,
-        workflow_preset::{
-            ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
-            RemoteRuntimeRequirements, WorkflowExecutionType, WorkflowPreset,
-        },
+        workflow_preset::WorkflowReference,
         workspace::{
             Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
             WorkspaceRuntimeInvalidReason, WorkspaceState,
@@ -481,7 +490,8 @@ mod tests {
         provider_id: &'a str,
         state: &'a str,
         state_reason: Option<&'a str>,
-        workflow_preset_json: &'a str,
+        workflow_id: &'a str,
+        workflow_version: &'a str,
         runtime_json: &'a str,
         created_at: &'a str,
         updated_at: &'a str,
@@ -495,19 +505,21 @@ mod tests {
                 provider_id,
                 state,
                 state_reason,
-                workflow_preset_json,
+                workflow_id,
+                workflow_version,
                 runtime_json,
                 created_at,
                 updated_at
             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )
         .bind(row.id)
         .bind(row.runtime_type)
         .bind(row.provider_id)
         .bind(row.state)
         .bind(row.state_reason)
-        .bind(row.workflow_preset_json)
+        .bind(row.workflow_id)
+        .bind(row.workflow_version)
         .bind(row.runtime_json)
         .bind(row.created_at)
         .bind(row.updated_at)
@@ -519,36 +531,9 @@ mod tests {
     fn workspace(id: &str) -> Workspace {
         Workspace {
             id: id.to_string(),
-            workflow_preset: WorkflowPreset {
+            workflow: WorkflowReference {
                 id: "preset".to_string(),
                 version: "1".to_string(),
-                name: "Workflow 1".to_string(),
-                execution_type: WorkflowExecutionType::T2i,
-                requires_hugging_face_api_key: false,
-                remote_runtime_requirements: RemoteRuntimeRequirements {
-                    required_base_volume_size_bytes: 1,
-                    provider_requirements: vec![RemoteProviderRuntimeRequirements {
-                        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                        endpoint_contract: RuntimeContractReference {
-                            id: "endpoint-contract".to_string(),
-                            version: "1".to_string(),
-                        },
-                        provisioner_contract: RuntimeContractReference {
-                            id: "provisioner-contract".to_string(),
-                            version: "1".to_string(),
-                        },
-                    }],
-                },
-                required_model_assets: vec![ModelAsset {
-                    id: "asset-1".to_string(),
-                    name: "Asset 1".to_string(),
-                    download_source: ModelAssetSource::Huggingface {
-                        repository_id: "owner/repository".to_string(),
-                        file_path: "model.safetensors".to_string(),
-                        revision: "main".to_string(),
-                    },
-                    install_comfyui_relative_path: "models/model.safetensors".to_string(),
-                }],
             },
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
@@ -589,7 +574,8 @@ mod tests {
         assert_text_not_null_column(&pool, "workspaces", "provider_id").await;
         assert_text_not_null_column(&pool, "workspaces", "state").await;
         assert_text_nullable_column(&pool, "workspaces", "state_reason").await;
-        assert_text_not_null_column(&pool, "workspaces", "workflow_preset_json").await;
+        assert_text_not_null_column(&pool, "workspaces", "workflow_id").await;
+        assert_text_not_null_column(&pool, "workspaces", "workflow_version").await;
         assert_text_not_null_column(&pool, "workspaces", "runtime_json").await;
         assert_text_not_null_column(&pool, "workspaces", "created_at").await;
         assert_text_not_null_column(&pool, "workspaces", "updated_at").await;
@@ -686,7 +672,8 @@ mod tests {
                 provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
-                workflow_preset_json TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -725,7 +712,8 @@ mod tests {
                 provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
-                workflow_preset_json TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -763,7 +751,8 @@ mod tests {
                 provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT NOT NULL,
-                workflow_preset_json TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -801,7 +790,8 @@ mod tests {
                 provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
-                workflow_preset_json TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -855,7 +845,8 @@ mod tests {
                 provider_id TEXT NOT NULL,
                 state TEXT NOT NULL,
                 state_reason TEXT,
-                workflow_preset_json TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -903,7 +894,7 @@ mod tests {
             .expect("insert should succeed");
 
         let row = sqlx::query(
-            "SELECT runtime_type, provider_id, state, state_reason, workflow_preset_json, runtime_json
+            "SELECT runtime_type, provider_id, state, state_reason, workflow_id, workflow_version, runtime_json
              FROM workspaces WHERE id = ?1",
         )
         .bind("workspace-1")
@@ -915,9 +906,8 @@ mod tests {
         assert_eq!(row.get::<String, _>("provider_id"), "runpod");
         assert_eq!(row.get::<String, _>("state"), "not_provisioned");
         assert_eq!(row.get::<Option<String>, _>("state_reason"), None);
-        assert!(row
-            .get::<String, _>("workflow_preset_json")
-            .contains("\"preset\""));
+        assert_eq!(row.get::<String, _>("workflow_id"), "preset");
+        assert_eq!(row.get::<String, _>("workflow_version"), "1");
 
         let runtime_json = row.get::<String, _>("runtime_json");
         let runtime_value: serde_json::Value =
@@ -1054,8 +1044,6 @@ mod tests {
     async fn invalid_state_reason_combinations_return_corrupt() {
         let path = catalog_path("invalid-state-reason");
         let workspace = workspace("workspace-1");
-        let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
-            .expect("workflow preset serialization should succeed");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace.runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
@@ -1083,7 +1071,8 @@ mod tests {
                     provider_id: "runpod",
                     state,
                     state_reason,
-                    workflow_preset_json: &workflow_preset_json,
+                    workflow_id: "preset",
+                    workflow_version: "1",
                     runtime_json: &runtime_json,
                     created_at: "2026-06-06T00:00:01Z",
                     updated_at: "2026-06-06T00:00:01Z",
@@ -1104,8 +1093,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn corrupt_workflow_preset_json_returns_corrupt() {
-        let path = catalog_path("corrupt-workflow-preset-json");
+    async fn empty_workflow_id_returns_corrupt() {
+        let path = catalog_path("empty-workflow-id");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace("workspace-1").runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
@@ -1121,7 +1110,8 @@ mod tests {
                 provider_id: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
-                workflow_preset_json: "{",
+                workflow_id: "",
+                workflow_version: "1",
                 runtime_json: &runtime_json,
                 created_at: "2026-06-06T00:00:01Z",
                 updated_at: "2026-06-06T00:00:01Z",
@@ -1132,7 +1122,7 @@ mod tests {
         let error = repository
             .list_workspaces()
             .await
-            .expect_err("corrupt workflow preset json should fail");
+            .expect_err("empty workflow id should fail");
 
         assert_eq!(error, WorkspaceCatalogError::Corrupt);
 
@@ -1141,11 +1131,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn corrupt_runtime_json_returns_corrupt() {
-        let path = catalog_path("corrupt-runtime-json");
-        let workspace = workspace("workspace-1");
-        let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
-            .expect("workflow preset serialization should succeed");
+    async fn empty_workflow_version_returns_corrupt() {
+        let path = catalog_path("empty-workflow-version");
+        let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace("workspace-1").runtime;
+        let runtime_json =
+            serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
         let repository = SqliteWorkspaceCatalogRepository::connect(&path)
             .await
@@ -1158,7 +1148,43 @@ mod tests {
                 provider_id: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
-                workflow_preset_json: &workflow_preset_json,
+                workflow_id: "preset",
+                workflow_version: "",
+                runtime_json: &runtime_json,
+                created_at: "2026-06-06T00:00:01Z",
+                updated_at: "2026-06-06T00:00:01Z",
+            },
+        )
+        .await;
+
+        let error = repository
+            .list_workspaces()
+            .await
+            .expect_err("empty workflow version should fail");
+
+        assert_eq!(error, WorkspaceCatalogError::Corrupt);
+
+        drop(repository);
+        let _ = fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn corrupt_runtime_json_returns_corrupt() {
+        let path = catalog_path("corrupt-runtime-json");
+
+        let repository = SqliteWorkspaceCatalogRepository::connect(&path)
+            .await
+            .expect("connect should succeed");
+        insert_workspace_row(
+            &repository.pool,
+            WorkspaceRowInsert {
+                id: "workspace-1",
+                runtime_type: "provisioned_remote",
+                provider_id: "runpod",
+                state: "not_provisioned",
+                state_reason: None,
+                workflow_id: "preset",
+                workflow_version: "1",
                 runtime_json: "{",
                 created_at: "2026-06-06T00:00:01Z",
                 updated_at: "2026-06-06T00:00:01Z",
@@ -1176,13 +1202,10 @@ mod tests {
         drop(repository);
         let _ = fs::remove_file(path);
     }
-
     #[tokio::test]
     async fn unknown_runtime_type_returns_corrupt() {
         let path = catalog_path("unknown-runtime-type");
         let workspace = workspace("workspace-1");
-        let workflow_preset_json = serde_json::to_string(&workspace.workflow_preset)
-            .expect("workflow preset serialization should succeed");
         let WorkspaceRuntime::ProvisionedRemote(runtime) = workspace.runtime;
         let runtime_json =
             serde_json::to_string(&runtime).expect("runtime serialization should succeed");
@@ -1198,7 +1221,8 @@ mod tests {
                 provider_id: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
-                workflow_preset_json: &workflow_preset_json,
+                workflow_id: "preset",
+                workflow_version: "1",
                 runtime_json: &runtime_json,
                 created_at: "2026-06-06T00:00:01Z",
                 updated_at: "2026-06-06T00:00:01Z",
@@ -1222,10 +1246,6 @@ mod tests {
         let path = catalog_path("created-at-order");
         let workspace_1 = workspace("workspace-1");
         let workspace_2 = workspace("workspace-2");
-        let workflow_preset_1_json = serde_json::to_string(&workspace_1.workflow_preset)
-            .expect("workflow preset serialization should succeed");
-        let workflow_preset_2_json = serde_json::to_string(&workspace_2.workflow_preset)
-            .expect("workflow preset serialization should succeed");
         let WorkspaceRuntime::ProvisionedRemote(runtime_1) = &workspace_1.runtime;
         let runtime_1_json =
             serde_json::to_string(runtime_1).expect("runtime serialization should succeed");
@@ -1244,7 +1264,8 @@ mod tests {
                 provider_id: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
-                workflow_preset_json: &workflow_preset_2_json,
+                workflow_id: &workspace_2.workflow.id,
+                workflow_version: &workspace_2.workflow.version,
                 runtime_json: &runtime_2_json,
                 created_at: "2026-06-06T00:00:02Z",
                 updated_at: "2026-06-06T00:00:02Z",
@@ -1259,7 +1280,8 @@ mod tests {
                 provider_id: "runpod",
                 state: "not_provisioned",
                 state_reason: None,
-                workflow_preset_json: &workflow_preset_1_json,
+                workflow_id: &workspace_1.workflow.id,
+                workflow_version: &workspace_1.workflow.version,
                 runtime_json: &runtime_1_json,
                 created_at: "2026-06-06T00:00:01Z",
                 updated_at: "2026-06-06T00:00:01Z",
@@ -1378,7 +1400,7 @@ mod tests {
             .expect("insert should succeed");
         let (created_at_before, _) = workspace_timestamps(&repository.pool, "workspace-1").await;
 
-        workspace.workflow_preset.name = "Updated Workflow".to_string();
+        workspace.workflow.version = "1.0.1".to_string();
         let updated = repository
             .update_workspace(&workspace)
             .await

@@ -53,11 +53,7 @@ mod tests {
             provisioned_remote::GpuCloudProviderId,
             provisioned_remote::{ProvisionedRemoteResources, ProvisionedRemoteRuntime},
             provisioned_remote::{RemoteEndpointKeepAliveLimits, RemotePlacementPlan},
-            runtime_contract::RuntimeContractReference,
-            workflow_preset::{
-                ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements,
-                RemoteRuntimeRequirements, WorkflowExecutionType, WorkflowPreset,
-            },
+            workflow_preset::WorkflowReference,
             workspace::{Workspace, WorkspaceCatalog, WorkspaceRuntime, WorkspaceState},
         },
         shared::AppFuture,
@@ -329,36 +325,9 @@ mod tests {
     fn workspace(id: &str) -> Workspace {
         Workspace {
             id: id.to_string(),
-            workflow_preset: WorkflowPreset {
+            workflow: WorkflowReference {
                 id: "preset".to_string(),
                 version: "1".to_string(),
-                name: "Workflow 1".to_string(),
-                execution_type: WorkflowExecutionType::T2i,
-                requires_hugging_face_api_key: false,
-                remote_runtime_requirements: RemoteRuntimeRequirements {
-                    required_base_volume_size_bytes: 1,
-                    provider_requirements: vec![RemoteProviderRuntimeRequirements {
-                        gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                        endpoint_contract: RuntimeContractReference {
-                            id: "endpoint-contract".to_string(),
-                            version: "1".to_string(),
-                        },
-                        provisioner_contract: RuntimeContractReference {
-                            id: "provisioner-contract".to_string(),
-                            version: "1".to_string(),
-                        },
-                    }],
-                },
-                required_model_assets: vec![ModelAsset {
-                    id: "asset-1".to_string(),
-                    name: "Asset 1".to_string(),
-                    download_source: ModelAssetSource::Huggingface {
-                        repository_id: "owner/repository".to_string(),
-                        file_path: "model.safetensors".to_string(),
-                        revision: "main".to_string(),
-                    },
-                    install_comfyui_relative_path: "models/model.safetensors".to_string(),
-                }],
             },
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {

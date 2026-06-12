@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{provisioned_remote::ProvisionedRemoteRuntime, workflow_preset::WorkflowPreset};
+use super::{provisioned_remote::ProvisionedRemoteRuntime, workflow_preset::WorkflowReference};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,7 +43,7 @@ pub enum WorkspaceRuntime {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
-    pub workflow_preset: WorkflowPreset,
+    pub workflow: WorkflowReference,
     pub state: WorkspaceState,
     pub runtime: WorkspaceRuntime,
 }
@@ -60,11 +60,7 @@ mod tests {
             GpuCloudProviderId, ProvisionedRemoteResources, ProvisionedRemoteRuntime,
             RemotePlacementPlan,
         },
-        runtime_contract::RuntimeContractReference,
-        workflow_preset::{
-            RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements, WorkflowExecutionType,
-            WorkflowPreset,
-        },
+        workflow_preset::WorkflowReference,
     };
 
     use super::{Workspace, WorkspaceRuntime, WorkspaceState};
@@ -73,7 +69,7 @@ mod tests {
     fn workspace_serializes_stable_state_separately_from_runtime() {
         let workspace = Workspace {
             id: "workspace-1".to_string(),
-            workflow_preset: workflow_preset(),
+            workflow: workflow_reference(),
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntime::ProvisionedRemote(ProvisionedRemoteRuntime {
                 placement: placement(),
@@ -92,6 +88,9 @@ mod tests {
         assert!(json["runtime"]["resources"].is_object());
         assert_eq!(json["runtime"]["resources"]["endpoint_id"], "endpoint");
         assert!(json["runtime"]["resources"].get("endpoint").is_none());
+        assert_eq!(json["workflow"]["id"], "preset");
+        assert_eq!(json["workflow"]["version"], "1.0.0");
+        assert!(json.get("workflow_preset").is_none());
         assert_eq!(
             json["runtime"]
                 .as_object()
@@ -131,28 +130,10 @@ mod tests {
         }
     }
 
-    fn workflow_preset() -> WorkflowPreset {
-        WorkflowPreset {
+    fn workflow_reference() -> WorkflowReference {
+        WorkflowReference {
             id: "preset".to_string(),
             version: "1.0.0".to_string(),
-            name: "Preset".to_string(),
-            execution_type: WorkflowExecutionType::T2i,
-            requires_hugging_face_api_key: false,
-            remote_runtime_requirements: RemoteRuntimeRequirements {
-                required_base_volume_size_bytes: 1,
-                provider_requirements: vec![RemoteProviderRuntimeRequirements {
-                    gpu_cloud_provider_id: GpuCloudProviderId::Runpod,
-                    endpoint_contract: RuntimeContractReference {
-                        id: "endpoint".to_string(),
-                        version: "1.0.0".to_string(),
-                    },
-                    provisioner_contract: RuntimeContractReference {
-                        id: "provisioner".to_string(),
-                        version: "1.0.0".to_string(),
-                    },
-                }],
-            },
-            required_model_assets: Vec::new(),
         }
     }
 }
