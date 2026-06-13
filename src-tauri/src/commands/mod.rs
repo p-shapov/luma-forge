@@ -7,8 +7,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    runpod_runtime::errors::{ProviderApiError, RunpodRuntimeError},
+    domain::runpod::{RunpodLifecycleError, RunpodProvisionerError, RunpodRuntimeStateError},
+    runpod_runtime::errors::RunpodRuntimeError,
     secrets_storage::SecretsStorageError,
+    shared::ApiError,
     workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
@@ -137,79 +139,100 @@ impl From<SecretsStorageError> for NativeCommandError {
 impl From<RunpodRuntimeError> for NativeCommandError {
     fn from(error: RunpodRuntimeError) -> Self {
         match error {
-            RunpodRuntimeError::WorkspaceNotFound => Self::new(
-                NativeCommandErrorCode::WorkspaceNotFound,
-                "workspace was not found",
-            ),
-            RunpodRuntimeError::WorkspaceAlreadyExists => Self::new(
-                NativeCommandErrorCode::WorkspaceAlreadyExists,
-                "workspace already exists",
-            ),
-            RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. } => Self::new(
-                NativeCommandErrorCode::LifecycleOperationAlreadyRunning,
-                "workspace lifecycle operation is already running",
-            ),
-            RunpodRuntimeError::RunpodSecretUnavailable => Self::new(
+            RunpodRuntimeError::RunpodApiKeyUnavailable(_) => Self::new(
                 NativeCommandErrorCode::RunpodSecretUnavailable,
                 "api key is not configured",
             ),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::Unauthorized) => Self::new(
+            RunpodRuntimeError::HuggingFaceApiKeyUnavailable(_) => Self::new(
+                NativeCommandErrorCode::RunpodSecretUnavailable,
+                "hugging face api key is not configured",
+            ),
+            RunpodRuntimeError::WorkflowCatalogInvalid(error) => Self::from(error),
+            RunpodRuntimeError::WorkspaceCatalogInvalid(error) => Self::from(error),
+            RunpodRuntimeError::RunpodApiError(ApiError::Unauthorized)
+            | RunpodRuntimeError::LifecycleError(RunpodLifecycleError::RunPodApiError(
+                ApiError::Unauthorized,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderUnauthorized,
                 "runpod request failed",
             ),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::InsufficientPermissions) => {
-                Self::new(
-                    NativeCommandErrorCode::ProviderInsufficientPermissions,
-                    "runpod request failed",
-                )
-            }
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::RateLimited) => Self::new(
+            RunpodRuntimeError::RunpodApiError(ApiError::InsufficientPermissions)
+            | RunpodRuntimeError::LifecycleError(RunpodLifecycleError::RunPodApiError(
+                ApiError::InsufficientPermissions,
+            )) => Self::new(
+                NativeCommandErrorCode::ProviderInsufficientPermissions,
+                "runpod request failed",
+            ),
+            RunpodRuntimeError::RunpodApiError(ApiError::RateLimited)
+            | RunpodRuntimeError::LifecycleError(RunpodLifecycleError::RunPodApiError(
+                ApiError::RateLimited,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderRateLimited,
                 "runpod request failed",
             ),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::Timeout) => Self::new(
+            RunpodRuntimeError::RunpodApiError(ApiError::Timeout)
+            | RunpodRuntimeError::LifecycleError(RunpodLifecycleError::RunPodApiError(
+                ApiError::Timeout,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderTimeout,
                 "runpod request failed",
             ),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::RequestFailed) => Self::new(
+            RunpodRuntimeError::RunpodApiError(ApiError::RequestFailed { .. })
+            | RunpodRuntimeError::LifecycleError(RunpodLifecycleError::RunPodApiError(
+                ApiError::RequestFailed { .. },
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "runpod request failed",
             ),
-            RunpodRuntimeError::NetworkVolumeNotFound => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::InvalidRuntimeState(
+                RunpodRuntimeStateError::MissingVolume,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote volume was not found",
             ),
-            RunpodRuntimeError::ProvisionerPodNotFound => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::InvalidRuntimeState(
+                RunpodRuntimeStateError::MissingProvisionerPod,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote provisioner was not found",
             ),
-            RunpodRuntimeError::EndpointNotFound => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::InvalidRuntimeState(
+                RunpodRuntimeStateError::MissingEndpoint,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote endpoint was not found",
             ),
-            RunpodRuntimeError::TemplateNotFound => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::InvalidRuntimeState(
+                RunpodRuntimeStateError::MissingTemplate,
+            )) => Self::new(
                 NativeCommandErrorCode::ProviderRequestFailed,
                 "remote template was not found",
             ),
-            RunpodRuntimeError::ProvisionerUnavailable => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::ProvisionerError(
+                RunpodProvisionerError::Unavailable { .. },
+            )) => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerUnavailable,
                 "remote provisioner worker failed",
             ),
-            RunpodRuntimeError::ProvisionerResponseInvalid => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::ProvisionerError(
+                RunpodProvisionerError::ResponseInvalid { .. },
+            )) => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerResponseInvalid,
                 "remote provisioner worker failed",
             ),
-            RunpodRuntimeError::ProvisionerFailed => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::ProvisionerError(
+                RunpodProvisionerError::Failed { .. },
+            )) => Self::new(
                 NativeCommandErrorCode::ProvisionerWorkerFailed,
                 "remote provisioner worker failed",
             ),
-            RunpodRuntimeError::InvalidRuntimeState => Self::new(
+            RunpodRuntimeError::LifecycleError(RunpodLifecycleError::AppInterrupted)
+            | RunpodRuntimeError::LifecycleError(RunpodLifecycleError::InvalidRuntimeState(
+                RunpodRuntimeStateError::Invalid { .. },
+            ))
+            | RunpodRuntimeError::InvalidRuntimeState { .. } => Self::new(
                 NativeCommandErrorCode::InvalidRuntimeState,
                 "workspace runtime state is invalid",
-            ),
-            RunpodRuntimeError::StorageUnavailable => Self::new(
-                NativeCommandErrorCode::WorkspaceStorageUnavailable,
-                "workspace storage is unavailable",
             ),
         }
     }
@@ -270,8 +293,8 @@ mod tests {
 
     #[test]
     fn runpod_unauthorized_maps_to_stable_code_without_provider_details() {
-        let error = NativeCommandError::from(RunpodRuntimeError::RunpodApiFailed(
-            ProviderApiError::Unauthorized,
+        let error = NativeCommandError::from(RunpodRuntimeError::from(
+            RunpodLifecycleError::RunPodApiError(ApiError::Unauthorized),
         ));
 
         assert_eq!(error.code, NativeCommandErrorCode::ProviderUnauthorized);
@@ -280,7 +303,11 @@ mod tests {
 
     #[test]
     fn provisioner_worker_conflict_maps_to_stable_code_without_worker_details() {
-        let error = NativeCommandError::from(RunpodRuntimeError::ProvisionerFailed);
+        let error = NativeCommandError::from(RunpodRuntimeError::from(
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed {
+                message: "provisioner worker failed".to_string(),
+            }),
+        ));
 
         assert_eq!(error.code, NativeCommandErrorCode::ProvisionerWorkerFailed);
         assert_eq!(error.message, "remote provisioner worker failed");
@@ -288,7 +315,11 @@ mod tests {
 
     #[test]
     fn delete_workspace_failed_uses_fixed_ui_safe_message() {
-        let error = NativeCommandError::from(RunpodRuntimeError::InvalidRuntimeState);
+        let error = NativeCommandError::from(
+            crate::runpod_runtime::errors::invalid_runtime_state_message(
+                "runtime state is invalid",
+            ),
+        );
 
         assert_eq!(error.code, NativeCommandErrorCode::InvalidRuntimeState);
         assert_eq!(error.message, "workspace runtime state is invalid");

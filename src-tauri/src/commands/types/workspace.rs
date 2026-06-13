@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::domain::{
     lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
@@ -464,15 +464,14 @@ impl From<RunpodLifecycleError> for RunpodLifecycleErrorResponse {
     fn from(value: RunpodLifecycleError) -> Self {
         match value {
             RunpodLifecycleError::AppInterrupted => Self::AppInterrupted,
-            RunpodLifecycleError::RunPodSecretError(_) => Self::RunpodSecretUnavailable,
             RunpodLifecycleError::RunPodApiError(_) => Self::RunpodApiFailed,
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable) => {
-                Self::ProvisionerUnavailable
-            }
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid) => {
-                Self::ProvisionerResponseInvalid
-            }
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed) => {
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable {
+                ..
+            }) => Self::ProvisionerUnavailable,
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid {
+                ..
+            }) => Self::ProvisionerResponseInvalid,
+            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed { .. }) => {
                 Self::ProvisionerFailed
             }
             RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingVolume) => {
@@ -487,9 +486,9 @@ impl From<RunpodLifecycleError> for RunpodLifecycleErrorResponse {
             RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingTemplate) => {
                 Self::TemplateNotFound
             }
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid) => {
-                Self::InvalidRuntimeState
-            }
+            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid {
+                ..
+            }) => Self::InvalidRuntimeState,
         }
     }
 }

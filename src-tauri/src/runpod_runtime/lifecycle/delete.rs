@@ -11,16 +11,15 @@ use crate::{
 
 use super::{
     super::{
-        errors::RunpodRuntimeError,
+        errors::{RunpodRuntimeError, lifecycle_payload_error, invalid_runtime_state_error},
         events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
         provider::RunpodRuntimeClient,
-        service::map_workspace_catalog_error,
     },
     helpers::{
-        delete_remote_resources, invalid_runtime_state, load_running_operation,
-        map_lifecycle_journal_error, mark_operation_failed, mark_operation_state,
-        mark_running_step, mark_workspace_failed, RunpodWorkspaceFailure,
+        RunpodWorkspaceFailure, invalid_runtime_state, load_running_operation,
+        mark_operation_state, mark_running_step, mark_workspace_failed,
     },
+    resource_cleanup::delete_remote_resources,
 };
 
 pub async fn run_once<W, L>(
@@ -53,7 +52,7 @@ where
             lifecycle_journal
                 .delete_for_workspace(&operation.workspace_id)
                 .await
-                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+                .map_err(invalid_runtime_state_error)?;
             return Ok(None);
         }
         Err(_) => {
@@ -101,7 +100,7 @@ where
             if let Err(error) = workspace_repository
                 .delete_workspace(&workspace.id)
                 .await
-                .map_err(map_workspace_catalog_error)
+                .map_err(RunpodRuntimeError::from)
             {
                 mark_workspace_failed(
                     &mut workspace,
@@ -110,12 +109,13 @@ where
                     RunpodWorkspaceFailure::Delete,
                 )
                 .await?;
-                mark_operation_failed(
+                mark_operation_state(
                     lifecycle_journal,
                     event_sink,
                     &operation,
+                    LifecycleOperationState::Failed,
                     failed_step.clone(),
-                    &error,
+                    Some(lifecycle_payload_error(&error)),
                 )
                 .await?;
                 return Err(error);
@@ -132,7 +132,7 @@ where
             lifecycle_journal
                 .delete_for_workspace(&operation.workspace_id)
                 .await
-                .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+                .map_err(invalid_runtime_state_error)?;
             event_sink.emit(RunpodRuntimeEvent::WorkspaceDeleted {
                 workspace_id: workspace.id.clone(),
             });
@@ -146,12 +146,13 @@ where
                 RunpodWorkspaceFailure::Delete,
             )
             .await?;
-            mark_operation_failed(
+            mark_operation_state(
                 lifecycle_journal,
                 event_sink,
                 &operation,
+                LifecycleOperationState::Failed,
                 failed_step.clone(),
-                &error,
+                Some(lifecycle_payload_error(&error)),
             )
             .await?;
             Ok(None)

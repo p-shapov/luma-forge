@@ -3,20 +3,20 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
-        runpod::{RunpodPlacementPlan, RunpodProvisionStep, RunpodRuntime},
+        runpod::{
+            RunpodLifecycleError, RunpodPlacementPlan, RunpodProvisionStep, RunpodProvisionerError,
+            RunpodRuntime,
+        },
         workflow_preset::WorkflowPresetResolved,
         workspace::{Workspace, WorkspaceId, WorkspaceRuntime, WorkspaceState},
-    },
-    lifecycle_journal::LifecycleJournalRepository,
-    workflow_catalog::WorkflowCatalogService,
-    workspace_catalog::WorkspaceCatalogRepository,
+    }, lifecycle_journal::LifecycleJournalRepository, runpod_runtime::errors::invalid_runtime_state_error, workflow_catalog::WorkflowCatalogService, workspace_catalog::WorkspaceCatalogRepository
 };
 
 use super::super::provider::RunpodProvisionerStatus;
 use super::{
     super::{
         contracts::{RunpodContractResolver, RunpodRuntimeContracts},
-        errors::RunpodRuntimeError,
+        errors::{RunpodRuntimeError, invalid_runtime_state_message, lifecycle_payload_error},
         events::RunpodRuntimeEventSink,
         provider::{
             CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
@@ -25,8 +25,8 @@ use super::{
         },
     },
     helpers::{
-        invalid_runtime_state, load_running_operation, mark_operation_failed, mark_operation_state,
-        mark_running_step, mark_workspace_failed, persist_workspace, RunpodWorkspaceFailure,
+        RunpodWorkspaceFailure, invalid_runtime_state, load_running_operation,
+        mark_operation_state, mark_running_step, mark_workspace_failed, persist_workspace,
     },
 };
 
@@ -115,7 +115,11 @@ where
         terminate_provisioner_pod(&mut workspace, &step_context, &provisioner_id).await?;
 
         if provisioner_failed {
-            return Err(RunpodRuntimeError::ProvisionerFailed);
+            return Err(RunpodRuntimeError::from(RunpodLifecycleError::from(
+                RunpodProvisionerError::Failed {
+                    message: "provisioner worker failed".to_string(),
+                },
+            )));
         }
 
         failed_step = RunpodProvisionStep::CreateTemplate;
@@ -159,12 +163,13 @@ where
                 RunpodWorkspaceFailure::Provision,
             )
             .await?;
-            mark_operation_failed(
+            mark_operation_state(
                 lifecycle_journal,
                 event_sink,
                 &operation,
+                LifecycleOperationState::Failed,
                 failed_step,
-                &error,
+                Some(lifecycle_payload_error(&error)),
             )
             .await?;
         }
@@ -179,10 +184,10 @@ fn resolve_provisioning_inputs(
 ) -> Result<ProvisioningInputs, RunpodRuntimeError> {
     let workflows = workflow_catalog
         .get_workflow_catalog()
-        .map_err(|_| RunpodRuntimeError::InvalidRuntimeState)?;
+        .map_err(RunpodRuntimeError::from)?;
     let workflow = workflows
         .resolve(&workspace.workflow)
-        .ok_or(RunpodRuntimeError::InvalidRuntimeState)?;
+        .ok_or_else(invalid_runtime_state_error)?;
     let contracts = RunpodContractResolver::resolve(&workflow, workflow_catalog)?;
 
     Ok(ProvisioningInputs {
@@ -487,12 +492,13 @@ where
                 startup_probe_attempts = 0;
                 sleep_between_provisioner_polls(provisioner_poll_interval).await;
             }
-            Err(RunpodRuntimeError::ProvisionerUnavailable)
-                if should_retry_initial_provisioner_probe(
-                    has_seen_initial_status,
-                    startup_probe_attempts,
-                    provisioner_poll_interval,
-                ) =>
+            Err(RunpodRuntimeError::LifecycleError(RunpodLifecycleError::ProvisionerError(
+                RunpodProvisionerError::Unavailable { .. },
+            ))) if should_retry_initial_provisioner_probe(
+                has_seen_initial_status,
+                startup_probe_attempts,
+                provisioner_poll_interval,
+            ) =>
             {
                 startup_probe_attempts += 1;
                 sleep_between_provisioner_polls(provisioner_poll_interval).await;

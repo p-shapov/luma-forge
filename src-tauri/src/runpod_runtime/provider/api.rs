@@ -3,20 +3,19 @@ use std::sync::Arc;
 
 use crate::{
     domain::{runpod::RunpodPlacementOptions, workflow_preset::ModelAsset},
-    runpod_runtime::errors::RunpodRuntimeError,
+    runpod_runtime::errors::{RunpodRuntimeError, runpod_api_key_unavailable},
     secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService},
     shared::AppFuture,
 };
 
 use super::{
-    mapping::{
-        endpoint_create_body, endpoint_template_create_body, map_empty_response,
-        map_placement_response, map_secret_error, map_send_error, network_volume_create_body,
-        parse_json_response, placement_graphql_request, provisioner_pod_create_body,
-        EndpointResponse, GraphqlResponse, NetworkVolumeResponse, PlacementQueryData, PodResponse,
-        RunpodOperation, TemplateResponse,
-    },
     RunpodEndpointKeepAliveLimits,
+    mapping::{
+        EndpointResponse, GraphqlResponse, NetworkVolumeResponse, PlacementQueryData, PodResponse,
+        RunpodOperation, TemplateResponse, endpoint_create_body, endpoint_template_create_body,
+        map_empty_response, map_placement_response, map_send_error, network_volume_create_body,
+        parse_json_response, placement_graphql_request, provisioner_pod_create_body,
+    },
 };
 
 pub trait RunpodApi: Send + Sync {
@@ -161,9 +160,12 @@ where
             .json(body)
             .send()
             .await
-            .map_err(map_send_error)?;
+            .map_err(map_send_error)
+            .map_err(RunpodRuntimeError::from)?;
 
-        parse_json_response(response, operation).await
+        parse_json_response(response, operation)
+            .await
+            .map_err(RunpodRuntimeError::from)
     }
 
     async fn delete_rest(
@@ -178,16 +180,17 @@ where
             .bearer_auth(&api_key)
             .send()
             .await
-            .map_err(map_send_error)?;
+            .map_err(map_send_error)
+            .map_err(RunpodRuntimeError::from)?;
 
-        map_empty_response(response.status(), operation)
+        map_empty_response(response.status(), operation).map_err(RunpodRuntimeError::from)
     }
 
     async fn api_key(&self) -> Result<String, RunpodRuntimeError> {
         self.secrets
             .retrieve()
             .await
-            .map_err(map_secret_error)
+            .map_err(runpod_api_key_unavailable)
             .map(|secret| secret.expose_secret().to_string())
     }
 }
@@ -209,12 +212,15 @@ where
                 .json(&placement_graphql_request())
                 .send()
                 .await
-                .map_err(map_send_error)?;
+                .map_err(map_send_error)
+                .map_err(RunpodRuntimeError::from)?;
 
             let response: GraphqlResponse<PlacementQueryData> =
-                parse_json_response(response, RunpodOperation::PlacementOptions).await?;
+                parse_json_response(response, RunpodOperation::PlacementOptions)
+                    .await
+                    .map_err(RunpodRuntimeError::from)?;
 
-            map_placement_response(response)
+            map_placement_response(response).map_err(RunpodRuntimeError::from)
         })
     }
 
@@ -253,7 +259,7 @@ where
         request: CreateProvisionerPodRequest,
     ) -> AppFuture<'a, Result<RunpodId, RunpodRuntimeError>> {
         Box::pin(async move {
-            let body = provisioner_pod_create_body(&request)?;
+            let body = provisioner_pod_create_body(&request).map_err(RunpodRuntimeError::from)?;
             let response: PodResponse = self
                 .post_rest("/pods", &body, RunpodOperation::CreateProvisionerPod)
                 .await?;

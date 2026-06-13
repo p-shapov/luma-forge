@@ -6,8 +6,7 @@ use crate::{
     domain::runpod::{
         RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
     },
-    runpod_runtime::errors::{ProviderApiError, RunpodRuntimeError},
-    secrets_storage::SecretsStorageError,
+    shared::{ApiError, map_api_status_error, map_api_transport_error},
 };
 
 use super::{
@@ -224,7 +223,7 @@ pub(super) fn network_volume_create_body(
 
 pub(super) fn provisioner_pod_create_body(
     request: &CreateProvisionerPodRequest,
-) -> Result<PodCreateBody, RunpodRuntimeError> {
+) -> Result<PodCreateBody, ApiError> {
     let required_model_assets = serde_json::to_string(&request.required_model_assets)
         .map_err(|_| provider_request_failed())?;
     let mut env = HashMap::from([
@@ -300,7 +299,7 @@ fn worker_port() -> String {
 pub(super) async fn parse_json_response<T>(
     response: reqwest::Response,
     operation: RunpodOperation,
-) -> Result<T, RunpodRuntimeError>
+) -> Result<T, ApiError>
 where
     T: for<'de> Deserialize<'de>,
 {
@@ -314,7 +313,7 @@ where
 pub(super) fn map_empty_response(
     status: StatusCode,
     operation: RunpodOperation,
-) -> Result<(), RunpodRuntimeError> {
+) -> Result<(), ApiError> {
     if status.is_success() {
         return Ok(());
     }
@@ -322,48 +321,23 @@ pub(super) fn map_empty_response(
     Err(map_status_error(status, operation))
 }
 
-fn map_status_error(status: StatusCode, operation: RunpodOperation) -> RunpodRuntimeError {
-    match status {
-        StatusCode::UNAUTHORIZED => ProviderApiError::Unauthorized.into(),
-        StatusCode::FORBIDDEN => ProviderApiError::InsufficientPermissions.into(),
-        StatusCode::TOO_MANY_REQUESTS => ProviderApiError::RateLimited.into(),
-        StatusCode::NOT_FOUND => match operation {
-            RunpodOperation::DeleteNetworkVolume => RunpodRuntimeError::NetworkVolumeNotFound,
-            RunpodOperation::DeleteProvisionerPod => RunpodRuntimeError::ProvisionerPodNotFound,
-            RunpodOperation::DeleteEndpoint => RunpodRuntimeError::EndpointNotFound,
-            RunpodOperation::DeleteTemplate => RunpodRuntimeError::TemplateNotFound,
-            _ => provider_request_failed(),
-        },
-        _ => provider_request_failed(),
-    }
+fn map_status_error(status: StatusCode, _operation: RunpodOperation) -> ApiError {
+    map_api_status_error("RunPod", status, |error| error).unwrap_or_else(provider_request_failed)
 }
 
-pub(super) fn map_send_error(error: reqwest::Error) -> RunpodRuntimeError {
-    map_transport_error(error.is_timeout())
+pub(super) fn map_send_error(error: reqwest::Error) -> ApiError {
+    map_api_transport_error(error, |error| error)
 }
 
-fn map_transport_error(is_timeout: bool) -> RunpodRuntimeError {
-    if is_timeout {
-        ProviderApiError::Timeout.into()
-    } else {
-        provider_request_failed()
-    }
-}
-
-fn provider_request_failed() -> RunpodRuntimeError {
-    ProviderApiError::RequestFailed.into()
-}
-
-pub(super) fn map_secret_error(error: SecretsStorageError) -> RunpodRuntimeError {
-    match error {
-        SecretsStorageError::KeyNotFound => RunpodRuntimeError::RunpodSecretUnavailable,
-        _ => ProviderApiError::RequestFailed.into(),
+fn provider_request_failed() -> ApiError {
+    ApiError::RequestFailed {
+        message: "RunPod API request failed".to_string(),
     }
 }
 
 pub(super) fn map_placement_response(
     response: GraphqlResponse<PlacementQueryData>,
-) -> Result<RunpodPlacementOptions, RunpodRuntimeError> {
+) -> Result<RunpodPlacementOptions, ApiError> {
     if !response.errors.is_empty() {
         return Err(provider_request_failed());
     }
@@ -414,8 +388,8 @@ mod tests {
 
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
-    use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
     use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
+    use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
 
     #[test]
     fn workspace_resource_names_are_deterministic() {
@@ -608,60 +582,6 @@ mod tests {
 
         assert_eq!(response.id, "endpoint-1");
         assert_eq!(response.url, Some("https://endpoint.example".to_string()));
-    }
-
-    #[test]
-    fn maps_ui_safe_http_and_transport_errors() {
-        assert_eq!(
-            map_status_error(StatusCode::UNAUTHORIZED, RunpodOperation::CreateEndpoint),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::Unauthorized)
-        );
-        assert_eq!(
-            map_status_error(StatusCode::FORBIDDEN, RunpodOperation::CreateEndpoint),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::InsufficientPermissions)
-        );
-        assert_eq!(
-            map_status_error(
-                StatusCode::TOO_MANY_REQUESTS,
-                RunpodOperation::CreateEndpoint
-            ),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::RateLimited)
-        );
-        assert_eq!(
-            map_transport_error(true),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::Timeout)
-        );
-        assert_eq!(
-            map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteNetworkVolume),
-            RunpodRuntimeError::NetworkVolumeNotFound
-        );
-        assert_eq!(
-            map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteProvisionerPod),
-            RunpodRuntimeError::ProvisionerPodNotFound
-        );
-        assert_eq!(
-            map_status_error(StatusCode::NOT_FOUND, RunpodOperation::DeleteEndpoint),
-            RunpodRuntimeError::EndpointNotFound
-        );
-        assert_eq!(
-            map_status_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                RunpodOperation::CreateEndpoint
-            ),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::RequestFailed)
-        );
-        assert_eq!(
-            map_transport_error(false),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::RequestFailed)
-        );
-        assert_eq!(
-            map_secret_error(SecretsStorageError::KeyNotFound),
-            RunpodRuntimeError::RunpodSecretUnavailable
-        );
-        assert_eq!(
-            map_secret_error(SecretsStorageError::StoreUnavailable),
-            RunpodRuntimeError::RunpodApiFailed(ProviderApiError::RequestFailed)
-        );
     }
 
     #[test]

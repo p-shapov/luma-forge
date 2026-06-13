@@ -8,40 +8,22 @@ use crate::{
         },
         runpod::{
             RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
-            RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodProvisionerError,
+            RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodResources,
             RunpodRuntimeStateError,
         },
         workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceId, WorkspaceRuntimeInvalidReason,
-            WorkspaceState,
+            Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
+            WorkspaceRuntimeInvalidReason, WorkspaceState,
         },
-    },
-    lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    workspace_catalog::WorkspaceCatalogRepository,
+    }, lifecycle_journal::LifecycleJournalRepository, workspace_catalog::WorkspaceCatalogRepository
 };
 
 use super::super::{
-    errors::RunpodRuntimeError,
+    errors::{
+        RunpodRuntimeError, invalid_runtime_state_error, invalid_runtime_state_message
+    },
     events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
-    service::map_workspace_catalog_error,
 };
-
-pub fn map_lifecycle_journal_error(
-    error: LifecycleJournalError,
-    workspace_id: &WorkspaceId,
-) -> RunpodRuntimeError {
-    match error {
-        LifecycleJournalError::RunningOperationExists => {
-            RunpodRuntimeError::LifecycleOperationAlreadyRunning {
-                workspace_id: workspace_id.clone(),
-            }
-        }
-        LifecycleJournalError::OperationNotFound
-        | LifecycleJournalError::StorageUnavailable { .. }
-        | LifecycleJournalError::DataInvalid { .. }
-        | LifecycleJournalError::SchemaInvalid { .. } => RunpodRuntimeError::StorageUnavailable,
-    }
-}
 
 pub async fn load_running_operation<L>(
     lifecycle_journal: &L,
@@ -53,10 +35,10 @@ where
     lifecycle_journal
         .list_running()
         .await
-        .map_err(|error| map_lifecycle_journal_error(error, &String::new()))?
+        .map_err(invalid_runtime_state_error)?
         .into_iter()
         .find(|operation| operation.operation_id == *operation_id)
-        .ok_or(RunpodRuntimeError::StorageUnavailable)
+        .ok_or_else(|| invalid_runtime_state_message("running lifecycle operation was not found"))?;
 }
 
 pub async fn mark_running_step<L, S>(
@@ -98,7 +80,7 @@ where
     let operation = lifecycle_journal
         .mark_state(&operation.operation_id, state, &payload)
         .await
-        .map_err(|error| map_lifecycle_journal_error(error, &operation.workspace_id))?;
+        .map_err(invalid_runtime_state_error)?;
     event_sink.emit(RunpodRuntimeEvent::LifecycleOperationChanged {
         workspace_id: operation.workspace_id.clone(),
         operation_id: operation.operation_id.clone(),
@@ -118,7 +100,7 @@ where
     let workspace = workspace_repository
         .update_workspace(workspace)
         .await
-        .map_err(map_workspace_catalog_error)?;
+        .map_err(RunpodRuntimeError::from)?;
     event_sink.emit(RunpodRuntimeEvent::WorkspaceChanged {
         workspace_id: workspace.id.clone(),
         workspace: Box::new(workspace.clone()),
@@ -233,70 +215,6 @@ pub fn runpod_resources_are_empty(resources: &RunpodResources) -> bool {
         && resources.provisioner_pod_id.is_none()
         && resources.endpoint_id.is_none()
         && resources.template_id.is_none()
-}
-
-pub fn lifecycle_error_for(error: &RunpodRuntimeError) -> RunpodLifecycleError {
-    match error {
-        RunpodRuntimeError::RunpodSecretUnavailable => RunpodLifecycleError::RunPodSecretError(
-            crate::secrets_storage::SecretsStorageError::KeyNotFound,
-        ),
-        RunpodRuntimeError::RunpodApiFailed(reason) => {
-            RunpodLifecycleError::RunPodApiError(reason.clone().into())
-        }
-        RunpodRuntimeError::ProvisionerUnavailable => {
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable)
-        }
-        RunpodRuntimeError::ProvisionerResponseInvalid => {
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid)
-        }
-        RunpodRuntimeError::ProvisionerFailed => {
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed)
-        }
-        RunpodRuntimeError::NetworkVolumeNotFound => {
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingVolume)
-        }
-        RunpodRuntimeError::ProvisionerPodNotFound => RunpodLifecycleError::InvalidRuntimeState(
-            RunpodRuntimeStateError::MissingProvisionerPod,
-        ),
-        RunpodRuntimeError::EndpointNotFound => {
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingEndpoint)
-        }
-        RunpodRuntimeError::TemplateNotFound => {
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingTemplate)
-        }
-        RunpodRuntimeError::InvalidRuntimeState
-        | RunpodRuntimeError::WorkspaceNotFound
-        | RunpodRuntimeError::WorkspaceAlreadyExists
-        | RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. }
-        | RunpodRuntimeError::StorageUnavailable => invalid_runtime_state(),
-    }
-}
-
-pub async fn mark_operation_failed<L, S>(
-    lifecycle_journal: &L,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
-    operation: &LifecycleOperation,
-    failed_step: S,
-    error: &RunpodRuntimeError,
-) -> Result<(), RunpodRuntimeError>
-where
-    L: LifecycleJournalRepository,
-    S: RunpodStepPayload,
-{
-    mark_operation_state(
-        lifecycle_journal,
-        event_sink,
-        operation,
-        LifecycleOperationState::Failed,
-        failed_step,
-        Some(lifecycle_error_for(error)),
-    )
-    .await
-    .map(|_| ())
-}
-
-pub fn invalid_runtime_state() -> RunpodLifecycleError {
-    RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid)
 }
 
 pub fn payload_with_app_interrupted_error(

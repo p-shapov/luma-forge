@@ -5,7 +5,9 @@ use crate::{
     shared::AppFuture,
 };
 
-use super::super::errors::RunpodRuntimeError;
+use super::super::errors::{
+    RunpodRuntimeError, hugging_face_api_key_unavailable, runpod_api_key_unavailable,
+};
 use crate::secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,7 +121,7 @@ use super::{
         NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT, PROVISIONER_WORKSPACE_MOUNT_PATH,
         RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
-    mapping::{self, map_secret_error},
+    mapping,
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
 };
 
@@ -260,7 +262,7 @@ where
             self.provisioner_worker
                 .get_status(&provisioner_status_url(provisioner_pod_id), &bearer_token)
                 .await
-                .map_err(Into::into)
+                .map_err(RunpodRuntimeError::from)
         })
     }
 
@@ -321,7 +323,7 @@ where
         self.runpod_secrets
             .hmac_sha256_hex(workspace_id)
             .await
-            .map_err(map_secret_error)
+            .map_err(runpod_api_key_unavailable)
     }
 
     async fn hugging_face_api_key(
@@ -335,7 +337,7 @@ where
         self.hugging_face_secrets
             .retrieve()
             .await
-            .map_err(map_secret_error)
+            .map_err(hugging_face_api_key_unavailable)
             .map(|secret| Some(secret.expose_secret().to_string()))
     }
 }
@@ -795,7 +797,9 @@ mod tests {
     async fn get_provisioner_status_maps_worker_auth_failure_to_provisioner_error() {
         let worker_state = Arc::new(Mutex::new(WorkerState {
             result: Some(Err(RunpodLifecycleError::ProvisionerError(
-                crate::domain::runpod::RunpodProvisionerError::ResponseInvalid,
+                crate::domain::runpod::RunpodProvisionerError::ResponseInvalid {
+                    message: "response invalid".to_string(),
+                },
             ))),
             ..WorkerState::default()
         }));
@@ -803,7 +807,14 @@ mod tests {
 
         let result = provider.get_provisioner_status("workspace", "pod").await;
 
-        assert_eq!(result, Err(RunpodRuntimeError::ProvisionerResponseInvalid));
+        assert!(matches!(
+            result,
+            Err(RunpodRuntimeError::LifecycleError(
+                RunpodLifecycleError::ProvisionerError(
+                    crate::domain::runpod::RunpodProvisionerError::ResponseInvalid { .. }
+                )
+            ))
+        ));
         assert_eq!(
             worker_state.lock().expect("worker state").calls[0].0,
             "https://pod-8000.proxy.runpod.net/status"

@@ -14,7 +14,7 @@ use super::{
     super::{
         errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
     },
-    helpers::{mark_running_step, persist_workspace, RunpodStepPayload},
+    helpers::{RunpodStepPayload, mark_running_step, persist_workspace},
 };
 
 pub(super) trait RemoteResourceCleanupStep: Clone + RunpodStepPayload {
@@ -144,14 +144,12 @@ where
     )
     .await?;
 
-    match runpod_client.delete_serverless_endpoint(&endpoint_id).await {
-        Ok(()) | Err(RunpodRuntimeError::EndpointNotFound) => {
-            resources_mut(workspace).endpoint_id = None;
-            *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
+    runpod_client
+        .delete_serverless_endpoint(&endpoint_id)
+        .await?;
+    resources_mut(workspace).endpoint_id = None;
+    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    Ok(())
 }
 
 async fn delete_template<W, L, S>(
@@ -182,14 +180,10 @@ where
     )
     .await?;
 
-    match runpod_client.delete_template(&template_id).await {
-        Ok(()) | Err(RunpodRuntimeError::TemplateNotFound) => {
-            resources_mut(workspace).template_id = None;
-            *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
+    runpod_client.delete_template(&template_id).await?;
+    resources_mut(workspace).template_id = None;
+    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    Ok(())
 }
 
 async fn terminate_provisioner_pod<W, L, S>(
@@ -220,17 +214,12 @@ where
     )
     .await?;
 
-    match runpod_client
+    runpod_client
         .terminate_provisioner_pod(&provisioner_id)
-        .await
-    {
-        Ok(()) | Err(RunpodRuntimeError::ProvisionerPodNotFound) => {
-            resources_mut(workspace).provisioner_pod_id = None;
-            *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
+        .await?;
+    resources_mut(workspace).provisioner_pod_id = None;
+    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    Ok(())
 }
 
 async fn delete_network_volume<W, L, S>(
@@ -261,14 +250,10 @@ where
     )
     .await?;
 
-    match runpod_client.delete_network_volume(&volume_id).await {
-        Ok(()) | Err(RunpodRuntimeError::NetworkVolumeNotFound) => {
-            resources_mut(workspace).network_volume_id = None;
-            *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
-            Ok(())
-        }
-        Err(error) => Err(error),
-    }
+    runpod_client.delete_network_volume(&volume_id).await?;
+    resources_mut(workspace).network_volume_id = None;
+    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    Ok(())
 }
 
 fn resources(workspace: &Workspace) -> &RunpodResources {

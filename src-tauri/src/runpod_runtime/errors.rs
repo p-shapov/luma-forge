@@ -1,18 +1,17 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    domain::runpod::{RunpodLifecycleError},
     secrets_storage::SecretsStorageError,
+    shared::ApiError,
     workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodRuntimeError {
-    #[error("lifecycle error")]
-    LifecycleError(#[from] RunpodLifecycleError),
+    #[error("runpod api error")]
+    RunpodApiError(#[from] ApiError),
     #[error("runpod api key unavailable")]
     RunpodApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("hugging face api key unavailable")]
@@ -25,8 +24,14 @@ pub enum RunpodRuntimeError {
     InvalidRuntimeState { message: String },
 }
 
-pub fn invalid_runtime_state<E: std::error::Error>(error: E) -> RunpodRuntimeError {
-    RunpodRuntimeError::InvalidRuntimeState { message: error.to_string() }
+pub fn invalid_runtime_state_message(message: impl Into<String>) -> RunpodRuntimeError {
+    RunpodRuntimeError::InvalidRuntimeState {
+        message: message.into(),
+    }
+}
+
+pub fn invalid_runtime_state_error<E: std::error::Error>(error: E) -> RunpodRuntimeError {
+    invalid_runtime_state_message(error.to_string())
 }
 
 pub fn runpod_api_key_unavailable(error: SecretsStorageError) -> RunpodRuntimeError {

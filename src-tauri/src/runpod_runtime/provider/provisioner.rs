@@ -97,15 +97,21 @@ fn map_http_status(status: StatusCode) -> Result<(), RunpodLifecycleError> {
 }
 
 fn provisioner_unavailable() -> RunpodLifecycleError {
-    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable)
+    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable {
+        message: "provisioner worker is unavailable".to_string(),
+    })
 }
 
 fn provisioner_response_invalid() -> RunpodLifecycleError {
-    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid)
+    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid {
+        message: "provisioner worker response is invalid".to_string(),
+    })
 }
 
 fn provisioner_failed() -> RunpodLifecycleError {
-    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed)
+    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed {
+        message: "provisioner worker failed".to_string(),
+    })
 }
 
 #[cfg(test)]
