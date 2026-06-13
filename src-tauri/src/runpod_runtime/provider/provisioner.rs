@@ -64,9 +64,9 @@ pub struct ProvisionerStatusResponse {
 #[derive(Debug, Deserialize)]
 pub struct ProvisionerWorkerErrorResponse {
     #[serde(alias = "code")]
-    _code: String,
+    code: String,
     #[serde(alias = "message")]
-    _message: String,
+    message: String,
 }
 
 pub fn map_status_response(
@@ -77,8 +77,10 @@ pub fn map_status_response(
         STATUS_RUNNING => Ok(RunpodProvisionerStatus::Running),
         STATUS_SUCCEEDED => Ok(RunpodProvisionerStatus::Succeeded),
         STATUS_FAILED => {
-            let _error = response.error.ok_or_else(provisioner_response_invalid)?;
-            Ok(RunpodProvisionerStatus::Failed)
+            let error = response.error.ok_or_else(provisioner_response_invalid)?;
+            Err(RunpodRuntimeError::ProvisionerWorkerFailed {
+                message: format!("{}: {}", error.code, error.message),
+            })
         }
         _ => Err(provisioner_response_invalid()),
     }
@@ -146,11 +148,13 @@ mod tests {
             map_status_response(ProvisionerStatusResponse {
                 status: "failed".to_string(),
                 error: Some(ProvisionerWorkerErrorResponse {
-                    _code: "asset_download_failed".to_string(),
-                    _message: "download failed".to_string(),
+                    code: "asset_download_failed".to_string(),
+                    message: "download failed".to_string(),
                 }),
             }),
-            Ok(RunpodProvisionerStatus::Failed)
+            Err(RunpodRuntimeError::ProvisionerWorkerFailed {
+                message: "asset_download_failed: download failed".to_string(),
+            })
         );
     }
 
