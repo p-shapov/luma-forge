@@ -31,4 +31,7 @@ tauri-specta = { version = "=2.0.0-rc.24", features = ["derive", "typescript"] }
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde-well-known"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v4"] }

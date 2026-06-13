@@ -14,6 +14,7 @@ pub mod workspace_catalog;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _diagnostics_guard = diagnostics::init(None);
     let builder = command_builder();
 
     #[cfg(debug_assertions)]
