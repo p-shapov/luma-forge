@@ -188,8 +188,9 @@ fn spawn_lifecycle_runner<F, T>(
     T: Send + 'static,
 {
     spawn_background_task(task_spawner, async move {
-        if lifecycle.await.is_err() {
-            record_lifecycle_runner_error(&lifecycle_journal, &event_sink, &operation_id).await;
+        if let Err(error) = lifecycle.await {
+            record_lifecycle_runner_error(&lifecycle_journal, &event_sink, &operation_id, &error)
+                .await;
         }
         registry.complete(&operation_id);
     });
@@ -199,6 +200,7 @@ async fn record_lifecycle_runner_error<L>(
     lifecycle_journal: &L,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     operation_id: &LifecycleOperationId,
+    error: &RunpodRuntimeError,
 ) where
     L: LifecycleJournalRepository,
 {
@@ -212,6 +214,9 @@ async fn record_lifecycle_runner_error<L>(
     else {
         return;
     };
+
+    let _diagnostic_id =
+        crate::diagnostics::lifecycle_error(operation_id, Some(&operation.workspace_id), error);
 
     let failed_operation = match lifecycle_journal
         .mark_state(
