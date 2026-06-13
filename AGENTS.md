@@ -61,6 +61,14 @@ When editing files under those directories, follow both this root file and the n
 - Never expose raw credentials to the React renderer, generated frontend types, domain snapshots, command responses, logs, metadata, persisted workspace JSON, test fixtures, or error payloads.
 - Treat credentials as write-only from the UI perspective: the frontend may request that a credential exists, is updated, deleted, or validated, but must not receive the raw value back.
 
+### Log Handling
+
+- Do not load entire log files into context unless the file is clearly small and full-file review is necessary.
+- For large or unknown-size logs, first inspect file size and read recent lines with tools such as `wc`, `tail`, `rg`, `sed`, or `awk`.
+- Prefer targeted extraction: search for timestamps, diagnostic IDs, request IDs, error markers, stack traces, or relevant keywords, then read only nearby line ranges.
+- When reporting log findings, summarize the relevant excerpts instead of pasting large raw log blocks.
+- If a full log file is required, explain why before reading it.
+
 ### Pre-v1 Refactoring Policy
 
 - LumaForge is not in production yet.
