@@ -1,6 +1,6 @@
 # LumaForge
 
-LumaForge is a macOS desktop application for preparing remote GPU infrastructure and running ComfyUI workflows on it.
+LumaForge is a desktop application for preparing remote GPU infrastructure and running ComfyUI workflows on it.
 
 The main goal of the product is to turn a local workflow choice into a ready-to-use remote workspace and then use that workspace to execute the selected ComfyUI workflow on remote GPU infrastructure.
 
@@ -22,18 +22,6 @@ Native backend architecture and extension notes live in [src-tauri/README.md](./
 | `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict active native shell linting.     |
 | `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`         | Run provisioner worker tests.               |
 | `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests` | Run RunPod endpoint worker tests.           |
-
-### Workspace Catalog Troubleshooting
-
-During pre-production development, local Workspace Catalog schema bootstrap or compatibility checks may reject stale SQLite state from an earlier build. Stop the app before deleting the local catalog file.
-
-The Workspace Catalog file is `workspace-catalog.sqlite` under the Tauri application data directory. On macOS, the path pattern is:
-
-```text
-~/Library/Application Support/<app identifier>/workspace-catalog.sqlite
-```
-
-Deleting this file removes local Workspace Catalog records only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
 
 ## Code Generation
 
