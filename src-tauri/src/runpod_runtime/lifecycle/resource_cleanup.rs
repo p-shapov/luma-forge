@@ -60,6 +60,14 @@ impl RemoteResourceCleanupStep for RunpodDeleteStep {
     }
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_cleanup",
+    skip_all,
+    fields(
+        operation_id = %operation.operation_id,
+        workspace_id = %operation.workspace_id
+    )
+)]
 pub(super) async fn delete_remote_resources<W, L, S>(
     workspace: &mut Workspace,
     workspace_repository: &W,
@@ -116,6 +124,15 @@ where
     .await
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        step = "delete_endpoint",
+        operation_id = %operation.operation_id,
+        workspace_id = %operation.workspace_id
+    )
+)]
 async fn delete_endpoint<W, L, S>(
     workspace: &mut Workspace,
     workspace_repository: &W,
@@ -151,6 +168,15 @@ where
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        step = "delete_template",
+        operation_id = %operation.operation_id,
+        workspace_id = %operation.workspace_id
+    )
+)]
 async fn delete_template<W, L, S>(
     workspace: &mut Workspace,
     workspace_repository: &W,
@@ -184,6 +210,15 @@ where
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        step = "terminate_provisioner_pod",
+        operation_id = %operation.operation_id,
+        workspace_id = %operation.workspace_id
+    )
+)]
 async fn terminate_provisioner_pod<W, L, S>(
     workspace: &mut Workspace,
     workspace_repository: &W,
@@ -219,6 +254,15 @@ where
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        step = "delete_network_volume",
+        operation_id = %operation.operation_id,
+        workspace_id = %operation.workspace_id
+    )
+)]
 async fn delete_network_volume<W, L, S>(
     workspace: &mut Workspace,
     workspace_repository: &W,
