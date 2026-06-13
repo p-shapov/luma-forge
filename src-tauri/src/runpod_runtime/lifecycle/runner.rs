@@ -215,7 +215,7 @@ async fn record_lifecycle_runner_error<L>(
         return;
     };
 
-    let _diagnostic_id =
+    let diagnostic_id =
         crate::diagnostics::lifecycle_error(operation_id, Some(&operation.workspace_id), error);
 
     let failed_operation = match lifecycle_journal
@@ -233,6 +233,7 @@ async fn record_lifecycle_runner_error<L>(
     event_sink.emit(RunpodRuntimeEvent::LifecycleOperationChanged {
         workspace_id: failed_operation.workspace_id.clone(),
         operation_id: failed_operation.operation_id.clone(),
+        diagnostic_id: Some(diagnostic_id),
         operation: failed_operation,
     });
 }

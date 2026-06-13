@@ -8,6 +8,7 @@ pub enum RunpodRuntimeEvent {
     LifecycleOperationChanged {
         workspace_id: String,
         operation_id: String,
+        diagnostic_id: Option<String>,
         operation: LifecycleOperation,
     },
     WorkspaceChanged {

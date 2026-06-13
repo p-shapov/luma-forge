@@ -189,6 +189,7 @@ pub enum RunpodDeleteStepResponse {
 pub struct LifecycleOperationChangedEvent {
     pub workspace_id: String,
     pub operation_id: String,
+    pub diagnostic_id: Option<String>,
     pub operation: LifecycleOperationResponse,
 }
 
@@ -395,10 +396,11 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateRunpodWorkspaceRequest, LifecycleOperationPayloadResponse, RunpodCleanupStepResponse,
-        RunpodDeleteStepResponse, RunpodLifecycleOperationPayloadResponse,
-        RunpodProvisionStepResponse, RunpodResourcesResponse, RunpodWorkspaceResponse,
-        WorkspaceRuntimeResponse,
+        CreateRunpodWorkspaceRequest, LifecycleOperationChangedEvent,
+        LifecycleOperationPayloadResponse, LifecycleOperationResponse,
+        LifecycleOperationStateResponse, RunpodCleanupStepResponse, RunpodDeleteStepResponse,
+        RunpodLifecycleOperationPayloadResponse, RunpodProvisionStepResponse,
+        RunpodResourcesResponse, RunpodWorkspaceResponse, WorkspaceRuntimeResponse,
     };
 
     #[test]
@@ -512,5 +514,51 @@ mod tests {
 
         assert!(json.contains(r#""operation":"delete""#));
         assert!(json.contains(r#""step":"delete_template""#));
+    }
+
+    #[test]
+    fn lifecycle_operation_changed_event_serializes_diagnostic_id_on_envelope() {
+        let event = LifecycleOperationChangedEvent {
+            workspace_id: "workspace-1".to_string(),
+            operation_id: "operation-1".to_string(),
+            diagnostic_id: Some("diag-123".to_string()),
+            operation: lifecycle_operation_response(),
+        };
+
+        let json = serde_json::to_value(&event).expect("event json");
+
+        assert_eq!(json["diagnosticId"], "diag-123");
+        assert_eq!(json["operation"]["operationId"], "operation-1");
+        assert!(json["operation"].get("diagnosticId").is_none());
+        assert!(json["operation"].get("error").is_none());
+    }
+
+    #[test]
+    fn lifecycle_operation_changed_event_serializes_null_diagnostic_id_when_absent() {
+        let event = LifecycleOperationChangedEvent {
+            workspace_id: "workspace-1".to_string(),
+            operation_id: "operation-1".to_string(),
+            diagnostic_id: None,
+            operation: lifecycle_operation_response(),
+        };
+
+        let json = serde_json::to_value(&event).expect("event json");
+
+        assert!(json["diagnosticId"].is_null());
+        assert!(json["operation"].get("diagnosticId").is_none());
+    }
+
+    fn lifecycle_operation_response() -> LifecycleOperationResponse {
+        LifecycleOperationResponse {
+            operation_id: "operation-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            state: LifecycleOperationStateResponse::Failed,
+            payload: LifecycleOperationPayloadResponse::Runpod(
+                RunpodLifecycleOperationPayloadResponse::Provision { step: None },
+            ),
+            created_at: "2026-06-13T00:00:00Z".to_string(),
+            updated_at: "2026-06-13T00:00:01Z".to_string(),
+            finished_at: Some("2026-06-13T00:00:01Z".to_string()),
+        }
     }
 }

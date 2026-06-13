@@ -59,6 +59,7 @@ export type LatestLifecycleOperationResponse = {
 export type LifecycleOperationChangedEvent = {
 	workspaceId: string,
 	operationId: string,
+	diagnosticId: string | null,
 	operation: LifecycleOperationResponse,
 };
 

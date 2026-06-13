@@ -25,11 +25,13 @@ impl EventSink<RunpodRuntimeEvent> for TauriRunpodRuntimeEventSink {
             RunpodRuntimeEvent::LifecycleOperationChanged {
                 workspace_id,
                 operation_id,
+                diagnostic_id,
                 operation,
             } => {
                 let _ = LifecycleOperationChangedEvent {
                     workspace_id,
                     operation_id,
+                    diagnostic_id,
                     operation: operation.into(),
                 }
                 .emit(&self.app_handle);
