@@ -1,6 +1,10 @@
 use crate::domain::lifecycle_operation::LifecycleOperationPayload;
 
-use super::{payloads, LifecycleJournalError};
+use super::{
+    LifecycleJournalError,
+    errors::{data_invalid_error, data_invalid_message},
+    payloads,
+};
 
 pub fn encode_payload(
     payload: &LifecycleOperationPayload,
@@ -14,20 +18,16 @@ pub fn decode_payload(
     payload_json: &str,
 ) -> Result<LifecycleOperationPayload, LifecycleJournalError> {
     let value: serde_json::Value =
-        serde_json::from_str(payload_json).map_err(|error| LifecycleJournalError::DataInvalid {
-            message: error.to_string(),
-        })?;
+        serde_json::from_str(payload_json).map_err(data_invalid_error)?;
     let runtime_type = value
         .get("runtime_type")
         .and_then(serde_json::Value::as_str)
-        .ok_or(LifecycleJournalError::DataInvalid {
-            message: "runtime type is missing".to_string(),
-        })?;
+        .ok_or_else(|| data_invalid_message("runtime type is missing"))?;
 
     match runtime_type {
         payloads::runpod::RUNTIME_TYPE => payloads::runpod::decode(payload_json),
-        runtime_type => Err(LifecycleJournalError::DataInvalid {
-            message: format!("unknown lifecycle runtime type: {runtime_type}"),
-        }),
+        runtime_type => Err(data_invalid_message(format!(
+            "unknown lifecycle runtime type: {runtime_type}"
+        ))),
     }
 }

@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use crate::{
     domain::{
@@ -12,7 +12,9 @@ use crate::{
 };
 
 use super::{
-    errors::WorkspaceCatalogError, repository::WorkspaceCatalogRepository, runtime, schema,
+    errors::{WorkspaceCatalogError, data_invalid_message, storage_unavailable_error},
+    repository::WorkspaceCatalogRepository,
+    runtime, schema,
 };
 
 mod row;
@@ -66,7 +68,7 @@ impl SqliteWorkspaceCatalogRepository {
             .create_if_missing(true);
         let pool = SqlitePool::connect_with(options)
             .await
-            .map_err(storage_unavailable)?;
+            .map_err(storage_unavailable_error)?;
 
         schema::bootstrap(&pool).await?;
 
@@ -90,7 +92,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             let rows = sqlx::query(LIST_WORKSPACES_SQL)
                 .fetch_all(&self.pool)
                 .await
-                .map_err(storage_unavailable)?;
+                .map_err(storage_unavailable_error)?;
             let workspaces = rows
                 .iter()
                 .map(workspace_from_row)
@@ -111,7 +113,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 .bind(id)
                 .fetch_optional(&self.pool)
                 .await
-                .map_err(storage_unavailable)?;
+                .map_err(storage_unavailable_error)?;
 
             row.as_ref().map(workspace_from_row).transpose()
         })
@@ -154,7 +156,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 if is_unique_constraint(&error) {
                     WorkspaceCatalogError::WorkspaceAlreadyExists
                 } else {
-                    storage_unavailable(error)
+                    storage_unavailable_error(error)
                 }
             })?;
 
@@ -191,7 +193,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
             .bind(&persisted.workspace.id)
             .execute(&self.pool)
             .await
-            .map_err(storage_unavailable)?;
+            .map_err(storage_unavailable_error)?;
 
             if result.rows_affected() == 0 {
                 return Err(WorkspaceCatalogError::WorkspaceNotFound);
@@ -212,7 +214,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 .bind(id)
                 .execute(&self.pool)
                 .await
-                .map_err(storage_unavailable)?;
+                .map_err(storage_unavailable_error)?;
 
             if result.rows_affected() == 0 {
                 return Err(WorkspaceCatalogError::WorkspaceNotFound);
@@ -225,9 +227,7 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
 
 pub(super) fn validate_id(id: &str) -> Result<(), WorkspaceCatalogError> {
     if id.trim().is_empty() {
-        Err(WorkspaceCatalogError::DataInvalid {
-            message: "ID is empty".to_string(),
-        })
+        Err(data_invalid_message("ID is empty"))
     } else {
         Ok(())
     }
@@ -242,9 +242,7 @@ pub(super) fn validate_workflow_reference(
 
 fn validate_required_text(value: &str, message: &'static str) -> Result<(), WorkspaceCatalogError> {
     if value.trim().is_empty() {
-        Err(WorkspaceCatalogError::DataInvalid {
-            message: message.to_string(),
-        })
+        Err(data_invalid_message(message))
     } else {
         Ok(())
     }
@@ -253,13 +251,7 @@ fn validate_required_text(value: &str, message: &'static str) -> Result<(), Work
 fn timestamp() -> Result<String, WorkspaceCatalogError> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
-        .map_err(storage_unavailable)
-}
-
-fn storage_unavailable(error: impl std::fmt::Display) -> WorkspaceCatalogError {
-    WorkspaceCatalogError::StorageUnavailable {
-        message: error.to_string(),
-    }
+        .map_err(storage_unavailable_error)
 }
 
 fn is_unique_constraint(error: &sqlx::Error) -> bool {

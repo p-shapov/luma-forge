@@ -8,11 +8,11 @@ use crate::{
 };
 
 use crate::secrets_storage::{
-    errors::SecretsStorageError,
-    identities::{
-        identity_http_client, identity_request_error, identity_response_error,
-        identity_status_error,
+    errors::{
+        SecretsStorageError, identity_request_error, identity_response_invalid_error,
+        identity_response_invalid_message, identity_status_error,
     },
+    identities::identity_http_client,
     identity::ApiKeyIdentityProvider,
     stores::ApiSecret,
 };
@@ -59,7 +59,7 @@ impl RunpodIdentityProvider {
         let response = response
             .json::<GraphQlResponse<RunpodIdentityData>>()
             .await
-            .map_err(identity_response_error)?;
+            .map_err(identity_response_invalid_error)?;
 
         map_graphql_response(secret.expose_secret(), response)
     }
@@ -118,17 +118,14 @@ fn map_graphql_response(
         return Err(classify_graphql_errors(&response.errors));
     }
 
-    let identity = response.data.and_then(|data| data.myself).ok_or(
-        SecretsStorageError::IdentityResponseInvalid {
-            message: "identity is missing".to_string(),
-        },
-    )?;
+    let identity = response
+        .data
+        .and_then(|data| data.myself)
+        .ok_or_else(|| identity_response_invalid_message("identity is missing"))?;
 
     let email = identity.email.trim();
     if email.is_empty() {
-        return Err(SecretsStorageError::IdentityResponseInvalid {
-            message: "email is empty".to_string(),
-        });
+        return Err(identity_response_invalid_message("email is empty"));
     }
 
     let matched_key = match_api_key(submitted_secret, &identity.api_keys)?;
@@ -165,15 +162,15 @@ fn match_api_key<'a>(
         .take(2);
 
     let Some(first) = matches.next() else {
-        return Err(SecretsStorageError::IdentityResponseInvalid {
-            message: "no matching API key found".to_string(),
-        });
+        return Err(identity_response_invalid_message(
+            "no matching API key found",
+        ));
     };
 
     if matches.next().is_some() {
-        return Err(SecretsStorageError::IdentityResponseInvalid {
-            message: "multiple matching API keys found".to_string(),
-        });
+        return Err(identity_response_invalid_message(
+            "multiple matching API keys found",
+        ));
     }
 
     Ok(first)
@@ -190,9 +187,7 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
     }) {
         SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized)
     } else {
-        SecretsStorageError::IdentityResponseInvalid {
-            message: "API key is invalid".to_string(),
-        }
+        identity_response_invalid_message("API key is invalid")
     }
 }
 
@@ -376,7 +371,7 @@ mod tests {
         assert_eq!(
             identity_status_error(RUNPOD_PROVIDER_NAME, reqwest::StatusCode::FORBIDDEN),
             Some(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
+                ApiError::InsufficientPermissions
             ))
         );
     }

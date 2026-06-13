@@ -1,6 +1,9 @@
 use crate::domain::workspace::WorkspaceRuntime;
 
-use super::{errors::WorkspaceCatalogError, runtimes};
+use super::{
+    errors::{WorkspaceCatalogError, data_invalid_message},
+    runtimes,
+};
 
 pub struct EncodedWorkspaceRuntime {
     pub runtime_type: String,
@@ -21,8 +24,8 @@ pub fn decode_runtime(
 ) -> Result<WorkspaceRuntime, WorkspaceCatalogError> {
     match runtime_type {
         runtimes::runpod::RUNTIME_TYPE => runtimes::runpod::decode(runtime_json),
-        unknown_runtime_type => Err(WorkspaceCatalogError::DataInvalid {
-            message: format!("unknown runtime type: {}", unknown_runtime_type),
-        }),
+        unknown_runtime_type => Err(data_invalid_message(format!(
+            "unknown runtime type: {unknown_runtime_type}"
+        ))),
     }
 }

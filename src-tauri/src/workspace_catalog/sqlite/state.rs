@@ -2,7 +2,7 @@ use crate::domain::workspace::{
     WorkspaceCleanupRequiredReason, WorkspaceRuntimeInvalidReason, WorkspaceState,
 };
 
-use crate::workspace_catalog::errors::WorkspaceCatalogError;
+use crate::workspace_catalog::errors::{WorkspaceCatalogError, data_invalid_message};
 
 pub(super) struct WorkspaceStateColumns {
     pub state: &'static str,
@@ -43,9 +43,7 @@ pub(super) fn workspace_state_from_columns(
         ("invalid", Some(reason)) => Ok(WorkspaceState::Invalid {
             reason: invalid_reason_from_column(reason)?,
         }),
-        (state, _) => Err(WorkspaceCatalogError::DataInvalid {
-            message: format!("unknown state: {state}"),
-        }),
+        (state, _) => Err(data_invalid_message(format!("unknown state: {state}"))),
     }
 }
 
@@ -66,9 +64,9 @@ fn cleanup_required_reason_from_column(
         "cleanup_failed" => Ok(WorkspaceCleanupRequiredReason::CleanupFailed),
         "delete_failed" => Ok(WorkspaceCleanupRequiredReason::DeleteFailed),
         "operation_interrupted" => Ok(WorkspaceCleanupRequiredReason::OperationInterrupted),
-        reason => Err(WorkspaceCatalogError::DataInvalid {
-            message: format!("unknown cleanup required reason: {reason}"),
-        }),
+        reason => Err(data_invalid_message(format!(
+            "unknown cleanup required reason: {reason}"
+        ))),
     }
 }
 
@@ -91,8 +89,8 @@ fn invalid_reason_from_column(
         "cleanup_failed" => Ok(WorkspaceRuntimeInvalidReason::CleanupFailed),
         "delete_failed" => Ok(WorkspaceRuntimeInvalidReason::DeleteFailed),
         "corrupt_runtime_state" => Ok(WorkspaceRuntimeInvalidReason::CorruptRuntimeState),
-        reason => Err(WorkspaceCatalogError::DataInvalid {
-            message: format!("unknown invalid reason: {reason}"),
-        }),
+        reason => Err(data_invalid_message(format!(
+            "unknown invalid reason: {reason}"
+        ))),
     }
 }

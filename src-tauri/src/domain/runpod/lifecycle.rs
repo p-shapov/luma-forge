@@ -1,33 +1,44 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{secrets_storage::SecretsStorageError, shared::ApiError};
+use crate::shared::ApiError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodProvisionerError {
-    Unavailable,
-    ResponseInvalid,
-    Failed,
+    #[error("provisioner unavailable: {message}")]
+    Unavailable { message: String },
+    #[error("provisioner response invalid: {message}")]
+    ResponseInvalid { message: String },
+    #[error("provisioner failed: {message}")]
+    Failed { message: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodRuntimeStateError {
-    Invalid,
+    #[error("runtime state invalid: {message}")]
+    Invalid { message: String },
+    #[error("runtime state missing volume")]
     MissingVolume,
+    #[error("runtime state missing endpoint")]
     MissingEndpoint,
+    #[error("runtime state missing template")]
     MissingTemplate,
+    #[error("runtime state missing provisioner pod")]
     MissingProvisionerPod,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodLifecycleError {
+    #[error("app interrupted")]
     AppInterrupted,
-    RunPodSecretError(SecretsStorageError),
-    RunPodApiError(ApiError),
-    ProvisionerError(RunpodProvisionerError),
-    InvalidRuntimeState(RunpodRuntimeStateError),
+    #[error("runpod api error")]
+    RunPodApiError(#[from] ApiError),
+    #[error("runpod provisioner error")]
+    ProvisionerError(#[from] RunpodProvisionerError),
+    #[error("runpod runtime state error")]
+    InvalidRuntimeState(#[from] RunpodRuntimeStateError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

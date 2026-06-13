@@ -1,6 +1,6 @@
 use sqlx::{Executor, Row, SqlitePool};
 
-use super::errors::WorkspaceCatalogError;
+use super::errors::{WorkspaceCatalogError, schema_invalid_message, storage_unavailable_error};
 
 const SCHEMA_VERSION_KEY: &str = "workspace_catalog_schema_version";
 const SCHEMA_VERSION: &str = "1";
@@ -167,7 +167,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         )",
     )
     .await
-    .map_err(storage_unavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     let workspaces_existed = table_exists(pool, CatalogTable::Workspaces.name()).await?;
 
@@ -185,7 +185,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         )",
     )
     .await
-    .map_err(storage_unavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     validate_table(pool, CatalogTable::Metadata, METADATA_COLUMNS).await?;
     validate_table(pool, CatalogTable::Workspaces, WORKSPACE_COLUMNS).await?;
@@ -197,10 +197,10 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
             "CREATE INDEX IF NOT EXISTS idx_workspaces_runtime_type ON workspaces (runtime_type)",
         )
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
         pool.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_state ON workspaces (state)")
             .await
-            .map_err(storage_unavailable)?;
+            .map_err(storage_unavailable_error)?;
 
         validate_indexes(pool, CatalogTable::Workspaces, WORKSPACE_INDEXES).await?;
     }
@@ -210,20 +210,20 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
         .bind(SCHEMA_VERSION)
         .execute(pool)
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     let version: Option<String> = sqlx::query_scalar("SELECT value FROM metadata WHERE key = ?1")
         .bind(SCHEMA_VERSION_KEY)
         .fetch_optional(pool)
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     match version.as_deref() {
         Some(SCHEMA_VERSION) => Ok(()),
-        Some(version) => Err(schema_invalid(format!(
+        Some(version) => Err(schema_invalid_message(format!(
             "expected schema version {SCHEMA_VERSION}, got {version}"
         ))),
-        None => Err(schema_invalid("schema version is missing")),
+        None => Err(schema_invalid_message("schema version is missing")),
     }
 }
 
@@ -232,7 +232,7 @@ async fn table_exists(pool: &SqlitePool, table_name: &str) -> Result<bool, Works
         .bind(table_name)
         .fetch_optional(pool)
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     Ok(row.is_some())
 }
@@ -245,7 +245,7 @@ async fn validate_table(
     let columns = table_columns(pool, table).await?;
 
     if columns.len() != expected_columns.len() {
-        return Err(schema_invalid(format!(
+        return Err(schema_invalid_message(format!(
             "expected {expected_columns_len} columns, got {columns_len}",
             expected_columns_len = expected_columns.len(),
             columns_len = columns.len()
@@ -257,7 +257,7 @@ async fn validate_table(
             continue;
         }
 
-        return Err(schema_invalid(format!(
+        return Err(schema_invalid_message(format!(
             "{table_name}.{column_name} column mismatch: expected {expected_type} not_null={expected_not_null} pk={expected_pk}, got {actual_type} not_null={actual_not_null} pk={actual_pk}",
             table_name = table.name(),
             column_name = expected.name,
@@ -280,7 +280,7 @@ async fn table_columns(
     let rows = sqlx::query(table.table_info_sql())
         .fetch_all(pool)
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     Ok(rows
         .into_iter()
@@ -307,7 +307,7 @@ async fn validate_indexes(
     expected_index_names.sort();
 
     if actual_index_names != expected_index_names {
-        return Err(schema_invalid(format!(
+        return Err(schema_invalid_message(format!(
             "expected index names {expected_index_names:?}, got {actual_index_names:?}"
         )));
     }
@@ -318,16 +318,16 @@ async fn validate_indexes(
                 .bind(expected.name)
                 .fetch_optional(pool)
                 .await
-                .map_err(storage_unavailable)?
+                .map_err(storage_unavailable_error)?
                 .ok_or_else(|| {
-                    schema_invalid(format!(
+                    schema_invalid_message(format!(
                         "index {index_name} is missing",
                         index_name = expected.name
                     ))
                 })?;
 
         if row.get::<String, _>("tbl_name") != table.name() {
-            return Err(schema_invalid(format!(
+            return Err(schema_invalid_message(format!(
                 "index {index_name} is not on table {table_name}",
                 index_name = expected.name,
                 table_name = table.name()
@@ -336,7 +336,7 @@ async fn validate_indexes(
 
         let metadata = index_metadata(pool, table, expected.name).await?;
         if metadata.unique || metadata.partial {
-            return Err(schema_invalid(format!(
+            return Err(schema_invalid_message(format!(
                 "index {index_name} must be non-unique and non-partial",
                 index_name = expected.name
             )));
@@ -344,7 +344,7 @@ async fn validate_indexes(
 
         let columns = index_key_columns(pool, expected).await?;
         if columns.len() != 1 {
-            return Err(schema_invalid(format!(
+            return Err(schema_invalid_message(format!(
                 "index {index_name} has {columns_len} columns, expected 1",
                 index_name = expected.name,
                 columns_len = columns.len()
@@ -359,7 +359,7 @@ async fn validate_indexes(
                 .as_deref()
                 .is_some_and(|collation| !collation.eq_ignore_ascii_case("BINARY"))
         {
-            return Err(schema_invalid(format!(
+            return Err(schema_invalid_message(format!(
                 "index {index_name} has invalid columns",
                 index_name = expected.name
             )));
@@ -382,7 +382,7 @@ async fn user_defined_index_names(
     .bind(table_name)
     .fetch_all(pool)
     .await
-    .map_err(storage_unavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     Ok(rows.into_iter().map(|row| row.get("name")).collect())
 }
@@ -395,12 +395,12 @@ async fn index_metadata(
     let rows = sqlx::query(table.index_list_sql())
         .fetch_all(pool)
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     let row = rows
         .into_iter()
         .find(|row| row.get::<String, _>("name") == index_name)
-        .ok_or_else(|| schema_invalid(format!("index {index_name} is missing")))?;
+        .ok_or_else(|| schema_invalid_message(format!("index {index_name} is missing")))?;
 
     Ok(IndexMetadata {
         unique: row.get::<i64, _>("unique") == 1,
@@ -417,7 +417,7 @@ async fn index_key_columns(
     let rows = sqlx::query(index.key_columns_sql)
         .fetch_all(pool)
         .await
-        .map_err(storage_unavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     Ok(rows
         .into_iter()
@@ -428,16 +428,4 @@ async fn index_key_columns(
             collation: row.try_get("coll").ok(),
         })
         .collect())
-}
-
-fn storage_unavailable(error: impl std::fmt::Display) -> WorkspaceCatalogError {
-    WorkspaceCatalogError::StorageUnavailable {
-        message: error.to_string(),
-    }
-}
-
-fn schema_invalid(message: impl Into<String>) -> WorkspaceCatalogError {
-    WorkspaceCatalogError::SchemaInvalid {
-        message: message.into(),
-    }
 }

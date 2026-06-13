@@ -1,5 +1,5 @@
 use sqlx::{Row, SqlitePool};
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
 use crate::{
@@ -12,9 +12,12 @@ use crate::{
 };
 
 use super::{
+    LifecycleJournalError,
+    errors::{
+        data_invalid_error, data_invalid_message, schema_invalid_message, storage_unavailable_error,
+    },
     payload::{decode_payload, encode_payload},
     repository::LifecycleJournalRepository,
-    LifecycleJournalError,
 };
 
 #[derive(Debug, Clone)]
@@ -64,9 +67,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 if is_unique_constraint(&error) {
                     LifecycleJournalError::RunningOperationExists
                 } else {
-                    LifecycleJournalError::StorageUnavailable {
-                        message: error.to_string(),
-                    }
+                    storage_unavailable_error(error)
                 }
             })?;
 
@@ -90,9 +91,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|error| LifecycleJournalError::StorageUnavailable {
-                message: error.to_string(),
-            })?;
+            .map_err(storage_unavailable_error)?;
 
             row.as_ref().map(row_to_operation).transpose()
         })
@@ -110,9 +109,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             )
             .fetch_all(&self.pool)
             .await
-            .map_err(|error| LifecycleJournalError::StorageUnavailable {
-                message: error.to_string(),
-            })?;
+            .map_err(storage_unavailable_error)?;
 
             rows.iter().map(row_to_operation).collect()
         })
@@ -135,9 +132,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(workspace_id)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|error| LifecycleJournalError::StorageUnavailable {
-                message: error.to_string(),
-            })?;
+            .map_err(storage_unavailable_error)?;
 
             row.as_ref().map(row_to_operation).transpose()
         })
@@ -154,9 +149,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 .bind(workspace_id)
                 .execute(&self.pool)
                 .await
-                .map_err(|error| LifecycleJournalError::StorageUnavailable {
-                    message: error.to_string(),
-                })?;
+                .map_err(storage_unavailable_error)?;
 
             Ok(())
         })
@@ -199,9 +192,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 if is_unique_constraint(&error) {
                     LifecycleJournalError::RunningOperationExists
                 } else {
-                    LifecycleJournalError::StorageUnavailable {
-                        message: error.to_string(),
-                    }
+                    storage_unavailable_error(error)
                 }
             })?;
 
@@ -254,9 +245,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                 if is_unique_constraint(&error) {
                     LifecycleJournalError::RunningOperationExists
                 } else {
-                    LifecycleJournalError::StorageUnavailable {
-                        message: error.to_string(),
-                    }
+                    storage_unavailable_error(error)
                 }
             })?;
 
@@ -282,9 +271,7 @@ impl SqliteLifecycleJournalRepository {
         .bind(operation_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|error| LifecycleJournalError::StorageUnavailable {
-            message: error.to_string(),
-        })?;
+        .map_err(storage_unavailable_error)?;
 
         row.as_ref()
             .map(row_to_operation)
@@ -295,9 +282,7 @@ impl SqliteLifecycleJournalRepository {
 
 fn validate_workspace_id(workspace_id: &str) -> Result<(), LifecycleJournalError> {
     if workspace_id.trim().is_empty() {
-        Err(LifecycleJournalError::DataInvalid {
-            message: "workspace ID is empty".to_string(),
-        })
+        Err(data_invalid_message("workspace ID is empty"))
     } else {
         Ok(())
     }
@@ -313,9 +298,7 @@ fn validate_operation_id(operation_id: &str) -> Result<(), LifecycleJournalError
 
 fn validate_persisted_operation_id(operation_id: &str) -> Result<(), LifecycleJournalError> {
     if operation_id.trim().is_empty() {
-        Err(LifecycleJournalError::DataInvalid {
-            message: "operation ID is empty".to_string(),
-        })
+        Err(data_invalid_message("operation ID is empty"))
     } else {
         Ok(())
     }
@@ -334,9 +317,9 @@ fn validate_operation_identity_matches(
 ) -> Result<(), LifecycleJournalError> {
     if existing.workspace_id != supplied.workspace_id || existing.created_at != supplied.created_at
     {
-        Err(LifecycleJournalError::DataInvalid {
-            message: "operation identity fields do not match persisted operation".to_string(),
-        })
+        Err(data_invalid_message(
+            "operation identity fields do not match persisted operation",
+        ))
     } else {
         Ok(())
     }
@@ -357,9 +340,9 @@ fn state_from_storage(state: &str) -> Result<LifecycleOperationState, LifecycleJ
         "completed" => Ok(LifecycleOperationState::Completed),
         "failed" => Ok(LifecycleOperationState::Failed),
         "stale" => Ok(LifecycleOperationState::Stale),
-        state => Err(LifecycleJournalError::DataInvalid {
-            message: format!("unknown lifecycle operation state: {state}"),
-        }),
+        state => Err(data_invalid_message(format!(
+            "unknown lifecycle operation state: {state}"
+        ))),
     }
 }
 
@@ -370,15 +353,11 @@ fn timestamp() -> Result<String, LifecycleJournalError> {
 fn format_timestamp(timestamp: OffsetDateTime) -> Result<String, LifecycleJournalError> {
     timestamp
         .format(&Rfc3339)
-        .map_err(|error| LifecycleJournalError::StorageUnavailable {
-            message: error.to_string(),
-        })
+        .map_err(storage_unavailable_error)
 }
 
 fn parse_timestamp(timestamp: &str) -> Result<OffsetDateTime, LifecycleJournalError> {
-    OffsetDateTime::parse(timestamp, &Rfc3339).map_err(|error| LifecycleJournalError::DataInvalid {
-        message: error.to_string(),
-    })
+    OffsetDateTime::parse(timestamp, &Rfc3339).map_err(data_invalid_error)
 }
 
 fn format_optional_timestamp(
@@ -396,9 +375,7 @@ fn finished_at_for_update(
         Ok(None)
     } else if let Some(finished_at) = finished_at {
         if finished_at < updated_at {
-            Err(LifecycleJournalError::DataInvalid {
-                message: "finished_at is before updated_at".to_string(),
-            })
+            Err(data_invalid_message("finished_at is before updated_at"))
         } else {
             Ok(Some(finished_at))
         }
@@ -410,41 +387,27 @@ fn finished_at_for_update(
 fn row_to_operation(
     row: &sqlx::sqlite::SqliteRow,
 ) -> Result<LifecycleOperation, LifecycleJournalError> {
-    let operation_id =
-        row.try_get::<String, _>("id")
-            .map_err(|_| LifecycleJournalError::SchemaInvalid {
-                message: "operation ID is missing".to_string(),
-            })?;
-    let workspace_id = row.try_get::<String, _>("workspace_id").map_err(|_| {
-        LifecycleJournalError::SchemaInvalid {
-            message: "workspace ID is missing".to_string(),
-        }
-    })?;
-    let state =
-        row.try_get::<String, _>("state")
-            .map_err(|_| LifecycleJournalError::SchemaInvalid {
-                message: "state is missing".to_string(),
-            })?;
-    let payload_json = row.try_get::<String, _>("payload_json").map_err(|_| {
-        LifecycleJournalError::SchemaInvalid {
-            message: "payload JSON is missing".to_string(),
-        }
-    })?;
-    let created_at = row.try_get::<String, _>("created_at").map_err(|_| {
-        LifecycleJournalError::SchemaInvalid {
-            message: "created_at is missing".to_string(),
-        }
-    })?;
-    let updated_at = row.try_get::<String, _>("updated_at").map_err(|_| {
-        LifecycleJournalError::SchemaInvalid {
-            message: "updated_at is missing".to_string(),
-        }
-    })?;
+    let operation_id = row
+        .try_get::<String, _>("id")
+        .map_err(|_| schema_invalid_message("operation ID is missing"))?;
+    let workspace_id = row
+        .try_get::<String, _>("workspace_id")
+        .map_err(|_| schema_invalid_message("workspace ID is missing"))?;
+    let state = row
+        .try_get::<String, _>("state")
+        .map_err(|_| schema_invalid_message("state is missing"))?;
+    let payload_json = row
+        .try_get::<String, _>("payload_json")
+        .map_err(|_| schema_invalid_message("payload JSON is missing"))?;
+    let created_at = row
+        .try_get::<String, _>("created_at")
+        .map_err(|_| schema_invalid_message("created_at is missing"))?;
+    let updated_at = row
+        .try_get::<String, _>("updated_at")
+        .map_err(|_| schema_invalid_message("updated_at is missing"))?;
     let finished_at = row
         .try_get::<Option<String>, _>("finished_at")
-        .map_err(|_| LifecycleJournalError::SchemaInvalid {
-            message: "finished_at is missing".to_string(),
-        })?;
+        .map_err(|_| schema_invalid_message("finished_at is missing"))?;
 
     validate_persisted_operation_id(&operation_id)?;
     validate_workspace_id(&workspace_id)?;

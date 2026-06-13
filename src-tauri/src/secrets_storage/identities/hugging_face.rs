@@ -8,11 +8,11 @@ use crate::{
 };
 
 use crate::secrets_storage::{
-    errors::SecretsStorageError,
-    identities::{
-        identity_http_client, identity_request_error, identity_response_error,
-        identity_status_error,
+    errors::{
+        SecretsStorageError, identity_request_error, identity_response_invalid_error,
+        identity_response_invalid_message, identity_status_error,
     },
+    identities::identity_http_client,
     identity::ApiKeyIdentityProvider,
     stores::ApiSecret,
 };
@@ -54,7 +54,7 @@ impl HuggingFaceIdentityProvider {
         let response = response
             .json::<serde_json::Value>()
             .await
-            .map_err(identity_response_error)?;
+            .map_err(identity_response_invalid_error)?;
 
         map_whoami_response(response)
     }
@@ -108,24 +108,19 @@ struct WhoamiFineGrainedRepoPermissions {
 }
 
 fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, SecretsStorageError> {
-    let response = serde_json::from_value::<WhoamiResponse>(response).map_err(|error| {
-        SecretsStorageError::IdentityResponseInvalid {
-            message: error.to_string(),
-        }
-    })?;
+    let response = serde_json::from_value::<WhoamiResponse>(response)
+        .map_err(identity_response_invalid_error)?;
 
     let name = response.name.trim();
     if name.is_empty() {
-        return Err(SecretsStorageError::IdentityResponseInvalid {
-            message: "identity name is empty".to_string(),
-        });
+        return Err(identity_response_invalid_message("identity name is empty"));
     }
 
     let display_name = response.auth.access_token.display_name.trim();
     if display_name.is_empty() {
-        return Err(SecretsStorageError::IdentityResponseInvalid {
-            message: "identity display name is empty".to_string(),
-        });
+        return Err(identity_response_invalid_message(
+            "identity display name is empty",
+        ));
     }
 
     match response.auth.access_token.role.as_str() {
@@ -146,7 +141,7 @@ fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, Se
         _ => {
             return Err(SecretsStorageError::IdentityRequestFailed(
                 ApiError::InsufficientPermissions,
-            ))
+            ));
         }
     }
 
@@ -387,7 +382,7 @@ mod tests {
         assert_eq!(
             identity_status_error(HUGGING_FACE_PROVIDER_NAME, reqwest::StatusCode::FORBIDDEN),
             Some(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
+                ApiError::InsufficientPermissions
             ))
         );
     }

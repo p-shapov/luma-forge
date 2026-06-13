@@ -60,7 +60,8 @@ mod tests {
 
     use super::WorkspaceCatalogService;
     use crate::workspace_catalog::{
-        errors::WorkspaceCatalogError, repository::WorkspaceCatalogRepository,
+        errors::{WorkspaceCatalogError, storage_unavailable_message},
+        repository::WorkspaceCatalogRepository,
     };
 
     struct FakeRepository {
@@ -282,9 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn service_preserves_repository_errors() {
-        let error = WorkspaceCatalogError::StorageUnavailable {
-            message: "query failed".to_string(),
-        };
+        let error = storage_unavailable_message("query failed");
         let workspace = workspace("workspace-1");
 
         let calls = Arc::new(Mutex::new(Vec::new()));

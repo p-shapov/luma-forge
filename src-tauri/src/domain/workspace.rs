@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::domain::runpod::RunpodLifecycleError;
+
 use super::{runpod::runtime::RunpodRuntime, workflow_preset::WorkflowReference};
 
 pub type WorkspaceId = String;
@@ -17,22 +19,31 @@ pub enum WorkspaceState {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceCleanupRequiredReason {
+    #[error("provision failed")]
     ProvisionFailed,
+    #[error("cleanup failed")]
     CleanupFailed,
+    #[error("delete failed")]
     DeleteFailed,
+    #[error("operation interrupted")]
     OperationInterrupted,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceRuntimeInvalidReason {
+    #[error("operation interrupted")]
     OperationInterrupted,
+    #[error("provision failed")]
     ProvisionFailed,
+    #[error("cleanup failed")]
     CleanupFailed,
+    #[error("delete failed")]
     DeleteFailed,
+    #[error("corrupt runtime state")]
     CorruptRuntimeState,
 }
 

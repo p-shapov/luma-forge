@@ -7,6 +7,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub type AppFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -96,4 +97,35 @@ pub enum ApiError {
     Timeout,
     #[error("api request failed: {message}")]
     RequestFailed { message: String },
+}
+
+pub fn map_api_transport_error<E>(error: reqwest::Error, wrap: impl FnOnce(ApiError) -> E) -> E {
+    if error.is_timeout() {
+        wrap(ApiError::Timeout)
+    } else {
+        wrap(ApiError::RequestFailed {
+            message: error.to_string(),
+        })
+    }
+}
+
+pub fn map_api_status_error<E>(
+    provider_name: &str,
+    status: StatusCode,
+    wrap: impl FnOnce(ApiError) -> E,
+) -> Option<E> {
+    if status.is_success() {
+        return None;
+    }
+
+    let error = match status {
+        StatusCode::UNAUTHORIZED => ApiError::Unauthorized,
+        StatusCode::FORBIDDEN => ApiError::InsufficientPermissions,
+        StatusCode::TOO_MANY_REQUESTS => ApiError::RateLimited,
+        _ => ApiError::RequestFailed {
+            message: format!("{provider_name} API request failed"),
+        },
+    };
+
+    Some(wrap(error))
 }
