@@ -1,6 +1,7 @@
 use crate::{
+    commands::errors::NativeCommandError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    provisioned_remote::service::ProvisionedRemoteService,
+    runpod_runtime::service::RunpodRuntimeService,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,
@@ -13,8 +14,8 @@ use crate::{
 };
 
 pub type WorkspaceCatalogAppService = WorkspaceCatalogService<SqliteWorkspaceCatalogRepository>;
-pub type ProvisionedRemoteAppService =
-    ProvisionedRemoteService<SqliteWorkspaceCatalogRepository, SqliteLifecycleJournalRepository>;
+pub type RunpodRuntimeAppService =
+    RunpodRuntimeService<SqliteWorkspaceCatalogRepository, SqliteLifecycleJournalRepository>;
 pub type RunpodSecretsService = SecretsStorageService<KeyringSecretStore, RunpodIdentityProvider>;
 pub type HuggingFaceSecretsService =
     SecretsStorageService<KeyringSecretStore, HuggingFaceIdentityProvider>;
@@ -22,7 +23,28 @@ pub type HuggingFaceSecretsService =
 pub struct AppState {
     pub workflow_catalog: WorkflowCatalogService,
     pub workspace_catalog: WorkspaceCatalogAppService,
-    pub provisioned_remote: ProvisionedRemoteAppService,
+    pub runpod_runtime: RunpodRuntimeAppService,
     pub runpod_secrets: RunpodSecretsService,
     pub hugging_face_secrets: HuggingFaceSecretsService,
+}
+
+pub enum NativeAppState {
+    Ready(Box<AppState>),
+    Failed(NativeCommandError),
+}
+
+impl NativeAppState {
+    pub fn ready(&self) -> Result<&AppState, NativeCommandError> {
+        match self {
+            Self::Ready(state) => Ok(state),
+            Self::Failed(error) => Err(error.clone()),
+        }
+    }
+
+    pub fn startup_error(&self) -> Option<&NativeCommandError> {
+        match self {
+            Self::Ready(_) => None,
+            Self::Failed(error) => Some(error),
+        }
+    }
 }

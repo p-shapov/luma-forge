@@ -2,44 +2,34 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::{
-    app::state::AppState,
+    app::state::NativeAppState,
     commands::{
         types::workspace::{
-            CleanupWorkspaceResponse, CreateWorkspaceRequest, DeleteWorkspaceResponse,
+            CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
             LatestLifecycleOperationResponse, ProvisionWorkspaceResponse,
             RunningLifecycleOperationsResponse, WorkspaceIdRequest, WorkspaceResponse,
         },
-        CommandResult, NativeCommandError, NativeCommandErrorCode,
+        CommandResult,
     },
-    domain::provisioned_remote::RemotePlacementPlan,
-    provisioned_remote::service::CreateProvisionedRemoteWorkspaceRequest,
+    domain::runpod::RunpodPlacementPlan,
+    runpod_runtime::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
 
 #[tauri::command]
 #[specta::specta]
-pub async fn create_workspace(
-    state: State<'_, AppState>,
-    request: CreateWorkspaceRequest,
+pub async fn create_runpod_workspace(
+    state: State<'_, NativeAppState>,
+    request: CreateRunpodWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
-    let workflow_catalog = state.workflow_catalog.get_workflow_catalog()?;
-    let workflow_preset = workflow_catalog
-        .workflow_presets
-        .into_iter()
-        .find(|preset| preset.id == request.workflow_preset_id)
-        .ok_or_else(|| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkflowCatalogInvalid,
-                "workflow preset was not found",
-            )
-        })?;
-    let remote_placement: RemotePlacementPlan = request.remote_placement.into();
+    let state = state.ready()?;
+    let placement: RunpodPlacementPlan = request.placement.into();
 
     let workspace = state
-        .provisioned_remote
-        .create_workspace(CreateProvisionedRemoteWorkspaceRequest {
+        .runpod_runtime
+        .create_runpod_workspace(CreateRunpodWorkspaceServiceRequest {
             workspace_id: Uuid::new_v4().to_string(),
-            workflow_preset,
-            remote_placement,
+            workflow_preset_id: request.workflow_preset_id,
+            placement,
         })
         .await?;
 
@@ -49,39 +39,40 @@ pub async fn create_workspace(
 #[tauri::command]
 #[specta::specta]
 pub async fn provision_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<ProvisionWorkspaceResponse> {
+    let state = state.ready()?;
     let response = state
-        .provisioned_remote
+        .runpod_runtime
         .provision_workspace(&request.workspace_id)
         .await?;
-
     Ok(response.into())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn cleanup_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<CleanupWorkspaceResponse> {
+    let state = state.ready()?;
     let response = state
-        .provisioned_remote
+        .runpod_runtime
         .cleanup_workspace(&request.workspace_id)
         .await?;
-
     Ok(response.into())
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<DeleteWorkspaceResponse> {
+    let state = state.ready()?;
     let response = state
-        .provisioned_remote
+        .runpod_runtime
         .delete_workspace(&request.workspace_id)
         .await?;
 
@@ -91,10 +82,11 @@ pub async fn delete_workspace(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_running_lifecycle_operations(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
 ) -> CommandResult<RunningLifecycleOperationsResponse> {
+    let state = state.ready()?;
     let operations = state
-        .provisioned_remote
+        .runpod_runtime
         .get_running_lifecycle_operations()
         .await?
         .into_iter()
@@ -107,11 +99,12 @@ pub async fn get_running_lifecycle_operations(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_latest_lifecycle_operation(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<LatestLifecycleOperationResponse> {
+    let state = state.ready()?;
     let operation = state
-        .provisioned_remote
+        .runpod_runtime
         .get_latest_lifecycle_operation(&request.workspace_id)
         .await?
         .map(Into::into);

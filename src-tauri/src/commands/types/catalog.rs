@@ -2,20 +2,13 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::domain::{
+    runpod::RunpodContractRequirements,
     runtime_contract::RuntimeContractReference,
     workflow_preset::{
-        ModelAsset, ModelAssetSource, RemoteProviderRuntimeRequirements, RemoteRuntimeRequirements,
-        WorkflowCatalog, WorkflowExecutionType, WorkflowPreset,
+        ModelAsset, ModelAssetSource, WorkflowCatalog, WorkflowContractRequirements,
+        WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
     },
 };
-
-use super::provider::GpuCloudProviderIdDto;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct GetProviderPlacementOptionsRequest {
-    pub provider_id: GpuCloudProviderIdDto,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
@@ -27,11 +20,18 @@ pub struct WorkflowCatalogResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowPresetResponse {
     pub id: String,
-    pub version: String,
     pub name: String,
     pub execution_type: WorkflowExecutionTypeDto,
+    pub revisions: Vec<WorkflowRevisionResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowRevisionResponse {
+    pub version: String,
     pub requires_hugging_face_api_key: bool,
-    pub remote_runtime_requirements: RemoteRuntimeRequirementsResponse,
+    pub required_volume_size_gb: u64,
+    pub contract_requirements: Vec<WorkflowContractRequirementsResponse>,
     pub required_model_assets: Vec<ModelAssetResponse>,
 }
 
@@ -42,16 +42,14 @@ pub enum WorkflowExecutionTypeDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteRuntimeRequirementsResponse {
-    pub required_base_volume_size_bytes: u64,
-    pub provider_requirements: Vec<RemoteProviderRuntimeRequirementsResponse>,
+#[serde(tag = "runtimeType", rename_all = "snake_case")]
+pub enum WorkflowContractRequirementsResponse {
+    Runpod(RunpodContractRequirementsResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteProviderRuntimeRequirementsResponse {
-    pub gpu_cloud_provider_id: GpuCloudProviderIdDto,
+pub struct RunpodContractRequirementsResponse {
     pub endpoint_contract: RuntimeContractReferenceResponse,
     pub provisioner_contract: RuntimeContractReferenceResponse,
 }
@@ -94,11 +92,24 @@ impl From<WorkflowPreset> for WorkflowPresetResponse {
     fn from(value: WorkflowPreset) -> Self {
         Self {
             id: value.id,
-            version: value.version,
             name: value.name,
             execution_type: value.execution_type.into(),
+            revisions: value.revisions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<WorkflowRevision> for WorkflowRevisionResponse {
+    fn from(value: WorkflowRevision) -> Self {
+        Self {
+            version: value.version,
             requires_hugging_face_api_key: value.requires_hugging_face_api_key,
-            remote_runtime_requirements: value.remote_runtime_requirements.into(),
+            required_volume_size_gb: value.required_volume_size_gb,
+            contract_requirements: value
+                .contract_requirements
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             required_model_assets: value
                 .required_model_assets
                 .into_iter()
@@ -116,23 +127,17 @@ impl From<WorkflowExecutionType> for WorkflowExecutionTypeDto {
     }
 }
 
-impl From<RemoteRuntimeRequirements> for RemoteRuntimeRequirementsResponse {
-    fn from(value: RemoteRuntimeRequirements) -> Self {
-        Self {
-            required_base_volume_size_bytes: value.required_base_volume_size_bytes,
-            provider_requirements: value
-                .provider_requirements
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+impl From<WorkflowContractRequirements> for WorkflowContractRequirementsResponse {
+    fn from(value: WorkflowContractRequirements) -> Self {
+        match value {
+            WorkflowContractRequirements::Runpod(requirements) => Self::Runpod(requirements.into()),
         }
     }
 }
 
-impl From<RemoteProviderRuntimeRequirements> for RemoteProviderRuntimeRequirementsResponse {
-    fn from(value: RemoteProviderRuntimeRequirements) -> Self {
+impl From<RunpodContractRequirements> for RunpodContractRequirementsResponse {
+    fn from(value: RunpodContractRequirements) -> Self {
         Self {
-            gpu_cloud_provider_id: value.gpu_cloud_provider_id.into(),
             endpoint_contract: value.endpoint_contract.into(),
             provisioner_contract: value.provisioner_contract.into(),
         }

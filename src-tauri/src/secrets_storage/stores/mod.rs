@@ -15,6 +15,15 @@ pub enum SecretKey {
     HuggingFaceApiKey,
 }
 
+impl SecretKey {
+    pub(crate) fn storage_account_name(self) -> &'static str {
+        match self {
+            Self::RunpodApiKey => "runpod",
+            Self::HuggingFaceApiKey => "hugging-face",
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ApiSecret(SecretString);
 
@@ -35,7 +44,6 @@ impl ApiSecret {
         Ok(Self(SecretString::from(value)))
     }
 
-    #[allow(dead_code)]
     pub(crate) fn expose_secret(&self) -> &str {
         self.0.expose_secret()
     }
@@ -82,6 +90,11 @@ mod tests {
 
     #[test]
     fn secret_key_serializes_as_storage_account_identifier() {
+        assert_eq!(SecretKey::RunpodApiKey.storage_account_name(), "runpod");
+        assert_eq!(
+            SecretKey::HuggingFaceApiKey.storage_account_name(),
+            "hugging-face"
+        );
         assert_eq!(
             serde_json::to_string(&SecretKey::RunpodApiKey).expect("secret key json"),
             "\"runpod\""

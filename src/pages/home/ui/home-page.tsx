@@ -1,9 +1,9 @@
-/* eslint-disable ts/no-unnecessary-type-assertion */
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import type {
-  CreateWorkspaceRequest,
-  GetProviderPlacementOptionsRequest,
+  CreateRunpodWorkspaceRequest,
+  NativeCommandError,
+  NativeStartupStatusResponse,
   WorkspaceIdRequest,
 } from "@/generated/commands";
 
@@ -56,16 +56,10 @@ const commandProbes: CommandProbe[] = [
     run: commands.getWorkflowCatalog,
   },
   {
-    id: "get-provider-placement-options",
-    label: "getProviderPlacementOptions",
-    inputType: "json",
-    initialInput: stringifyJson({
-      providerId: "runpod",
-    }),
-    run: async request =>
-      commands.getProviderPlacementOptions(
-        request as GetProviderPlacementOptionsRequest,
-      ),
+    id: "get-runpod-placement-options",
+    label: "getRunpodPlacementOptions",
+    inputType: "none",
+    run: commands.getRunpodPlacementOptions,
   },
   {
     id: "get-workspace-catalog",
@@ -126,21 +120,20 @@ const commandProbes: CommandProbe[] = [
     run: commands.deleteHuggingFaceApiKey,
   },
   {
-    id: "create-workspace",
-    label: "createWorkspace",
+    id: "create-runpod-workspace",
+    label: "createRunpodWorkspace",
     inputType: "json",
     initialInput: stringifyJson({
       workflowPresetId: "",
-      remotePlacement: {
-        gpuCloudProviderId: "runpod",
+      placement: {
         datacenterId: "",
         gpuId: "",
-        volumeSizeBytes: 0,
+        volumeSizeGb: 0,
         keepAliveLimits: null,
       },
     }),
     run: async request =>
-      commands.createWorkspace(request as CreateWorkspaceRequest),
+      commands.createRunpodWorkspace(request as CreateRunpodWorkspaceRequest),
   },
   {
     id: "provision-workspace",
@@ -164,14 +157,12 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: workspaceIdRequest,
     run: async request =>
-      // eslint-disable-next-line ts/no-unsafe-return, ts/no-unsafe-call
       commands.deleteWorkspace(request as WorkspaceIdRequest),
   },
   {
     id: "get-running-lifecycle-operations",
     label: "getRunningLifecycleOperations",
     inputType: "none",
-    // eslint-disable-next-line ts/no-unsafe-assignment
     run: commands.getRunningLifecycleOperations,
   },
   {
@@ -180,12 +171,14 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: workspaceIdRequest,
     run: async request =>
-      // eslint-disable-next-line ts/no-unsafe-return, ts/no-unsafe-call
       commands.getLatestLifecycleOperation(request as WorkspaceIdRequest),
   },
 ];
 
 export function HomePage() {
+  const [nativeStartupStatus, setNativeStartupStatus] = useState<
+    NativeStartupStatusResponse | "loading"
+  >("loading");
   const [commandInputs, setCommandInputs] = useState(() =>
     Object.fromEntries(
       commandProbes.map(probe => [
@@ -227,50 +220,71 @@ export function HomePage() {
 
     return commandResults[0];
   }, [commandResults, latestCommandId]);
+
   useEffect(() => {
+    let isStopped = false;
+
+    async function loadNativeStartupStatus() {
+      const result = await commands.getNativeStartupStatus();
+
+      if (isStopped) {
+        return;
+      }
+
+      if (result.status === "ok") {
+        setNativeStartupStatus(result.data);
+      }
+      else {
+        setNativeStartupStatus({
+          status: "failed",
+          error: result.error,
+        });
+      }
+    }
+
+    void loadNativeStartupStatus();
+
+    return () => {
+      isStopped = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (nativeStartupStatus === "loading" || nativeStartupStatus.status !== "ready") {
+      return;
+    }
+
     let isStopped = false;
     const unlistenFns: UnlistenFn[] = [];
 
     async function listenToNativeEvents() {
       try {
-        // eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
         const lifecycleUnlisten = await events.lifecycleOperationChangedEvent.listen(
           (event) => {
-            // eslint-disable-next-line ts/no-unsafe-member-access
             appendEventLog("lifecycle-operation-changed-event", event.payload);
           },
         );
-        // eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
         const workspaceChangedUnlisten = await events.workspaceChangedEvent.listen(
           (event) => {
-            // eslint-disable-next-line ts/no-unsafe-member-access
             appendEventLog("workspace-changed-event", event.payload);
           },
         );
-        // eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
         const workspaceDeletedUnlisten = await events.workspaceDeletedEvent.listen(
           (event) => {
-            // eslint-disable-next-line ts/no-unsafe-member-access
             appendEventLog("workspace-deleted-event", event.payload);
           },
         );
 
         if (isStopped) {
-          // eslint-disable-next-line ts/no-unsafe-call
           lifecycleUnlisten();
-          // eslint-disable-next-line ts/no-unsafe-call
           workspaceChangedUnlisten();
-          // eslint-disable-next-line ts/no-unsafe-call
           workspaceDeletedUnlisten();
           return;
         }
 
         unlistenFns.push(
-          // eslint-disable-next-line ts/no-unsafe-argument
           lifecycleUnlisten,
-          // eslint-disable-next-line ts/no-unsafe-argument
           workspaceChangedUnlisten,
-          // eslint-disable-next-line ts/no-unsafe-argument
           workspaceDeletedUnlisten,
         );
       }
@@ -287,7 +301,15 @@ export function HomePage() {
         unlisten();
       }
     };
-  }, []);
+  }, [nativeStartupStatus]);
+
+  if (nativeStartupStatus === "loading") {
+    return <StartupLoadingPage />;
+  }
+
+  if (nativeStartupStatus.status === "failed") {
+    return <StartupErrorPage error={nativeStartupStatus.error} />;
+  }
 
   async function runCommand(probe: CommandProbe) {
     setLatestCommandId(probe.id);
@@ -480,6 +502,66 @@ export function HomePage() {
             </Panel>
           </section>
         </section>
+      </section>
+    </main>
+  );
+}
+
+function StartupLoadingPage() {
+  return (
+    <main className="min-h-svh bg-background text-foreground">
+      <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
+        <Panel title="Native startup" description="Checking native initialization.">
+          <p className="text-sm text-muted-foreground">Loading startup status.</p>
+        </Panel>
+      </section>
+    </main>
+  );
+}
+
+function StartupErrorPage({ error }: { error: NativeCommandError }) {
+  const storagePath = extractStoragePath(error.message);
+
+  return (
+    <main className="min-h-svh bg-background text-foreground">
+      <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
+        <header className="flex flex-col gap-2">
+          <p className="text-sm font-medium text-muted-foreground">
+            src-tauri diagnostics
+          </p>
+          <h1 className="text-2xl font-semibold tracking-normal">
+            Native startup failed
+          </h1>
+        </header>
+
+        <Panel
+          title="Startup error"
+          description="Native state was not initialized."
+        >
+          <div className="grid gap-4">
+            <div className="grid gap-1">
+              <p className="text-xs font-medium text-muted-foreground">Code</p>
+              <p className="font-mono text-sm">{error.code}</p>
+            </div>
+            <div className="grid gap-1">
+              <p className="text-xs font-medium text-muted-foreground">Message</p>
+              <p className="break-words font-mono text-sm">{error.message}</p>
+            </div>
+            {storagePath !== null
+              ? (
+                  <div className="grid gap-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Local storage
+                    </p>
+                    <p className="break-words font-mono text-sm">{storagePath}</p>
+                  </div>
+                )
+              : null}
+            <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+              Move or delete the incompatible local storage file, then restart the app.
+            </p>
+          </div>
+        </Panel>
       </section>
     </main>
   );
@@ -887,4 +969,10 @@ function formatError(error: unknown) {
   }
 
   return stringifyJson(error);
+}
+
+function extractStoragePath(message: string) {
+  const match = message.match(/ at (.*native\.sqlite): /);
+
+  return match?.[1] ?? null;
 }

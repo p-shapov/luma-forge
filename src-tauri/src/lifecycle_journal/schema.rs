@@ -1,14 +1,9 @@
 use sqlx::{Row, SqlitePool};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LifecycleJournalError {
-    OperationNotFound,
-    RunningOperationExists,
-    StorageUnavailable,
-    QueryFailed,
-    Corrupt,
-    SchemaMismatch,
-}
+use crate::lifecycle_journal::{
+    errors::{schema_invalid_message, storage_unavailable_error},
+    LifecycleJournalError,
+};
 
 struct ExpectedColumn {
     name: &'static str,
@@ -51,7 +46,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
     )
     .execute(pool)
     .await
-    .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     validate_table(
         pool,
@@ -108,7 +103,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
     )
     .execute(pool)
     .await
-    .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     sqlx::query(
         "CREATE INDEX IF NOT EXISTS idx_lifecycle_operations_state
@@ -116,7 +111,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
     )
     .execute(pool)
     .await
-    .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     sqlx::query(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_lifecycle_operations_running_workspace_unique
@@ -125,7 +120,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
     )
     .execute(pool)
     .await
-    .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+    .map_err(storage_unavailable_error)?;
 
     validate_indexes(
         pool,
@@ -162,7 +157,11 @@ async fn validate_table(
     let columns = table_columns(pool).await?;
 
     if columns.len() != expected_columns.len() {
-        return Err(LifecycleJournalError::SchemaMismatch);
+        return Err(schema_invalid_message(format!(
+            "expected {expected_columns_len} lifecycle operation columns, got {columns_len}",
+            expected_columns_len = expected_columns.len(),
+            columns_len = columns.len()
+        )));
     }
 
     let matches = columns
@@ -180,7 +179,9 @@ async fn validate_table(
     if matches {
         Ok(())
     } else {
-        Err(LifecycleJournalError::SchemaMismatch)
+        Err(schema_invalid_message(
+            "lifecycle operation columns do not match expected columns",
+        ))
     }
 }
 
@@ -188,7 +189,7 @@ async fn table_columns(pool: &SqlitePool) -> Result<Vec<TableColumn>, LifecycleJ
     let rows = sqlx::query("PRAGMA table_info(lifecycle_operations)")
         .fetch_all(pool)
         .await
-        .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     Ok(rows
         .into_iter()
@@ -209,7 +210,10 @@ async fn validate_indexes(
 
     for expected in expected_indexes {
         let Some(index) = indexes.iter().find(|index| index.name == expected.name) else {
-            return Err(LifecycleJournalError::SchemaMismatch);
+            return Err(schema_invalid_message(format!(
+                "index {index_name} is missing",
+                index_name = expected.name
+            )));
         };
 
         let columns = index_columns(pool, expected.name).await?;
@@ -221,7 +225,10 @@ async fn validate_indexes(
             || columns[0] != expected.column
             || !predicate_matches(sql.as_deref(), expected.predicate)
         {
-            return Err(LifecycleJournalError::SchemaMismatch);
+            return Err(schema_invalid_message(format!(
+                "index {index_name} does not match expected definition",
+                index_name = expected.name
+            )));
         };
     }
 
@@ -232,7 +239,7 @@ async fn table_indexes(pool: &SqlitePool) -> Result<Vec<TableIndex>, LifecycleJo
     let rows = sqlx::query("PRAGMA index_list(lifecycle_operations)")
         .fetch_all(pool)
         .await
-        .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     Ok(rows
         .into_iter()
@@ -251,7 +258,7 @@ async fn index_columns(
     let rows = sqlx::query(&format!("PRAGMA index_info({index_name})"))
         .fetch_all(pool)
         .await
-        .map_err(|_| LifecycleJournalError::StorageUnavailable)?;
+        .map_err(storage_unavailable_error)?;
 
     Ok(rows.into_iter().map(|row| row.get("name")).collect())
 }
@@ -267,7 +274,7 @@ async fn index_sql(
     .bind(index_name)
     .fetch_optional(pool)
     .await
-    .map_err(|_| LifecycleJournalError::StorageUnavailable)
+    .map_err(storage_unavailable_error)
 }
 
 fn predicate_matches(actual_sql: Option<&str>, expected_predicate: Option<&str>) -> bool {

@@ -1,7 +1,10 @@
 use crate::{
-    domain::lifecycle_operation::{
-        LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-        LifecycleOperationState, WorkspaceId,
+    domain::{
+        lifecycle_operation::{
+            LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
+            LifecycleOperationState,
+        },
+        workspace::WorkspaceId,
     },
     shared::AppFuture,
 };

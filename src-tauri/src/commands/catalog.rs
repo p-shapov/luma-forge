@@ -1,11 +1,10 @@
 use tauri::State;
 
 use crate::{
-    app::state::AppState,
+    app::state::NativeAppState,
     commands::{
         types::{
-            catalog::{GetProviderPlacementOptionsRequest, WorkflowCatalogResponse},
-            placement::RemotePlacementOptionsResponse,
+            catalog::WorkflowCatalogResponse, placement::RunpodPlacementOptionsResponse,
             workspace::WorkspaceCatalogResponse,
         },
         CommandResult,
@@ -14,7 +13,10 @@ use crate::{
 
 #[tauri::command]
 #[specta::specta]
-pub fn get_workflow_catalog(state: State<'_, AppState>) -> CommandResult<WorkflowCatalogResponse> {
+pub fn get_workflow_catalog(
+    state: State<'_, NativeAppState>,
+) -> CommandResult<WorkflowCatalogResponse> {
+    let state = state.ready()?;
     let catalog = state.workflow_catalog.get_workflow_catalog()?;
 
     Ok(catalog.into())
@@ -22,14 +24,11 @@ pub fn get_workflow_catalog(state: State<'_, AppState>) -> CommandResult<Workflo
 
 #[tauri::command]
 #[specta::specta]
-pub async fn get_provider_placement_options(
-    state: State<'_, AppState>,
-    request: GetProviderPlacementOptionsRequest,
-) -> CommandResult<RemotePlacementOptionsResponse> {
-    let options = state
-        .provisioned_remote
-        .get_provider_placement_options(request.provider_id.into())
-        .await?;
+pub async fn get_runpod_placement_options(
+    state: State<'_, NativeAppState>,
+) -> CommandResult<RunpodPlacementOptionsResponse> {
+    let state = state.ready()?;
+    let options = state.runpod_runtime.get_runpod_placement_options().await?;
 
     Ok(options.into())
 }
@@ -37,8 +36,9 @@ pub async fn get_provider_placement_options(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_workspace_catalog(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
 ) -> CommandResult<WorkspaceCatalogResponse> {
+    let state = state.ready()?;
     let catalog = state.workspace_catalog.list_workspaces().await?;
 
     Ok(catalog.into())

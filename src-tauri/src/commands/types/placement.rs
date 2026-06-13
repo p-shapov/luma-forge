@@ -1,40 +1,37 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::domain::provisioned_remote::{
-    RemoteDatacenterPlacementOption, RemoteEndpointKeepAliveLimits, RemoteGpuPlacementOption,
-    RemotePlacementOptions, RemotePlacementPlan,
+use crate::domain::runpod::{
+    RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
+    RunpodPlacementPlan,
 };
 
-use super::provider::GpuCloudProviderIdDto;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteGpuPlacementOptionResponse {
+pub struct RunpodGpuPlacementOptionResponse {
     pub id: String,
     pub name: String,
-    pub vram_bytes: u64,
-    pub availability_score: u8,
+    pub vram_gb: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteDatacenterPlacementOptionResponse {
+pub struct RunpodDatacenterPlacementOptionResponse {
     pub id: String,
     pub name: String,
-    pub gpu_options: Vec<RemoteGpuPlacementOptionResponse>,
+    pub gpu_options: Vec<RunpodGpuPlacementOptionResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemotePlacementOptionsResponse {
-    pub max_persistent_storage_volume_size_bytes: Option<u64>,
-    pub datacenters: Vec<RemoteDatacenterPlacementOptionResponse>,
+pub struct RunpodPlacementOptionsResponse {
+    pub max_network_volume_size_gb: Option<u64>,
+    pub datacenters: Vec<RunpodDatacenterPlacementOptionResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteEndpointKeepAliveLimitsDto {
+pub struct RunpodEndpointKeepAliveLimitsDto {
     pub default_seconds: u32,
     pub min_seconds: u32,
     pub max_seconds: u32,
@@ -42,71 +39,46 @@ pub struct RemoteEndpointKeepAliveLimitsDto {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RemotePlacementPlanInput {
-    pub gpu_cloud_provider_id: GpuCloudProviderIdDto,
+pub struct RunpodPlacementPlanInput {
     pub datacenter_id: String,
     pub gpu_id: String,
-    pub volume_size_bytes: u64,
-    pub keep_alive_limits: Option<RemoteEndpointKeepAliveLimitsDto>,
+    pub volume_size_gb: u64,
+    pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimitsDto>,
 }
 
-impl From<RemoteEndpointKeepAliveLimitsDto> for RemoteEndpointKeepAliveLimits {
-    fn from(value: RemoteEndpointKeepAliveLimitsDto) -> Self {
+impl From<RunpodPlacementPlanInput> for RunpodPlacementPlan {
+    fn from(value: RunpodPlacementPlanInput) -> Self {
         Self {
-            default_seconds: value.default_seconds,
-            min_seconds: value.min_seconds,
-            max_seconds: value.max_seconds,
+            data_center_id: value.datacenter_id,
+            gpu_type_id: value.gpu_id,
+            volume_size_gb: value.volume_size_gb,
         }
     }
 }
 
-impl From<RemoteEndpointKeepAliveLimits> for RemoteEndpointKeepAliveLimitsDto {
-    fn from(value: RemoteEndpointKeepAliveLimits) -> Self {
+impl From<RunpodPlacementPlan> for RunpodPlacementPlanInput {
+    fn from(value: RunpodPlacementPlan) -> Self {
         Self {
-            default_seconds: value.default_seconds,
-            min_seconds: value.min_seconds,
-            max_seconds: value.max_seconds,
+            datacenter_id: value.data_center_id,
+            gpu_id: value.gpu_type_id,
+            volume_size_gb: value.volume_size_gb,
+            keep_alive_limits: None,
         }
     }
 }
 
-impl From<RemotePlacementPlanInput> for RemotePlacementPlan {
-    fn from(value: RemotePlacementPlanInput) -> Self {
-        Self {
-            gpu_cloud_provider_id: value.gpu_cloud_provider_id.into(),
-            datacenter_id: value.datacenter_id,
-            gpu_id: value.gpu_id,
-            volume_size_bytes: value.volume_size_bytes,
-            keep_alive_limits: value.keep_alive_limits.map(Into::into),
-        }
-    }
-}
-
-impl From<RemotePlacementPlan> for RemotePlacementPlanInput {
-    fn from(value: RemotePlacementPlan) -> Self {
-        Self {
-            gpu_cloud_provider_id: value.gpu_cloud_provider_id.into(),
-            datacenter_id: value.datacenter_id,
-            gpu_id: value.gpu_id,
-            volume_size_bytes: value.volume_size_bytes,
-            keep_alive_limits: value.keep_alive_limits.map(Into::into),
-        }
-    }
-}
-
-impl From<RemoteGpuPlacementOption> for RemoteGpuPlacementOptionResponse {
-    fn from(value: RemoteGpuPlacementOption) -> Self {
+impl From<RunpodGpuPlacementOption> for RunpodGpuPlacementOptionResponse {
+    fn from(value: RunpodGpuPlacementOption) -> Self {
         Self {
             id: value.id,
             name: value.name,
-            vram_bytes: value.vram_bytes,
-            availability_score: value.availability_score,
+            vram_gb: value.vram_gb,
         }
     }
 }
 
-impl From<RemoteDatacenterPlacementOption> for RemoteDatacenterPlacementOptionResponse {
-    fn from(value: RemoteDatacenterPlacementOption) -> Self {
+impl From<RunpodDatacenterPlacementOption> for RunpodDatacenterPlacementOptionResponse {
+    fn from(value: RunpodDatacenterPlacementOption) -> Self {
         Self {
             id: value.id,
             name: value.name,
@@ -115,12 +87,70 @@ impl From<RemoteDatacenterPlacementOption> for RemoteDatacenterPlacementOptionRe
     }
 }
 
-impl From<RemotePlacementOptions> for RemotePlacementOptionsResponse {
-    fn from(value: RemotePlacementOptions) -> Self {
+impl From<RunpodPlacementOptions> for RunpodPlacementOptionsResponse {
+    fn from(value: RunpodPlacementOptions) -> Self {
         Self {
-            max_persistent_storage_volume_size_bytes: value
-                .max_persistent_storage_volume_size_bytes,
+            max_network_volume_size_gb: value.max_volume_size_gb,
             datacenters: value.datacenters.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placement_plan_input_uses_gb_domain_value() {
+        let plan = RunpodPlacementPlan::from(RunpodPlacementPlanInput {
+            datacenter_id: "dc".to_string(),
+            gpu_id: "gpu".to_string(),
+            volume_size_gb: 19,
+            keep_alive_limits: None,
+        });
+
+        assert_eq!(plan.volume_size_gb, 19);
+    }
+
+    #[test]
+    fn placement_plan_input_preserves_zero_volume_for_later_validation() {
+        let plan = RunpodPlacementPlan::from(RunpodPlacementPlanInput {
+            datacenter_id: "dc".to_string(),
+            gpu_id: "gpu".to_string(),
+            volume_size_gb: 0,
+            keep_alive_limits: None,
+        });
+
+        assert_eq!(plan.volume_size_gb, 0);
+    }
+
+    #[test]
+    fn placement_plan_response_uses_gb_volume_field() {
+        let input = RunpodPlacementPlanInput::from(RunpodPlacementPlan {
+            data_center_id: "dc".to_string(),
+            gpu_type_id: "gpu".to_string(),
+            volume_size_gb: 19,
+        });
+
+        assert_eq!(input.volume_size_gb, 19);
+    }
+
+    #[test]
+    fn placement_options_response_uses_gb_fields() {
+        let response = RunpodPlacementOptionsResponse::from(RunpodPlacementOptions {
+            max_volume_size_gb: Some(4_000),
+            datacenters: vec![RunpodDatacenterPlacementOption {
+                id: "dc".to_string(),
+                name: "Datacenter".to_string(),
+                gpu_options: vec![RunpodGpuPlacementOption {
+                    id: "gpu".to_string(),
+                    name: "GPU".to_string(),
+                    vram_gb: 24,
+                }],
+            }],
+        });
+
+        assert_eq!(response.max_network_volume_size_gb, Some(4_000));
+        assert_eq!(response.datacenters[0].gpu_options[0].vram_gb, 24);
     }
 }

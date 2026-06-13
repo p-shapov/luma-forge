@@ -5,24 +5,24 @@ use crate::{
     commands::types::workspace::{
         LifecycleOperationChangedEvent, WorkspaceChangedEvent, WorkspaceDeletedEvent,
     },
-    provisioned_remote::events::ProvisionedRemoteEvent,
+    runpod_runtime::events::RunpodRuntimeEvent,
     shared::EventSink,
 };
 
-pub struct TauriProvisionedRemoteEventSink {
+pub struct TauriRunpodRuntimeEventSink {
     app_handle: AppHandle,
 }
 
-impl TauriProvisionedRemoteEventSink {
+impl TauriRunpodRuntimeEventSink {
     pub fn new(app_handle: AppHandle) -> Self {
         Self { app_handle }
     }
 }
 
-impl EventSink<ProvisionedRemoteEvent> for TauriProvisionedRemoteEventSink {
-    fn emit(&self, event: ProvisionedRemoteEvent) {
+impl EventSink<RunpodRuntimeEvent> for TauriRunpodRuntimeEventSink {
+    fn emit(&self, event: RunpodRuntimeEvent) {
         match event {
-            ProvisionedRemoteEvent::LifecycleOperationChanged {
+            RunpodRuntimeEvent::LifecycleOperationChanged {
                 workspace_id,
                 operation_id,
                 operation,
@@ -34,7 +34,7 @@ impl EventSink<ProvisionedRemoteEvent> for TauriProvisionedRemoteEventSink {
                 }
                 .emit(&self.app_handle);
             }
-            ProvisionedRemoteEvent::WorkspaceChanged {
+            RunpodRuntimeEvent::WorkspaceChanged {
                 workspace_id,
                 workspace,
             } => {
@@ -44,7 +44,7 @@ impl EventSink<ProvisionedRemoteEvent> for TauriProvisionedRemoteEventSink {
                 }
                 .emit(&self.app_handle);
             }
-            ProvisionedRemoteEvent::WorkspaceDeleted { workspace_id } => {
+            RunpodRuntimeEvent::WorkspaceDeleted { workspace_id } => {
                 let _ = WorkspaceDeletedEvent { workspace_id }.emit(&self.app_handle);
             }
         }

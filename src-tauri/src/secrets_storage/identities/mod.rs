@@ -1,13 +1,17 @@
 pub mod hugging_face;
 pub mod runpod;
 
-use crate::{domain::secrets::ApiKeyIdentity, shared::AppFuture};
+use std::time::Duration;
 
-use super::{errors::SecretsStorageError, stores::ApiSecret};
+use crate::secrets_storage::errors::{identity_request_error, SecretsStorageError};
 
-pub trait ApiKeyIdentityProvider: Send + Sync {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>>;
+pub(super) fn identity_http_client(
+    connect_timeout: Duration,
+    request_timeout: Duration,
+) -> Result<reqwest::Client, SecretsStorageError> {
+    reqwest::Client::builder()
+        .connect_timeout(connect_timeout)
+        .timeout(request_timeout)
+        .build()
+        .map_err(identity_request_error)
 }

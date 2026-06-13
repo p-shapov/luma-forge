@@ -37,28 +37,17 @@ where
     }
 
     pub async fn identity(&self) -> Result<ApiKeyIdentity, SecretsStorageError> {
-        let secret = self
-            .store
-            .read(self.key)
-            .await?
-            .ok_or(SecretsStorageError::KeyNotFound)?;
+        let secret = self.stored_secret().await?;
 
         self.identity.identity(&secret).await
     }
 
     pub async fn retrieve(&self) -> Result<ApiSecret, SecretsStorageError> {
-        self.store
-            .read(self.key)
-            .await?
-            .ok_or(SecretsStorageError::KeyNotFound)
+        self.stored_secret().await
     }
 
     pub async fn hmac_sha256_hex(&self, message: &str) -> Result<String, SecretsStorageError> {
-        let secret = self
-            .store
-            .read(self.key)
-            .await?
-            .ok_or(SecretsStorageError::KeyNotFound)?;
+        let secret = self.stored_secret().await?;
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.expose_secret().as_bytes())
             .map_err(|_| SecretsStorageError::StoreUnavailable)?;
 
@@ -73,6 +62,13 @@ where
 
         self.store.delete(self.key).await
     }
+
+    async fn stored_secret(&self) -> Result<ApiSecret, SecretsStorageError> {
+        self.store
+            .read(self.key)
+            .await?
+            .ok_or(SecretsStorageError::KeyNotFound)
+    }
 }
 
 #[cfg(test)]
@@ -83,8 +79,8 @@ mod tests {
     };
 
     use crate::{
-        domain::{provisioned_remote::ProviderApiError, secrets::ApiKeyIdentity},
-        shared::AppFuture,
+        domain::secrets::ApiKeyIdentity,
+        shared::{ApiError, AppFuture},
     };
 
     use super::*;
@@ -279,13 +275,20 @@ mod tests {
     #[tokio::test]
     async fn write_does_not_store_after_validation_failure() {
         let store = FakeStore::default();
-        let identity = FakeIdentityProvider::new(vec![Err(ProviderApiError::Unauthorized.into())]);
+        let identity = FakeIdentityProvider::new(vec![Err(
+            SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized),
+        )]);
         let service =
             SecretsStorageService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
         let result = service.write(secret("bad-secret")).await;
 
-        assert_eq!(result, Err(ProviderApiError::Unauthorized.into()));
+        assert_eq!(
+            result,
+            Err(SecretsStorageError::IdentityRequestFailed(
+                ApiError::Unauthorized
+            ))
+        );
         assert_eq!(store.calls(), vec![StoreCall::Has(SecretKey::RunpodApiKey)]);
         assert_eq!(identity.calls(), vec!["bad-secret".to_string()]);
         assert_eq!(store.secret(SecretKey::RunpodApiKey), None);

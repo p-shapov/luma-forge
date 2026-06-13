@@ -5,8 +5,9 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
+	getNativeStartupStatus: () => typedError<NativeStartupStatusResponse, NativeCommandError>(__TAURI_INVOKE("get_native_startup_status")),
 	getWorkflowCatalog: () => typedError<WorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
-	getProviderPlacementOptions: (request: GetProviderPlacementOptionsRequest) => typedError<RemotePlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_provider_placement_options", { request })),
+	getRunpodPlacementOptions: () => typedError<RunpodPlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_runpod_placement_options")),
 	getWorkspaceCatalog: () => typedError<WorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
 	setupRunpodApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_runpod_api_key", { request })),
 	getRunpodApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("get_runpod_api_key_identity")),
@@ -14,7 +15,7 @@ export const commands = {
 	setupHuggingFaceApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_hugging_face_api_key", { request })),
 	getHuggingFaceApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("get_hugging_face_api_key_identity")),
 	deleteHuggingFaceApiKey: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_hugging_face_api_key")),
-	createWorkspace: (request: CreateWorkspaceRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_workspace", { request })),
+	createRunpodWorkspace: (request: CreateRunpodWorkspaceRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_runpod_workspace", { request })),
 	provisionWorkspace: (request: WorkspaceIdRequest) => typedError<ProvisionWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("provision_workspace", { request })),
 	cleanupWorkspace: (request: WorkspaceIdRequest) => typedError<CleanupWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("cleanup_workspace", { request })),
 	deleteWorkspace: (request: WorkspaceIdRequest) => typedError<DeleteWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("delete_workspace", { request })),
@@ -41,21 +42,15 @@ export type CleanupWorkspaceResponse = {
 	operation: LifecycleOperationResponse,
 };
 
-export type CreateWorkspaceRequest = {
+export type CreateRunpodWorkspaceRequest = {
 	workflowPresetId: string,
-	remotePlacement: RemotePlacementPlanInput,
+	placement: RunpodPlacementPlanInput,
 };
 
 export type DeleteWorkspaceResponse = {
 	workspaceId: string,
 	operation: LifecycleOperationResponse,
 };
-
-export type GetProviderPlacementOptionsRequest = {
-	providerId: GpuCloudProviderIdDto,
-};
-
-export type GpuCloudProviderIdDto = "runpod";
 
 export type LatestLifecycleOperationResponse = {
 	operation: LifecycleOperationResponse | null,
@@ -67,7 +62,7 @@ export type LifecycleOperationChangedEvent = {
 	operation: LifecycleOperationResponse,
 };
 
-export type LifecycleOperationPayloadResponse = { runtimeType: "provisioned_remote" } & (ProvisionedRemoteLifecycleOperationPayloadResponse);
+export type LifecycleOperationPayloadResponse = { runtimeType: "runpod" } & (RunpodLifecycleOperationPayloadResponse);
 
 export type LifecycleOperationResponse = {
 	operationId: string,
@@ -91,83 +86,76 @@ export type ModelAssetResponse = {
 export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
 
 export type NativeCommandError = {
-	code: NativeCommandErrorCode,
 	message: string,
+	code: NativeCommandErrorCode,
 };
 
-export type NativeCommandErrorCode = "workflow_catalog_invalid" | "workspace_storage_unavailable" | "workspace_storage_query_failed" | "workspace_storage_corrupt" | "workspace_storage_schema_mismatch" | "workspace_already_exists" | "workspace_not_found" | "provider_unavailable" | "provider_secret_unavailable" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "command_not_implemented";
+export type NativeCommandErrorCode = "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "runpod_api_key_unavailable" | "hugging_face_api_key_unavailable" | "runpod_workflow_catalog_invalid" | "runpod_workspace_catalog_invalid" | "provisioner_worker_unavailable" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "runpod_workspace_not_found" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "lifecycle_state_restore_failed";
+
+export type NativeStartupStatusResponse = { status: "ready" } | { status: "failed"; error: NativeCommandError };
 
 export type ProvisionWorkspaceResponse = {
 	workspace: WorkspaceResponse,
 	operation: LifecycleOperationResponse,
 };
 
-export type ProvisionedRemoteCleanupStepResponse = "delete_endpoint" | "terminate_provisioner" | "delete_volume";
-
-export type ProvisionedRemoteDeleteStepResponse = "delete_endpoint" | "terminate_provisioner" | "delete_volume" | "delete_local_workspace";
-
-export type ProvisionedRemoteLifecycleErrorResponse = "app_interrupted" | "provider_adapter_unavailable" | "provider_secret_unavailable" | "provider_api_failed" | "provisioner_unavailable" | "provisioner_response_invalid" | "provisioner_failed" | "remote_volume_not_found" | "remote_provisioner_not_found" | "remote_endpoint_not_found" | "invalid_runtime_state";
-
-export type ProvisionedRemoteLifecycleOperationPayloadResponse = { operation: "provision"; step: ProvisionedRemoteProvisionStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null } | { operation: "cleanup"; step: ProvisionedRemoteCleanupStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null } | { operation: "delete"; step: ProvisionedRemoteDeleteStepResponse | null; error: ProvisionedRemoteLifecycleErrorResponse | null };
-
-export type ProvisionedRemoteProvisionStepResponse = "create_volume" | "start_provisioner" | "poll_provisioner" | "terminate_provisioner" | "create_endpoint";
-
-export type ProvisionedRemoteResourcesResponse = {
-	volumeId: string | null,
-	provisionerId: string | null,
-	endpointId: string | null,
+export type RunningLifecycleOperationsResponse = {
+	operations: LifecycleOperationResponse[],
 };
 
-export type ProvisionedRemoteWorkspaceResponse = {
-	placement: RemotePlacementPlanInput,
-	resources: ProvisionedRemoteResourcesResponse,
+export type RunpodCleanupStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner_pod" | "delete_network_volume";
+
+export type RunpodContractRequirementsResponse = {
+	endpointContract: RuntimeContractReferenceResponse,
+	provisionerContract: RuntimeContractReferenceResponse,
 };
 
-export type RemoteDatacenterPlacementOptionResponse = {
+export type RunpodDatacenterPlacementOptionResponse = {
 	id: string,
 	name: string,
-	gpuOptions: RemoteGpuPlacementOptionResponse[],
+	gpuOptions: RunpodGpuPlacementOptionResponse[],
 };
 
-export type RemoteEndpointKeepAliveLimitsDto = {
+export type RunpodDeleteStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner_pod" | "delete_network_volume" | "delete_local_workspace";
+
+export type RunpodEndpointKeepAliveLimitsDto = {
 	defaultSeconds: number,
 	minSeconds: number,
 	maxSeconds: number,
 };
 
-export type RemoteGpuPlacementOptionResponse = {
+export type RunpodGpuPlacementOptionResponse = {
 	id: string,
 	name: string,
-	vramBytes: number,
-	availabilityScore: number,
+	vramGb: number,
 };
 
-export type RemotePlacementOptionsResponse = {
-	maxPersistentStorageVolumeSizeBytes: number | null,
-	datacenters: RemoteDatacenterPlacementOptionResponse[],
+export type RunpodLifecycleOperationPayloadResponse = { operation: "provision"; step: RunpodProvisionStepResponse | null } | { operation: "cleanup"; step: RunpodCleanupStepResponse | null } | { operation: "delete"; step: RunpodDeleteStepResponse | null };
+
+export type RunpodPlacementOptionsResponse = {
+	maxNetworkVolumeSizeGb: number | null,
+	datacenters: RunpodDatacenterPlacementOptionResponse[],
 };
 
-export type RemotePlacementPlanInput = {
-	gpuCloudProviderId: GpuCloudProviderIdDto,
+export type RunpodPlacementPlanInput = {
 	datacenterId: string,
 	gpuId: string,
-	volumeSizeBytes: number,
-	keepAliveLimits: RemoteEndpointKeepAliveLimitsDto | null,
+	volumeSizeGb: number,
+	keepAliveLimits: RunpodEndpointKeepAliveLimitsDto | null,
 };
 
-export type RemoteProviderRuntimeRequirementsResponse = {
-	gpuCloudProviderId: GpuCloudProviderIdDto,
-	endpointContract: RuntimeContractReferenceResponse,
-	provisionerContract: RuntimeContractReferenceResponse,
+export type RunpodProvisionStepResponse = "create_network_volume" | "start_provisioner_pod" | "poll_provisioner" | "terminate_provisioner_pod" | "create_template" | "create_endpoint";
+
+export type RunpodResourcesResponse = {
+	volumeId: string | null,
+	provisionerId: string | null,
+	endpointId: string | null,
+	templateId: string | null,
 };
 
-export type RemoteRuntimeRequirementsResponse = {
-	requiredBaseVolumeSizeBytes: number,
-	providerRequirements: RemoteProviderRuntimeRequirementsResponse[],
-};
-
-export type RunningLifecycleOperationsResponse = {
-	operations: LifecycleOperationResponse[],
+export type RunpodWorkspaceResponse = {
+	placement: RunpodPlacementPlanInput,
+	resources: RunpodResourcesResponse,
 };
 
 export type RuntimeContractReferenceResponse = {
@@ -183,15 +171,27 @@ export type WorkflowCatalogResponse = {
 	workflowPresets: WorkflowPresetResponse[],
 };
 
+export type WorkflowContractRequirementsResponse = { runtimeType: "runpod" } & (RunpodContractRequirementsResponse);
+
 export type WorkflowExecutionTypeDto = "t2i";
 
 export type WorkflowPresetResponse = {
 	id: string,
-	version: string,
 	name: string,
 	executionType: WorkflowExecutionTypeDto,
+	revisions: WorkflowRevisionResponse[],
+};
+
+export type WorkflowReferenceResponse = {
+	id: string,
+	version: string,
+};
+
+export type WorkflowRevisionResponse = {
+	version: string,
 	requiresHuggingFaceApiKey: boolean,
-	remoteRuntimeRequirements: RemoteRuntimeRequirementsResponse,
+	requiredVolumeSizeGb: number,
+	contractRequirements: WorkflowContractRequirementsResponse[],
 	requiredModelAssets: ModelAssetResponse[],
 };
 
@@ -204,8 +204,6 @@ export type WorkspaceChangedEvent = {
 	workspace: WorkspaceResponse,
 };
 
-export type WorkspaceCleanupRequiredReasonResponse = "provision_failed" | "cleanup_failed" | "delete_failed" | "operation_interrupted";
-
 export type WorkspaceDeletedEvent = {
 	workspaceId: string,
 };
@@ -216,20 +214,14 @@ export type WorkspaceIdRequest = {
 
 export type WorkspaceResponse = {
 	id: string,
-	workflowPreset: WorkflowPresetResponse,
+	workflow: WorkflowReferenceResponse,
 	state: WorkspaceStateResponse,
 	runtime: WorkspaceRuntimeResponse,
 };
 
-export type WorkspaceRuntimeInvalidReasonResponse = "operation_interrupted" | "provision_failed" | "cleanup_failed" | "delete_failed" | "corrupt_runtime_state";
+export type WorkspaceRuntimeResponse = { runtimeType: "runpod" } & (RunpodWorkspaceResponse);
 
-export type WorkspaceRuntimeResponse = { runtimeType: "provisioned_remote" } & (ProvisionedRemoteWorkspaceResponse);
-
-export type WorkspaceStateResponse = "not_provisioned" | "ready" | ({ cleanup_required: {
-	reason: WorkspaceCleanupRequiredReasonResponse,
-} }) & { invalid?: never } | ({ invalid: {
-	reason: WorkspaceRuntimeInvalidReasonResponse,
-} }) & { cleanup_required?: never };
+export type WorkspaceStateResponse = "not_provisioned" | "ready" | "cleanup_required" | "invalid";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

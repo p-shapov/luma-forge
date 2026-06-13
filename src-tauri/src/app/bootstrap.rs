@@ -1,15 +1,14 @@
-use std::{fs, sync::Arc};
+use std::{fs, path::Path, sync::Arc};
 
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    app::{background::TauriBackgroundTaskSpawner, events::TauriProvisionedRemoteEventSink},
-    commands::{NativeCommandError, NativeCommandErrorCode},
+    app::{background::TauriBackgroundTaskSpawner, events::TauriRunpodRuntimeEventSink},
+    commands::errors::{NativeCommandError, NativeInitializationCommandError},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    provisioned_remote::{
-        lifecycle::runner::BackgroundProvisionedRemoteLifecycleRunner,
-        providers::runpod::RunpodProvisionedRemoteProvider,
-        registry::ProvisionedRemoteProviderRegistry, service::ProvisionedRemoteService,
+    runpod_runtime::{
+        lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner, provider::RunpodRuntimeProvider,
+        service::RunpodRuntimeService,
     },
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
@@ -29,25 +28,31 @@ const NATIVE_DB_FILE: &str = "native.sqlite";
 
 pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeCommandError> {
     let app_identifier = app_handle.config().identifier.clone();
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|_| {
-        NativeCommandError::new(
-            NativeCommandErrorCode::WorkspaceStorageUnavailable,
-            "app data directory is unavailable",
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|error| {
+        NativeCommandError::native_initialization(
+            NativeInitializationCommandError::AppDataDirectoryUnavailable {
+                message: error.to_string(),
+            },
         )
     })?;
-    fs::create_dir_all(&app_data_dir).map_err(|_| {
-        NativeCommandError::new(
-            NativeCommandErrorCode::WorkspaceStorageUnavailable,
-            "app data directory could not be created",
+    fs::create_dir_all(&app_data_dir).map_err(|error| {
+        NativeCommandError::native_initialization(
+            NativeInitializationCommandError::AppDataDirectoryCreateFailed {
+                path: display_path(&app_data_dir),
+                message: error.to_string(),
+            },
         )
     })?;
 
-    let database = SqliteNativeDatabase::connect(app_data_dir.join(NATIVE_DB_FILE))
+    let native_db_path = app_data_dir.join(NATIVE_DB_FILE);
+    let database = SqliteNativeDatabase::connect(&native_db_path)
         .await
-        .map_err(|_| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkspaceStorageUnavailable,
-                "workspace storage could not be initialized",
+        .map_err(|error| {
+            NativeCommandError::native_initialization(
+                NativeInitializationCommandError::WorkspaceStorageInitializationFailed {
+                    path: display_path(&native_db_path),
+                    message: error.to_string(),
+                },
             )
         })?;
     let pool = database.pool();
@@ -58,40 +63,43 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
 
     let runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
-    let provider_runpod_secrets = build_runpod_secrets(&app_identifier)?;
-    let provider_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
+    let runtime_runpod_secrets = build_runpod_secrets(&app_identifier)?;
+    let runtime_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
 
-    let runpod_provider = RunpodProvisionedRemoteProvider::new(
-        provider_runpod_secrets,
-        provider_hugging_face_secrets,
-    );
-    let provider_registry = ProvisionedRemoteProviderRegistry::new(vec![Box::new(runpod_provider)]);
-    let provisioned_remote = ProvisionedRemoteService::new(
+    let runpod_provider =
+        RunpodRuntimeProvider::new(runtime_runpod_secrets, runtime_hugging_face_secrets);
+    let runpod_runtime = RunpodRuntimeService::new(
         workspace_repository,
         lifecycle_journal,
-        provider_registry,
-        Arc::new(TauriProvisionedRemoteEventSink::new(app_handle.clone())),
+        workflow_catalog.clone(),
+        Arc::new(runpod_provider),
+        Arc::new(TauriRunpodRuntimeEventSink::new(app_handle.clone())),
         Arc::new(TauriBackgroundTaskSpawner),
-        Arc::new(BackgroundProvisionedRemoteLifecycleRunner),
+        Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     );
 
-    provisioned_remote
+    runpod_runtime
         .mark_running_operations_stale()
         .await
-        .map_err(|_| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkspaceStorageUnavailable,
-                "workspace lifecycle state could not be restored",
+        .map_err(|error| {
+            NativeCommandError::native_initialization(
+                NativeInitializationCommandError::LifecycleStateRestoreFailed {
+                    message: error.to_string(),
+                },
             )
         })?;
 
     Ok(AppState {
         workflow_catalog,
         workspace_catalog,
-        provisioned_remote,
+        runpod_runtime,
         runpod_secrets,
         hugging_face_secrets,
     })
+}
+
+fn display_path(path: &Path) -> String {
+    path.display().to_string()
 }
 
 fn build_runpod_secrets(

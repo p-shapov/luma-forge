@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::{
-    app::state::AppState,
+    app::state::NativeAppState,
     commands::{
         types::secrets::{ApiKeyIdentityResponse, SetupApiKeyRequest},
         CommandResult,
@@ -12,9 +12,10 @@ use crate::{
 #[tauri::command]
 #[specta::specta]
 pub async fn setup_runpod_api_key(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: SetupApiKeyRequest,
 ) -> CommandResult<ApiKeyIdentityResponse> {
+    let state = state.ready()?;
     let identity = state
         .runpod_secrets
         .write(ApiSecret::new(request.api_key)?)
@@ -26,8 +27,9 @@ pub async fn setup_runpod_api_key(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_runpod_api_key_identity(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
 ) -> CommandResult<ApiKeyIdentityResponse> {
+    let state = state.ready()?;
     let identity = state.runpod_secrets.identity().await?;
 
     Ok(identity.into())
@@ -35,7 +37,8 @@ pub async fn get_runpod_api_key_identity(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_runpod_api_key(state: State<'_, AppState>) -> CommandResult<()> {
+pub async fn delete_runpod_api_key(state: State<'_, NativeAppState>) -> CommandResult<()> {
+    let state = state.ready()?;
     state.runpod_secrets.remove().await?;
 
     Ok(())
@@ -44,9 +47,10 @@ pub async fn delete_runpod_api_key(state: State<'_, AppState>) -> CommandResult<
 #[tauri::command]
 #[specta::specta]
 pub async fn setup_hugging_face_api_key(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: SetupApiKeyRequest,
 ) -> CommandResult<ApiKeyIdentityResponse> {
+    let state = state.ready()?;
     let identity = state
         .hugging_face_secrets
         .write(ApiSecret::new(request.api_key)?)
@@ -58,8 +62,9 @@ pub async fn setup_hugging_face_api_key(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_hugging_face_api_key_identity(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
 ) -> CommandResult<ApiKeyIdentityResponse> {
+    let state = state.ready()?;
     let identity = state.hugging_face_secrets.identity().await?;
 
     Ok(identity.into())
@@ -67,7 +72,8 @@ pub async fn get_hugging_face_api_key_identity(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn delete_hugging_face_api_key(state: State<'_, AppState>) -> CommandResult<()> {
+pub async fn delete_hugging_face_api_key(state: State<'_, NativeAppState>) -> CommandResult<()> {
+    let state = state.ready()?;
     state.hugging_face_secrets.remove().await?;
 
     Ok(())
