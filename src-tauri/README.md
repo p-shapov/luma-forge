@@ -10,24 +10,6 @@ At the moment, only the RunPod runtime is available: `Runpod(RunpodRuntime)`. It
 
 When adding a new workspace runtime, keep runtime-specific orchestration behind its own service boundary and persist long-running work through the lifecycle journal.
 
-## RunPod Runtime
-
-`runpod_runtime` currently contains the RunPod runtime implementation for workspace setup, lifecycle operation creation, background lifecycle execution, deletion, and RunPod API integration. `RunpodRuntimeService` owns the service-level workflow surface and receives one concrete `RunpodRuntimeClient`.
-
-RunPod API adapters must return only UI-safe errors and snapshots. Do not return raw provider responses, request bodies, API keys, bearer tokens, worker tokens, Hugging Face keys, credential-bearing URLs, SDK debug output, or environment dumps.
-
-### Runtime Client Boundary
-
-The RunPod client boundary should expose RunPod resource primitives only:
-
-- placement options
-- network volume create/delete
-- provisioner pod start/status/terminate
-- serverless template create/delete
-- serverless endpoint create/delete
-
-It should not duplicate the full lifecycle workflow. Orchestration belongs in `RunpodRuntimeService` and the lifecycle runner.
-
 ## Verification
 
 For native backend changes, run from the repository root:
