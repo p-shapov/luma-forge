@@ -11,6 +11,7 @@ use crate::{
         },
         CommandResult,
     },
+    diagnostics::command_error,
     domain::runpod::RunpodPlacementPlan,
     runpod_runtime::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
@@ -31,7 +32,8 @@ pub async fn create_runpod_workspace(
             workflow_preset_id: request.workflow_preset_id,
             placement,
         })
-        .await?;
+        .await
+        .map_err(|error| command_error("create_runpod_workspace", error))?;
 
     Ok(workspace.into())
 }
@@ -46,7 +48,8 @@ pub async fn provision_workspace(
     let response = state
         .runpod_runtime
         .provision_workspace(&request.workspace_id)
-        .await?;
+        .await
+        .map_err(|error| command_error("provision_workspace", error))?;
     Ok(response.into())
 }
 
@@ -60,7 +63,8 @@ pub async fn cleanup_workspace(
     let response = state
         .runpod_runtime
         .cleanup_workspace(&request.workspace_id)
-        .await?;
+        .await
+        .map_err(|error| command_error("cleanup_workspace", error))?;
     Ok(response.into())
 }
 
@@ -74,7 +78,8 @@ pub async fn delete_workspace(
     let response = state
         .runpod_runtime
         .delete_workspace(&request.workspace_id)
-        .await?;
+        .await
+        .map_err(|error| command_error("delete_workspace", error))?;
 
     Ok(response.into())
 }
@@ -88,7 +93,8 @@ pub async fn get_running_lifecycle_operations(
     let operations = state
         .runpod_runtime
         .get_running_lifecycle_operations()
-        .await?
+        .await
+        .map_err(|error| command_error("get_running_lifecycle_operations", error))?
         .into_iter()
         .map(Into::into)
         .collect();
@@ -106,7 +112,8 @@ pub async fn get_latest_lifecycle_operation(
     let operation = state
         .runpod_runtime
         .get_latest_lifecycle_operation(&request.workspace_id)
-        .await?
+        .await
+        .map_err(|error| command_error("get_latest_lifecycle_operation", error))?
         .map(Into::into);
 
     Ok(LatestLifecycleOperationResponse { operation })

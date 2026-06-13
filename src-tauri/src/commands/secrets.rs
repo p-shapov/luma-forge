@@ -6,6 +6,7 @@ use crate::{
         types::secrets::{ApiKeyIdentityResponse, SetupApiKeyRequest},
         CommandResult,
     },
+    diagnostics::command_error,
     secrets_storage::stores::ApiSecret,
 };
 
@@ -16,10 +17,13 @@ pub async fn setup_runpod_api_key(
     request: SetupApiKeyRequest,
 ) -> CommandResult<ApiKeyIdentityResponse> {
     let state = state.ready()?;
+    let api_key = ApiSecret::new(request.api_key)
+        .map_err(|error| command_error("setup_runpod_api_key", error))?;
     let identity = state
         .runpod_secrets
-        .write(ApiSecret::new(request.api_key)?)
-        .await?;
+        .write(api_key)
+        .await
+        .map_err(|error| command_error("setup_runpod_api_key", error))?;
 
     Ok(identity.into())
 }
@@ -30,7 +34,11 @@ pub async fn get_runpod_api_key_identity(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<ApiKeyIdentityResponse> {
     let state = state.ready()?;
-    let identity = state.runpod_secrets.identity().await?;
+    let identity = state
+        .runpod_secrets
+        .identity()
+        .await
+        .map_err(|error| command_error("get_runpod_api_key_identity", error))?;
 
     Ok(identity.into())
 }
@@ -39,7 +47,11 @@ pub async fn get_runpod_api_key_identity(
 #[specta::specta]
 pub async fn delete_runpod_api_key(state: State<'_, NativeAppState>) -> CommandResult<()> {
     let state = state.ready()?;
-    state.runpod_secrets.remove().await?;
+    state
+        .runpod_secrets
+        .remove()
+        .await
+        .map_err(|error| command_error("delete_runpod_api_key", error))?;
 
     Ok(())
 }
@@ -51,10 +63,13 @@ pub async fn setup_hugging_face_api_key(
     request: SetupApiKeyRequest,
 ) -> CommandResult<ApiKeyIdentityResponse> {
     let state = state.ready()?;
+    let api_key = ApiSecret::new(request.api_key)
+        .map_err(|error| command_error("setup_hugging_face_api_key", error))?;
     let identity = state
         .hugging_face_secrets
-        .write(ApiSecret::new(request.api_key)?)
-        .await?;
+        .write(api_key)
+        .await
+        .map_err(|error| command_error("setup_hugging_face_api_key", error))?;
 
     Ok(identity.into())
 }
@@ -65,7 +80,11 @@ pub async fn get_hugging_face_api_key_identity(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<ApiKeyIdentityResponse> {
     let state = state.ready()?;
-    let identity = state.hugging_face_secrets.identity().await?;
+    let identity = state
+        .hugging_face_secrets
+        .identity()
+        .await
+        .map_err(|error| command_error("get_hugging_face_api_key_identity", error))?;
 
     Ok(identity.into())
 }
@@ -74,7 +93,11 @@ pub async fn get_hugging_face_api_key_identity(
 #[specta::specta]
 pub async fn delete_hugging_face_api_key(state: State<'_, NativeAppState>) -> CommandResult<()> {
     let state = state.ready()?;
-    state.hugging_face_secrets.remove().await?;
+    state
+        .hugging_face_secrets
+        .remove()
+        .await
+        .map_err(|error| command_error("delete_hugging_face_api_key", error))?;
 
     Ok(())
 }
