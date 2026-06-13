@@ -10,6 +10,18 @@ At the moment, only the RunPod runtime is available: `Runpod(RunpodRuntime)`. It
 
 When adding a new workspace runtime, keep runtime-specific orchestration behind its own service boundary and persist long-running work through the lifecycle journal.
 
+## Workspace Catalog Troubleshooting
+
+During pre-production development, local Workspace Catalog schema bootstrap or compatibility checks may reject stale SQLite state from an earlier build. Stop the app before deleting the local catalog file.
+
+The Workspace Catalog file is `workspace-catalog.sqlite` under the Tauri application data directory. On macOS, the path pattern is:
+
+```text
+~/Library/Application Support/<app identifier>/workspace-catalog.sqlite
+```
+
+Deleting this file removes local Workspace Catalog records only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
+
 ## Diagnostic Logs
 
 Native diagnostics are structured `tracing` logs for command spans, RunPod
