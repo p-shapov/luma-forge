@@ -1,4 +1,4 @@
-use std::{error::Error, path::PathBuf, time::Instant};
+use std::{error::Error, path::PathBuf};
 
 use crate::{
     commands::{
@@ -163,66 +163,15 @@ pub fn empty_command_request_metadata() -> CommandRequestMetadata {
     Vec::new()
 }
 
-pub struct CommandLogScope {
-    command: &'static str,
-    request_metadata: CommandRequestMetadata,
-    started_at: Instant,
-}
-
-impl CommandLogScope {
-    pub fn new(command: &'static str, request_metadata: CommandRequestMetadata) -> Self {
-        tracing::info!(
-            command = ?command,
-            request_metadata = ?request_metadata,
-            "native command started"
-        );
-
-        Self {
-            command,
-            request_metadata,
-            started_at: Instant::now(),
-        }
-    }
-
-    pub fn completed(&self) {
-        tracing::info!(
-            command = ?self.command,
-            duration_ms = self.duration_ms(),
-            request_metadata = ?self.request_metadata,
-            "native command completed"
-        );
-    }
-
-    pub fn failed<E>(&self, error: E) -> NativeCommandError
-    where
-        E: Error + 'static,
-        for<'a> NativeCommandErrorCode: From<&'a E>,
-    {
-        command_error_with_duration(
-            self.command,
-            error,
-            Some(self.duration_ms()),
-            Some(&self.request_metadata),
-        )
-    }
-
-    pub fn failed_native(&self, error: NativeCommandError) -> NativeCommandError {
-        let message = redact_for_log(&error.message);
-        tracing::error!(
-            diagnostic_id = %error.diagnostic_id,
-            command = self.command,
-            duration_ms = self.duration_ms(),
-            request_metadata = ?self.request_metadata,
-            code = ?error.code,
-            error = ?message,
-            "native command failed"
-        );
-        error
-    }
-
-    pub fn duration_ms(&self) -> u128 {
-        self.started_at.elapsed().as_millis()
-    }
+pub fn native_command_error(error: NativeCommandError) -> NativeCommandError {
+    let message = redact_for_log(&error.message);
+    tracing::error!(
+        diagnostic_id = %error.diagnostic_id,
+        code = ?error.code,
+        error = ?message,
+        "native command failed"
+    );
+    error
 }
 
 pub fn command_error<E>(command: &'static str, error: E) -> NativeCommandError
@@ -397,6 +346,21 @@ mod tests {
         let chain = error_source_chain(&error);
 
         assert_eq!(chain, vec!["StoreUnavailable".to_string()]);
+    }
+
+    #[test]
+    fn native_command_error_keeps_existing_diagnostic_id() {
+        let error = NativeCommandError::new(
+            NativeCommandErrorCode::InvalidRuntimeState,
+            "startup failed",
+            "diag-existing",
+        );
+
+        let converted = native_command_error(error);
+
+        assert_eq!(converted.diagnostic_id, "diag-existing");
+        assert_eq!(converted.message, "startup failed");
+        assert_eq!(converted.code, NativeCommandErrorCode::InvalidRuntimeState);
     }
 
     #[test]

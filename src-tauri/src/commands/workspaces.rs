@@ -11,24 +11,26 @@ use crate::{
         },
         CommandResult,
     },
-    diagnostics::{command_request_metadata, CommandLogScope},
+    diagnostics::{
+        command_error, command_request_metadata, empty_command_request_metadata,
+        native_command_error,
+    },
     domain::runpod::RunpodPlacementPlan,
     runpod_runtime::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "create_runpod_workspace", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+)]
 pub async fn create_runpod_workspace(
     state: State<'_, NativeAppState>,
     request: CreateRunpodWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
-    let command_log = CommandLogScope::new(
-        "create_runpod_workspace",
-        command_request_metadata(&request),
-    );
-    let state = state
-        .ready()
-        .map_err(|error| command_log.failed_native(error))?;
+    let state = state.ready().map_err(native_command_error)?;
     let placement: RunpodPlacementPlan = request.placement.into();
 
     let workspace = state
@@ -39,113 +41,113 @@ pub async fn create_runpod_workspace(
             placement,
         })
         .await
-        .map_err(|error| command_log.failed(error))?;
+        .map_err(|error| command_error("create_runpod_workspace", error))?;
 
-    command_log.completed();
     Ok(workspace.into())
 }
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "provision_workspace", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+)]
 pub async fn provision_workspace(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<ProvisionWorkspaceResponse> {
-    let command_log =
-        CommandLogScope::new("provision_workspace", command_request_metadata(&request));
-    let state = state
-        .ready()
-        .map_err(|error| command_log.failed_native(error))?;
+    let state = state.ready().map_err(native_command_error)?;
     let response = state
         .runpod_runtime
         .provision_workspace(&request.workspace_id)
         .await
-        .map_err(|error| command_log.failed(error))?;
-    command_log.completed();
+        .map_err(|error| command_error("provision_workspace", error))?;
     Ok(response.into())
 }
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "cleanup_workspace", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+)]
 pub async fn cleanup_workspace(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<CleanupWorkspaceResponse> {
-    let command_log = CommandLogScope::new("cleanup_workspace", command_request_metadata(&request));
-    let state = state
-        .ready()
-        .map_err(|error| command_log.failed_native(error))?;
+    let state = state.ready().map_err(native_command_error)?;
     let response = state
         .runpod_runtime
         .cleanup_workspace(&request.workspace_id)
         .await
-        .map_err(|error| command_log.failed(error))?;
-    command_log.completed();
+        .map_err(|error| command_error("cleanup_workspace", error))?;
     Ok(response.into())
 }
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "delete_workspace", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+)]
 pub async fn delete_workspace(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<DeleteWorkspaceResponse> {
-    let command_log = CommandLogScope::new("delete_workspace", command_request_metadata(&request));
-    let state = state
-        .ready()
-        .map_err(|error| command_log.failed_native(error))?;
+    let state = state.ready().map_err(native_command_error)?;
     let response = state
         .runpod_runtime
         .delete_workspace(&request.workspace_id)
         .await
-        .map_err(|error| command_log.failed(error))?;
+        .map_err(|error| command_error("delete_workspace", error))?;
 
-    command_log.completed();
     Ok(response.into())
 }
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "get_running_lifecycle_operations", request_metadata = tracing::field::debug(empty_command_request_metadata()))
+)]
 pub async fn get_running_lifecycle_operations(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<RunningLifecycleOperationsResponse> {
-    let command_log = CommandLogScope::new("get_running_lifecycle_operations", Vec::new());
-    let state = state
-        .ready()
-        .map_err(|error| command_log.failed_native(error))?;
+    let state = state.ready().map_err(native_command_error)?;
     let operations = state
         .runpod_runtime
         .get_running_lifecycle_operations()
         .await
-        .map_err(|error| command_log.failed(error))?
+        .map_err(|error| command_error("get_running_lifecycle_operations", error))?
         .into_iter()
         .map(Into::into)
         .collect();
 
-    command_log.completed();
     Ok(RunningLifecycleOperationsResponse { operations })
 }
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "get_latest_lifecycle_operation", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+)]
 pub async fn get_latest_lifecycle_operation(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<LatestLifecycleOperationResponse> {
-    let command_log = CommandLogScope::new(
-        "get_latest_lifecycle_operation",
-        command_request_metadata(&request),
-    );
-    let state = state
-        .ready()
-        .map_err(|error| command_log.failed_native(error))?;
+    let state = state.ready().map_err(native_command_error)?;
     let operation = state
         .runpod_runtime
         .get_latest_lifecycle_operation(&request.workspace_id)
         .await
-        .map_err(|error| command_log.failed(error))?
+        .map_err(|error| command_error("get_latest_lifecycle_operation", error))?
         .map(Into::into);
 
-    command_log.completed();
     Ok(LatestLifecycleOperationResponse { operation })
 }
