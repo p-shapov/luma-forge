@@ -1,4 +1,5 @@
 use crate::{
+    commands::errors::NativeCommandError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::service::RunpodRuntimeService,
     secrets_storage::{
@@ -25,4 +26,25 @@ pub struct AppState {
     pub runpod_runtime: RunpodRuntimeAppService,
     pub runpod_secrets: RunpodSecretsService,
     pub hugging_face_secrets: HuggingFaceSecretsService,
+}
+
+pub enum NativeAppState {
+    Ready(Box<AppState>),
+    Failed(NativeCommandError),
+}
+
+impl NativeAppState {
+    pub fn ready(&self) -> Result<&AppState, NativeCommandError> {
+        match self {
+            Self::Ready(state) => Ok(state),
+            Self::Failed(error) => Err(error.clone()),
+        }
+    }
+
+    pub fn startup_error(&self) -> Option<&NativeCommandError> {
+        match self {
+            Self::Ready(_) => None,
+            Self::Failed(error) => Some(error),
+        }
+    }
 }

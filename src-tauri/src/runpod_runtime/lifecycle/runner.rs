@@ -1,10 +1,12 @@
 use std::{future::Future, sync::Arc, time::Duration};
 
 use crate::{
-    domain::lifecycle_operation::LifecycleOperationId,
+    domain::lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
     lifecycle_journal::LifecycleJournalRepository,
     runpod_runtime::{
-        errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
+        errors::RunpodRuntimeError,
+        events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
+        provider::RunpodRuntimeClient,
     },
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
     workflow_catalog::WorkflowCatalogService,
@@ -83,6 +85,8 @@ where
         spawn_lifecycle_runner(
             context.task_spawner.as_ref(),
             registry,
+            lifecycle_journal.clone(),
+            event_sink.clone(),
             operation_id.clone(),
             async move {
                 provision::run_once(
@@ -119,6 +123,8 @@ where
         spawn_lifecycle_runner(
             context.task_spawner.as_ref(),
             registry,
+            lifecycle_journal.clone(),
+            event_sink.clone(),
             operation_id.clone(),
             async move {
                 cleanup::run_once(
@@ -153,6 +159,8 @@ where
         spawn_lifecycle_runner(
             context.task_spawner.as_ref(),
             registry,
+            lifecycle_journal.clone(),
+            event_sink.clone(),
             operation_id.clone(),
             async move {
                 delete::run_once(
@@ -171,6 +179,8 @@ where
 fn spawn_lifecycle_runner<F, T>(
     task_spawner: &dyn BackgroundTaskSpawner,
     registry: LifecycleOperationRegistry,
+    lifecycle_journal: impl LifecycleJournalRepository + 'static,
+    event_sink: Arc<dyn RunpodRuntimeEventSink>,
     operation_id: LifecycleOperationId,
     lifecycle: F,
 ) where
@@ -178,8 +188,226 @@ fn spawn_lifecycle_runner<F, T>(
     T: Send + 'static,
 {
     spawn_background_task(task_spawner, async move {
-        if lifecycle.await.is_ok() {
-            registry.complete(&operation_id);
+        if lifecycle.await.is_err() {
+            record_lifecycle_runner_error(&lifecycle_journal, &event_sink, &operation_id).await;
         }
+        registry.complete(&operation_id);
     });
+}
+
+async fn record_lifecycle_runner_error<L>(
+    lifecycle_journal: &L,
+    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    operation_id: &LifecycleOperationId,
+) where
+    L: LifecycleJournalRepository,
+{
+    let operations = match lifecycle_journal.list_running().await {
+        Ok(operations) => operations,
+        Err(_) => return,
+    };
+    let Some(operation) = operations
+        .into_iter()
+        .find(|operation| operation.operation_id == *operation_id)
+    else {
+        return;
+    };
+
+    let failed_operation = match lifecycle_journal
+        .mark_state(
+            operation_id,
+            LifecycleOperationState::Failed,
+            &operation.payload,
+        )
+        .await
+    {
+        Ok(operation) => operation,
+        Err(_) => return,
+    };
+
+    event_sink.emit(RunpodRuntimeEvent::LifecycleOperationChanged {
+        workspace_id: failed_operation.workspace_id.clone(),
+        operation_id: failed_operation.operation_id.clone(),
+        operation: failed_operation,
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
+
+    use crate::{
+        domain::{
+            lifecycle_operation::{
+                LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
+                LifecycleOperationState,
+            },
+            runpod::RunpodLifecycleOperationPayload,
+            workspace::WorkspaceId,
+        },
+        lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
+        runpod_runtime::{errors::RunpodRuntimeError, events::RunpodRuntimeEvent},
+        shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, EventSink},
+    };
+    use time::OffsetDateTime;
+
+    use super::{spawn_lifecycle_runner, LifecycleOperationRegistry};
+
+    struct TokioTaskSpawner;
+
+    impl BackgroundTaskSpawner for TokioTaskSpawner {
+        fn spawn(&self, task: BackgroundTask) {
+            tokio::spawn(task);
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_lifecycle_runner_clears_in_flight_operation() {
+        let registry = LifecycleOperationRegistry::default();
+        let operation_id = "operation-1".to_string();
+        let lifecycle_journal = FakeLifecycleJournal::new(operation_id.clone());
+        let event_sink = Arc::new(FakeEventSink::default());
+        assert!(registry.try_register(&operation_id));
+
+        spawn_lifecycle_runner(
+            &TokioTaskSpawner,
+            registry.clone(),
+            lifecycle_journal.clone(),
+            event_sink.clone(),
+            operation_id.clone(),
+            async {
+                Err::<(), _>(RunpodRuntimeError::InvalidRuntimeState {
+                    message: "runner failed".to_string(),
+                })
+            },
+        );
+
+        for _ in 0..10 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if registry.try_register(&operation_id) {
+                assert_eq!(
+                    lifecycle_journal.operation_state(),
+                    LifecycleOperationState::Failed
+                );
+                assert_eq!(event_sink.event_count(), 1);
+                return;
+            }
+        }
+
+        assert!(
+            registry.try_register(&operation_id),
+            "failed lifecycle runner should clear in-flight registry"
+        );
+    }
+
+    #[derive(Clone)]
+    struct FakeLifecycleJournal {
+        operation: Arc<Mutex<LifecycleOperation>>,
+    }
+
+    impl FakeLifecycleJournal {
+        fn new(operation_id: String) -> Self {
+            Self {
+                operation: Arc::new(Mutex::new(LifecycleOperation {
+                    operation_id,
+                    workspace_id: "workspace-1".to_string(),
+                    state: LifecycleOperationState::Running,
+                    payload: LifecycleOperationPayload::Runpod(
+                        RunpodLifecycleOperationPayload::Provision { step: None },
+                    ),
+                    created_at: OffsetDateTime::UNIX_EPOCH,
+                    updated_at: OffsetDateTime::UNIX_EPOCH,
+                    finished_at: None,
+                })),
+            }
+        }
+
+        fn operation_state(&self) -> LifecycleOperationState {
+            self.operation.lock().expect("operation state").state
+        }
+    }
+
+    impl LifecycleJournalRepository for FakeLifecycleJournal {
+        fn create_operation<'a>(
+            &'a self,
+            _workspace_id: &'a WorkspaceId,
+            _payload: &'a LifecycleOperationPayload,
+        ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
+            Box::pin(async { Err(LifecycleJournalError::OperationNotFound) })
+        }
+
+        fn find_running_by_workspace<'a>(
+            &'a self,
+            _workspace_id: &'a WorkspaceId,
+        ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn list_running<'a>(
+            &'a self,
+        ) -> AppFuture<'a, Result<Vec<LifecycleOperation>, LifecycleJournalError>> {
+            Box::pin(async move {
+                Ok(vec![self
+                    .operation
+                    .lock()
+                    .expect("operation state")
+                    .clone()])
+            })
+        }
+
+        fn latest_for_workspace<'a>(
+            &'a self,
+            _workspace_id: &'a WorkspaceId,
+        ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn delete_for_workspace<'a>(
+            &'a self,
+            _workspace_id: &'a WorkspaceId,
+        ) -> AppFuture<'a, Result<(), LifecycleJournalError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn update_operation<'a>(
+            &'a self,
+            _operation: &'a LifecycleOperation,
+        ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
+            Box::pin(async { Err(LifecycleJournalError::OperationNotFound) })
+        }
+
+        fn mark_state<'a>(
+            &'a self,
+            _operation_id: &'a LifecycleOperationId,
+            state: LifecycleOperationState,
+            payload: &'a LifecycleOperationPayload,
+        ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
+            Box::pin(async move {
+                let mut operation = self.operation.lock().expect("operation state");
+                operation.state = state;
+                operation.payload = payload.clone();
+                Ok(operation.clone())
+            })
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeEventSink {
+        events: Mutex<Vec<RunpodRuntimeEvent>>,
+    }
+
+    impl FakeEventSink {
+        fn event_count(&self) -> usize {
+            self.events.lock().expect("event state").len()
+        }
+    }
+
+    impl EventSink<RunpodRuntimeEvent> for FakeEventSink {
+        fn emit(&self, event: RunpodRuntimeEvent) {
+            self.events.lock().expect("event state").push(event);
+        }
+    }
 }

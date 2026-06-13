@@ -1,4 +1,4 @@
-use std::{fs, sync::Arc};
+use std::{fs, path::Path, sync::Arc};
 
 use tauri::{AppHandle, Manager};
 
@@ -28,22 +28,31 @@ const NATIVE_DB_FILE: &str = "native.sqlite";
 
 pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeCommandError> {
     let app_identifier = app_handle.config().identifier.clone();
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|_| {
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|error| {
         NativeCommandError::native_initialization(
-            NativeInitializationCommandError::AppDataDirectoryUnavailable,
+            NativeInitializationCommandError::AppDataDirectoryUnavailable {
+                message: error.to_string(),
+            },
         )
     })?;
-    fs::create_dir_all(&app_data_dir).map_err(|_| {
+    fs::create_dir_all(&app_data_dir).map_err(|error| {
         NativeCommandError::native_initialization(
-            NativeInitializationCommandError::AppDataDirectoryCreateFailed,
+            NativeInitializationCommandError::AppDataDirectoryCreateFailed {
+                path: display_path(&app_data_dir),
+                message: error.to_string(),
+            },
         )
     })?;
 
-    let database = SqliteNativeDatabase::connect(app_data_dir.join(NATIVE_DB_FILE))
+    let native_db_path = app_data_dir.join(NATIVE_DB_FILE);
+    let database = SqliteNativeDatabase::connect(&native_db_path)
         .await
-        .map_err(|_| {
+        .map_err(|error| {
             NativeCommandError::native_initialization(
-                NativeInitializationCommandError::WorkspaceStorageInitializationFailed,
+                NativeInitializationCommandError::WorkspaceStorageInitializationFailed {
+                    path: display_path(&native_db_path),
+                    message: error.to_string(),
+                },
             )
         })?;
     let pool = database.pool();
@@ -72,9 +81,11 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     runpod_runtime
         .mark_running_operations_stale()
         .await
-        .map_err(|_| {
+        .map_err(|error| {
             NativeCommandError::native_initialization(
-                NativeInitializationCommandError::LifecycleStateRestoreFailed,
+                NativeInitializationCommandError::LifecycleStateRestoreFailed {
+                    message: error.to_string(),
+                },
             )
         })?;
 
@@ -85,6 +96,10 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         runpod_secrets,
         hugging_face_secrets,
     })
+}
+
+fn display_path(path: &Path) -> String {
+    path.display().to_string()
 }
 
 fn build_runpod_secrets(

@@ -2,6 +2,8 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import type {
   CreateRunpodWorkspaceRequest,
+  NativeCommandError,
+  NativeStartupStatusResponse,
   WorkspaceIdRequest,
 } from "@/generated/commands";
 
@@ -174,6 +176,9 @@ const commandProbes: CommandProbe[] = [
 ];
 
 export function HomePage() {
+  const [nativeStartupStatus, setNativeStartupStatus] = useState<
+    NativeStartupStatusResponse | "loading"
+  >("loading");
   const [commandInputs, setCommandInputs] = useState(() =>
     Object.fromEntries(
       commandProbes.map(probe => [
@@ -215,7 +220,40 @@ export function HomePage() {
 
     return commandResults[0];
   }, [commandResults, latestCommandId]);
+
   useEffect(() => {
+    let isStopped = false;
+
+    async function loadNativeStartupStatus() {
+      const result = await commands.getNativeStartupStatus();
+
+      if (isStopped) {
+        return;
+      }
+
+      if (result.status === "ok") {
+        setNativeStartupStatus(result.data);
+      }
+      else {
+        setNativeStartupStatus({
+          status: "failed",
+          error: result.error,
+        });
+      }
+    }
+
+    void loadNativeStartupStatus();
+
+    return () => {
+      isStopped = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (nativeStartupStatus === "loading" || nativeStartupStatus.status !== "ready") {
+      return;
+    }
+
     let isStopped = false;
     const unlistenFns: UnlistenFn[] = [];
 
@@ -263,7 +301,15 @@ export function HomePage() {
         unlisten();
       }
     };
-  }, []);
+  }, [nativeStartupStatus]);
+
+  if (nativeStartupStatus === "loading") {
+    return <StartupLoadingPage />;
+  }
+
+  if (nativeStartupStatus.status === "failed") {
+    return <StartupErrorPage error={nativeStartupStatus.error} />;
+  }
 
   async function runCommand(probe: CommandProbe) {
     setLatestCommandId(probe.id);
@@ -456,6 +502,66 @@ export function HomePage() {
             </Panel>
           </section>
         </section>
+      </section>
+    </main>
+  );
+}
+
+function StartupLoadingPage() {
+  return (
+    <main className="min-h-svh bg-background text-foreground">
+      <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
+        <Panel title="Native startup" description="Checking native initialization.">
+          <p className="text-sm text-muted-foreground">Loading startup status.</p>
+        </Panel>
+      </section>
+    </main>
+  );
+}
+
+function StartupErrorPage({ error }: { error: NativeCommandError }) {
+  const storagePath = extractStoragePath(error.message);
+
+  return (
+    <main className="min-h-svh bg-background text-foreground">
+      <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
+        <header className="flex flex-col gap-2">
+          <p className="text-sm font-medium text-muted-foreground">
+            src-tauri diagnostics
+          </p>
+          <h1 className="text-2xl font-semibold tracking-normal">
+            Native startup failed
+          </h1>
+        </header>
+
+        <Panel
+          title="Startup error"
+          description="Native state was not initialized."
+        >
+          <div className="grid gap-4">
+            <div className="grid gap-1">
+              <p className="text-xs font-medium text-muted-foreground">Code</p>
+              <p className="font-mono text-sm">{error.code}</p>
+            </div>
+            <div className="grid gap-1">
+              <p className="text-xs font-medium text-muted-foreground">Message</p>
+              <p className="break-words font-mono text-sm">{error.message}</p>
+            </div>
+            {storagePath !== null
+              ? (
+                  <div className="grid gap-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Local storage
+                    </p>
+                    <p className="break-words font-mono text-sm">{storagePath}</p>
+                  </div>
+                )
+              : null}
+            <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+              Move or delete the incompatible local storage file, then restart the app.
+            </p>
+          </div>
+        </Panel>
       </section>
     </main>
   );
@@ -863,4 +969,10 @@ function formatError(error: unknown) {
   }
 
   return stringifyJson(error);
+}
+
+function extractStoragePath(message: string) {
+  const match = message.match(/ at (.*native\.sqlite): /);
+
+  return match?.[1] ?? null;
 }

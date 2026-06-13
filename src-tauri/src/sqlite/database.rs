@@ -4,10 +4,13 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 
 use crate::{lifecycle_journal, workspace_catalog};
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum SqliteNativeDatabaseError {
+    #[error("sqlite error: {0}")]
     Sqlx(sqlx::Error),
+    #[error("lifecycle journal error: {0}")]
     LifecycleJournal(lifecycle_journal::LifecycleJournalError),
+    #[error("workspace catalog error: {0}")]
     WorkspaceCatalog(workspace_catalog::WorkspaceCatalogError),
 }
 

@@ -2,7 +2,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::{
-    app::state::AppState,
+    app::state::NativeAppState,
     commands::{
         types::workspace::{
             CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
@@ -18,9 +18,10 @@ use crate::{
 #[tauri::command]
 #[specta::specta]
 pub async fn create_runpod_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: CreateRunpodWorkspaceRequest,
 ) -> CommandResult<WorkspaceResponse> {
+    let state = state.ready()?;
     let placement: RunpodPlacementPlan = request.placement.into();
 
     let workspace = state
@@ -38,9 +39,10 @@ pub async fn create_runpod_workspace(
 #[tauri::command]
 #[specta::specta]
 pub async fn provision_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<ProvisionWorkspaceResponse> {
+    let state = state.ready()?;
     let response = state
         .runpod_runtime
         .provision_workspace(&request.workspace_id)
@@ -51,9 +53,10 @@ pub async fn provision_workspace(
 #[tauri::command]
 #[specta::specta]
 pub async fn cleanup_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<CleanupWorkspaceResponse> {
+    let state = state.ready()?;
     let response = state
         .runpod_runtime
         .cleanup_workspace(&request.workspace_id)
@@ -64,9 +67,10 @@ pub async fn cleanup_workspace(
 #[tauri::command]
 #[specta::specta]
 pub async fn delete_workspace(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<DeleteWorkspaceResponse> {
+    let state = state.ready()?;
     let response = state
         .runpod_runtime
         .delete_workspace(&request.workspace_id)
@@ -78,8 +82,9 @@ pub async fn delete_workspace(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_running_lifecycle_operations(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
 ) -> CommandResult<RunningLifecycleOperationsResponse> {
+    let state = state.ready()?;
     let operations = state
         .runpod_runtime
         .get_running_lifecycle_operations()
@@ -94,9 +99,10 @@ pub async fn get_running_lifecycle_operations(
 #[tauri::command]
 #[specta::specta]
 pub async fn get_latest_lifecycle_operation(
-    state: State<'_, AppState>,
+    state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
 ) -> CommandResult<LatestLifecycleOperationResponse> {
+    let state = state.ready()?;
     let operation = state
         .runpod_runtime
         .get_latest_lifecycle_operation(&request.workspace_id)

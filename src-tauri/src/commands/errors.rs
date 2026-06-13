@@ -120,16 +120,16 @@ pub enum NativeCommandErrorCode {
     LifecycleStateRestoreFailed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NativeInitializationCommandError {
-    #[error("app data directory is unavailable")]
-    AppDataDirectoryUnavailable,
-    #[error("app data directory could not be created")]
-    AppDataDirectoryCreateFailed,
-    #[error("workspace storage could not be initialized")]
-    WorkspaceStorageInitializationFailed,
-    #[error("workspace lifecycle state could not be restored")]
-    LifecycleStateRestoreFailed,
+    #[error("app data directory is unavailable: {message}")]
+    AppDataDirectoryUnavailable { message: String },
+    #[error("app data directory could not be created at {path}: {message}")]
+    AppDataDirectoryCreateFailed { path: String, message: String },
+    #[error("workspace storage could not be initialized at {path}: {message}")]
+    WorkspaceStorageInitializationFailed { path: String, message: String },
+    #[error("workspace lifecycle state could not be restored: {message}")]
+    LifecycleStateRestoreFailed { message: String },
 }
 
 impl From<WorkflowCatalogError> for NativeCommandError {
@@ -243,16 +243,16 @@ impl From<RunpodRuntimeError> for NativeCommandErrorCode {
 impl From<NativeInitializationCommandError> for NativeCommandErrorCode {
     fn from(error: NativeInitializationCommandError) -> Self {
         match error {
-            NativeInitializationCommandError::AppDataDirectoryUnavailable => {
+            NativeInitializationCommandError::AppDataDirectoryUnavailable { .. } => {
                 Self::AppDataDirectoryUnavailable
             }
-            NativeInitializationCommandError::AppDataDirectoryCreateFailed => {
+            NativeInitializationCommandError::AppDataDirectoryCreateFailed { .. } => {
                 Self::AppDataDirectoryCreateFailed
             }
-            NativeInitializationCommandError::WorkspaceStorageInitializationFailed => {
+            NativeInitializationCommandError::WorkspaceStorageInitializationFailed { .. } => {
                 Self::WorkspaceStorageInitializationFailed
             }
-            NativeInitializationCommandError::LifecycleStateRestoreFailed => {
+            NativeInitializationCommandError::LifecycleStateRestoreFailed { .. } => {
                 Self::LifecycleStateRestoreFailed
             }
         }

@@ -16,7 +16,11 @@ pub fn run() {
     let builder = command_builder();
 
     #[cfg(debug_assertions)]
-    export_typescript_bindings(&builder);
+    {
+        if let Err(error) = export_typescript_bindings(&builder) {
+            eprintln!("failed to export TypeScript command bindings: {error}");
+        }
+    }
 
     let mut app_builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
 
@@ -25,24 +29,33 @@ pub fn run() {
         app_builder = app_builder.plugin(tauri_plugin_mcp_bridge::init());
     }
 
-    app_builder
+    if let Err(error) = app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            let app_state =
-                tauri::async_runtime::block_on(app::bootstrap::build_app_state(&app_handle))
-                    .map_err(|error| Box::<dyn std::error::Error>::from(error.message))?;
+            let app_state = match tauri::async_runtime::block_on(app::bootstrap::build_app_state(
+                &app_handle,
+            )) {
+                Ok(state) => app::state::NativeAppState::Ready(Box::new(state)),
+                Err(error) => {
+                    eprintln!("native app initialization failed: {}", error.message);
+                    app::state::NativeAppState::Failed(error)
+                }
+            };
             tauri::Manager::manage(app, app_state);
             builder.mount_events(app);
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    {
+        eprintln!("error while running tauri application: {error}");
+    }
 }
 
 fn command_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
         .commands(collect_commands![
+            commands::native::get_native_startup_status,
             commands::catalog::get_workflow_catalog,
             commands::catalog::get_runpod_placement_options,
             commands::catalog::get_workspace_catalog,
@@ -66,23 +79,104 @@ fn command_builder() -> Builder<tauri::Wry> {
         ])
 }
 
-fn export_typescript_bindings(builder: &Builder<tauri::Wry>) {
-    builder
-        .export(
-            specta_typescript::Typescript::default(),
-            "../src/generated/commands.ts",
-        )
-        .expect("failed to export TypeScript command bindings");
+fn export_typescript_bindings(
+    builder: &Builder<tauri::Wry>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    builder.export(
+        specta_typescript::Typescript::default(),
+        "../src/generated/commands.ts",
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
+
     use super::{command_builder, export_typescript_bindings};
 
     #[test]
     fn export_bindings() {
         let builder = command_builder();
 
-        export_typescript_bindings(&builder);
+        export_typescript_bindings(&builder).expect("failed to export TypeScript command bindings");
+    }
+
+    #[test]
+    fn production_rust_does_not_use_direct_panic_primitives() {
+        let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut violations = Vec::new();
+
+        for path in rust_source_files(&src_dir) {
+            if is_test_support_file(&path) {
+                continue;
+            }
+
+            let source = fs::read_to_string(&path).expect("rust source should be readable");
+            let production_source = source
+                .split("#[cfg(test)]")
+                .next()
+                .unwrap_or(source.as_str());
+
+            for (line_index, line) in production_source.lines().enumerate() {
+                if direct_panic_patterns()
+                    .iter()
+                    .any(|pattern| line.contains(pattern))
+                {
+                    let relative = path
+                        .strip_prefix(env!("CARGO_MANIFEST_DIR"))
+                        .expect("source path should be under manifest dir");
+                    violations.push(format!(
+                        "{}:{}: {}",
+                        relative.display(),
+                        line_index + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "production panic primitives found:\n{}",
+            violations.join("\n")
+        );
+    }
+
+    fn rust_source_files(root: &Path) -> Vec<PathBuf> {
+        let mut files = Vec::new();
+        collect_rust_source_files(root, &mut files);
+        files
+    }
+
+    fn collect_rust_source_files(path: &Path, files: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(path).expect("source directory should be readable") {
+            let entry = entry.expect("source directory entry should be readable");
+            let path = entry.path();
+
+            if path.is_dir() {
+                collect_rust_source_files(&path, files);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                files.push(path);
+            }
+        }
+    }
+
+    fn is_test_support_file(path: &Path) -> bool {
+        path.file_name()
+            .is_some_and(|file_name| file_name == "tests.rs" || file_name == "test_support.rs")
+    }
+
+    fn direct_panic_patterns() -> &'static [&'static str] {
+        &[
+            ".unwrap()",
+            ".expect(",
+            "panic!(",
+            "todo!(",
+            "unreachable!(",
+        ]
     }
 }
