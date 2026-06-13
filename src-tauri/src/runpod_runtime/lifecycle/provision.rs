@@ -219,6 +219,18 @@ fn resolve_provisioning_inputs(
     })
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "create_network_volume",
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id,
+        datacenter_id = %placement.data_center_id,
+        volume_size_gb = placement.volume_size_gb
+    )
+)]
 async fn create_network_volume<W, L>(
     workspace: &mut Workspace,
     context: &ProvisioningStepContext<'_, W, L>,
@@ -257,6 +269,18 @@ where
     Ok(volume_id)
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "start_provisioner_pod",
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id,
+        datacenter_id = %inputs.placement.data_center_id,
+        requires_hugging_face_api_key = inputs.workflow.requires_hugging_face_api_key
+    )
+)]
 async fn start_provisioner_pod<W, L>(
     workspace: &mut Workspace,
     context: &ProvisioningStepContext<'_, W, L>,
@@ -299,6 +323,17 @@ where
     Ok(provisioner_id)
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "terminate_provisioner_pod",
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id,
+        provisioner_pod_id = %provisioner_id
+    )
+)]
 async fn terminate_provisioner_pod<W, L>(
     workspace: &mut Workspace,
     context: &ProvisioningStepContext<'_, W, L>,
@@ -331,6 +366,16 @@ where
     .await
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "create_template",
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id
+    )
+)]
 async fn create_serverless_template<W, L>(
     workspace: &mut Workspace,
     context: &ProvisioningStepContext<'_, W, L>,
@@ -368,6 +413,20 @@ where
     Ok(template_id)
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "create_endpoint",
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id,
+        datacenter_id = %placement.data_center_id,
+        gpu_type_id = %placement.gpu_type_id,
+        network_volume_id = %volume_id,
+        template_id = %template_id
+    )
+)]
 async fn create_serverless_endpoint<W, L>(
     workspace: &mut Workspace,
     context: &ProvisioningStepContext<'_, W, L>,
@@ -424,6 +483,16 @@ where
     .await
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "discard_template_after_endpoint_failure",
+        workspace_id = %workspace.id,
+        template_id = %template_id
+    )
+)]
 async fn discard_template_after_endpoint_failure<W>(
     workspace: &mut Workspace,
     workspace_repository: &W,
@@ -469,6 +538,17 @@ fn runpod_runtime_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
     }
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle_step",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        step = "poll_provisioner",
+        operation_id = %operation.operation_id,
+        workspace_id = %workspace_id,
+        provisioner_pod_id = %provisioner_id
+    )
+)]
 async fn wait_for_provisioner<L>(
     lifecycle_journal: &L,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
