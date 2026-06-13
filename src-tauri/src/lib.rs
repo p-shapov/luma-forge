@@ -1,3 +1,6 @@
+use std::fs;
+
+use tauri::Manager;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 pub mod app;
@@ -14,7 +17,6 @@ pub mod workspace_catalog;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _diagnostics_guard = diagnostics::init(None);
     let builder = command_builder();
 
     #[cfg(debug_assertions)]
@@ -35,6 +37,28 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            let diagnostics_guard = match app_handle.path().app_log_dir() {
+                Ok(log_dir) => {
+                    if let Err(error) = fs::create_dir_all(&log_dir) {
+                        eprintln!(
+                            "failed to create native diagnostics log directory at {}: {error}",
+                            log_dir.display()
+                        );
+                        diagnostics::init(None)
+                    } else {
+                        let guard = diagnostics::init(Some(log_dir.clone()));
+                        tracing::info!(
+                            log_dir = %log_dir.display(),
+                            "native diagnostics file logging initialized"
+                        );
+                        guard
+                    }
+                }
+                Err(error) => {
+                    eprintln!("native diagnostics log directory unavailable: {error}");
+                    diagnostics::init(None)
+                }
+            };
             let app_state = match tauri::async_runtime::block_on(app::bootstrap::build_app_state(
                 &app_handle,
             )) {
@@ -44,7 +68,8 @@ pub fn run() {
                     app::state::NativeAppState::Failed(error)
                 }
             };
-            tauri::Manager::manage(app, app_state);
+            app.manage(diagnostics_guard);
+            app.manage(app_state);
             builder.mount_events(app);
             Ok(())
         })
