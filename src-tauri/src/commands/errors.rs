@@ -15,6 +15,7 @@ pub type CommandResult<T> = Result<T, NativeCommandError>;
 pub struct NativeCommandError {
     pub message: String,
     pub code: NativeCommandErrorCode,
+    pub diagnostic_id: String,
 }
 
 impl NativeCommandError {
@@ -22,10 +23,15 @@ impl NativeCommandError {
         NativeCommandErrorCode::from(error).into()
     }
 
-    fn new(code: NativeCommandErrorCode, message: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        code: NativeCommandErrorCode,
+        message: impl Into<String>,
+        diagnostic_id: impl Into<String>,
+    ) -> Self {
         Self {
             message: message.into(),
             code,
+            diagnostic_id: diagnostic_id.into(),
         }
     }
 }
@@ -37,6 +43,7 @@ impl From<NativeCommandErrorCode> for NativeCommandError {
         Self {
             message,
             code: error,
+            diagnostic_id: crate::diagnostics::new_diagnostic_id(),
         }
     }
 }
@@ -137,7 +144,7 @@ impl From<WorkflowCatalogError> for NativeCommandError {
         let message = error.to_string();
         let code = NativeCommandErrorCode::from(error);
 
-        Self::new(code, message)
+        Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
 }
 
@@ -155,7 +162,7 @@ impl From<WorkspaceCatalogError> for NativeCommandError {
         let message = error.to_string();
         let code = NativeCommandErrorCode::from(error);
 
-        Self::new(code, message)
+        Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
 }
 
@@ -178,7 +185,7 @@ impl From<SecretsStorageError> for NativeCommandError {
         let message = error.to_string();
         let code = NativeCommandErrorCode::from(error);
 
-        Self::new(code, message)
+        Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
 }
 
@@ -201,7 +208,7 @@ impl From<ApiError> for NativeCommandError {
         let message = error.to_string();
         let code = provider_error(error);
 
-        Self::new(code, message)
+        Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
 }
 
@@ -210,7 +217,7 @@ impl From<RunpodRuntimeError> for NativeCommandError {
         let message = error.to_string();
         let code = NativeCommandErrorCode::from(error);
 
-        Self::new(code, message)
+        Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
 }
 
@@ -289,14 +296,27 @@ mod tests {
 
     #[test]
     fn native_command_error_serializes_message_and_tagged_error() {
-        let error = NativeCommandError::from(WorkspaceCatalogError::WorkspaceNotFound);
+        let error = NativeCommandError::new(
+            NativeCommandErrorCode::WorkspaceNotFound,
+            "workspace was not found",
+            "diag-123",
+        );
 
         let json = serde_json::to_string(&error).expect("command error json");
 
         assert_eq!(
             json,
-            r#"{"message":"workspace was not found","code":"workspace_not_found"}"#
+            r#"{"message":"workspace was not found","code":"workspace_not_found","diagnosticId":"diag-123"}"#
         );
+    }
+
+    #[test]
+    fn generated_native_command_error_has_diagnostic_id() {
+        let error = NativeCommandError::from(WorkspaceCatalogError::WorkspaceNotFound);
+
+        assert_eq!(error.message, "workspace was not found");
+        assert_eq!(error.code, NativeCommandErrorCode::WorkspaceNotFound);
+        assert!(error.diagnostic_id.starts_with("diag-"));
     }
 
     #[test]

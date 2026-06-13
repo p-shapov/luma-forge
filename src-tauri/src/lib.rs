@@ -2,6 +2,7 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 
 pub mod app;
 pub mod commands;
+pub mod diagnostics;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod runpod_runtime;
