@@ -37,6 +37,7 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            builder.mount_events(app);
             let diagnostics_guard = match app_handle.path().app_log_dir() {
                 Ok(log_dir) => {
                     if let Err(error) = fs::create_dir_all(&log_dir) {
@@ -70,7 +71,6 @@ pub fn run() {
             };
             app.manage(diagnostics_guard);
             app.manage(app_state);
-            builder.mount_events(app);
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -170,6 +170,23 @@ mod tests {
             violations.is_empty(),
             "production panic primitives found:\n{}",
             violations.join("\n")
+        );
+    }
+
+    #[test]
+    fn tauri_events_are_mounted_before_app_state_bootstrap() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source should be readable");
+        let mount_events_index = source
+            .find("builder.mount_events(app)")
+            .expect("Tauri Specta events should be mounted");
+        let bootstrap_index = source
+            .find("app::bootstrap::build_app_state")
+            .expect("app state bootstrap should be present");
+
+        assert!(
+            mount_events_index < bootstrap_index,
+            "Tauri Specta events must be mounted before app state bootstrap because startup stale-operation recovery emits runtime events"
         );
     }
 
