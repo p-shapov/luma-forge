@@ -16,7 +16,10 @@ use crate::{
 
 use super::{
     contracts::RunpodWorkflowResolver,
-    errors::{invalid_runtime_state_message, RunpodRuntimeError},
+    errors::{
+        invalid_runtime_state_message, lifecycle_operation_already_running, workspace_not_found,
+        RunpodRuntimeError,
+    },
     events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
     lifecycle::{
         helpers::{
@@ -328,9 +331,7 @@ where
             .map_err(super::errors::invalid_runtime_state_error)?
             .is_some()
         {
-            return Err(invalid_runtime_state_message(format!(
-                "workspace {workspace_id} already has a running lifecycle operation"
-            )));
+            return Err(lifecycle_operation_already_running(workspace_id));
         }
 
         let operation = self
@@ -353,9 +354,9 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<Workspace, RunpodRuntimeError> {
-        self.find_workspace(workspace_id).await?.ok_or_else(|| {
-            invalid_runtime_state_message(format!("workspace {workspace_id} was not found"))
-        })
+        self.find_workspace(workspace_id)
+            .await?
+            .ok_or_else(|| workspace_not_found(workspace_id))
     }
 
     pub(crate) fn lifecycle_runner_context(&self) -> RunpodRuntimeLifecycleRunnerContext<W, L> {
@@ -420,7 +421,7 @@ mod tests {
     }
 
     fn runpod_api_runtime_error() -> crate::runpod_runtime::errors::RunpodRuntimeError {
-        crate::runpod_runtime::errors::RunpodRuntimeError::from(ApiError::RequestFailed {
+        crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiError(ApiError::RequestFailed {
             message: "RunPod API request failed".to_string(),
         })
     }
@@ -573,7 +574,7 @@ mod tests {
 
         assert!(matches!(
             error,
-            crate::runpod_runtime::errors::RunpodRuntimeError::InvalidRuntimeState { .. }
+            crate::runpod_runtime::errors::RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. }
         ));
     }
 

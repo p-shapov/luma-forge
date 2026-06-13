@@ -10,20 +10,24 @@ use crate::{
 pub enum RunpodRuntimeError {
     #[error("runpod api error")]
     RunpodApiError(#[from] ApiError),
-    #[error("runpod api key unavailable")]
+    #[error("runpod api key unavailable: {0}")]
     RunpodApiKeyUnavailable(#[source] SecretsStorageError),
-    #[error("hugging face api key unavailable")]
+    #[error("hugging face api key unavailable: {0}")]
     HuggingFaceApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("workflow catalog invalid")]
     WorkflowCatalogInvalid(#[from] WorkflowCatalogError),
     #[error("workspace catalog invalid")]
     WorkspaceCatalogInvalid(#[from] WorkspaceCatalogError),
-    #[error("provisioner worker unavailable")]
+    #[error("provisioner worker unavailable: {message}")]
     ProvisionerWorkerUnavailable { message: String },
-    #[error("provisioner worker response invalid")]
+    #[error("provisioner worker response invalid: {message}")]
     ProvisionerWorkerResponseInvalid { message: String },
-    #[error("provisioner worker failed")]
+    #[error("provisioner worker failed: {message}")]
     ProvisionerWorkerFailed { message: String },
+    #[error("workspace was not found: {workspace_id}")]
+    WorkspaceNotFound { workspace_id: String },
+    #[error("workspace already has a running lifecycle operation: {workspace_id}")]
+    LifecycleOperationAlreadyRunning { workspace_id: String },
     #[error("invalid runtime state: {message}")]
     InvalidRuntimeState { message: String },
 }
@@ -36,6 +40,18 @@ pub fn invalid_runtime_state_message(message: impl Into<String>) -> RunpodRuntim
 
 pub fn invalid_runtime_state_error<E: std::error::Error>(error: E) -> RunpodRuntimeError {
     invalid_runtime_state_message(error.to_string())
+}
+
+pub fn workspace_not_found(workspace_id: impl Into<String>) -> RunpodRuntimeError {
+    RunpodRuntimeError::WorkspaceNotFound {
+        workspace_id: workspace_id.into(),
+    }
+}
+
+pub fn lifecycle_operation_already_running(workspace_id: impl Into<String>) -> RunpodRuntimeError {
+    RunpodRuntimeError::LifecycleOperationAlreadyRunning {
+        workspace_id: workspace_id.into(),
+    }
 }
 
 pub fn runpod_api_key_unavailable(error: SecretsStorageError) -> RunpodRuntimeError {
