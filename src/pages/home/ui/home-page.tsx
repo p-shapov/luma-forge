@@ -8,7 +8,7 @@ import type {
 } from "@/generated/commands";
 
 import Prism from "prismjs";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { commands, events } from "@/generated/commands";
 import { Button } from "@/shared/components/ui/button";
 import "prismjs/components/prism-json";
@@ -196,6 +196,11 @@ export function HomePage() {
     })),
   );
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
+  const nextEventLogIdRef = useRef(0);
+
+  useEffect(() => {
+    console.log(eventLog);
+  }, [eventLog]);
   const [expandedCommands, setExpandedCommands] = useState<
     Record<string, boolean>
   >(() => Object.fromEntries(commandProbes.map(probe => [probe.id, false])));
@@ -347,10 +352,13 @@ export function HomePage() {
   }
 
   function appendEventLog(name: string, payload: unknown) {
+    const id = `${name}-${nextEventLogIdRef.current}`;
+    nextEventLogIdRef.current += 1;
+
     setEventLog(entries =>
       [
         {
-          id: `${name}-${Date.now()}-${entries.length}`,
+          id,
           name,
           payload,
           receivedAt: new Date().toLocaleTimeString(),
