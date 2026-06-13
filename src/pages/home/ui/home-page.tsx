@@ -198,9 +198,6 @@ export function HomePage() {
   const [eventLog, setEventLog] = useState<EventLogEntry[]>([]);
   const nextEventLogIdRef = useRef(0);
 
-  useEffect(() => {
-    console.log(eventLog);
-  }, [eventLog]);
   const [expandedCommands, setExpandedCommands] = useState<
     Record<string, boolean>
   >(() => Object.fromEntries(commandProbes.map(probe => [probe.id, false])));
