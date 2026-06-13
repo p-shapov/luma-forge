@@ -338,6 +338,16 @@ mod tests {
     }
 
     #[test]
+    fn redact_known_authorization_secret_names() {
+        let input = "authorization=Bearer-abc Authorization=Bearer-def";
+
+        assert_eq!(
+            redact_for_log(input),
+            "authorization=[redacted] Authorization=[redacted]"
+        );
+    }
+
+    #[test]
     fn source_chain_includes_nested_error_codes() {
         let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
             crate::secrets_storage::SecretsStorageError::StoreUnavailable,
