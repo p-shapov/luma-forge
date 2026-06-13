@@ -79,7 +79,7 @@ pub(super) struct GraphqlResponse<T> {
 #[derive(Debug, Deserialize)]
 pub(super) struct GraphqlError {
     #[serde(rename = "message")]
-    _message: String,
+    pub(super) message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -339,7 +339,15 @@ pub(super) fn map_placement_response(
     response: GraphqlResponse<PlacementQueryData>,
 ) -> Result<RunpodPlacementOptions, ApiError> {
     if !response.errors.is_empty() {
-        return Err(provider_request_failed());
+        let message = response
+            .errors
+            .into_iter()
+            .map(|error| error.message)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ApiError::RequestFailed {
+            message: crate::diagnostics::redact_for_log(&message),
+        });
     }
 
     let data = response.data.ok_or_else(provider_request_failed)?;
