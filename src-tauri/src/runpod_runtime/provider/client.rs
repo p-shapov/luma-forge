@@ -4,6 +4,7 @@ use crate::{
     domain::{runpod::RunpodPlacementOptions, workflow_preset::ModelAsset},
     shared::AppFuture,
 };
+use tracing::Instrument;
 
 use super::super::errors::{
     hugging_face_api_key_unavailable, runpod_api_key_unavailable, RunpodRuntimeError,
@@ -199,56 +200,106 @@ where
     fn placement_options<'a>(
         &'a self,
     ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodRuntimeError>> {
-        Box::pin(async move {
-            let mut options = self.api.placement_options().await?;
-            options.max_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
-            Ok(options)
-        })
+        Box::pin(
+            async move {
+                let mut options = self.api.placement_options().await?;
+                options.max_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
+                Ok(options)
+            }
+            .instrument(tracing::info_span!(
+                "runpod_provider",
+                provider_operation = "placement_options"
+            )),
+        )
     }
 
     fn create_network_volume<'a>(
         &'a self,
         params: CreateRunpodNetworkVolumeParams,
     ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
-        Box::pin(async move {
-            self.api
-                .create_network_volume(network_volume_request(params))
-                .await
-        })
+        let workspace_id = params.workspace_id.clone();
+        let datacenter_id = params.data_center_id.clone();
+        let volume_size_gb = params.size_gb;
+        let span = tracing::info_span!(
+            "runpod_provider",
+            provider_operation = "create_network_volume",
+            workspace_id = %workspace_id,
+            datacenter_id = %datacenter_id,
+            volume_size_gb = volume_size_gb
+        );
+        Box::pin(
+            async move {
+                self.api
+                    .create_network_volume(network_volume_request(params))
+                    .await
+            }
+            .instrument(span),
+        )
     }
 
     fn delete_network_volume<'a>(
         &'a self,
         network_volume_id: &'a str,
     ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
-        Box::pin(async move { self.api.delete_network_volume(network_volume_id).await })
+        Box::pin(
+            async move { self.api.delete_network_volume(network_volume_id).await }.instrument(
+                tracing::info_span!(
+                    "runpod_provider",
+                    provider_operation = "delete_network_volume",
+                    network_volume_id = %network_volume_id
+                ),
+            ),
+        )
     }
 
     fn start_provisioner_pod<'a>(
         &'a self,
         params: StartRunpodProvisionerPodParams,
     ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
-        Box::pin(async move {
-            let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
-            let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
-            let pod = self
-                .api
-                .create_provisioner_pod(provisioner_pod_request(
-                    params,
-                    bearer_token,
-                    hugging_face_api_key,
-                ))
-                .await?;
+        let workspace_id = params.workspace_id.clone();
+        let datacenter_id = params.data_center_id.clone();
+        let network_volume_id = params.network_volume_id.clone();
+        let requires_hugging_face_api_key = params.requires_hugging_face_api_key;
+        let span = tracing::info_span!(
+            "runpod_provider",
+            provider_operation = "start_provisioner_pod",
+            workspace_id = %workspace_id,
+            datacenter_id = %datacenter_id,
+            network_volume_id = %network_volume_id,
+            requires_hugging_face_api_key = requires_hugging_face_api_key
+        );
+        Box::pin(
+            async move {
+                let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
+                let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
+                let pod = self
+                    .api
+                    .create_provisioner_pod(provisioner_pod_request(
+                        params,
+                        bearer_token,
+                        hugging_face_api_key,
+                    ))
+                    .await?;
 
-            Ok(pod.id)
-        })
+                Ok(pod.id)
+            }
+            .instrument(span),
+        )
     }
 
     fn terminate_provisioner_pod<'a>(
         &'a self,
         provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
-        Box::pin(async move { self.api.delete_provisioner_pod(provisioner_pod_id).await })
+        Box::pin(
+            async move { self.api.delete_provisioner_pod(provisioner_pod_id).await }.instrument(
+                tracing::info_span!(
+                    "runpod_provider",
+                    provider_operation = "terminate_provisioner_pod",
+                    provisioner_pod_id = %provisioner_pod_id
+                ),
+            ),
+        )
     }
 
     fn get_provisioner_status<'a>(
@@ -256,55 +307,105 @@ where
         workspace_id: &'a str,
         provisioner_pod_id: &'a str,
     ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>> {
-        Box::pin(async move {
-            let bearer_token = self.workspace_bearer_token(workspace_id).await?;
+        Box::pin(
+            async move {
+                let bearer_token = self.workspace_bearer_token(workspace_id).await?;
 
-            self.provisioner_worker
-                .get_status(&provisioner_status_url(provisioner_pod_id), &bearer_token)
-                .await
-        })
+                self.provisioner_worker
+                    .get_status(&provisioner_status_url(provisioner_pod_id), &bearer_token)
+                    .await
+            }
+            .instrument(tracing::info_span!(
+                "runpod_provider",
+                provider_operation = "get_provisioner_status",
+                workspace_id = %workspace_id,
+                provisioner_pod_id = %provisioner_pod_id
+            )),
+        )
     }
 
     fn create_serverless_template<'a>(
         &'a self,
         params: CreateRunpodServerlessTemplateParams,
     ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
-        Box::pin(async move {
-            let template = self
-                .api
-                .create_serverless_template(serverless_template_request(params))
-                .await?;
+        let workspace_id = params.workspace_id.clone();
+        let span = tracing::info_span!(
+            "runpod_provider",
+            provider_operation = "create_serverless_template",
+            workspace_id = %workspace_id
+        );
+        Box::pin(
+            async move {
+                let template = self
+                    .api
+                    .create_serverless_template(serverless_template_request(params))
+                    .await?;
 
-            Ok(template.id)
-        })
+                Ok(template.id)
+            }
+            .instrument(span),
+        )
     }
 
     fn create_serverless_endpoint<'a>(
         &'a self,
         params: CreateRunpodServerlessEndpointParams,
     ) -> AppFuture<'a, Result<String, RunpodRuntimeError>> {
-        Box::pin(async move {
-            let endpoint = self
-                .api
-                .create_serverless_endpoint(serverless_endpoint_request(params))
-                .await?;
+        let workspace_id = params.workspace_id.clone();
+        let datacenter_id = params.data_center_id.clone();
+        let gpu_type_id = params.gpu_type_id.clone();
+        let network_volume_id = params.network_volume_id.clone();
+        let template_id = params.template_id.clone();
+        let span = tracing::info_span!(
+            "runpod_provider",
+            provider_operation = "create_serverless_endpoint",
+            workspace_id = %workspace_id,
+            datacenter_id = %datacenter_id,
+            gpu_type_id = %gpu_type_id,
+            network_volume_id = %network_volume_id,
+            template_id = %template_id
+        );
+        Box::pin(
+            async move {
+                let endpoint = self
+                    .api
+                    .create_serverless_endpoint(serverless_endpoint_request(params))
+                    .await?;
 
-            Ok(endpoint.id)
-        })
+                Ok(endpoint.id)
+            }
+            .instrument(span),
+        )
     }
 
     fn delete_serverless_endpoint<'a>(
         &'a self,
         endpoint_id: &'a str,
     ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
-        Box::pin(async move { self.api.delete_endpoint(endpoint_id).await })
+        Box::pin(
+            async move { self.api.delete_endpoint(endpoint_id).await }.instrument(
+                tracing::info_span!(
+                    "runpod_provider",
+                    provider_operation = "delete_serverless_endpoint",
+                    endpoint_id = %endpoint_id
+                ),
+            ),
+        )
     }
 
     fn delete_template<'a>(
         &'a self,
         template_id: &'a str,
     ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
-        Box::pin(async move { self.api.delete_template(template_id).await })
+        Box::pin(
+            async move { self.api.delete_template(template_id).await }.instrument(
+                tracing::info_span!(
+                    "runpod_provider",
+                    provider_operation = "delete_template",
+                    template_id = %template_id
+                ),
+            ),
+        )
     }
 }
 
