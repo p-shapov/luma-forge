@@ -85,11 +85,11 @@ export type ModelAssetResponse = {
 export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
 
 export type NativeCommandError = {
-	code: NativeCommandErrorCode,
 	message: string,
+	code: NativeCommandErrorCode,
 };
 
-export type NativeCommandErrorCode = "workflow_catalog_invalid" | "workspace_storage_unavailable" | "workspace_storage_query_failed" | "workspace_storage_corrupt" | "workspace_storage_schema_mismatch" | "workspace_already_exists" | "workspace_not_found" | "runpod_secret_unavailable" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "provisioner_worker_unauthorized" | "provisioner_worker_unavailable" | "provisioner_worker_conflict" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "command_not_implemented";
+export type NativeCommandErrorCode = "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "runpod_api_key_unavailable" | "hugging_face_api_key_unavailable" | "runpod_workflow_catalog_invalid" | "runpod_workspace_catalog_invalid" | "provisioner_worker_unavailable" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "runpod_workspace_not_found" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "lifecycle_state_restore_failed";
 
 export type ProvisionWorkspaceResponse = {
 	workspace: WorkspaceResponse,
@@ -101,6 +101,11 @@ export type RunningLifecycleOperationsResponse = {
 };
 
 export type RunpodCleanupStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner_pod" | "delete_network_volume";
+
+export type RunpodContractRequirementsResponse = {
+	endpointContract: RuntimeContractReferenceResponse,
+	provisionerContract: RuntimeContractReferenceResponse,
+};
 
 export type RunpodDatacenterPlacementOptionResponse = {
 	id: string,
@@ -122,9 +127,7 @@ export type RunpodGpuPlacementOptionResponse = {
 	vramGb: number,
 };
 
-export type RunpodLifecycleErrorResponse = "app_interrupted" | "runpod_secret_unavailable" | "runpod_api_failed" | "provisioner_unavailable" | "provisioner_response_invalid" | "provisioner_failed" | "network_volume_not_found" | "provisioner_pod_not_found" | "endpoint_not_found" | "template_not_found" | "invalid_runtime_state";
-
-export type RunpodLifecycleOperationPayloadResponse = { operation: "provision"; step: RunpodProvisionStepResponse | null; error: RunpodLifecycleErrorResponse | null } | { operation: "cleanup"; step: RunpodCleanupStepResponse | null; error: RunpodLifecycleErrorResponse | null } | { operation: "delete"; step: RunpodDeleteStepResponse | null; error: RunpodLifecycleErrorResponse | null };
+export type RunpodLifecycleOperationPayloadResponse = { operation: "provision"; step: RunpodProvisionStepResponse | null } | { operation: "cleanup"; step: RunpodCleanupStepResponse | null } | { operation: "delete"; step: RunpodDeleteStepResponse | null };
 
 export type RunpodPlacementOptionsResponse = {
 	maxNetworkVolumeSizeGb: number | null,
@@ -144,11 +147,7 @@ export type RunpodResourcesResponse = {
 	volumeId: string | null,
 	provisionerId: string | null,
 	endpointId: string | null,
-};
-
-export type RunpodRuntimeRequirementsResponse = {
-	endpointContract: RuntimeContractReferenceResponse,
-	provisionerContract: RuntimeContractReferenceResponse,
+	templateId: string | null,
 };
 
 export type RunpodWorkspaceResponse = {
@@ -169,6 +168,8 @@ export type WorkflowCatalogResponse = {
 	workflowPresets: WorkflowPresetResponse[],
 };
 
+export type WorkflowContractRequirementsResponse = { runtimeType: "runpod" } & (RunpodContractRequirementsResponse);
+
 export type WorkflowExecutionTypeDto = "t2i";
 
 export type WorkflowPresetResponse = {
@@ -187,7 +188,7 @@ export type WorkflowRevisionResponse = {
 	version: string,
 	requiresHuggingFaceApiKey: boolean,
 	requiredVolumeSizeGb: number,
-	runpodRuntimeRequirements: RunpodRuntimeRequirementsResponse,
+	contractRequirements: WorkflowContractRequirementsResponse[],
 	requiredModelAssets: ModelAssetResponse[],
 };
 
@@ -199,8 +200,6 @@ export type WorkspaceChangedEvent = {
 	workspaceId: string,
 	workspace: WorkspaceResponse,
 };
-
-export type WorkspaceCleanupRequiredReasonResponse = "provision_failed" | "cleanup_failed" | "delete_failed" | "operation_interrupted";
 
 export type WorkspaceDeletedEvent = {
 	workspaceId: string,
@@ -217,15 +216,9 @@ export type WorkspaceResponse = {
 	runtime: WorkspaceRuntimeResponse,
 };
 
-export type WorkspaceRuntimeInvalidReasonResponse = "operation_interrupted" | "provision_failed" | "cleanup_failed" | "delete_failed" | "corrupt_runtime_state";
-
 export type WorkspaceRuntimeResponse = { runtimeType: "runpod" } & (RunpodWorkspaceResponse);
 
-export type WorkspaceStateResponse = "not_provisioned" | "ready" | ({ cleanup_required: {
-	reason: WorkspaceCleanupRequiredReasonResponse,
-} }) & { invalid?: never } | ({ invalid: {
-	reason: WorkspaceRuntimeInvalidReasonResponse,
-} }) & { cleanup_required?: never };
+export type WorkspaceStateResponse = "not_provisioned" | "ready" | "cleanup_required" | "invalid";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

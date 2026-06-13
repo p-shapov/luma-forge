@@ -4,7 +4,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::{
     app::{background::TauriBackgroundTaskSpawner, events::TauriRunpodRuntimeEventSink},
-    commands::{NativeCommandError, NativeCommandErrorCode},
+    commands::errors::{NativeCommandError, NativeInitializationCommandError},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::{
         lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner, provider::RunpodRuntimeProvider,
@@ -29,24 +29,21 @@ const NATIVE_DB_FILE: &str = "native.sqlite";
 pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeCommandError> {
     let app_identifier = app_handle.config().identifier.clone();
     let app_data_dir = app_handle.path().app_data_dir().map_err(|_| {
-        NativeCommandError::new(
-            NativeCommandErrorCode::WorkspaceStorageUnavailable,
-            "app data directory is unavailable",
+        NativeCommandError::native_initialization(
+            NativeInitializationCommandError::AppDataDirectoryUnavailable,
         )
     })?;
     fs::create_dir_all(&app_data_dir).map_err(|_| {
-        NativeCommandError::new(
-            NativeCommandErrorCode::WorkspaceStorageUnavailable,
-            "app data directory could not be created",
+        NativeCommandError::native_initialization(
+            NativeInitializationCommandError::AppDataDirectoryCreateFailed,
         )
     })?;
 
     let database = SqliteNativeDatabase::connect(app_data_dir.join(NATIVE_DB_FILE))
         .await
         .map_err(|_| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkspaceStorageUnavailable,
-                "workspace storage could not be initialized",
+            NativeCommandError::native_initialization(
+                NativeInitializationCommandError::WorkspaceStorageInitializationFailed,
             )
         })?;
     let pool = database.pool();
@@ -76,9 +73,8 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         .mark_running_operations_stale()
         .await
         .map_err(|_| {
-            NativeCommandError::new(
-                NativeCommandErrorCode::WorkspaceStorageUnavailable,
-                "workspace lifecycle state could not be restored",
+            NativeCommandError::native_initialization(
+                NativeInitializationCommandError::LifecycleStateRestoreFailed,
             )
         })?;
 

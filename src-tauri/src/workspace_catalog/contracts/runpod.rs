@@ -1,7 +1,7 @@
 use crate::domain::{runpod::runtime::RunpodRuntime, workspace::WorkspaceRuntime};
 
 use super::super::{
-    errors::{data_invalid_error, WorkspaceCatalogError},
+    errors::{data_invalid_error, data_invalid_message, WorkspaceCatalogError},
     runtime::EncodedWorkspaceRuntime,
 };
 
@@ -15,7 +15,9 @@ pub fn encode(runtime: &RunpodRuntime) -> Result<EncodedWorkspaceRuntime, Worksp
 }
 
 pub fn decode(runtime_json: &str) -> Result<WorkspaceRuntime, WorkspaceCatalogError> {
-    let runtime: RunpodRuntime = serde_json::from_str(runtime_json).map_err(data_invalid_error)?;
+    let runtime: RunpodRuntime = serde_json::from_str(runtime_json).map_err(|error| {
+        data_invalid_message(format!("runpod runtime JSON is invalid: {error}"))
+    })?;
 
     Ok(WorkspaceRuntime::Runpod(runtime))
 }

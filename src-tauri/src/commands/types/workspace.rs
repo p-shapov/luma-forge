@@ -1,19 +1,15 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::domain::{
     lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
     runpod::{
-        RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError, RunpodLifecycleOperationPayload,
-        RunpodProvisionStep, RunpodProvisionerError, RunpodResources, RunpodRuntime,
-        RunpodRuntimeStateError,
+        RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload, RunpodProvisionStep,
+        RunpodResources, RunpodRuntime,
     },
     workflow_preset::WorkflowReference,
-    workspace::{
-        Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
-        WorkspaceState,
-    },
+    workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
 };
 
 use super::placement::RunpodPlacementPlanInput;
@@ -45,31 +41,8 @@ pub struct WorkflowReferenceResponse {
 pub enum WorkspaceStateResponse {
     NotProvisioned,
     Ready,
-    CleanupRequired {
-        reason: WorkspaceCleanupRequiredReasonResponse,
-    },
-    Invalid {
-        reason: WorkspaceRuntimeInvalidReasonResponse,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkspaceCleanupRequiredReasonResponse {
-    ProvisionFailed,
-    CleanupFailed,
-    DeleteFailed,
-    OperationInterrupted,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkspaceRuntimeInvalidReasonResponse {
-    OperationInterrupted,
-    ProvisionFailed,
-    CleanupFailed,
-    DeleteFailed,
-    CorruptRuntimeState,
+    CleanupRequired,
+    Invalid,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -91,6 +64,7 @@ pub struct RunpodResourcesResponse {
     pub volume_id: Option<String>,
     pub provisioner_id: Option<String>,
     pub endpoint_id: Option<String>,
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -171,15 +145,12 @@ pub enum LifecycleOperationPayloadResponse {
 pub enum RunpodLifecycleOperationPayloadResponse {
     Provision {
         step: Option<RunpodProvisionStepResponse>,
-        error: Option<RunpodLifecycleErrorResponse>,
     },
     Cleanup {
         step: Option<RunpodCleanupStepResponse>,
-        error: Option<RunpodLifecycleErrorResponse>,
     },
     Delete {
         step: Option<RunpodDeleteStepResponse>,
-        error: Option<RunpodLifecycleErrorResponse>,
     },
 }
 
@@ -211,22 +182,6 @@ pub enum RunpodDeleteStepResponse {
     TerminateProvisionerPod,
     DeleteNetworkVolume,
     DeleteLocalWorkspace,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-pub enum RunpodLifecycleErrorResponse {
-    AppInterrupted,
-    RunpodSecretUnavailable,
-    RunpodApiFailed,
-    ProvisionerUnavailable,
-    ProvisionerResponseInvalid,
-    ProvisionerFailed,
-    NetworkVolumeNotFound,
-    ProvisionerPodNotFound,
-    EndpointNotFound,
-    TemplateNotFound,
-    InvalidRuntimeState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, tauri_specta::Event)]
@@ -283,35 +238,8 @@ impl From<WorkspaceState> for WorkspaceStateResponse {
         match value {
             WorkspaceState::NotProvisioned => Self::NotProvisioned,
             WorkspaceState::Ready => Self::Ready,
-            WorkspaceState::CleanupRequired { reason } => Self::CleanupRequired {
-                reason: reason.into(),
-            },
-            WorkspaceState::Invalid { reason } => Self::Invalid {
-                reason: reason.into(),
-            },
-        }
-    }
-}
-
-impl From<WorkspaceCleanupRequiredReason> for WorkspaceCleanupRequiredReasonResponse {
-    fn from(value: WorkspaceCleanupRequiredReason) -> Self {
-        match value {
-            WorkspaceCleanupRequiredReason::ProvisionFailed => Self::ProvisionFailed,
-            WorkspaceCleanupRequiredReason::CleanupFailed => Self::CleanupFailed,
-            WorkspaceCleanupRequiredReason::DeleteFailed => Self::DeleteFailed,
-            WorkspaceCleanupRequiredReason::OperationInterrupted => Self::OperationInterrupted,
-        }
-    }
-}
-
-impl From<WorkspaceRuntimeInvalidReason> for WorkspaceRuntimeInvalidReasonResponse {
-    fn from(value: WorkspaceRuntimeInvalidReason) -> Self {
-        match value {
-            WorkspaceRuntimeInvalidReason::OperationInterrupted => Self::OperationInterrupted,
-            WorkspaceRuntimeInvalidReason::ProvisionFailed => Self::ProvisionFailed,
-            WorkspaceRuntimeInvalidReason::CleanupFailed => Self::CleanupFailed,
-            WorkspaceRuntimeInvalidReason::DeleteFailed => Self::DeleteFailed,
-            WorkspaceRuntimeInvalidReason::CorruptRuntimeState => Self::CorruptRuntimeState,
+            WorkspaceState::CleanupRequired => Self::CleanupRequired,
+            WorkspaceState::Invalid => Self::Invalid,
         }
     }
 }
@@ -339,6 +267,7 @@ impl From<RunpodResources> for RunpodResourcesResponse {
             volume_id: value.network_volume_id,
             provisioner_id: value.provisioner_pod_id,
             endpoint_id: value.endpoint_id,
+            template_id: value.template_id,
         }
     }
 }
@@ -408,17 +337,14 @@ impl From<LifecycleOperationPayload> for LifecycleOperationPayloadResponse {
 impl From<RunpodLifecycleOperationPayload> for RunpodLifecycleOperationPayloadResponse {
     fn from(value: RunpodLifecycleOperationPayload) -> Self {
         match value {
-            RunpodLifecycleOperationPayload::Provision { step, error } => Self::Provision {
+            RunpodLifecycleOperationPayload::Provision { step } => Self::Provision {
                 step: step.map(Into::into),
-                error: error.map(Into::into),
             },
-            RunpodLifecycleOperationPayload::Cleanup { step, error } => Self::Cleanup {
+            RunpodLifecycleOperationPayload::Cleanup { step } => Self::Cleanup {
                 step: step.map(Into::into),
-                error: error.map(Into::into),
             },
-            RunpodLifecycleOperationPayload::Delete { step, error } => Self::Delete {
+            RunpodLifecycleOperationPayload::Delete { step } => Self::Delete {
                 step: step.map(Into::into),
-                error: error.map(Into::into),
             },
         }
     }
@@ -456,39 +382,6 @@ impl From<RunpodDeleteStep> for RunpodDeleteStepResponse {
             RunpodDeleteStep::TerminateProvisionerPod => Self::TerminateProvisionerPod,
             RunpodDeleteStep::DeleteNetworkVolume => Self::DeleteNetworkVolume,
             RunpodDeleteStep::DeleteLocalWorkspace => Self::DeleteLocalWorkspace,
-        }
-    }
-}
-
-impl From<RunpodLifecycleError> for RunpodLifecycleErrorResponse {
-    fn from(value: RunpodLifecycleError) -> Self {
-        match value {
-            RunpodLifecycleError::AppInterrupted => Self::AppInterrupted,
-            RunpodLifecycleError::RunPodApiError(_) => Self::RunpodApiFailed,
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable {
-                ..
-            }) => Self::ProvisionerUnavailable,
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid {
-                ..
-            }) => Self::ProvisionerResponseInvalid,
-            RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed { .. }) => {
-                Self::ProvisionerFailed
-            }
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingVolume) => {
-                Self::NetworkVolumeNotFound
-            }
-            RunpodLifecycleError::InvalidRuntimeState(
-                RunpodRuntimeStateError::MissingProvisionerPod,
-            ) => Self::ProvisionerPodNotFound,
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingEndpoint) => {
-                Self::EndpointNotFound
-            }
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::MissingTemplate) => {
-                Self::TemplateNotFound
-            }
-            RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid {
-                ..
-            }) => Self::InvalidRuntimeState,
         }
     }
 }
@@ -540,6 +433,7 @@ mod tests {
                 volume_id: None,
                 provisioner_id: None,
                 endpoint_id: Some("endpoint".to_string()),
+                template_id: Some("template".to_string()),
             },
         });
 
@@ -548,6 +442,7 @@ mod tests {
         assert_eq!(json["runtimeType"], "runpod");
         assert!(json["placement"].get("gpuCloudProviderId").is_none());
         assert_eq!(json["resources"]["endpointId"], "endpoint");
+        assert_eq!(json["resources"]["templateId"], "template");
         assert!(json["resources"].get("endpoint").is_none());
         assert_eq!(
             json.as_object()
@@ -568,7 +463,6 @@ mod tests {
         let response = LifecycleOperationPayloadResponse::Runpod(
             RunpodLifecycleOperationPayloadResponse::Provision {
                 step: Some(RunpodProvisionStepResponse::CreateNetworkVolume),
-                error: None,
             },
         );
 
@@ -584,7 +478,6 @@ mod tests {
         let response = LifecycleOperationPayloadResponse::Runpod(
             RunpodLifecycleOperationPayloadResponse::Provision {
                 step: Some(RunpodProvisionStepResponse::CreateTemplate),
-                error: None,
             },
         );
 
@@ -598,7 +491,6 @@ mod tests {
         let response = LifecycleOperationPayloadResponse::Runpod(
             RunpodLifecycleOperationPayloadResponse::Cleanup {
                 step: Some(RunpodCleanupStepResponse::DeleteTemplate),
-                error: None,
             },
         );
 
@@ -613,7 +505,6 @@ mod tests {
         let response = LifecycleOperationPayloadResponse::Runpod(
             RunpodLifecycleOperationPayloadResponse::Delete {
                 step: Some(RunpodDeleteStepResponse::DeleteTemplate),
-                error: None,
             },
         );
 

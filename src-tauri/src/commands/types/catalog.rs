@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::domain::{
+    runpod::RunpodContractRequirements,
     runtime_contract::RuntimeContractReference,
     workflow_preset::{
-        ModelAsset, ModelAssetSource, RunpodRuntimeRequirements, WorkflowCatalog,
+        ModelAsset, ModelAssetSource, WorkflowCatalog, WorkflowContractRequirements,
         WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
     },
 };
@@ -30,7 +31,7 @@ pub struct WorkflowRevisionResponse {
     pub version: String,
     pub requires_hugging_face_api_key: bool,
     pub required_volume_size_gb: u64,
-    pub runpod_runtime_requirements: RunpodRuntimeRequirementsResponse,
+    pub contract_requirements: Vec<WorkflowContractRequirementsResponse>,
     pub required_model_assets: Vec<ModelAssetResponse>,
 }
 
@@ -41,8 +42,14 @@ pub enum WorkflowExecutionTypeDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "runtimeType", rename_all = "snake_case")]
+pub enum WorkflowContractRequirementsResponse {
+    Runpod(RunpodContractRequirementsResponse),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RunpodRuntimeRequirementsResponse {
+pub struct RunpodContractRequirementsResponse {
     pub endpoint_contract: RuntimeContractReferenceResponse,
     pub provisioner_contract: RuntimeContractReferenceResponse,
 }
@@ -98,7 +105,11 @@ impl From<WorkflowRevision> for WorkflowRevisionResponse {
             version: value.version,
             requires_hugging_face_api_key: value.requires_hugging_face_api_key,
             required_volume_size_gb: value.required_volume_size_gb,
-            runpod_runtime_requirements: value.runpod_runtime_requirements.into(),
+            contract_requirements: value
+                .contract_requirements
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             required_model_assets: value
                 .required_model_assets
                 .into_iter()
@@ -116,8 +127,16 @@ impl From<WorkflowExecutionType> for WorkflowExecutionTypeDto {
     }
 }
 
-impl From<RunpodRuntimeRequirements> for RunpodRuntimeRequirementsResponse {
-    fn from(value: RunpodRuntimeRequirements) -> Self {
+impl From<WorkflowContractRequirements> for WorkflowContractRequirementsResponse {
+    fn from(value: WorkflowContractRequirements) -> Self {
+        match value {
+            WorkflowContractRequirements::Runpod(requirements) => Self::Runpod(requirements.into()),
+        }
+    }
+}
+
+impl From<RunpodContractRequirements> for RunpodContractRequirementsResponse {
+    fn from(value: RunpodContractRequirements) -> Self {
         Self {
             endpoint_contract: value.endpoint_contract.into(),
             provisioner_contract: value.provisioner_contract.into(),

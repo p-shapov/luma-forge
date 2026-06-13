@@ -1,4 +1,3 @@
-/* eslint-disable ts/no-unnecessary-type-assertion */
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import type {
@@ -156,14 +155,12 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: workspaceIdRequest,
     run: async request =>
-      // eslint-disable-next-line ts/no-unsafe-return, ts/no-unsafe-call
       commands.deleteWorkspace(request as WorkspaceIdRequest),
   },
   {
     id: "get-running-lifecycle-operations",
     label: "getRunningLifecycleOperations",
     inputType: "none",
-    // eslint-disable-next-line ts/no-unsafe-assignment
     run: commands.getRunningLifecycleOperations,
   },
   {
@@ -172,7 +169,6 @@ const commandProbes: CommandProbe[] = [
     inputType: "json",
     initialInput: workspaceIdRequest,
     run: async request =>
-      // eslint-disable-next-line ts/no-unsafe-return, ts/no-unsafe-call
       commands.getLatestLifecycleOperation(request as WorkspaceIdRequest),
   },
 ];
@@ -225,44 +221,32 @@ export function HomePage() {
 
     async function listenToNativeEvents() {
       try {
-        // eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
         const lifecycleUnlisten = await events.lifecycleOperationChangedEvent.listen(
           (event) => {
-            // eslint-disable-next-line ts/no-unsafe-member-access
             appendEventLog("lifecycle-operation-changed-event", event.payload);
           },
         );
-        // eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
         const workspaceChangedUnlisten = await events.workspaceChangedEvent.listen(
           (event) => {
-            // eslint-disable-next-line ts/no-unsafe-member-access
             appendEventLog("workspace-changed-event", event.payload);
           },
         );
-        // eslint-disable-next-line ts/no-unsafe-assignment, ts/no-unsafe-call, ts/no-unsafe-member-access
         const workspaceDeletedUnlisten = await events.workspaceDeletedEvent.listen(
           (event) => {
-            // eslint-disable-next-line ts/no-unsafe-member-access
             appendEventLog("workspace-deleted-event", event.payload);
           },
         );
 
         if (isStopped) {
-          // eslint-disable-next-line ts/no-unsafe-call
           lifecycleUnlisten();
-          // eslint-disable-next-line ts/no-unsafe-call
           workspaceChangedUnlisten();
-          // eslint-disable-next-line ts/no-unsafe-call
           workspaceDeletedUnlisten();
           return;
         }
 
         unlistenFns.push(
-          // eslint-disable-next-line ts/no-unsafe-argument
           lifecycleUnlisten,
-          // eslint-disable-next-line ts/no-unsafe-argument
           workspaceChangedUnlisten,
-          // eslint-disable-next-line ts/no-unsafe-argument
           workspaceDeletedUnlisten,
         );
       }

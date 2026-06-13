@@ -1,8 +1,8 @@
 use crate::domain::workspace::WorkspaceRuntime;
 
 use super::{
-    errors::{data_invalid_message, WorkspaceCatalogError},
     contracts,
+    errors::{data_invalid_message, WorkspaceCatalogError},
 };
 
 pub struct EncodedWorkspaceRuntime {
