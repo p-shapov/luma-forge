@@ -142,7 +142,7 @@ pub enum NativeInitializationCommandError {
 impl From<WorkflowCatalogError> for NativeCommandError {
     fn from(error: WorkflowCatalogError) -> Self {
         let message = error.to_string();
-        let code = NativeCommandErrorCode::from(error);
+        let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
@@ -150,6 +150,12 @@ impl From<WorkflowCatalogError> for NativeCommandError {
 
 impl From<WorkflowCatalogError> for NativeCommandErrorCode {
     fn from(error: WorkflowCatalogError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&WorkflowCatalogError> for NativeCommandErrorCode {
+    fn from(error: &WorkflowCatalogError) -> Self {
         match error {
             WorkflowCatalogError::ParseFailed { .. } => Self::WorkflowCatalogParseFailed,
             WorkflowCatalogError::ValidationFailed { .. } => Self::WorkflowCatalogValidationFailed,
@@ -160,7 +166,7 @@ impl From<WorkflowCatalogError> for NativeCommandErrorCode {
 impl From<WorkspaceCatalogError> for NativeCommandError {
     fn from(error: WorkspaceCatalogError) -> Self {
         let message = error.to_string();
-        let code = NativeCommandErrorCode::from(error);
+        let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
@@ -168,6 +174,12 @@ impl From<WorkspaceCatalogError> for NativeCommandError {
 
 impl From<WorkspaceCatalogError> for NativeCommandErrorCode {
     fn from(error: WorkspaceCatalogError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&WorkspaceCatalogError> for NativeCommandErrorCode {
+    fn from(error: &WorkspaceCatalogError) -> Self {
         match error {
             WorkspaceCatalogError::StorageUnavailable { .. } => {
                 Self::WorkspaceCatalogStorageUnavailable
@@ -183,7 +195,7 @@ impl From<WorkspaceCatalogError> for NativeCommandErrorCode {
 impl From<SecretsStorageError> for NativeCommandError {
     fn from(error: SecretsStorageError) -> Self {
         let message = error.to_string();
-        let code = NativeCommandErrorCode::from(error);
+        let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
@@ -191,6 +203,12 @@ impl From<SecretsStorageError> for NativeCommandError {
 
 impl From<SecretsStorageError> for NativeCommandErrorCode {
     fn from(error: SecretsStorageError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&SecretsStorageError> for NativeCommandErrorCode {
+    fn from(error: &SecretsStorageError) -> Self {
         match error {
             SecretsStorageError::SecretRequired => Self::SecretRequired,
             SecretsStorageError::KeyAlreadyExists => Self::KeyAlreadyExists,
@@ -206,16 +224,28 @@ impl From<SecretsStorageError> for NativeCommandErrorCode {
 impl From<ApiError> for NativeCommandError {
     fn from(error: ApiError) -> Self {
         let message = error.to_string();
-        let code = provider_error(error);
+        let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
+    }
+}
+
+impl From<ApiError> for NativeCommandErrorCode {
+    fn from(error: ApiError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&ApiError> for NativeCommandErrorCode {
+    fn from(error: &ApiError) -> Self {
+        provider_error(error)
     }
 }
 
 impl From<RunpodRuntimeError> for NativeCommandError {
     fn from(error: RunpodRuntimeError) -> Self {
         let message = error.to_string();
-        let code = NativeCommandErrorCode::from(error);
+        let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
     }
@@ -223,6 +253,12 @@ impl From<RunpodRuntimeError> for NativeCommandError {
 
 impl From<RunpodRuntimeError> for NativeCommandErrorCode {
     fn from(error: RunpodRuntimeError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&RunpodRuntimeError> for NativeCommandErrorCode {
+    fn from(error: &RunpodRuntimeError) -> Self {
         match error {
             RunpodRuntimeError::RunpodApiError(error) => provider_error(error),
             RunpodRuntimeError::RunpodApiKeyUnavailable(_) => Self::RunpodApiKeyUnavailable,
@@ -266,7 +302,7 @@ impl From<NativeInitializationCommandError> for NativeCommandErrorCode {
     }
 }
 
-fn identity_request_error(error: ApiError) -> NativeCommandErrorCode {
+fn identity_request_error(error: &ApiError) -> NativeCommandErrorCode {
     match error {
         ApiError::Unauthorized => NativeCommandErrorCode::IdentityUnauthorized,
         ApiError::InsufficientPermissions => {
@@ -278,7 +314,7 @@ fn identity_request_error(error: ApiError) -> NativeCommandErrorCode {
     }
 }
 
-fn provider_error(error: ApiError) -> NativeCommandErrorCode {
+fn provider_error(error: &ApiError) -> NativeCommandErrorCode {
     match error {
         ApiError::Unauthorized => NativeCommandErrorCode::ProviderUnauthorized,
         ApiError::InsufficientPermissions => {

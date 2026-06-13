@@ -1,5 +1,6 @@
 use std::{error::Error, path::PathBuf};
 
+use crate::commands::errors::{NativeCommandError, NativeCommandErrorCode};
 use tracing_subscriber::{fmt, EnvFilter};
 
 #[derive(Debug)]
@@ -64,6 +65,28 @@ pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
     messages
 }
 
+pub fn command_error<E>(command: &'static str, error: E) -> NativeCommandError
+where
+    E: Error + 'static,
+    for<'a> NativeCommandErrorCode: From<&'a E>,
+{
+    let diagnostic_id = new_diagnostic_id();
+    let code = NativeCommandErrorCode::from(&error);
+    let message = error.to_string();
+    let source_chain = error_source_chain(&error);
+
+    tracing::error!(
+        diagnostic_id = %diagnostic_id,
+        command = command,
+        code = ?code,
+        error = %redact_for_log(&message),
+        source_chain = ?source_chain,
+        "native command failed"
+    );
+
+    NativeCommandError::new(code, message, diagnostic_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,10 +109,8 @@ mod tests {
 
         let chain = error_source_chain(&error);
 
-        assert!(
-            chain
-                .iter()
-                .any(|message| message.contains("secure storage is unavailable"))
-        );
+        assert!(chain
+            .iter()
+            .any(|message| message.contains("secure storage is unavailable")));
     }
 }
