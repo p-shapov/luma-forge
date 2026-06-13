@@ -87,6 +87,27 @@ where
     NativeCommandError::new(code, message, diagnostic_id)
 }
 
+pub fn lifecycle_error(
+    operation_id: &str,
+    workspace_id: Option<&str>,
+    error: &(dyn Error + 'static),
+) -> String {
+    let diagnostic_id = new_diagnostic_id();
+    let source_chain = error_source_chain(error);
+    let message = error.to_string();
+
+    tracing::error!(
+        diagnostic_id = %diagnostic_id,
+        operation_id = operation_id,
+        workspace_id = workspace_id.unwrap_or("unknown"),
+        error = %redact_for_log(&message),
+        source_chain = ?source_chain,
+        "lifecycle operation failed"
+    );
+
+    diagnostic_id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
