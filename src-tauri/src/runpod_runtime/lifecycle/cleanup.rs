@@ -12,11 +12,13 @@ use crate::{
 
 use super::{
     super::{
-        errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
+        errors::{invalid_runtime_state_message, RunpodRuntimeError},
+        events::RunpodRuntimeEventSink,
+        provider::RunpodRuntimeClient,
     },
     helpers::{
-        load_running_operation, mark_operation_state, mark_workspace_failed, persist_workspace,
-        RunpodWorkspaceFailure,
+        load_running_operation, mark_operation_failed, mark_operation_state, mark_workspace_failed,
+        persist_workspace, RunpodWorkspaceFailure,
     },
     resource_cleanup::delete_remote_resources,
 };
@@ -38,13 +40,26 @@ where
         .await
     {
         Ok(Some(workspace)) => workspace,
-        Ok(None) | Err(_) => {
-            mark_operation_state(
+        Ok(None) => {
+            let error = invalid_runtime_state_message("workspace was not found");
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 RunpodCleanupStep::DeleteEndpoint,
+                &error,
+            )
+            .await?;
+            return Ok(());
+        }
+        Err(error) => {
+            let error = RunpodRuntimeError::from(error);
+            mark_operation_failed(
+                lifecycle_journal,
+                event_sink,
+                &operation,
+                RunpodCleanupStep::DeleteEndpoint,
+                &error,
             )
             .await?;
             return Ok(());
@@ -81,7 +96,7 @@ where
             )
             .await?;
         }
-        Err(_error) => {
+        Err(error) => {
             mark_workspace_failed(
                 &mut workspace,
                 workspace_repository,
@@ -89,12 +104,12 @@ where
                 RunpodWorkspaceFailure::Cleanup,
             )
             .await?;
-            mark_operation_state(
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 failed_step.clone(),
+                &error,
             )
             .await?;
         }

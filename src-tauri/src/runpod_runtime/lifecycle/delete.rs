@@ -16,8 +16,8 @@ use super::{
         provider::RunpodRuntimeClient,
     },
     helpers::{
-        load_running_operation, mark_operation_state, mark_running_step, mark_workspace_failed,
-        RunpodWorkspaceFailure,
+        load_running_operation, mark_operation_failed, mark_operation_state, mark_running_step,
+        mark_workspace_failed, RunpodWorkspaceFailure,
     },
     resource_cleanup::delete_remote_resources,
 };
@@ -54,13 +54,14 @@ where
                 .map_err(invalid_runtime_state_error)?;
             return Ok(None);
         }
-        Err(_) => {
-            mark_operation_state(
+        Err(error) => {
+            let error = RunpodRuntimeError::from(error);
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 RunpodDeleteStep::DeleteEndpoint,
+                &error,
             )
             .await?;
             return Ok(None);
@@ -133,7 +134,7 @@ where
             });
             Ok(Some(completed_operation))
         }
-        Err(_error) => {
+        Err(error) => {
             mark_workspace_failed(
                 &mut workspace,
                 workspace_repository,
@@ -141,12 +142,12 @@ where
                 RunpodWorkspaceFailure::Delete,
             )
             .await?;
-            mark_operation_state(
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 failed_step.clone(),
+                &error,
             )
             .await?;
             Ok(None)

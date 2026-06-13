@@ -27,8 +27,8 @@ use super::{
         },
     },
     helpers::{
-        load_running_operation, mark_operation_state, mark_running_step, mark_workspace_failed,
-        persist_workspace, RunpodWorkspaceFailure,
+        load_running_operation, mark_operation_failed, mark_operation_state, mark_running_step,
+        mark_workspace_failed, persist_workspace, RunpodWorkspaceFailure,
     },
 };
 
@@ -68,13 +68,26 @@ where
         .await
     {
         Ok(Some(workspace)) => workspace,
-        Ok(None) | Err(_) => {
-            mark_operation_state(
+        Ok(None) => {
+            let error = invalid_runtime_state_message("workspace was not found");
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 RunpodProvisionStep::CreateNetworkVolume,
+                &error,
+            )
+            .await?;
+            return Ok(());
+        }
+        Err(error) => {
+            let error = RunpodRuntimeError::from(error);
+            mark_operation_failed(
+                lifecycle_journal,
+                event_sink,
+                &operation,
+                RunpodProvisionStep::CreateNetworkVolume,
+                &error,
             )
             .await?;
             return Ok(());
@@ -153,7 +166,7 @@ where
             )
             .await?;
         }
-        Err(_error) => {
+        Err(error) => {
             mark_workspace_failed(
                 &mut workspace,
                 workspace_repository,
@@ -161,12 +174,12 @@ where
                 RunpodWorkspaceFailure::Provision,
             )
             .await?;
-            mark_operation_state(
+            mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                LifecycleOperationState::Failed,
                 failed_step,
+                &error,
             )
             .await?;
         }
