@@ -60,7 +60,7 @@ mod tests {
 
     use super::WorkspaceCatalogService;
     use crate::workspace_catalog::{
-        errors::{WorkspaceCatalogError, storage_unavailable_message},
+        errors::{storage_unavailable_message, WorkspaceCatalogError},
         repository::WorkspaceCatalogRepository,
     };
 

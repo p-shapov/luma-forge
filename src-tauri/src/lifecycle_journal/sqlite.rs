@@ -1,5 +1,5 @@
 use sqlx::{Row, SqlitePool};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::{
@@ -12,12 +12,12 @@ use crate::{
 };
 
 use super::{
-    LifecycleJournalError,
     errors::{
         data_invalid_error, data_invalid_message, schema_invalid_message, storage_unavailable_error,
     },
     payload::{decode_payload, encode_payload},
     repository::LifecycleJournalRepository,
+    LifecycleJournalError,
 };
 
 #[derive(Debug, Clone)]
@@ -444,10 +444,9 @@ pub mod tests {
     use crate::{
         domain::{
             lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
-            runpod::{RunpodLifecycleError, RunpodLifecycleOperationPayload, RunpodProvisionStep},
+            runpod::{RunpodLifecycleOperationPayload, RunpodProvisionStep},
         },
         lifecycle_journal::schema,
-        shared::ApiError,
     };
 
     use super::*;
@@ -474,20 +473,14 @@ pub mod tests {
         SqliteLifecycleJournalRepository::new(pool)
     }
 
-    fn provision_payload(
-        step: Option<RunpodProvisionStep>,
-        error: Option<RunpodLifecycleError>,
-    ) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-            step,
-            error,
-        })
+    fn provision_payload(step: Option<RunpodProvisionStep>) -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step })
     }
 
     #[tokio::test]
     async fn creating_second_running_operation_for_workspace_returns_running_operation_exists() {
         let repository = repository("duplicate-running").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
 
         repository
             .create_operation(&"workspace-1".to_string(), &payload)
@@ -504,7 +497,7 @@ pub mod tests {
     #[tokio::test]
     async fn completed_operation_allows_new_running_operation_for_same_workspace() {
         let repository = repository("completed-allows-new").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let operation = repository
             .create_operation(&"workspace-1".to_string(), &payload)
             .await
@@ -530,7 +523,7 @@ pub mod tests {
     #[tokio::test]
     async fn delete_for_workspace_removes_only_matching_rows() {
         let repository = repository("delete-for-workspace").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let workspace_1 = "workspace-1".to_string();
         let workspace_2 = "workspace-2".to_string();
         repository
@@ -568,11 +561,8 @@ pub mod tests {
     #[tokio::test]
     async fn mark_state_sets_state_payload_and_finished_at_for_terminal_states() {
         let repository = repository("mark-state").await;
-        let initial_payload = provision_payload(None, None);
-        let finished_payload = provision_payload(
-            Some(RunpodProvisionStep::CreateNetworkVolume),
-            Some(RunpodLifecycleError::RunPodApiError(ApiError::Timeout)),
-        );
+        let initial_payload = provision_payload(None);
+        let finished_payload = provision_payload(Some(RunpodProvisionStep::CreateNetworkVolume));
         let operation = repository
             .create_operation(&"workspace-1".to_string(), &initial_payload)
             .await
@@ -595,7 +585,7 @@ pub mod tests {
     #[tokio::test]
     async fn update_operation_cannot_change_workspace_id_or_created_at() {
         let repository = repository("update-operation-immutable-fields").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let operation = repository
             .create_operation(&"workspace-1".to_string(), &payload)
             .await
@@ -629,7 +619,7 @@ pub mod tests {
     #[tokio::test]
     async fn terminal_update_with_no_finished_at_uses_operation_updated_at() {
         let repository = repository("terminal-update-finished-at").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let mut operation = repository
             .create_operation(&"workspace-1".to_string(), &payload)
             .await
@@ -651,7 +641,7 @@ pub mod tests {
     #[tokio::test]
     async fn terminal_update_rejects_finished_at_before_updated_at() {
         let repository = repository("terminal-update-invalid-finished-at").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let mut operation = repository
             .create_operation(&"workspace-1".to_string(), &payload)
             .await
@@ -672,7 +662,7 @@ pub mod tests {
     #[tokio::test]
     async fn mark_state_cannot_reopen_terminal_operation() {
         let repository = repository("mark-state-terminal").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let operation = repository
             .create_operation(&"workspace-1".to_string(), &payload)
             .await
@@ -701,7 +691,7 @@ pub mod tests {
     #[tokio::test]
     async fn list_running_orders_by_created_at_then_id() {
         let repository = repository("list-running-order").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let first = repository
             .create_operation(&"workspace-1".to_string(), &payload)
             .await
@@ -736,7 +726,7 @@ pub mod tests {
     #[tokio::test]
     async fn decoded_persisted_row_with_blank_operation_id_is_corrupt() {
         let repository = repository("blank-operation-id").await;
-        let payload = provision_payload(None, None);
+        let payload = provision_payload(None);
         let payload_json = encode_payload(&payload).expect("payload should encode");
         let now = timestamp().expect("timestamp should format");
 

@@ -14,7 +14,7 @@ use super::{
     super::{
         errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
     },
-    helpers::{RunpodStepPayload, mark_running_step, persist_workspace},
+    helpers::{mark_running_step, persist_workspace, RunpodStepPayload},
 };
 
 pub(super) trait RemoteResourceCleanupStep: Clone + RunpodStepPayload {
@@ -140,7 +140,6 @@ where
         event_sink,
         operation,
         failed_step.clone(),
-        None,
     )
     .await?;
 
@@ -176,7 +175,6 @@ where
         event_sink,
         operation,
         failed_step.clone(),
-        None,
     )
     .await?;
 
@@ -210,7 +208,6 @@ where
         event_sink,
         operation,
         failed_step.clone(),
-        None,
     )
     .await?;
 
@@ -246,7 +243,6 @@ where
         event_sink,
         operation,
         failed_step.clone(),
-        None,
     )
     .await?;
 

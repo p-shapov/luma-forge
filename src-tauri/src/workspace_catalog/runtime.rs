@@ -1,7 +1,7 @@
 use crate::domain::workspace::WorkspaceRuntime;
 
 use super::{
-    errors::{WorkspaceCatalogError, data_invalid_message},
+    errors::{data_invalid_message, WorkspaceCatalogError},
     runtimes,
 };
 

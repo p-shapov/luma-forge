@@ -6,6 +6,12 @@ use super::{runpod::RunpodLifecycleOperationPayload, workspace::WorkspaceId};
 pub type LifecycleOperationId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "runtime_type", rename_all = "snake_case")]
+pub enum LifecycleOperationPayload {
+    Runpod(RunpodLifecycleOperationPayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LifecycleOperation {
     pub operation_id: LifecycleOperationId,
     pub workspace_id: WorkspaceId,
@@ -26,10 +32,4 @@ pub enum LifecycleOperationState {
     Completed,
     Failed,
     Stale,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "runtime_type", rename_all = "snake_case")]
-pub enum LifecycleOperationPayload {
-    Runpod(RunpodLifecycleOperationPayload),
 }

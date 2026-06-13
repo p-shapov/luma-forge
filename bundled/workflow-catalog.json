@@ -9,16 +9,19 @@
           "version": "1.0.0",
           "requires_hugging_face_api_key": true,
           "required_volume_size_gb": 19,
-          "runpod_runtime_requirements": {
-            "endpoint_contract": {
-              "id": "comfyui-py312-cu126-torch291",
-              "version": "1.0.16"
-            },
-            "provisioner_contract": {
-              "id": "luma-forge-provisioner",
-              "version": "1.0.8"
+          "contract_requirements": [
+            {
+              "runtime_type": "runpod",
+              "endpoint_contract": {
+                "id": "comfyui-py312-cu126-torch291",
+                "version": "1.0.16"
+              },
+              "provisioner_contract": {
+                "id": "luma-forge-provisioner",
+                "version": "1.0.8"
+              }
             }
-          },
+          ],
           "required_model_assets": [
             {
               "id": "hidream-o1-image-dev-fp8-scaled",

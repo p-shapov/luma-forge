@@ -1,6 +1,6 @@
 use sqlx::{Executor, Row, SqlitePool};
 
-use super::errors::{WorkspaceCatalogError, schema_invalid_message, storage_unavailable_error};
+use super::errors::{schema_invalid_message, storage_unavailable_error, WorkspaceCatalogError};
 
 const SCHEMA_VERSION_KEY: &str = "workspace_catalog_schema_version";
 const SCHEMA_VERSION: &str = "1";
@@ -109,12 +109,6 @@ const WORKSPACE_COLUMNS: &[ExpectedColumn] = &[
         primary_key_position: 0,
     },
     ExpectedColumn {
-        name: "state_reason",
-        column_type: "TEXT",
-        not_null: false,
-        primary_key_position: 0,
-    },
-    ExpectedColumn {
         name: "workflow_id",
         column_type: "TEXT",
         not_null: true,
@@ -176,7 +170,6 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
             id TEXT NOT NULL PRIMARY KEY,
             runtime_type TEXT NOT NULL,
             state TEXT NOT NULL,
-            state_reason TEXT,
             workflow_id TEXT NOT NULL,
             workflow_version TEXT NOT NULL,
             runtime_json TEXT NOT NULL,

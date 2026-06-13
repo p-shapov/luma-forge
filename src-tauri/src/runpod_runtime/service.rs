@@ -15,7 +15,8 @@ use crate::{
 };
 
 use super::{
-    errors::{RunpodRuntimeError, invalid_runtime_state_message},
+    contracts::RunpodWorkflowResolver,
+    errors::{invalid_runtime_state_message, RunpodRuntimeError},
     events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
     lifecycle::{
         helpers::{
@@ -90,9 +91,9 @@ where
             .workflow_catalog
             .get_workflow_catalog()
             .map_err(RunpodRuntimeError::from)?;
-        let workflow = workflow_catalog
-            .resolve_latest(&request.workflow_preset_id)
-            .ok_or_else(|| invalid_runtime_state_message("workflow preset was not found"))?;
+        let workflow =
+            RunpodWorkflowResolver::resolve_latest(&workflow_catalog, &request.workflow_preset_id)
+                .ok_or_else(|| invalid_runtime_state_message("workflow preset was not found"))?;
         if request.placement.volume_size_gb < workflow.required_volume_size_gb {
             return Err(invalid_runtime_state_message(
                 "requested volume is smaller than the workflow requires",
@@ -157,7 +158,6 @@ where
         let payload =
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: None,
-                error: None,
             });
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
@@ -179,7 +179,6 @@ where
     ) -> Result<CleanupWorkspaceResponse, RunpodRuntimeError> {
         let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
             step: None,
-            error: None,
         });
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
@@ -201,7 +200,6 @@ where
     ) -> Result<DeleteWorkspaceResponse, RunpodRuntimeError> {
         let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: None,
-            error: None,
         });
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
@@ -396,24 +394,18 @@ mod tests {
     use crate::{
         domain::{
             lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
-            runpod::{
-                RunpodLifecycleError, RunpodLifecycleOperationPayload, RunpodProvisionerError,
-                RunpodRuntime, RunpodRuntimeStateError,
-            },
-            workspace::{
-                WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
-                WorkspaceState,
-            },
+            runpod::{RunpodLifecycleOperationPayload, RunpodRuntime},
+            workspace::{WorkspaceRuntime, WorkspaceState},
         },
         lifecycle_journal::LifecycleJournalRepository,
         runpod_runtime::{
             lifecycle::helpers::runpod_resources_are_empty,
             provider::RunpodProvisionerStatus,
             test_support::{
+                block_on, draft_create_request, placement_options, service_with_state,
+                service_with_state_and_workspace_repository, service_without_lifecycle_spawning,
                 InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, RunpodClientState,
-                WorkspaceRepositoryState, block_on, draft_create_request, placement_options,
-                service_with_state, service_with_state_and_workspace_repository,
-                service_without_lifecycle_spawning,
+                WorkspaceRepositoryState,
             },
         },
         shared::ApiError,
@@ -421,32 +413,10 @@ mod tests {
     };
     use std::sync::{Arc, Mutex};
 
-    fn runpod_api_failed() -> RunpodLifecycleError {
-        RunpodLifecycleError::RunPodApiError(ApiError::RequestFailed {
-            message: "RunPod API request failed".to_string(),
-        })
-    }
-
-    fn provisioner_unavailable() -> RunpodLifecycleError {
-        RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable {
+    fn provisioner_unavailable() -> crate::runpod_runtime::errors::RunpodRuntimeError {
+        crate::runpod_runtime::errors::RunpodRuntimeError::ProvisionerWorkerUnavailable {
             message: "provisioner worker is unavailable".to_string(),
-        })
-    }
-
-    fn provisioner_failed() -> RunpodLifecycleError {
-        RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed {
-            message: "provisioner worker failed".to_string(),
-        })
-    }
-
-    fn invalid_runtime_state() -> RunpodLifecycleError {
-        invalid_runtime_state_payload("runtime state is invalid")
-    }
-
-    fn invalid_runtime_state_payload(message: impl Into<String>) -> RunpodLifecycleError {
-        RunpodLifecycleError::InvalidRuntimeState(RunpodRuntimeStateError::Invalid {
-            message: message.into(),
-        })
+        }
     }
 
     fn runpod_api_runtime_error() -> crate::runpod_runtime::errors::RunpodRuntimeError {
@@ -488,8 +458,8 @@ mod tests {
     }
 
     #[test]
-    fn create_runpod_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls()
-     {
+    fn create_runpod_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls(
+    ) {
         let state = Arc::new(Mutex::new(RunpodClientState::default()));
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
@@ -572,7 +542,6 @@ mod tests {
             response.operation.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: None,
-                error: None,
             })
         );
         let persisted = service
@@ -759,9 +728,7 @@ mod tests {
     #[tokio::test]
     async fn provision_runner_failure_preserves_resources_and_sets_cleanup_required() {
         let state = Arc::new(Mutex::new(RunpodClientState {
-            start_provisioner_pod_error: Some(
-                crate::runpod_runtime::errors::RunpodRuntimeError::from(provisioner_unavailable()),
-            ),
+            start_provisioner_pod_error: Some(provisioner_unavailable()),
             ..RunpodClientState::default()
         }));
         let service = service_without_lifecycle_spawning(state);
@@ -786,12 +753,7 @@ mod tests {
             .await
             .expect("workspace read should succeed")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::CleanupRequired {
-                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         assert_eq!(
             runtime.resources.network_volume_id.as_deref(),
@@ -810,7 +772,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: Some(crate::domain::runpod::RunpodProvisionStep::StartProvisionerPod),
-                error: Some(provisioner_unavailable()),
             })
         );
     }
@@ -845,12 +806,7 @@ mod tests {
             .expect("workspace read should succeed")
             .expect("workspace should exist");
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::CleanupRequired {
-                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
         assert_eq!(runtime.resources.endpoint_id, None);
         assert_eq!(runtime.resources.template_id, None);
         assert_eq!(
@@ -910,7 +866,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: Some(crate::domain::runpod::RunpodProvisionStep::CreateTemplate),
-                error: Some(runpod_api_failed()),
             })
         );
         assert_eq!(
@@ -926,8 +881,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provision_runner_preserves_template_id_when_endpoint_creation_and_template_delete_fail()
-     {
+    async fn provision_runner_preserves_template_id_when_endpoint_creation_and_template_delete_fail(
+    ) {
         let state = Arc::new(Mutex::new(RunpodClientState {
             provisioner_status_results: vec![RunpodProvisionerStatus::Succeeded],
             create_serverless_endpoint_error: Some(runpod_api_runtime_error()),
@@ -956,12 +911,7 @@ mod tests {
             .await
             .expect("workspace read should succeed")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::CleanupRequired {
-                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         assert_eq!(runtime.resources.endpoint_id, None);
         assert_eq!(runtime.resources.template_id.as_deref(), Some("template"));
@@ -976,7 +926,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: Some(crate::domain::runpod::RunpodProvisionStep::CreateEndpoint),
-                error: Some(runpod_api_failed()),
             })
         );
         assert_eq!(
@@ -1021,12 +970,7 @@ mod tests {
             .await
             .expect("workspace read should succeed")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::CleanupRequired {
-                reason: WorkspaceCleanupRequiredReason::ProvisionFailed
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         assert_eq!(
             runtime.resources.network_volume_id.as_deref(),
@@ -1045,7 +989,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: Some(crate::domain::runpod::RunpodProvisionStep::TerminateProvisionerPod),
-                error: Some(provisioner_failed()),
             })
         );
         assert_eq!(
@@ -1139,13 +1082,11 @@ mod tests {
             .await
             .expect("runner should terminalize operation");
 
-        assert!(
-            service
-                .get_running_lifecycle_operations()
-                .await
-                .expect("operations should load")
-                .is_empty()
-        );
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
             .await
@@ -1156,7 +1097,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: Some(crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume),
-                error: Some(invalid_runtime_state()),
             })
         );
     }
@@ -1194,13 +1134,11 @@ mod tests {
             .expect("runner should terminalize operation");
 
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
-        assert!(
-            service
-                .get_running_lifecycle_operations()
-                .await
-                .expect("operations should load")
-                .is_empty()
-        );
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
             .await
@@ -1211,9 +1149,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: Some(crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume),
-                error: Some(invalid_runtime_state_payload(
-                    "invalid runtime state: workflow preset was not found",
-                )),
             })
         );
         let workspace = service
@@ -1222,12 +1157,7 @@ mod tests {
             .await
             .expect("workspace should load")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::Invalid {
-                reason: WorkspaceRuntimeInvalidReason::ProvisionFailed,
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::Invalid);
     }
 
     #[tokio::test]
@@ -1249,7 +1179,6 @@ mod tests {
             response.operation.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
                 step: None,
-                error: None,
             })
         );
         let persisted = service
@@ -1286,13 +1215,11 @@ mod tests {
             .await
             .expect("runner should terminalize operation");
 
-        assert!(
-            service
-                .get_running_lifecycle_operations()
-                .await
-                .expect("operations should load")
-                .is_empty()
-        );
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
             .await
@@ -1303,7 +1230,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
                 step: Some(crate::domain::runpod::RunpodCleanupStep::DeleteEndpoint),
-                error: Some(invalid_runtime_state()),
             })
         );
     }
@@ -1350,12 +1276,7 @@ mod tests {
             .await
             .expect("workspace should load")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::CleanupRequired {
-                reason: WorkspaceCleanupRequiredReason::CleanupFailed
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
         assert_eq!(runtime.resources.endpoint_id.as_deref(), Some("endpoint"));
     }
@@ -1413,7 +1334,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
                 step: Some(crate::domain::runpod::RunpodCleanupStep::DeleteTemplate),
-                error: Some(runpod_api_failed()),
             })
         );
     }
@@ -1437,17 +1357,14 @@ mod tests {
             response.operation.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
                 step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
-                error: None,
             })
         );
-        assert!(
-            service
-                .workspace_repository
-                .find_workspace_by_id("workspace-1")
-                .await
-                .expect("repository read should succeed")
-                .is_none()
-        );
+        assert!(service
+            .workspace_repository
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed")
+            .is_none());
         assert_eq!(
             service
                 .get_latest_lifecycle_operation("workspace-1")
@@ -1458,8 +1375,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_workspace_without_resources_preserves_lifecycle_row_when_workspace_delete_fails()
-     {
+    async fn delete_workspace_without_resources_preserves_lifecycle_row_when_workspace_delete_fails(
+    ) {
         let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
         let service = service_with_state_and_workspace_repository(
             Arc::new(Mutex::new(RunpodClientState::default())),
@@ -1487,13 +1404,11 @@ mod tests {
             error,
             crate::runpod_runtime::errors::RunpodRuntimeError::WorkspaceCatalogInvalid(_)
         ));
-        assert!(
-            service
-                .find_workspace("workspace-1")
-                .await
-                .expect("workspace lookup should succeed")
-                .is_some()
-        );
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_some());
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
             .await
@@ -1504,7 +1419,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
                 step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
-                error: Some(invalid_runtime_state_payload("workspace catalog invalid")),
             })
         );
     }
@@ -1518,7 +1432,6 @@ mod tests {
             .expect("workspace should be created");
         let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: None,
-            error: None,
         });
         let operation_id = service
             .lifecycle_journal
@@ -1537,13 +1450,11 @@ mod tests {
             .await
             .expect("runner should terminalize operation");
 
-        assert!(
-            service
-                .get_running_lifecycle_operations()
-                .await
-                .expect("operations should load")
-                .is_empty()
-        );
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
         assert_eq!(
             service
                 .get_latest_lifecycle_operation("workspace-1")
@@ -1570,7 +1481,6 @@ mod tests {
             .expect("workspace should update");
         let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: None,
-            error: None,
         });
         let operation_id = service
             .lifecycle_journal
@@ -1584,13 +1494,11 @@ mod tests {
             .await
             .expect("delete runner should complete");
 
-        assert!(
-            service
-                .find_workspace("workspace-1")
-                .await
-                .expect("workspace lookup should succeed")
-                .is_none()
-        );
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_none());
         assert_eq!(
             service
                 .get_latest_lifecycle_operation("workspace-1")
@@ -1657,7 +1565,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
                 step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteTemplate),
-                error: Some(runpod_api_failed()),
             })
         );
     }
@@ -1683,7 +1590,6 @@ mod tests {
             .expect("workspace should update");
         let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: None,
-            error: None,
         });
         let operation_id = service
             .lifecycle_journal
@@ -1709,13 +1615,11 @@ mod tests {
             error,
             crate::runpod_runtime::errors::RunpodRuntimeError::WorkspaceCatalogInvalid(_)
         ));
-        assert!(
-            service
-                .find_workspace("workspace-1")
-                .await
-                .expect("workspace lookup should succeed")
-                .is_some()
-        );
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_some());
         let latest = service
             .get_latest_lifecycle_operation("workspace-1")
             .await
@@ -1726,7 +1630,6 @@ mod tests {
             latest.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
                 step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
-                error: Some(invalid_runtime_state_payload("workspace catalog invalid")),
             })
         );
     }
@@ -1819,7 +1722,6 @@ mod tests {
             stale.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: None,
-                error: Some(RunpodLifecycleError::AppInterrupted),
             })
         );
         assert_eq!(stale.operation_id, operation.operation_id);
@@ -1828,13 +1730,7 @@ mod tests {
             .await
             .expect("workspace should load")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::Invalid {
-                reason:
-                    crate::domain::workspace::WorkspaceRuntimeInvalidReason::OperationInterrupted,
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::Invalid);
     }
 
     #[tokio::test]
@@ -1867,12 +1763,7 @@ mod tests {
             .await
             .expect("workspace should load")
             .expect("workspace should exist");
-        assert_eq!(
-            workspace.state,
-            WorkspaceState::CleanupRequired {
-                reason: WorkspaceCleanupRequiredReason::OperationInterrupted,
-            }
-        );
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
     }
 
     #[tokio::test]
@@ -1884,7 +1775,6 @@ mod tests {
             .expect("workspace should be created");
         let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: None,
-            error: None,
         });
         let operation = service
             .lifecycle_journal
@@ -1913,7 +1803,6 @@ mod tests {
             stale.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
                 step: None,
-                error: Some(RunpodLifecycleError::AppInterrupted),
             })
         );
     }
@@ -1942,13 +1831,11 @@ mod tests {
             .await
             .expect("missing provision workspace should still mark operation stale");
 
-        assert!(
-            service
-                .get_running_lifecycle_operations()
-                .await
-                .expect("running operations should load")
-                .is_empty()
-        );
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("running operations should load")
+            .is_empty());
         let stale = service
             .get_latest_lifecycle_operation("workspace-1")
             .await
@@ -1960,7 +1847,6 @@ mod tests {
             stale.payload,
             LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
                 step: None,
-                error: Some(RunpodLifecycleError::AppInterrupted),
             })
         );
     }

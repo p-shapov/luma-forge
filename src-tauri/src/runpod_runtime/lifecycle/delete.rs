@@ -11,13 +11,13 @@ use crate::{
 
 use super::{
     super::{
-        errors::{RunpodRuntimeError, lifecycle_payload_error, invalid_runtime_state_error},
+        errors::{invalid_runtime_state_error, RunpodRuntimeError},
         events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
         provider::RunpodRuntimeClient,
     },
     helpers::{
-        RunpodWorkspaceFailure, invalid_runtime_state, load_running_operation,
-        mark_operation_state, mark_running_step, mark_workspace_failed,
+        load_running_operation, mark_operation_state, mark_running_step, mark_workspace_failed,
+        RunpodWorkspaceFailure,
     },
     resource_cleanup::delete_remote_resources,
 };
@@ -46,7 +46,6 @@ where
                 &operation,
                 LifecycleOperationState::Completed,
                 RunpodDeleteStep::DeleteLocalWorkspace,
-                None,
             )
             .await?;
             lifecycle_journal
@@ -62,7 +61,6 @@ where
                 &operation,
                 LifecycleOperationState::Failed,
                 RunpodDeleteStep::DeleteEndpoint,
-                Some(invalid_runtime_state()),
             )
             .await?;
             return Ok(None);
@@ -88,7 +86,6 @@ where
             event_sink,
             &operation,
             failed_step.clone(),
-            None,
         )
         .await?;
         Ok::<(), RunpodRuntimeError>(())
@@ -115,7 +112,6 @@ where
                     &operation,
                     LifecycleOperationState::Failed,
                     failed_step.clone(),
-                    Some(lifecycle_payload_error(&error)),
                 )
                 .await?;
                 return Err(error);
@@ -126,7 +122,6 @@ where
                 &operation,
                 LifecycleOperationState::Completed,
                 failed_step.clone(),
-                None,
             )
             .await?;
             lifecycle_journal
@@ -138,7 +133,7 @@ where
             });
             Ok(Some(completed_operation))
         }
-        Err(error) => {
+        Err(_error) => {
             mark_workspace_failed(
                 &mut workspace,
                 workspace_repository,
@@ -152,7 +147,6 @@ where
                 &operation,
                 LifecycleOperationState::Failed,
                 failed_step.clone(),
-                Some(lifecycle_payload_error(&error)),
             )
             .await?;
             Ok(None)

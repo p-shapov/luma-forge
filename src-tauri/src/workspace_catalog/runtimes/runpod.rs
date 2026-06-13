@@ -1,7 +1,7 @@
 use crate::domain::{runpod::runtime::RunpodRuntime, workspace::WorkspaceRuntime};
 
 use super::super::{
-    errors::{WorkspaceCatalogError, data_invalid_error},
+    errors::{data_invalid_error, WorkspaceCatalogError},
     runtime::EncodedWorkspaceRuntime,
 };
 

@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{
     domain::{
@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    errors::{WorkspaceCatalogError, data_invalid_message, storage_unavailable_error},
+    errors::{data_invalid_message, storage_unavailable_error, WorkspaceCatalogError},
     repository::WorkspaceCatalogRepository,
     runtime, schema,
 };
@@ -23,19 +23,16 @@ mod state;
 use row::workspace_from_row;
 use state::workspace_state_columns;
 
-const LIST_WORKSPACES_SQL: &str = "SELECT id, runtime_type, state, state_reason, \
-    workflow_id, workflow_version, runtime_json \
-    FROM workspaces ORDER BY created_at ASC";
-const FIND_WORKSPACE_SQL: &str = "SELECT id, runtime_type, state, state_reason, \
-    workflow_id, workflow_version, runtime_json \
-    FROM workspaces WHERE id = ?1";
+const LIST_WORKSPACES_SQL: &str = "SELECT id, runtime_type, state, workflow_id, \
+    workflow_version, runtime_json FROM workspaces ORDER BY created_at ASC";
+const FIND_WORKSPACE_SQL: &str = "SELECT id, runtime_type, state, workflow_id, \
+    workflow_version, runtime_json FROM workspaces WHERE id = ?1";
 
 struct PersistedWorkspace<'a> {
     workspace: &'a Workspace,
     runtime_type: String,
     runtime_json: String,
     state: &'static str,
-    state_reason: Option<&'static str>,
 }
 
 impl<'a> PersistedWorkspace<'a> {
@@ -51,7 +48,6 @@ impl<'a> PersistedWorkspace<'a> {
             runtime_type: encoded.runtime_type,
             runtime_json: encoded.runtime_json,
             state: state.state,
-            state_reason: state.reason,
         })
     }
 }
@@ -132,19 +128,17 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                     id,
                     runtime_type,
                     state,
-                    state_reason,
                     workflow_id,
                     workflow_version,
                     runtime_json,
                     created_at,
                     updated_at
                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )
             .bind(&persisted.workspace.id)
             .bind(&persisted.runtime_type)
             .bind(persisted.state)
-            .bind(persisted.state_reason)
             .bind(&persisted.workspace.workflow.id)
             .bind(&persisted.workspace.workflow.version)
             .bind(&persisted.runtime_json)
@@ -176,16 +170,14 @@ impl WorkspaceCatalogRepository for SqliteWorkspaceCatalogRepository {
                 "UPDATE workspaces
                  SET runtime_type = ?1,
                      state = ?2,
-                     state_reason = ?3,
-                     workflow_id = ?4,
-                     workflow_version = ?5,
-                     runtime_json = ?6,
-                     updated_at = ?7
-                 WHERE id = ?8",
+                     workflow_id = ?3,
+                     workflow_version = ?4,
+                     runtime_json = ?5,
+                     updated_at = ?6
+                 WHERE id = ?7",
             )
             .bind(&persisted.runtime_type)
             .bind(persisted.state)
-            .bind(persisted.state_reason)
             .bind(&persisted.workspace.workflow.id)
             .bind(&persisted.workspace.workflow.version)
             .bind(&persisted.runtime_json)

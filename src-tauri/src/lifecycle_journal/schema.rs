@@ -1,8 +1,8 @@
 use sqlx::{Row, SqlitePool};
 
 use crate::lifecycle_journal::{
-    LifecycleJournalError,
     errors::{schema_invalid_message, storage_unavailable_error},
+    LifecycleJournalError,
 };
 
 struct ExpectedColumn {

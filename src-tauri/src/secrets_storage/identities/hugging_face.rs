@@ -9,8 +9,8 @@ use crate::{
 
 use crate::secrets_storage::{
     errors::{
-        SecretsStorageError, identity_request_error, identity_response_invalid_error,
-        identity_response_invalid_message, identity_status_error,
+        identity_request_error, identity_response_invalid_error, identity_response_invalid_message,
+        identity_status_error, SecretsStorageError,
     },
     identities::identity_http_client,
     identity::ApiKeyIdentityProvider,

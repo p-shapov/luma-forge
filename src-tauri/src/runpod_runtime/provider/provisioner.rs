@@ -1,10 +1,7 @@
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::{
-    domain::runpod::{RunpodLifecycleError, RunpodProvisionerError},
-    shared::AppFuture,
-};
+use crate::{runpod_runtime::errors::RunpodRuntimeError, shared::AppFuture};
 
 use super::RunpodProvisionerStatus;
 
@@ -18,7 +15,7 @@ pub trait ProvisionerWorkerApi: Send + Sync {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodLifecycleError>>;
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>>;
 }
 
 #[derive(Clone)]
@@ -37,7 +34,7 @@ impl ProvisionerWorkerApi for ProvisionerWorkerClient {
         &'a self,
         status_url: &'a str,
         bearer_token: &'a str,
-    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodLifecycleError>> {
+    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>> {
         Box::pin(async move {
             let response = self
                 .http
@@ -74,7 +71,7 @@ pub struct ProvisionerWorkerErrorResponse {
 
 pub fn map_status_response(
     response: ProvisionerStatusResponse,
-) -> Result<RunpodProvisionerStatus, RunpodLifecycleError> {
+) -> Result<RunpodProvisionerStatus, RunpodRuntimeError> {
     match response.status.as_str() {
         STATUS_IDLE => Ok(RunpodProvisionerStatus::Pending),
         STATUS_RUNNING => Ok(RunpodProvisionerStatus::Running),
@@ -87,7 +84,7 @@ pub fn map_status_response(
     }
 }
 
-fn map_http_status(status: StatusCode) -> Result<(), RunpodLifecycleError> {
+fn map_http_status(status: StatusCode) -> Result<(), RunpodRuntimeError> {
     match status {
         status if status.is_success() => Ok(()),
         StatusCode::UNAUTHORIZED => Err(provisioner_response_invalid()),
@@ -96,22 +93,22 @@ fn map_http_status(status: StatusCode) -> Result<(), RunpodLifecycleError> {
     }
 }
 
-fn provisioner_unavailable() -> RunpodLifecycleError {
-    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Unavailable {
+fn provisioner_unavailable() -> RunpodRuntimeError {
+    RunpodRuntimeError::ProvisionerWorkerUnavailable {
         message: "provisioner worker is unavailable".to_string(),
-    })
+    }
 }
 
-fn provisioner_response_invalid() -> RunpodLifecycleError {
-    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::ResponseInvalid {
+fn provisioner_response_invalid() -> RunpodRuntimeError {
+    RunpodRuntimeError::ProvisionerWorkerResponseInvalid {
         message: "provisioner worker response is invalid".to_string(),
-    })
+    }
 }
 
-fn provisioner_failed() -> RunpodLifecycleError {
-    RunpodLifecycleError::ProvisionerError(RunpodProvisionerError::Failed {
+fn provisioner_failed() -> RunpodRuntimeError {
+    RunpodRuntimeError::ProvisionerWorkerFailed {
         message: "provisioner worker failed".to_string(),
-    })
+    }
 }
 
 #[cfg(test)]

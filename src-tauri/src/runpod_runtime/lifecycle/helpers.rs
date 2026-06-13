@@ -7,21 +7,17 @@ use crate::{
             LifecycleOperationState,
         },
         runpod::{
-            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleError,
-            RunpodLifecycleOperationPayload, RunpodProvisionStep, RunpodResources,
-            RunpodRuntimeStateError,
+            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload,
+            RunpodProvisionStep, RunpodResources,
         },
-        workspace::{
-            Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime,
-            WorkspaceRuntimeInvalidReason, WorkspaceState,
-        },
-    }, lifecycle_journal::LifecycleJournalRepository, workspace_catalog::WorkspaceCatalogRepository
+        workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
+    },
+    lifecycle_journal::LifecycleJournalRepository,
+    workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::super::{
-    errors::{
-        RunpodRuntimeError, invalid_runtime_state_error, invalid_runtime_state_message
-    },
+    errors::{invalid_runtime_state_error, invalid_runtime_state_message, RunpodRuntimeError},
     events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
 };
 
@@ -38,7 +34,7 @@ where
         .map_err(invalid_runtime_state_error)?
         .into_iter()
         .find(|operation| operation.operation_id == *operation_id)
-        .ok_or_else(|| invalid_runtime_state_message("running lifecycle operation was not found"))?;
+        .ok_or_else(|| invalid_runtime_state_message("running lifecycle operation was not found"))
 }
 
 pub async fn mark_running_step<L, S>(
@@ -46,7 +42,6 @@ pub async fn mark_running_step<L, S>(
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     operation: &LifecycleOperation,
     step: S,
-    error: Option<RunpodLifecycleError>,
 ) -> Result<(), RunpodRuntimeError>
 where
     L: LifecycleJournalRepository,
@@ -58,7 +53,6 @@ where
         operation,
         LifecycleOperationState::Running,
         step,
-        error,
     )
     .await
     .map(|_| ())
@@ -70,13 +64,12 @@ pub async fn mark_operation_state<L, S>(
     operation: &LifecycleOperation,
     state: LifecycleOperationState,
     step: S,
-    error: Option<RunpodLifecycleError>,
 ) -> Result<LifecycleOperation, RunpodRuntimeError>
 where
     L: LifecycleJournalRepository,
     S: RunpodStepPayload,
 {
-    let payload = step.into_payload(error);
+    let payload = step.into_payload();
     let operation = lifecycle_journal
         .mark_state(&operation.operation_id, state, &payload)
         .await
@@ -109,57 +102,42 @@ where
 }
 
 pub trait RunpodStepPayload {
-    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload;
+    fn into_payload(self) -> LifecycleOperationPayload;
 }
 
 impl RunpodStepPayload for RunpodProvisionStep {
-    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
+    fn into_payload(self) -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
             step: Some(self),
-            error,
         })
     }
 }
 
 impl RunpodStepPayload for RunpodCleanupStep {
-    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
+    fn into_payload(self) -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
             step: Some(self),
-            error,
         })
     }
 }
 
 impl RunpodStepPayload for RunpodDeleteStep {
-    fn into_payload(self, error: Option<RunpodLifecycleError>) -> LifecycleOperationPayload {
+    fn into_payload(self) -> LifecycleOperationPayload {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: Some(self),
-            error,
         })
     }
 }
 
 pub fn interrupted_state_for_resources(resources: &RunpodResources) -> WorkspaceState {
-    failure_state_for_resources(
-        resources,
-        WorkspaceRuntimeInvalidReason::OperationInterrupted,
-        WorkspaceCleanupRequiredReason::OperationInterrupted,
-    )
+    failure_state_for_resources(resources)
 }
 
-pub fn failure_state_for_resources(
-    resources: &RunpodResources,
-    invalid_reason: WorkspaceRuntimeInvalidReason,
-    cleanup_reason: WorkspaceCleanupRequiredReason,
-) -> WorkspaceState {
+pub fn failure_state_for_resources(resources: &RunpodResources) -> WorkspaceState {
     if runpod_resources_are_empty(resources) {
-        WorkspaceState::Invalid {
-            reason: invalid_reason,
-        }
+        WorkspaceState::Invalid
     } else {
-        WorkspaceState::CleanupRequired {
-            reason: cleanup_reason,
-        }
+        WorkspaceState::CleanupRequired
     }
 }
 
@@ -170,40 +148,18 @@ pub enum RunpodWorkspaceFailure {
     Delete,
 }
 
-impl RunpodWorkspaceFailure {
-    fn invalid_reason(self) -> WorkspaceRuntimeInvalidReason {
-        match self {
-            Self::Provision => WorkspaceRuntimeInvalidReason::ProvisionFailed,
-            Self::Cleanup => WorkspaceRuntimeInvalidReason::CleanupFailed,
-            Self::Delete => WorkspaceRuntimeInvalidReason::DeleteFailed,
-        }
-    }
-
-    fn cleanup_reason(self) -> WorkspaceCleanupRequiredReason {
-        match self {
-            Self::Provision => WorkspaceCleanupRequiredReason::ProvisionFailed,
-            Self::Cleanup => WorkspaceCleanupRequiredReason::CleanupFailed,
-            Self::Delete => WorkspaceCleanupRequiredReason::DeleteFailed,
-        }
-    }
-}
-
 pub async fn mark_workspace_failed<W>(
     workspace: &mut Workspace,
     workspace_repository: &W,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
-    failure: RunpodWorkspaceFailure,
+    _failure: RunpodWorkspaceFailure,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
 {
     let failed_state = {
         let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        failure_state_for_resources(
-            &runtime.resources,
-            failure.invalid_reason(),
-            failure.cleanup_reason(),
-        )
+        failure_state_for_resources(&runtime.resources)
     };
     workspace.state = failed_state;
     *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
@@ -226,20 +182,17 @@ pub fn payload_with_app_interrupted_error(
             ..
         }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
             step: step.clone(),
-            error: Some(RunpodLifecycleError::AppInterrupted),
         }),
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
             step,
             ..
         }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
             step: step.clone(),
-            error: Some(RunpodLifecycleError::AppInterrupted),
         }),
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step, ..
         }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
             step: step.clone(),
-            error: Some(RunpodLifecycleError::AppInterrupted),
         }),
     }
 }

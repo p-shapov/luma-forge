@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    secrets_storage::SecretsStorageError,
-    shared::ApiError,
-    workflow_catalog::WorkflowCatalogError,
+    secrets_storage::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
@@ -20,6 +18,12 @@ pub enum RunpodRuntimeError {
     WorkflowCatalogInvalid(#[from] WorkflowCatalogError),
     #[error("workspace catalog invalid")]
     WorkspaceCatalogInvalid(#[from] WorkspaceCatalogError),
+    #[error("provisioner worker unavailable")]
+    ProvisionerWorkerUnavailable { message: String },
+    #[error("provisioner worker response invalid")]
+    ProvisionerWorkerResponseInvalid { message: String },
+    #[error("provisioner worker failed")]
+    ProvisionerWorkerFailed { message: String },
     #[error("invalid runtime state: {message}")]
     InvalidRuntimeState { message: String },
 }

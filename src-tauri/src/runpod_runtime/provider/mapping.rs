@@ -6,7 +6,7 @@ use crate::{
     domain::runpod::{
         RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
     },
-    shared::{ApiError, map_api_status_error, map_api_transport_error},
+    shared::{map_api_status_error, map_api_transport_error, ApiError},
 };
 
 use super::{
@@ -388,8 +388,8 @@ mod tests {
 
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
-    use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
     use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
+    use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
 
     #[test]
     fn workspace_resource_names_are_deterministic() {

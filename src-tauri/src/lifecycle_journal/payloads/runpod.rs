@@ -2,7 +2,7 @@ use crate::domain::{
     lifecycle_operation::LifecycleOperationPayload, runpod::RunpodLifecycleOperationPayload,
 };
 
-use super::super::{LifecycleJournalError, errors::data_invalid_error};
+use super::super::{errors::data_invalid_error, LifecycleJournalError};
 
 pub const RUNTIME_TYPE: &str = "runpod";
 

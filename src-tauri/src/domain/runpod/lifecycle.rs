@@ -33,13 +33,7 @@ pub enum RunpodDeleteStep {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum RunpodLifecycleOperationPayload {
-    Provision {
-        step: Option<RunpodProvisionStep>,
-    },
-    Cleanup {
-        step: Option<RunpodCleanupStep>,
-    },
-    Delete {
-        step: Option<RunpodDeleteStep>,
-    },
+    Provision { step: Option<RunpodProvisionStep> },
+    Cleanup { step: Option<RunpodCleanupStep> },
+    Delete { step: Option<RunpodDeleteStep> },
 }

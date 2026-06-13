@@ -12,13 +12,11 @@ use crate::{
 
 use super::{
     super::{
-        errors::{RunpodRuntimeError, lifecycle_payload_error},
-        events::RunpodRuntimeEventSink,
-        provider::RunpodRuntimeClient,
+        errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
     },
     helpers::{
-        RunpodWorkspaceFailure, invalid_runtime_state, load_running_operation,
-        mark_operation_state, mark_workspace_failed, persist_workspace,
+        load_running_operation, mark_operation_state, mark_workspace_failed, persist_workspace,
+        RunpodWorkspaceFailure,
     },
     resource_cleanup::delete_remote_resources,
 };
@@ -47,7 +45,6 @@ where
                 &operation,
                 LifecycleOperationState::Failed,
                 RunpodCleanupStep::DeleteEndpoint,
-                Some(invalid_runtime_state()),
             )
             .await?;
             return Ok(());
@@ -81,11 +78,10 @@ where
                 &operation,
                 LifecycleOperationState::Completed,
                 failed_step.clone(),
-                None,
             )
             .await?;
         }
-        Err(error) => {
+        Err(_error) => {
             mark_workspace_failed(
                 &mut workspace,
                 workspace_repository,
@@ -99,7 +95,6 @@ where
                 &operation,
                 LifecycleOperationState::Failed,
                 failed_step.clone(),
-                Some(lifecycle_payload_error(&error)),
             )
             .await?;
         }

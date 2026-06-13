@@ -755,10 +755,7 @@ mod tests {
     use crate::domain::runpod::RunpodLifecycleOperationPayload;
 
     fn provision_payload() -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-            step: None,
-            error: None,
-        })
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step: None })
     }
 
     #[test]

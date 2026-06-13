@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::super::errors::{
-    RunpodRuntimeError, hugging_face_api_key_unavailable, runpod_api_key_unavailable,
+    hugging_face_api_key_unavailable, runpod_api_key_unavailable, RunpodRuntimeError,
 };
 use crate::secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService};
 
@@ -262,7 +262,6 @@ where
             self.provisioner_worker
                 .get_status(&provisioner_status_url(provisioner_pod_id), &bearer_token)
                 .await
-                .map_err(RunpodRuntimeError::from)
         })
     }
 
@@ -408,9 +407,7 @@ mod tests {
     use crate::secrets_storage::SecretsStorageError;
     use crate::{
         domain::{
-            runpod::{
-                RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodLifecycleError,
-            },
+            runpod::{RunpodDatacenterPlacementOption, RunpodGpuPlacementOption},
             secrets::ApiKeyIdentity,
         },
         secrets_storage::{ApiSecret, SecretKey, SecretStore},
@@ -561,7 +558,7 @@ mod tests {
     #[derive(Default)]
     struct WorkerState {
         calls: Vec<(String, String)>,
-        result: Option<Result<RunpodProvisionerStatus, RunpodLifecycleError>>,
+        result: Option<Result<RunpodProvisionerStatus, RunpodRuntimeError>>,
     }
 
     struct FakeWorker {
@@ -573,7 +570,7 @@ mod tests {
             &'a self,
             status_url: &'a str,
             bearer_token: &'a str,
-        ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodLifecycleError>> {
+        ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodRuntimeError>> {
             Box::pin(async move {
                 let mut state = self.state.lock().expect("worker state");
                 state
@@ -796,11 +793,9 @@ mod tests {
     #[tokio::test]
     async fn get_provisioner_status_maps_worker_auth_failure_to_provisioner_error() {
         let worker_state = Arc::new(Mutex::new(WorkerState {
-            result: Some(Err(RunpodLifecycleError::ProvisionerError(
-                crate::domain::runpod::RunpodProvisionerError::ResponseInvalid {
-                    message: "response invalid".to_string(),
-                },
-            ))),
+            result: Some(Err(RunpodRuntimeError::ProvisionerWorkerResponseInvalid {
+                message: "response invalid".to_string(),
+            })),
             ..WorkerState::default()
         }));
         let provider = provider(Arc::default(), Arc::clone(&worker_state));
@@ -809,11 +804,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(RunpodRuntimeError::LifecycleError(
-                RunpodLifecycleError::ProvisionerError(
-                    crate::domain::runpod::RunpodProvisionerError::ResponseInvalid { .. }
-                )
-            ))
+            Err(RunpodRuntimeError::ProvisionerWorkerResponseInvalid { .. })
         ));
         assert_eq!(
             worker_state.lock().expect("worker state").calls[0].0,

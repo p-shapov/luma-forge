@@ -8,10 +8,7 @@ use crate::domain::{
     runpod::placement::RunpodPlacementPlan,
     runpod::runtime::{RunpodResources, RunpodRuntime},
     workflow_preset::WorkflowReference,
-    workspace::{
-        Workspace, WorkspaceCleanupRequiredReason, WorkspaceRuntime, WorkspaceRuntimeInvalidReason,
-        WorkspaceState,
-    },
+    workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
 };
 
 use sqlx::Row;
@@ -58,13 +55,6 @@ async fn assert_text_not_null_column(pool: &SqlitePool, table_name: &str, column
     assert!(not_null, "{table_name}.{column_name} should be NOT NULL");
 }
 
-async fn assert_text_nullable_column(pool: &SqlitePool, table_name: &str, column_name: &str) {
-    let (column_type, not_null) = column_info(pool, table_name, column_name).await;
-
-    assert_eq!(column_type, "TEXT");
-    assert!(!not_null, "{table_name}.{column_name} should be nullable");
-}
-
 async fn index_exists(pool: &SqlitePool, index_name: &str) -> bool {
     sqlx::query("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?1")
         .bind(index_name)
@@ -104,7 +94,6 @@ struct WorkspaceRowInsert<'a> {
     id: &'a str,
     runtime_type: &'a str,
     state: &'a str,
-    state_reason: Option<&'a str>,
     workflow_id: &'a str,
     workflow_version: &'a str,
     runtime_json: &'a str,
@@ -118,19 +107,17 @@ async fn insert_workspace_row(pool: &SqlitePool, row: WorkspaceRowInsert<'_>) {
                 id,
                 runtime_type,
                 state,
-                state_reason,
                 workflow_id,
                 workflow_version,
                 runtime_json,
                 created_at,
                 updated_at
             )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )
     .bind(row.id)
     .bind(row.runtime_type)
     .bind(row.state)
-    .bind(row.state_reason)
     .bind(row.workflow_id)
     .bind(row.workflow_version)
     .bind(row.runtime_json)
@@ -180,7 +167,6 @@ async fn bootstrap_creates_normalized_workspace_columns_and_indexes() {
     assert_text_not_null_column(&pool, "workspaces", "id").await;
     assert_text_not_null_column(&pool, "workspaces", "runtime_type").await;
     assert_text_not_null_column(&pool, "workspaces", "state").await;
-    assert_text_nullable_column(&pool, "workspaces", "state_reason").await;
     assert_text_not_null_column(&pool, "workspaces", "workflow_id").await;
     assert_text_not_null_column(&pool, "workspaces", "workflow_version").await;
     assert_text_not_null_column(&pool, "workspaces", "runtime_json").await;
@@ -226,7 +212,7 @@ async fn connect_rejects_existing_wrong_workspaces_table_without_metadata() {
     assert_eq!(
         error,
         WorkspaceCatalogError::SchemaInvalid {
-            message: "expected 9 columns, got 1".to_string()
+            message: "expected 8 columns, got 1".to_string()
         }
     );
 
@@ -263,7 +249,7 @@ async fn connect_rejects_legacy_workspace_json_table() {
     assert_eq!(
         error,
         WorkspaceCatalogError::SchemaInvalid {
-            message: "expected 9 columns, got 4".to_string()
+            message: "expected 8 columns, got 4".to_string()
         }
     );
     assert_eq!(metadata_version(&path).await, None);
@@ -286,7 +272,6 @@ async fn connect_rejects_existing_composite_primary_key_without_metadata() {
                 id TEXT NOT NULL,
                 runtime_type TEXT NOT NULL,
                 state TEXT NOT NULL,
-                state_reason TEXT,
                 workflow_id TEXT NOT NULL,
                 workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
@@ -330,7 +315,6 @@ async fn connect_rejects_existing_current_table_missing_indexes() {
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
                 state TEXT NOT NULL,
-                state_reason TEXT,
                 workflow_id TEXT NOT NULL,
                 workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
@@ -359,49 +343,6 @@ async fn connect_rejects_existing_current_table_missing_indexes() {
 }
 
 #[tokio::test]
-async fn connect_rejects_not_null_state_reason_column() {
-    let path = catalog_path("not-null-state-reason");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query(
-        "CREATE TABLE workspaces (
-                id TEXT NOT NULL PRIMARY KEY,
-                runtime_type TEXT NOT NULL,
-                state TEXT NOT NULL,
-                state_reason TEXT NOT NULL,
-                workflow_id TEXT NOT NULL,
-                workflow_version TEXT NOT NULL,
-                runtime_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("setup table creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject non-null state_reason schema");
-
-    assert_eq!(
-        error,
-        WorkspaceCatalogError::SchemaInvalid {
-            message: "workspaces.state_reason column mismatch: expected TEXT not_null=false pk=0, got TEXT not_null=true pk=0".to_string()
-        }
-    );
-    assert_eq!(metadata_version(&path).await, None);
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
 async fn connect_rejects_extra_workspace_index() {
     let path = catalog_path("extra-index");
 
@@ -416,7 +357,6 @@ async fn connect_rejects_extra_workspace_index() {
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
                 state TEXT NOT NULL,
-                state_reason TEXT,
                 workflow_id TEXT NOT NULL,
                 workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
@@ -471,7 +411,6 @@ async fn connect_rejects_partial_workspace_index() {
                 id TEXT NOT NULL PRIMARY KEY,
                 runtime_type TEXT NOT NULL,
                 state TEXT NOT NULL,
-                state_reason TEXT,
                 workflow_id TEXT NOT NULL,
                 workflow_version TEXT NOT NULL,
                 runtime_json TEXT NOT NULL,
@@ -520,7 +459,7 @@ async fn insert_workspace_stores_runtime_json_without_workspace_state_duplicatio
         .expect("insert should succeed");
 
     let row = sqlx::query(
-        "SELECT runtime_type, state, state_reason, workflow_id, workflow_version, runtime_json
+        "SELECT runtime_type, state, workflow_id, workflow_version, runtime_json
              FROM workspaces WHERE id = ?1",
     )
     .bind("workspace-1")
@@ -530,7 +469,6 @@ async fn insert_workspace_stores_runtime_json_without_workspace_state_duplicatio
 
     assert_eq!(row.get::<String, _>("runtime_type"), "runpod");
     assert_eq!(row.get::<String, _>("state"), "not_provisioned");
-    assert_eq!(row.get::<Option<String>, _>("state_reason"), None);
     assert_eq!(row.get::<String, _>("workflow_id"), "preset");
     assert_eq!(row.get::<String, _>("workflow_version"), "1");
 
@@ -600,20 +538,22 @@ async fn insert_list_and_find_round_trip_workspace() {
 }
 
 #[tokio::test]
-async fn reason_bearing_workspace_states_round_trip() {
-    let path = catalog_path("reason-state-round-trip");
+async fn workspace_states_round_trip() {
+    let path = catalog_path("state-round-trip");
+    let mut ready = workspace("ready");
+    ready.state = WorkspaceState::Ready;
     let mut cleanup_required = workspace("cleanup-required");
-    cleanup_required.state = WorkspaceState::CleanupRequired {
-        reason: WorkspaceCleanupRequiredReason::ProvisionFailed,
-    };
+    cleanup_required.state = WorkspaceState::CleanupRequired;
     let mut invalid = workspace("invalid");
-    invalid.state = WorkspaceState::Invalid {
-        reason: WorkspaceRuntimeInvalidReason::CorruptRuntimeState,
-    };
+    invalid.state = WorkspaceState::Invalid;
 
     let repository = SqliteWorkspaceCatalogRepository::connect(&path)
         .await
         .expect("connect should succeed");
+    repository
+        .insert_workspace(&ready)
+        .await
+        .expect("ready insert should succeed");
     repository
         .insert_workspace(&cleanup_required)
         .await
@@ -623,6 +563,10 @@ async fn reason_bearing_workspace_states_round_trip() {
         .await
         .expect("invalid insert should succeed");
 
+    let found_ready = repository
+        .find_workspace_by_id("ready")
+        .await
+        .expect("ready find should succeed");
     let found_cleanup_required = repository
         .find_workspace_by_id("cleanup-required")
         .await
@@ -632,16 +576,16 @@ async fn reason_bearing_workspace_states_round_trip() {
         .await
         .expect("invalid find should succeed");
 
+    assert_eq!(found_ready, Some(ready));
     assert_eq!(found_cleanup_required, Some(cleanup_required));
     assert_eq!(found_invalid, Some(invalid));
 
-    let cleanup_required_row =
-        sqlx::query("SELECT state, state_reason FROM workspaces WHERE id = ?1")
-            .bind("cleanup-required")
-            .fetch_one(&repository.pool())
-            .await
-            .expect("cleanup required row should exist");
-    let invalid_row = sqlx::query("SELECT state, state_reason FROM workspaces WHERE id = ?1")
+    let cleanup_required_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
+        .bind("cleanup-required")
+        .fetch_one(&repository.pool())
+        .await
+        .expect("cleanup required row should exist");
+    let invalid_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
         .bind("invalid")
         .fetch_one(&repository.pool())
         .await
@@ -651,23 +595,15 @@ async fn reason_bearing_workspace_states_round_trip() {
         cleanup_required_row.get::<String, _>("state"),
         "cleanup_required"
     );
-    assert_eq!(
-        cleanup_required_row.get::<Option<String>, _>("state_reason"),
-        Some("provision_failed".to_string())
-    );
     assert_eq!(invalid_row.get::<String, _>("state"), "invalid");
-    assert_eq!(
-        invalid_row.get::<Option<String>, _>("state_reason"),
-        Some("corrupt_runtime_state".to_string())
-    );
 
     drop(repository);
     let _ = fs::remove_file(path);
 }
 
 #[tokio::test]
-async fn invalid_state_reason_combinations_return_corrupt() {
-    let path = catalog_path("invalid-state-reason");
+async fn unknown_state_returns_corrupt() {
+    let path = catalog_path("unknown-state");
     let workspace = workspace("workspace-1");
     let WorkspaceRuntime::Runpod(runtime) = workspace.runtime;
     let runtime_json =
@@ -677,50 +613,32 @@ async fn invalid_state_reason_combinations_return_corrupt() {
         .await
         .expect("connect should succeed");
 
-    for (id, state, state_reason) in [
-        ("ready-with-reason", "ready", Some("provision_failed")),
-        ("cleanup-without-reason", "cleanup_required", None),
-        (
-            "cleanup-with-invalid-reason",
-            "cleanup_required",
-            Some("corrupt_runtime_state"),
-        ),
-        ("invalid-without-reason", "invalid", None),
-        ("invalid-with-unknown-reason", "invalid", Some("unknown")),
-    ] {
-        insert_workspace_row(
-            &repository.pool,
-            WorkspaceRowInsert {
-                id,
-                runtime_type: "runpod",
-                state,
-                state_reason,
-                workflow_id: "preset",
-                workflow_version: "1",
-                runtime_json: &runtime_json,
-                created_at: "2026-06-06T00:00:01Z",
-                updated_at: "2026-06-06T00:00:01Z",
-            },
-        )
-        .await;
+    insert_workspace_row(
+        &repository.pool,
+        WorkspaceRowInsert {
+            id: "unknown-state",
+            runtime_type: "runpod",
+            state: "unknown",
+            workflow_id: "preset",
+            workflow_version: "1",
+            runtime_json: &runtime_json,
+            created_at: "2026-06-06T00:00:01Z",
+            updated_at: "2026-06-06T00:00:01Z",
+        },
+    )
+    .await;
 
-        let error = repository
-            .find_workspace_by_id(id)
-            .await
-            .expect_err("invalid state reason combination should fail");
+    let error = repository
+        .find_workspace_by_id("unknown-state")
+        .await
+        .expect_err("unknown state should fail");
 
-        assert_eq!(
-            error,
-            WorkspaceCatalogError::DataInvalid {
-                message: match (state, state_reason) {
-                    ("cleanup_required", Some("corrupt_runtime_state")) =>
-                        "unknown cleanup required reason: corrupt_runtime_state".to_string(),
-                    ("invalid", Some(reason)) => format!("unknown invalid reason: {reason}"),
-                    _ => format!("unknown state: {state}"),
-                }
-            }
-        );
-    }
+    assert_eq!(
+        error,
+        WorkspaceCatalogError::DataInvalid {
+            message: "unknown state: unknown".to_string()
+        }
+    );
 
     drop(repository);
     let _ = fs::remove_file(path);
@@ -742,7 +660,6 @@ async fn empty_workflow_id_returns_corrupt() {
             id: "workspace-1",
             runtime_type: "runpod",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: "",
             workflow_version: "1",
             runtime_json: &runtime_json,
@@ -784,7 +701,6 @@ async fn empty_workflow_version_returns_corrupt() {
             id: "workspace-1",
             runtime_type: "runpod",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: "preset",
             workflow_version: "",
             runtime_json: &runtime_json,
@@ -823,7 +739,6 @@ async fn corrupt_runtime_json_returns_corrupt() {
             id: "workspace-1",
             runtime_type: "runpod",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: "preset",
             workflow_version: "1",
             runtime_json: "{",
@@ -867,7 +782,6 @@ async fn empty_stored_workspace_id_returns_corrupt() {
             id: "",
             runtime_type: "runpod",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: "preset",
             workflow_version: "1",
             runtime_json: &runtime_json,
@@ -909,7 +823,6 @@ async fn unknown_runtime_type_returns_corrupt() {
             id: "workspace-1",
             runtime_type: "unknown",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: "preset",
             workflow_version: "1",
             runtime_json: &runtime_json,
@@ -956,7 +869,6 @@ async fn list_workspaces_orders_by_created_at() {
             id: "workspace-2",
             runtime_type: "runpod",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: &workspace_2.workflow.id,
             workflow_version: &workspace_2.workflow.version,
             runtime_json: &runtime_2_json,
@@ -971,7 +883,6 @@ async fn list_workspaces_orders_by_created_at() {
             id: "workspace-1",
             runtime_type: "runpod",
             state: "not_provisioned",
-            state_reason: None,
             workflow_id: &workspace_1.workflow.id,
             workflow_version: &workspace_1.workflow.version,
             runtime_json: &runtime_1_json,

@@ -1,8 +1,13 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    runtime_contract::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision},
-    workflow_preset::{ModelAsset, ModelAssetSource, WorkflowPreset, WorkflowRevision},
+    runtime_contract::{
+        RuntimeCatalog, RuntimeContract, RuntimeContractReference, RuntimeContractRevision,
+    },
+    workflow_preset::{
+        ModelAsset, ModelAssetSource, WorkflowContractRequirements, WorkflowPreset,
+        WorkflowRevision,
+    },
 };
 
 use super::errors::WorkflowCatalogError;
@@ -17,6 +22,7 @@ const INVALID_WORKFLOW_ID: &str = "workflow ID is empty, duplicate, or name is e
 const EMPTY_WORKFLOW_REVISIONS: &str = "workflow has no revisions";
 const INVALID_WORKFLOW_REVISION_VERSION: &str = "revision version is empty or duplicate";
 const ZERO_REQUIRED_VOLUME_SIZE: &str = "required volume size is zero";
+const EMPTY_CONTRACT_REQUIREMENTS: &str = "contract requirements are empty";
 const MISSING_ENDPOINT_CONTRACT: &str = "endpoint contract is missing";
 const MISSING_PROVISIONER_CONTRACT: &str = "provisioner contract is missing";
 const INVALID_MODEL_ASSET: &str =
@@ -155,21 +161,41 @@ fn validate_runtime_requirements(
         return validation_error(ZERO_REQUIRED_VOLUME_SIZE);
     }
 
-    if endpoint_contract_catalog
-        .resolve(&revision.runpod_runtime_requirements.endpoint_contract)
-        .is_none()
-    {
-        return validation_error(MISSING_ENDPOINT_CONTRACT);
+    if revision.contract_requirements.is_empty() {
+        return validation_error(EMPTY_CONTRACT_REQUIREMENTS);
     }
 
-    if provisioner_contract_catalog
-        .resolve(&revision.runpod_runtime_requirements.provisioner_contract)
-        .is_none()
-    {
-        return validation_error(MISSING_PROVISIONER_CONTRACT);
+    for requirements in &revision.contract_requirements {
+        match requirements {
+            WorkflowContractRequirements::Runpod(requirements) => {
+                if !contract_exists(endpoint_contract_catalog, &requirements.endpoint_contract) {
+                    return validation_error(MISSING_ENDPOINT_CONTRACT);
+                }
+
+                if !contract_exists(
+                    provisioner_contract_catalog,
+                    &requirements.provisioner_contract,
+                ) {
+                    return validation_error(MISSING_PROVISIONER_CONTRACT);
+                }
+            }
+        }
     }
 
     Ok(())
+}
+
+fn contract_exists(catalog: &RuntimeCatalog, reference: &RuntimeContractReference) -> bool {
+    catalog
+        .contracts
+        .iter()
+        .find(|contract| contract.id == reference.id)
+        .is_some_and(|contract| {
+            contract
+                .revisions
+                .iter()
+                .any(|revision| revision.version == reference.version)
+        })
 }
 
 fn validate_model_asset(asset: &ModelAsset) -> Result<(), WorkflowCatalogError> {
@@ -236,9 +262,10 @@ fn validation_error<T>(message: &'static str) -> Result<T, WorkflowCatalogError>
 mod tests {
     use super::*;
     use crate::domain::{
+        runpod::RunpodContractRequirements,
         runtime_contract::{RuntimeContract, RuntimeContractReference, RuntimeContractRevision},
         workflow_preset::{
-            ModelAsset, ModelAssetSource, RunpodRuntimeRequirements, WorkflowExecutionType,
+            ModelAsset, ModelAssetSource, WorkflowContractRequirements, WorkflowExecutionType,
             WorkflowRevision,
         },
     };
@@ -274,16 +301,18 @@ mod tests {
             version: version.to_string(),
             requires_hugging_face_api_key: true,
             required_volume_size_gb: 19,
-            runpod_runtime_requirements: RunpodRuntimeRequirements {
-                endpoint_contract: RuntimeContractReference {
-                    id: "comfyui-py312-cu126-torch291".to_string(),
-                    version: "1.0.15".to_string(),
+            contract_requirements: vec![WorkflowContractRequirements::Runpod(
+                RunpodContractRequirements {
+                    endpoint_contract: RuntimeContractReference {
+                        id: "comfyui-py312-cu126-torch291".to_string(),
+                        version: "1.0.15".to_string(),
+                    },
+                    provisioner_contract: RuntimeContractReference {
+                        id: "luma-forge-provisioner".to_string(),
+                        version: "1.0.6".to_string(),
+                    },
                 },
-                provisioner_contract: RuntimeContractReference {
-                    id: "luma-forge-provisioner".to_string(),
-                    version: "1.0.6".to_string(),
-                },
-            },
+            )],
             required_model_assets: vec![valid_asset()],
         }
     }

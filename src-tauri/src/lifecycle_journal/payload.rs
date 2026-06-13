@@ -1,9 +1,8 @@
 use crate::domain::lifecycle_operation::LifecycleOperationPayload;
 
 use super::{
-    LifecycleJournalError,
     errors::{data_invalid_error, data_invalid_message},
-    payloads,
+    payloads, LifecycleJournalError,
 };
 
 pub fn encode_payload(

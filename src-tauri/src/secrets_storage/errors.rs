@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use reqwest::StatusCode;
 
-use crate::shared::{ApiError, map_api_status_error, map_api_transport_error};
+use crate::shared::{map_api_status_error, map_api_transport_error, ApiError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
