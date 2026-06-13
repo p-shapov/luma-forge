@@ -9,7 +9,7 @@ use crate::{
         },
         CommandResult,
     },
-    diagnostics::command_error,
+    diagnostics::CommandLogScope,
 };
 
 #[tauri::command]
@@ -17,12 +17,16 @@ use crate::{
 pub fn get_workflow_catalog(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<WorkflowCatalogResponse> {
-    let state = state.ready()?;
+    let command_log = CommandLogScope::new("get_workflow_catalog", Vec::new());
+    let state = state
+        .ready()
+        .map_err(|error| command_log.failed_native(error))?;
     let catalog = state
         .workflow_catalog
         .get_workflow_catalog()
-        .map_err(|error| command_error("get_workflow_catalog", error))?;
+        .map_err(|error| command_log.failed(error))?;
 
+    command_log.completed();
     Ok(catalog.into())
 }
 
@@ -31,13 +35,17 @@ pub fn get_workflow_catalog(
 pub async fn get_runpod_placement_options(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<RunpodPlacementOptionsResponse> {
-    let state = state.ready()?;
+    let command_log = CommandLogScope::new("get_runpod_placement_options", Vec::new());
+    let state = state
+        .ready()
+        .map_err(|error| command_log.failed_native(error))?;
     let options = state
         .runpod_runtime
         .get_runpod_placement_options()
         .await
-        .map_err(|error| command_error("get_runpod_placement_options", error))?;
+        .map_err(|error| command_log.failed(error))?;
 
+    command_log.completed();
     Ok(options.into())
 }
 
@@ -46,12 +54,16 @@ pub async fn get_runpod_placement_options(
 pub async fn get_workspace_catalog(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<WorkspaceCatalogResponse> {
-    let state = state.ready()?;
+    let command_log = CommandLogScope::new("get_workspace_catalog", Vec::new());
+    let state = state
+        .ready()
+        .map_err(|error| command_log.failed_native(error))?;
     let catalog = state
         .workspace_catalog
         .list_workspaces()
         .await
-        .map_err(|error| command_error("get_workspace_catalog", error))?;
+        .map_err(|error| command_log.failed(error))?;
 
+    command_log.completed();
     Ok(catalog.into())
 }

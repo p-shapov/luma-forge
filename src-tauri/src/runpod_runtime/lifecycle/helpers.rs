@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
+    diagnostics::{lifecycle_log_fields, lifecycle_state_label},
     domain::{
         lifecycle_operation::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
@@ -74,6 +75,15 @@ where
         .mark_state(&operation.operation_id, state, &payload)
         .await
         .map_err(invalid_runtime_state_error)?;
+    let fields = lifecycle_log_fields(&operation.payload);
+    tracing::info!(
+        workspace_id = %operation.workspace_id,
+        operation_id = %operation.operation_id,
+        operation_kind = fields.operation_kind,
+        state = lifecycle_state_label(operation.state),
+        step = fields.step.unwrap_or("none"),
+        "lifecycle operation changed"
+    );
     event_sink.emit(RunpodRuntimeEvent::LifecycleOperationChanged {
         workspace_id: operation.workspace_id.clone(),
         operation_id: operation.operation_id.clone(),
