@@ -77,6 +77,7 @@ where
     event_sink.emit(RunpodRuntimeEvent::LifecycleOperationChanged {
         workspace_id: operation.workspace_id.clone(),
         operation_id: operation.operation_id.clone(),
+        diagnostic_id: None,
         operation: operation.clone(),
     });
     Ok(operation)

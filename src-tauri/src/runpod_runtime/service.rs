@@ -303,6 +303,7 @@ where
                 .emit(RunpodRuntimeEvent::LifecycleOperationChanged {
                     workspace_id: stale_operation.workspace_id.clone(),
                     operation_id: stale_operation.operation_id.clone(),
+                    diagnostic_id: None,
                     operation: stale_operation,
                 });
             if let Some(workspace) = workspace {
@@ -344,6 +345,7 @@ where
             .emit(RunpodRuntimeEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
                 operation_id: operation.operation_id.clone(),
+                diagnostic_id: None,
                 operation: operation.clone(),
             });
 
