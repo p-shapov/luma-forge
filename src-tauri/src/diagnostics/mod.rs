@@ -1,6 +1,21 @@
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, path::PathBuf, time::Instant};
 
-use crate::commands::errors::{NativeCommandError, NativeCommandErrorCode};
+use crate::{
+    commands::{
+        errors::{NativeCommandError, NativeCommandErrorCode},
+        types::{
+            secrets::SetupApiKeyRequest,
+            workspace::{CreateRunpodWorkspaceRequest, WorkspaceIdRequest},
+        },
+    },
+    domain::{
+        lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
+        runpod::{
+            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload,
+            RunpodProvisionStep,
+        },
+    },
+};
 use tracing_subscriber::{fmt, EnvFilter};
 
 #[derive(Debug)]
@@ -69,7 +84,117 @@ pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
     messages
 }
 
+pub type CommandRequestMetadata = Vec<(&'static str, String)>;
+
+pub trait CommandRequestLogMetadata {
+    fn command_request_metadata(&self) -> CommandRequestMetadata;
+}
+
+impl CommandRequestLogMetadata for SetupApiKeyRequest {
+    fn command_request_metadata(&self) -> CommandRequestMetadata {
+        Vec::new()
+    }
+}
+
+impl CommandRequestLogMetadata for WorkspaceIdRequest {
+    fn command_request_metadata(&self) -> CommandRequestMetadata {
+        vec![("workspace_id", self.workspace_id.clone())]
+    }
+}
+
+impl CommandRequestLogMetadata for CreateRunpodWorkspaceRequest {
+    fn command_request_metadata(&self) -> CommandRequestMetadata {
+        vec![
+            ("workflow_preset_id", self.workflow_preset_id.clone()),
+            ("datacenter_id", self.placement.datacenter_id.clone()),
+            ("gpu_id", self.placement.gpu_id.clone()),
+            ("volume_size_gb", self.placement.volume_size_gb.to_string()),
+        ]
+    }
+}
+
+pub fn command_request_metadata<T>(request: &T) -> CommandRequestMetadata
+where
+    T: CommandRequestLogMetadata + ?Sized,
+{
+    request.command_request_metadata()
+}
+
+pub struct CommandLogScope {
+    command: &'static str,
+    request_metadata: CommandRequestMetadata,
+    started_at: Instant,
+}
+
+impl CommandLogScope {
+    pub fn new(command: &'static str, request_metadata: CommandRequestMetadata) -> Self {
+        tracing::info!(
+            command = command,
+            request_metadata = ?request_metadata,
+            "native command started"
+        );
+
+        Self {
+            command,
+            request_metadata,
+            started_at: Instant::now(),
+        }
+    }
+
+    pub fn completed(&self) {
+        tracing::info!(
+            command = self.command,
+            duration_ms = self.duration_ms(),
+            request_metadata = ?self.request_metadata,
+            "native command completed"
+        );
+    }
+
+    pub fn failed<E>(&self, error: E) -> NativeCommandError
+    where
+        E: Error + 'static,
+        for<'a> NativeCommandErrorCode: From<&'a E>,
+    {
+        command_error_with_duration(
+            self.command,
+            error,
+            Some(self.duration_ms()),
+            Some(&self.request_metadata),
+        )
+    }
+
+    pub fn failed_native(&self, error: NativeCommandError) -> NativeCommandError {
+        tracing::error!(
+            diagnostic_id = %error.diagnostic_id,
+            command = self.command,
+            duration_ms = self.duration_ms(),
+            request_metadata = ?self.request_metadata,
+            code = ?error.code,
+            error = %redact_for_log(&error.message),
+            "native command failed"
+        );
+        error
+    }
+
+    pub fn duration_ms(&self) -> u128 {
+        self.started_at.elapsed().as_millis()
+    }
+}
+
 pub fn command_error<E>(command: &'static str, error: E) -> NativeCommandError
+where
+    E: Error + 'static,
+    for<'a> NativeCommandErrorCode: From<&'a E>,
+{
+    command_error_with_duration(command, error, None, None)
+}
+
+fn command_error_with_duration<E>(
+    command: &'static str,
+    error: E,
+    duration_ms: Option<u128>,
+    request_metadata: Option<&CommandRequestMetadata>,
+) -> NativeCommandError
 where
     E: Error + 'static,
     for<'a> NativeCommandErrorCode: From<&'a E>,
@@ -82,6 +207,8 @@ where
     tracing::error!(
         diagnostic_id = %diagnostic_id,
         command = command,
+        duration_ms = duration_ms,
+        request_metadata = ?request_metadata,
         code = ?code,
         error = %redact_for_log(&message),
         source_chain = ?source_chain,
@@ -91,19 +218,98 @@ where
     NativeCommandError::new(code, message, diagnostic_id)
 }
 
-pub fn lifecycle_error(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LifecycleLogFields {
+    pub operation_kind: &'static str,
+    pub step: Option<&'static str>,
+}
+
+pub fn lifecycle_log_fields(payload: &LifecycleOperationPayload) -> LifecycleLogFields {
+    match payload {
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step }) => {
+            LifecycleLogFields {
+                operation_kind: "provision",
+                step: step.as_ref().map(provision_step_label),
+            }
+        }
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup { step }) => {
+            LifecycleLogFields {
+                operation_kind: "cleanup",
+                step: step.as_ref().map(cleanup_step_label),
+            }
+        }
+        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete { step }) => {
+            LifecycleLogFields {
+                operation_kind: "delete",
+                step: step.as_ref().map(delete_step_label),
+            }
+        }
+    }
+}
+
+pub fn lifecycle_state_label(state: LifecycleOperationState) -> &'static str {
+    match state {
+        LifecycleOperationState::Running => "running",
+        LifecycleOperationState::Completed => "completed",
+        LifecycleOperationState::Failed => "failed",
+        LifecycleOperationState::Stale => "stale",
+    }
+}
+
+fn provision_step_label(step: &RunpodProvisionStep) -> &'static str {
+    match step {
+        RunpodProvisionStep::CreateNetworkVolume => "create_network_volume",
+        RunpodProvisionStep::StartProvisionerPod => "start_provisioner_pod",
+        RunpodProvisionStep::PollProvisioner => "poll_provisioner",
+        RunpodProvisionStep::TerminateProvisionerPod => "terminate_provisioner_pod",
+        RunpodProvisionStep::CreateTemplate => "create_template",
+        RunpodProvisionStep::CreateEndpoint => "create_endpoint",
+    }
+}
+
+fn cleanup_step_label(step: &RunpodCleanupStep) -> &'static str {
+    match step {
+        RunpodCleanupStep::DeleteEndpoint => "delete_endpoint",
+        RunpodCleanupStep::DeleteTemplate => "delete_template",
+        RunpodCleanupStep::TerminateProvisionerPod => "terminate_provisioner_pod",
+        RunpodCleanupStep::DeleteNetworkVolume => "delete_network_volume",
+    }
+}
+
+fn delete_step_label(step: &RunpodDeleteStep) -> &'static str {
+    match step {
+        RunpodDeleteStep::DeleteEndpoint => "delete_endpoint",
+        RunpodDeleteStep::DeleteTemplate => "delete_template",
+        RunpodDeleteStep::TerminateProvisionerPod => "terminate_provisioner_pod",
+        RunpodDeleteStep::DeleteNetworkVolume => "delete_network_volume",
+        RunpodDeleteStep::DeleteLocalWorkspace => "delete_local_workspace",
+    }
+}
+
+pub fn lifecycle_error<E>(
     operation_id: &str,
     workspace_id: Option<&str>,
-    error: &(dyn Error + 'static),
-) -> String {
+    payload: Option<&LifecycleOperationPayload>,
+    error: &E,
+) -> String
+where
+    E: Error + 'static,
+    for<'a> NativeCommandErrorCode: From<&'a E>,
+{
     let diagnostic_id = new_diagnostic_id();
     let source_chain = error_source_chain(error);
     let message = error.to_string();
+    let code = NativeCommandErrorCode::from(error);
+    let fields = payload.map(lifecycle_log_fields);
 
     tracing::error!(
         diagnostic_id = %diagnostic_id,
         operation_id = operation_id,
         workspace_id = workspace_id.unwrap_or("unknown"),
+        operation_kind = fields.map_or("unknown", |fields| fields.operation_kind),
+        state = lifecycle_state_label(LifecycleOperationState::Failed),
+        step = fields.and_then(|fields| fields.step).unwrap_or("none"),
+        error_code = ?code,
         error = %redact_for_log(&message),
         source_chain = ?source_chain,
         "lifecycle operation failed"
@@ -115,6 +321,16 @@ pub fn lifecycle_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        commands::types::{
+            secrets::SetupApiKeyRequest,
+            workspace::{CreateRunpodWorkspaceRequest, WorkspaceIdRequest},
+        },
+        domain::{
+            lifecycle_operation::LifecycleOperationPayload,
+            runpod::{RunpodLifecycleOperationPayload, RunpodProvisionStep},
+        },
+    };
 
     #[test]
     fn redact_known_secret_names() {
@@ -137,5 +353,66 @@ mod tests {
         assert!(chain
             .iter()
             .any(|message| message.contains("secure storage is unavailable")));
+    }
+
+    #[test]
+    fn lifecycle_log_fields_describe_payload_without_serializing_it() {
+        let payload =
+            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+                step: Some(RunpodProvisionStep::CreateEndpoint),
+            });
+
+        let fields = lifecycle_log_fields(&payload);
+
+        assert_eq!(fields.operation_kind, "provision");
+        assert_eq!(fields.step, Some("create_endpoint"));
+    }
+
+    #[test]
+    fn command_request_metadata_omits_secret_values() {
+        let request = SetupApiKeyRequest {
+            api_key: "secret-token".to_string(),
+        };
+
+        let metadata = command_request_metadata(&request);
+
+        assert!(metadata.is_empty());
+        assert!(!format!("{metadata:?}").contains("secret-token"));
+    }
+
+    #[test]
+    fn command_request_metadata_includes_workspace_id() {
+        let request = WorkspaceIdRequest {
+            workspace_id: "workspace-1".to_string(),
+        };
+
+        let metadata = command_request_metadata(&request);
+
+        assert_eq!(metadata, vec![("workspace_id", "workspace-1".to_string())]);
+    }
+
+    #[test]
+    fn command_request_metadata_includes_safe_create_workspace_fields() {
+        let request = CreateRunpodWorkspaceRequest {
+            workflow_preset_id: "preset-1".to_string(),
+            placement: crate::commands::types::placement::RunpodPlacementPlanInput {
+                datacenter_id: "dc-1".to_string(),
+                gpu_id: "gpu-1".to_string(),
+                volume_size_gb: 100,
+                keep_alive_limits: None,
+            },
+        };
+
+        let metadata = command_request_metadata(&request);
+
+        assert_eq!(
+            metadata,
+            vec![
+                ("workflow_preset_id", "preset-1".to_string()),
+                ("datacenter_id", "dc-1".to_string()),
+                ("gpu_id", "gpu-1".to_string()),
+                ("volume_size_gb", "100".to_string())
+            ]
+        );
     }
 }

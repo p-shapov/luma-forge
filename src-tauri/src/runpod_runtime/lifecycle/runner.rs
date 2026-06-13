@@ -215,8 +215,12 @@ async fn record_lifecycle_runner_error<L>(
         return;
     };
 
-    let diagnostic_id =
-        crate::diagnostics::lifecycle_error(operation_id, Some(&operation.workspace_id), error);
+    let diagnostic_id = crate::diagnostics::lifecycle_error(
+        operation_id,
+        Some(&operation.workspace_id),
+        Some(&operation.payload),
+        error,
+    );
 
     let failed_operation = match lifecycle_journal
         .mark_state(
