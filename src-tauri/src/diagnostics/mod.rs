@@ -38,6 +38,7 @@ pub fn init(log_dir: Option<PathBuf>) -> DiagnosticsGuard {
             .with_env_filter(filter)
             .with_writer(writer)
             .with_ansi(false)
+            .json()
             .finish();
         let _ = tracing::subscriber::set_global_default(subscriber);
 
@@ -197,13 +198,12 @@ impl CommandLogScope {
 
     pub fn failed_native(&self, error: NativeCommandError) -> NativeCommandError {
         let message = redact_for_log(&error.message);
-        let code = format!("{:?}", error.code);
         tracing::error!(
-            diagnostic_id = ?error.diagnostic_id,
-            command = ?self.command,
+            diagnostic_id = %error.diagnostic_id,
+            command = self.command,
             duration_ms = self.duration_ms(),
             request_metadata = ?self.request_metadata,
-            code = ?code,
+            code = ?error.code,
             error = ?message,
             "native command failed"
         );
@@ -238,14 +238,13 @@ where
     let message = leaf_error_message(&error);
     let log_message = redact_for_log(&message);
     let source_chain = error_source_chain(&error);
-    let code_label = format!("{code:?}");
 
     tracing::error!(
-        diagnostic_id = ?diagnostic_id,
-        command = ?command,
+        diagnostic_id = %diagnostic_id,
+        command = command,
         duration_ms = duration_ms,
         request_metadata = ?request_metadata,
-        code = ?code_label,
+        code = ?code,
         error = ?log_message,
         source_chain = ?source_chain,
         "native command failed"
@@ -337,17 +336,16 @@ where
     let message = leaf_error_message(error);
     let log_message = redact_for_log(&message);
     let code = NativeCommandErrorCode::from(error);
-    let code_label = format!("{code:?}");
     let fields = payload.map(lifecycle_log_fields);
 
     tracing::error!(
-        diagnostic_id = ?diagnostic_id,
-        operation_id = ?operation_id,
-        workspace_id = ?workspace_id.unwrap_or("unknown"),
-        operation_kind = ?fields.map_or("unknown", |fields| fields.operation_kind),
-        state = ?lifecycle_state_label(LifecycleOperationState::Failed),
-        step = ?fields.and_then(|fields| fields.step).unwrap_or("none"),
-        error_code = ?code_label,
+        diagnostic_id = %diagnostic_id,
+        operation_id = operation_id,
+        workspace_id = workspace_id.unwrap_or("unknown"),
+        operation_kind = fields.map_or("unknown", |fields| fields.operation_kind),
+        state = lifecycle_state_label(LifecycleOperationState::Failed),
+        step = fields.and_then(|fields| fields.step).unwrap_or("none"),
+        error_code = ?code,
         error = ?log_message,
         source_chain = ?source_chain,
         "lifecycle operation failed"
