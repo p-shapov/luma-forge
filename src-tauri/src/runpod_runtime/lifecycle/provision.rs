@@ -49,6 +49,15 @@ struct ProvisioningStepContext<'a, W, L> {
     event_sink: &'a Arc<dyn RunpodRuntimeEventSink>,
 }
 
+#[tracing::instrument(
+    name = "runpod_lifecycle",
+    skip_all,
+    fields(
+        operation_kind = "provision",
+        operation_id = %operation_id,
+        workspace_id = tracing::field::Empty
+    )
+)]
 pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
     workspace_repository: &W,
@@ -63,6 +72,10 @@ where
     L: LifecycleJournalRepository,
 {
     let operation = load_running_operation(lifecycle_journal, operation_id).await?;
+    tracing::Span::current().record(
+        "workspace_id",
+        tracing::field::display(&operation.workspace_id),
+    );
     let mut workspace = match workspace_repository
         .find_workspace_by_id(&operation.workspace_id)
         .await
