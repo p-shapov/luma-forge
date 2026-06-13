@@ -12,10 +12,12 @@ When adding a new workspace runtime, keep runtime-specific orchestration behind 
 
 ## Diagnostic Logs
 
-Native diagnostics are structured `tracing` logs for command spans, command
-failures, and lifecycle operation failures. UI-facing errors stay safe and
-compact; native logs keep the diagnostic ID, operation context, redacted error
-message, source chain, and span close timing needed to debug the failure.
+Native diagnostics are structured `tracing` logs for command spans, RunPod
+runtime service spans, lifecycle operation spans, lifecycle step spans, provider
+boundary spans, command failures, and lifecycle operation failures. UI-facing
+errors stay safe and compact; native logs keep the diagnostic ID, operation
+context, redacted error message, source chain, and span close timing needed to
+debug the failure.
 
 Native diagnostics are saved to the Tauri app log directory. On macOS for this app identifier, the path is:
 
