@@ -72,16 +72,48 @@ pub fn redact_for_log(input: &str) -> String {
         .join(" ")
 }
 
-pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
-    let mut messages = Vec::new();
+pub fn leaf_error_message(error: &(dyn Error + 'static)) -> String {
+    let mut message = error.to_string();
     let mut source = error.source();
 
     while let Some(error) = source {
-        messages.push(redact_for_log(&error.to_string()));
+        message = error.to_string();
         source = error.source();
     }
 
-    messages
+    message
+}
+
+pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
+    let mut codes = Vec::new();
+    let mut source = error.source();
+
+    while let Some(error) = source {
+        codes.push(format!("{:?}", error_code_for_source(error)));
+        source = error.source();
+    }
+
+    codes
+}
+
+fn error_code_for_source(error: &(dyn Error + 'static)) -> NativeCommandErrorCode {
+    if let Some(error) = error.downcast_ref::<crate::runpod_runtime::errors::RunpodRuntimeError>() {
+        return NativeCommandErrorCode::from(error);
+    }
+    if let Some(error) = error.downcast_ref::<crate::secrets_storage::SecretsStorageError>() {
+        return NativeCommandErrorCode::from(error);
+    }
+    if let Some(error) = error.downcast_ref::<crate::shared::ApiError>() {
+        return NativeCommandErrorCode::from(error);
+    }
+    if let Some(error) = error.downcast_ref::<crate::workflow_catalog::WorkflowCatalogError>() {
+        return NativeCommandErrorCode::from(error);
+    }
+    if let Some(error) = error.downcast_ref::<crate::workspace_catalog::WorkspaceCatalogError>() {
+        return NativeCommandErrorCode::from(error);
+    }
+
+    NativeCommandErrorCode::InvalidRuntimeState
 }
 
 pub type CommandRequestMetadata = Vec<(&'static str, String)>;
@@ -129,7 +161,7 @@ pub struct CommandLogScope {
 impl CommandLogScope {
     pub fn new(command: &'static str, request_metadata: CommandRequestMetadata) -> Self {
         tracing::info!(
-            command = command,
+            command = ?command,
             request_metadata = ?request_metadata,
             "native command started"
         );
@@ -143,7 +175,7 @@ impl CommandLogScope {
 
     pub fn completed(&self) {
         tracing::info!(
-            command = self.command,
+            command = ?self.command,
             duration_ms = self.duration_ms(),
             request_metadata = ?self.request_metadata,
             "native command completed"
@@ -164,13 +196,15 @@ impl CommandLogScope {
     }
 
     pub fn failed_native(&self, error: NativeCommandError) -> NativeCommandError {
+        let message = redact_for_log(&error.message);
+        let code = format!("{:?}", error.code);
         tracing::error!(
-            diagnostic_id = %error.diagnostic_id,
-            command = self.command,
+            diagnostic_id = ?error.diagnostic_id,
+            command = ?self.command,
             duration_ms = self.duration_ms(),
             request_metadata = ?self.request_metadata,
-            code = ?error.code,
-            error = %redact_for_log(&error.message),
+            code = ?code,
+            error = ?message,
             "native command failed"
         );
         error
@@ -201,16 +235,18 @@ where
 {
     let diagnostic_id = new_diagnostic_id();
     let code = NativeCommandErrorCode::from(&error);
-    let message = error.to_string();
+    let message = leaf_error_message(&error);
+    let log_message = redact_for_log(&message);
     let source_chain = error_source_chain(&error);
+    let code_label = format!("{code:?}");
 
     tracing::error!(
-        diagnostic_id = %diagnostic_id,
-        command = command,
+        diagnostic_id = ?diagnostic_id,
+        command = ?command,
         duration_ms = duration_ms,
         request_metadata = ?request_metadata,
-        code = ?code,
-        error = %redact_for_log(&message),
+        code = ?code_label,
+        error = ?log_message,
         source_chain = ?source_chain,
         "native command failed"
     );
@@ -298,19 +334,21 @@ where
 {
     let diagnostic_id = new_diagnostic_id();
     let source_chain = error_source_chain(error);
-    let message = error.to_string();
+    let message = leaf_error_message(error);
+    let log_message = redact_for_log(&message);
     let code = NativeCommandErrorCode::from(error);
+    let code_label = format!("{code:?}");
     let fields = payload.map(lifecycle_log_fields);
 
     tracing::error!(
-        diagnostic_id = %diagnostic_id,
-        operation_id = operation_id,
-        workspace_id = workspace_id.unwrap_or("unknown"),
-        operation_kind = fields.map_or("unknown", |fields| fields.operation_kind),
-        state = lifecycle_state_label(LifecycleOperationState::Failed),
-        step = fields.and_then(|fields| fields.step).unwrap_or("none"),
-        error_code = ?code,
-        error = %redact_for_log(&message),
+        diagnostic_id = ?diagnostic_id,
+        operation_id = ?operation_id,
+        workspace_id = ?workspace_id.unwrap_or("unknown"),
+        operation_kind = ?fields.map_or("unknown", |fields| fields.operation_kind),
+        state = ?lifecycle_state_label(LifecycleOperationState::Failed),
+        step = ?fields.and_then(|fields| fields.step).unwrap_or("none"),
+        error_code = ?code_label,
+        error = ?log_message,
         source_chain = ?source_chain,
         "lifecycle operation failed"
     );
@@ -343,16 +381,23 @@ mod tests {
     }
 
     #[test]
-    fn source_chain_includes_nested_error_messages() {
+    fn source_chain_includes_nested_error_codes() {
         let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
             crate::secrets_storage::SecretsStorageError::StoreUnavailable,
         );
 
         let chain = error_source_chain(&error);
 
-        assert!(chain
-            .iter()
-            .any(|message| message.contains("secure storage is unavailable")));
+        assert_eq!(chain, vec!["StoreUnavailable".to_string()]);
+    }
+
+    #[test]
+    fn leaf_error_message_returns_deepest_source_message() {
+        let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
+            crate::secrets_storage::SecretsStorageError::StoreUnavailable,
+        );
+
+        assert_eq!(leaf_error_message(&error), "secure storage is unavailable");
     }
 
     #[test]

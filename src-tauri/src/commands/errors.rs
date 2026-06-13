@@ -141,7 +141,7 @@ pub enum NativeInitializationCommandError {
 
 impl From<WorkflowCatalogError> for NativeCommandError {
     fn from(error: WorkflowCatalogError) -> Self {
-        let message = error.to_string();
+        let message = crate::diagnostics::leaf_error_message(&error);
         let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
@@ -165,7 +165,7 @@ impl From<&WorkflowCatalogError> for NativeCommandErrorCode {
 
 impl From<WorkspaceCatalogError> for NativeCommandError {
     fn from(error: WorkspaceCatalogError) -> Self {
-        let message = error.to_string();
+        let message = crate::diagnostics::leaf_error_message(&error);
         let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
@@ -194,7 +194,7 @@ impl From<&WorkspaceCatalogError> for NativeCommandErrorCode {
 
 impl From<SecretsStorageError> for NativeCommandError {
     fn from(error: SecretsStorageError) -> Self {
-        let message = error.to_string();
+        let message = crate::diagnostics::leaf_error_message(&error);
         let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
@@ -223,7 +223,7 @@ impl From<&SecretsStorageError> for NativeCommandErrorCode {
 
 impl From<ApiError> for NativeCommandError {
     fn from(error: ApiError) -> Self {
-        let message = error.to_string();
+        let message = crate::diagnostics::leaf_error_message(&error);
         let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
@@ -244,7 +244,7 @@ impl From<&ApiError> for NativeCommandErrorCode {
 
 impl From<RunpodRuntimeError> for NativeCommandError {
     fn from(error: RunpodRuntimeError) -> Self {
-        let message = error.to_string();
+        let message = crate::diagnostics::leaf_error_message(&error);
         let code = NativeCommandErrorCode::from(&error);
 
         Self::new(code, message, crate::diagnostics::new_diagnostic_id())
@@ -384,8 +384,18 @@ mod tests {
         let error =
             NativeCommandError::from(RunpodRuntimeError::RunpodApiError(ApiError::Unauthorized));
 
-        assert_eq!(error.message, "runpod api error");
+        assert_eq!(error.message, "api request was unauthorized");
         assert_eq!(error.code, NativeCommandErrorCode::ProviderUnauthorized);
+    }
+
+    #[test]
+    fn wrapped_runtime_error_uses_leaf_source_message() {
+        let error = NativeCommandError::from(RunpodRuntimeError::RunpodApiKeyUnavailable(
+            SecretsStorageError::StoreUnavailable,
+        ));
+
+        assert_eq!(error.message, "secure storage is unavailable");
+        assert_eq!(error.code, NativeCommandErrorCode::RunpodApiKeyUnavailable);
     }
 
     #[test]
