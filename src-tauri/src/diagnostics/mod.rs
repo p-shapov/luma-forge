@@ -16,7 +16,7 @@ use crate::{
         },
     },
 };
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{fmt, fmt::format::FmtSpan, EnvFilter};
 
 #[derive(Debug)]
 pub struct DiagnosticsGuard {
@@ -39,6 +39,9 @@ pub fn init(log_dir: Option<PathBuf>) -> DiagnosticsGuard {
             .with_writer(writer)
             .with_ansi(false)
             .json()
+            .with_current_span(true)
+            .with_span_list(true)
+            .with_span_events(FmtSpan::CLOSE)
             .finish();
         let _ = tracing::subscriber::set_global_default(subscriber);
 
@@ -47,7 +50,10 @@ pub fn init(log_dir: Option<PathBuf>) -> DiagnosticsGuard {
         };
     }
 
-    let subscriber = fmt().with_env_filter(filter).finish();
+    let subscriber = fmt()
+        .with_env_filter(filter)
+        .with_span_events(FmtSpan::CLOSE)
+        .finish();
     let _ = tracing::subscriber::set_global_default(subscriber);
 
     DiagnosticsGuard { _file_guard: None }
@@ -151,6 +157,10 @@ where
     T: CommandRequestLogMetadata + ?Sized,
 {
     request.command_request_metadata()
+}
+
+pub fn empty_command_request_metadata() -> CommandRequestMetadata {
+    Vec::new()
 }
 
 pub struct CommandLogScope {
@@ -421,6 +431,13 @@ mod tests {
 
         assert!(metadata.is_empty());
         assert!(!format!("{metadata:?}").contains("secret-token"));
+    }
+
+    #[test]
+    fn empty_command_request_metadata_is_stable() {
+        let metadata = empty_command_request_metadata();
+
+        assert!(metadata.is_empty());
     }
 
     #[test]
