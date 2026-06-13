@@ -42,6 +42,27 @@ pub struct CreateRunpodWorkspaceRequest {
     pub placement: RunpodPlacementPlan,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CreateWorkspaceServiceSpanFields {
+    workspace_id: String,
+    workflow_preset_id: String,
+    datacenter_id: String,
+    gpu_type_id: String,
+    volume_size_gb: u64,
+}
+
+fn create_workspace_service_span_fields(
+    request: &CreateRunpodWorkspaceRequest,
+) -> CreateWorkspaceServiceSpanFields {
+    CreateWorkspaceServiceSpanFields {
+        workspace_id: request.workspace_id.clone(),
+        workflow_preset_id: request.workflow_preset_id.clone(),
+        datacenter_id: request.placement.data_center_id.clone(),
+        gpu_type_id: request.placement.gpu_type_id.clone(),
+        volume_size_gb: request.placement.volume_size_gb,
+    }
+}
+
 pub struct RunpodRuntimeService<W, L>
 where
     W: WorkspaceCatalogRepository,
@@ -83,6 +104,19 @@ where
         }
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(
+            service_operation = "create_runpod_workspace",
+            workspace_id = %request.workspace_id,
+            workflow_preset_id = %request.workflow_preset_id,
+            datacenter_id = %request.placement.data_center_id,
+            gpu_type_id = %request.placement.gpu_type_id,
+            volume_size_gb = request.placement.volume_size_gb,
+            request_metadata = tracing::field::debug(create_workspace_service_span_fields(&request))
+        )
+    )]
     pub async fn create_runpod_workspace(
         &self,
         request: CreateRunpodWorkspaceRequest,
@@ -136,12 +170,22 @@ where
         Ok(workspace)
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "get_runpod_placement_options")
+    )]
     pub async fn get_runpod_placement_options(
         &self,
     ) -> Result<RunpodPlacementOptions, RunpodRuntimeError> {
         self.runpod_client.placement_options().await
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "provision_workspace", workspace_id = %workspace_id)
+    )]
     pub async fn provision_workspace(
         &self,
         workspace_id: &str,
@@ -177,6 +221,11 @@ where
         })
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "cleanup_workspace", workspace_id = %workspace_id)
+    )]
     pub async fn cleanup_workspace(
         &self,
         workspace_id: &str,
@@ -198,6 +247,11 @@ where
         })
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "delete_workspace", workspace_id = %workspace_id)
+    )]
     pub async fn delete_workspace(
         &self,
         workspace_id: &str,
@@ -240,6 +294,11 @@ where
         })
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "get_running_lifecycle_operations")
+    )]
     pub async fn get_running_lifecycle_operations(
         &self,
     ) -> Result<Vec<LifecycleOperation>, RunpodRuntimeError> {
@@ -249,6 +308,11 @@ where
             .map_err(super::errors::invalid_runtime_state_error)
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "get_latest_lifecycle_operation", workspace_id = %workspace_id)
+    )]
     pub async fn get_latest_lifecycle_operation(
         &self,
         workspace_id: &str,
@@ -260,6 +324,11 @@ where
             .map_err(super::errors::invalid_runtime_state_error)
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "find_workspace", workspace_id = %workspace_id)
+    )]
     pub async fn find_workspace(
         &self,
         workspace_id: &str,
@@ -270,6 +339,11 @@ where
             .map_err(RunpodRuntimeError::from)
     }
 
+    #[tracing::instrument(
+        name = "runpod_runtime_service",
+        skip_all,
+        fields(service_operation = "mark_running_operations_stale")
+    )]
     pub async fn mark_running_operations_stale(&self) -> Result<(), RunpodRuntimeError> {
         let operations = self.get_running_lifecycle_operations().await?;
 
@@ -327,11 +401,19 @@ where
         Ok(())
     }
 
+    #[tracing::instrument(
+        name = "runpod_lifecycle_start",
+        skip_all,
+        fields(workspace_id = %workspace_id, operation_kind = tracing::field::Empty)
+    )]
     async fn start_lifecycle_operation(
         &self,
         workspace_id: &str,
         payload: &LifecycleOperationPayload,
     ) -> Result<(Workspace, LifecycleOperation), RunpodRuntimeError> {
+        let fields = lifecycle_log_fields(payload);
+        tracing::Span::current().record("operation_kind", fields.operation_kind);
+
         let workspace = self.load_workspace_required(workspace_id).await?;
         let workspace_id = workspace.id.clone();
 
@@ -445,6 +527,19 @@ mod tests {
         crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiError(ApiError::RequestFailed {
             message: "RunPod API request failed".to_string(),
         })
+    }
+
+    #[test]
+    fn create_workspace_service_span_fields_include_only_safe_context() {
+        let request = draft_create_request("workspace-1");
+
+        let fields = super::create_workspace_service_span_fields(&request);
+
+        assert_eq!(fields.workspace_id, "workspace-1");
+        assert_eq!(fields.workflow_preset_id, request.workflow_preset_id);
+        assert_eq!(fields.datacenter_id, request.placement.data_center_id);
+        assert_eq!(fields.gpu_type_id, request.placement.gpu_type_id);
+        assert_eq!(fields.volume_size_gb, request.placement.volume_size_gb);
     }
 
     #[test]
