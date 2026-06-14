@@ -43,7 +43,6 @@ class ApiTests(unittest.TestCase):
         env = {
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "test-token-0123456789abcdef012345",
             "LUMA_FORGE_PROVISIONER_JOB_ID": "job-1",
-            "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY": "false",
             "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS": '{"bad": "request"}',
             "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
             "LUMA_FORGE_PROVISIONER_PORT": "8000",
