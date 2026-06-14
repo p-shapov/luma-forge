@@ -9,9 +9,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from runpod_endpoint_worker.comfy import ComfyExecutor, ComfyRuntime, parse_comfy_run_events
-from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import (
+from runtime.comfy import ComfyExecutor, ComfyRuntime, parse_comfy_run_events
+from app.config import EndpointConfig
+from app.errors import (
     ComfyLaunchError,
     ComfyNoOutputsError,
     ComfyOutputFetchError,
@@ -21,7 +21,7 @@ from runpod_endpoint_worker.errors import (
     ComfyWorkflowTimeoutError,
     ResponseTooLargeError,
 )
-from runpod_endpoint_worker.schemas import GenerationRequest
+from app.schemas import GenerationRequest
 
 
 class FakeHttpClient:

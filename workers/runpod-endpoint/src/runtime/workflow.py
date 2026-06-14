@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from runpod_endpoint_worker.errors import WorkflowValidationError
+from app.errors import WorkflowValidationError
 
 
 def load_workflow(path: Path) -> dict[str, Any]:

@@ -1,7 +1,7 @@
 import unittest
 
-from runpod_endpoint_worker.errors import ComfyWorkflowError, ValidationError, safe_failure_payload
-from runpod_endpoint_worker.logging import _safe_log_message
+from app.errors import ComfyWorkflowError, ValidationError, safe_failure_payload
+from app.logging import _safe_log_message
 
 
 class ErrorTests(unittest.TestCase):

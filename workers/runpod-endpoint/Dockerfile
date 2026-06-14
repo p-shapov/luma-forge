@@ -20,7 +20,7 @@ WORKDIR /runtime-build
 COPY ${LUMA_FORGE_BUNDLED_WORKFLOW_PATH} ./workflow.json
 COPY bundled/workflow-catalog.json ./workflow-catalog.json
 COPY bundled/execution-schemas.json ./execution-schemas.json
-COPY workers/runpod-endpoint/src/runpod_endpoint_worker/build_metadata.py ./extract_runtime_metadata.py
+COPY workers/runpod-endpoint/src/tools/build_metadata.py ./extract_runtime_metadata.py
 
 RUN test -n "$LUMA_FORGE_RUNTIME_PYTHON_VERSION" \
     && test -n "$LUMA_FORGE_COMFYUI_REVISION" \
@@ -83,4 +83,4 @@ COPY workers/runpod-endpoint/src ./src
 
 RUN python -m pip install --no-cache-dir .
 
-CMD ["python", "-m", "runpod_endpoint_worker"]
+CMD ["python", "-m", "app"]

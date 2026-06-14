@@ -15,8 +15,8 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import (
+from app.config import EndpointConfig
+from app.errors import (
     ComfyLaunchError,
     ComfyNoOutputsError,
     ComfyOutputFetchError,
@@ -27,9 +27,9 @@ from runpod_endpoint_worker.errors import (
     ResponseTooLargeError,
     safe_error_message,
 )
-from runpod_endpoint_worker.logging import LOGGER
-from runpod_endpoint_worker.schemas import GenerationImage, GenerationRequest
-from runpod_endpoint_worker.workflow import write_patched_workflow
+from app.logging import LOGGER
+from app.schemas import GenerationImage, GenerationRequest
+from runtime.workflow import write_patched_workflow
 
 
 _COMFY_STARTUP_LOCK = threading.Lock()

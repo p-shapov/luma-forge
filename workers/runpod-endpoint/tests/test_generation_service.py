@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.schemas import GenerationImage
-from runpod_endpoint_worker.service import GenerationService
+from app.config import EndpointConfig
+from app.schemas import GenerationImage
+from app.service import GenerationService
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from helpers import WorkerFixture

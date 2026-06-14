@@ -2,15 +2,15 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from runpod_endpoint_worker.comfy import ComfyExecutor
-from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import WorkflowValidationError
-from runpod_endpoint_worker.schemas import (
+from app.config import EndpointConfig
+from app.errors import WorkflowValidationError
+from app.schemas import (
     ExecutionSchemaInput,
     ExecutionSchemaRevision,
     GenerationResponse,
     parse_generation_request,
 )
+from runtime.comfy import ComfyExecutor
 
 
 def load_execution_schema(path) -> ExecutionSchemaRevision:
