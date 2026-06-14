@@ -10,12 +10,13 @@ use crate::{
         workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
+    runtime_catalog::RuntimeCatalogService,
     shared::BackgroundTaskSpawner,
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::{
-    catalogs::RunpodRuntimeCatalogServices,
     contracts::RunpodWorkflowResolver,
     errors::{
         invalid_runtime_state_message, lifecycle_operation_already_running, workspace_not_found,
@@ -70,7 +71,8 @@ where
 {
     workspace_repository: W,
     lifecycle_journal: L,
-    catalogs: RunpodRuntimeCatalogServices,
+    workflow_catalog: WorkflowCatalogService,
+    runtime_catalog: RuntimeCatalogService,
     runpod_client: Arc<dyn RunpodRuntimeClient>,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn RunpodRuntimeEventSink>,
@@ -78,29 +80,37 @@ where
     lifecycle_runner: Arc<dyn RunpodRuntimeLifecycleRunner<W, L>>,
 }
 
+pub(crate) struct RunpodRuntimeServiceDependencies<W, L>
+where
+    W: WorkspaceCatalogRepository,
+    L: crate::lifecycle_journal::LifecycleJournalRepository,
+{
+    pub(crate) workspace_repository: W,
+    pub(crate) lifecycle_journal: L,
+    pub(crate) workflow_catalog: WorkflowCatalogService,
+    pub(crate) runtime_catalog: RuntimeCatalogService,
+    pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
+    pub(crate) event_sink: Arc<dyn RunpodRuntimeEventSink>,
+    pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
+    pub(crate) lifecycle_runner: Arc<dyn RunpodRuntimeLifecycleRunner<W, L>>,
+}
+
 impl<W, L> RunpodRuntimeService<W, L>
 where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: crate::lifecycle_journal::LifecycleJournalRepository + Clone + Send + Sync + 'static,
 {
-    pub(crate) fn new(
-        workspace_repository: W,
-        lifecycle_journal: L,
-        catalogs: RunpodRuntimeCatalogServices,
-        runpod_client: Arc<dyn RunpodRuntimeClient>,
-        event_sink: Arc<dyn RunpodRuntimeEventSink>,
-        task_spawner: Arc<dyn BackgroundTaskSpawner>,
-        lifecycle_runner: Arc<dyn RunpodRuntimeLifecycleRunner<W, L>>,
-    ) -> Self {
+    pub(crate) fn new(dependencies: RunpodRuntimeServiceDependencies<W, L>) -> Self {
         Self {
-            workspace_repository,
-            lifecycle_journal,
-            catalogs,
-            runpod_client,
+            workspace_repository: dependencies.workspace_repository,
+            lifecycle_journal: dependencies.lifecycle_journal,
+            workflow_catalog: dependencies.workflow_catalog,
+            runtime_catalog: dependencies.runtime_catalog,
+            runpod_client: dependencies.runpod_client,
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
-            event_sink,
-            task_spawner,
-            lifecycle_runner,
+            event_sink: dependencies.event_sink,
+            task_spawner: dependencies.task_spawner,
+            lifecycle_runner: dependencies.lifecycle_runner,
         }
     }
 
@@ -126,7 +136,6 @@ where
         }
 
         let workflow_catalog = self
-            .catalogs
             .workflow_catalog
             .get_workflow_catalog()
             .map_err(RunpodRuntimeError::from)?;
@@ -467,7 +476,8 @@ where
         RunpodRuntimeLifecycleRunnerContext {
             workspace_repository: self.workspace_repository.clone(),
             lifecycle_journal: self.lifecycle_journal.clone(),
-            catalogs: self.catalogs.clone(),
+            workflow_catalog: self.workflow_catalog.clone(),
+            runtime_catalog: self.runtime_catalog.clone(),
             runpod_client: self.runpod_client.clone(),
             lifecycle_operation_registry: self.lifecycle_operation_registry.clone(),
             event_sink: self.event_sink.clone(),

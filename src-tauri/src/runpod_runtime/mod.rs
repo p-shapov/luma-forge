@@ -1,4 +1,3 @@
-pub mod catalogs;
 pub mod contracts;
 pub mod errors;
 pub mod events;

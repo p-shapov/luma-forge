@@ -4,16 +4,20 @@ use crate::{
     domain::lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
     lifecycle_journal::LifecycleJournalRepository,
     runpod_runtime::{
-        catalogs::RunpodRuntimeCatalogServices,
         errors::RunpodRuntimeError,
         events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
         provider::RunpodRuntimeClient,
     },
+    runtime_catalog::RuntimeCatalogService,
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
-use super::{cleanup, delete, provision};
+use super::{
+    cleanup, delete,
+    provision::{self, RunpodProvisionLifecycleContext},
+};
 
 pub(crate) type LifecycleOperationRegistry = InFlightRegistry<LifecycleOperationId>;
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
@@ -25,7 +29,8 @@ where
 {
     pub(crate) workspace_repository: W,
     pub(crate) lifecycle_journal: L,
-    pub(crate) catalogs: RunpodRuntimeCatalogServices,
+    pub(crate) workflow_catalog: WorkflowCatalogService,
+    pub(crate) runtime_catalog: RuntimeCatalogService,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
     pub(crate) event_sink: Arc<dyn RunpodRuntimeEventSink>,
@@ -79,7 +84,8 @@ where
         let registry = context.lifecycle_operation_registry.clone();
         let workspace_repository = context.workspace_repository;
         let lifecycle_journal = context.lifecycle_journal;
-        let catalogs = context.catalogs;
+        let workflow_catalog = context.workflow_catalog;
+        let runtime_catalog = context.runtime_catalog;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
         spawn_lifecycle_runner(
@@ -91,12 +97,15 @@ where
             async move {
                 provision::run_once(
                     &operation_id,
-                    &workspace_repository,
-                    &lifecycle_journal,
-                    &catalogs,
-                    runpod_client.as_ref(),
-                    &event_sink,
-                    PROVISIONER_POLL_INTERVAL,
+                    RunpodProvisionLifecycleContext {
+                        workspace_repository: &workspace_repository,
+                        lifecycle_journal: &lifecycle_journal,
+                        workflow_catalog: &workflow_catalog,
+                        runtime_catalog: &runtime_catalog,
+                        runpod_client: runpod_client.as_ref(),
+                        event_sink: &event_sink,
+                        provisioner_poll_interval: PROVISIONER_POLL_INTERVAL,
+                    },
                 )
                 .await
             },
