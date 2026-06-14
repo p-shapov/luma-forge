@@ -7,13 +7,14 @@ use crate::{
         workspace::{Workspace, WorkspaceId, WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::LifecycleJournalRepository,
+    runtime_catalog::RuntimeCatalogService,
+    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::super::provider::RunpodProvisionerStatus;
 use super::{
     super::{
-        catalogs::RunpodRuntimeCatalogServices,
         contracts::{
             RunpodContractResolver, RunpodRuntimeContracts, RunpodWorkflowResolved,
             RunpodWorkflowResolver,
@@ -49,6 +50,20 @@ struct ProvisioningStepContext<'a, W, L> {
     event_sink: &'a Arc<dyn RunpodRuntimeEventSink>,
 }
 
+pub(crate) struct RunpodProvisionLifecycleContext<'a, W, L>
+where
+    W: WorkspaceCatalogRepository,
+    L: LifecycleJournalRepository,
+{
+    pub(crate) workspace_repository: &'a W,
+    pub(crate) lifecycle_journal: &'a L,
+    pub(crate) workflow_catalog: &'a WorkflowCatalogService,
+    pub(crate) runtime_catalog: &'a RuntimeCatalogService,
+    pub(crate) runpod_client: &'a dyn RunpodRuntimeClient,
+    pub(crate) event_sink: &'a Arc<dyn RunpodRuntimeEventSink>,
+    pub(crate) provisioner_poll_interval: Duration,
+}
+
 #[tracing::instrument(
     name = "runpod_lifecycle",
     skip_all,
@@ -60,17 +75,15 @@ struct ProvisioningStepContext<'a, W, L> {
 )]
 pub(crate) async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
-    workspace_repository: &W,
-    lifecycle_journal: &L,
-    catalogs: &RunpodRuntimeCatalogServices,
-    runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
-    provisioner_poll_interval: Duration,
+    context: RunpodProvisionLifecycleContext<'_, W, L>,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
 {
+    let workspace_repository = context.workspace_repository;
+    let lifecycle_journal = context.lifecycle_journal;
+    let event_sink = context.event_sink;
     let operation = load_running_operation(lifecycle_journal, operation_id).await?;
     tracing::Span::current().record(
         "workspace_id",
@@ -109,12 +122,16 @@ where
 
     let mut failed_step = RunpodProvisionStep::CreateNetworkVolume;
     let result = async {
-        let inputs = resolve_provisioning_inputs(&workspace, catalogs)?;
+        let inputs = resolve_provisioning_inputs(
+            &workspace,
+            context.workflow_catalog,
+            context.runtime_catalog,
+        )?;
         let step_context = ProvisioningStepContext {
             workspace_repository,
             lifecycle_journal,
             operation: &operation,
-            runpod_client,
+            runpod_client: context.runpod_client,
             event_sink,
         };
 
@@ -131,10 +148,10 @@ where
             lifecycle_journal,
             event_sink,
             &operation,
-            step_context.runpod_client,
+            context.runpod_client,
             &workspace.id,
             &provisioner_id,
-            provisioner_poll_interval,
+            context.provisioner_poll_interval,
         )
         .await?;
 
@@ -203,15 +220,15 @@ where
 
 fn resolve_provisioning_inputs(
     workspace: &Workspace,
-    catalogs: &RunpodRuntimeCatalogServices,
+    workflow_catalog: &WorkflowCatalogService,
+    runtime_catalog: &RuntimeCatalogService,
 ) -> Result<ProvisioningInputs, RunpodRuntimeError> {
-    let workflows = catalogs
-        .workflow_catalog
+    let workflows = workflow_catalog
         .get_workflow_catalog()
         .map_err(RunpodRuntimeError::from)?;
     let workflow = RunpodWorkflowResolver::resolve(&workflows, &workspace.workflow)
         .ok_or_else(|| invalid_runtime_state_message("workflow reference was not found"))?;
-    let contracts = RunpodContractResolver::resolve(&workflow, &catalogs.runtime_catalog)?;
+    let contracts = RunpodContractResolver::resolve(&workflow, runtime_catalog)?;
 
     Ok(ProvisioningInputs {
         placement: runpod_runtime(workspace).placement.clone(),
