@@ -118,8 +118,7 @@ use super::{
         CreateServerlessTemplateRequest, HttpRunpodApi, RunpodApi,
     },
     config::{
-        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, ENDPOINT_WORKSPACE_MOUNT_PATH,
-        NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT, PROVISIONER_WORKSPACE_MOUNT_PATH,
+        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT,
         RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
     mapping,
@@ -460,7 +459,6 @@ fn provisioner_pod_request(
         name: mapping::provisioner_pod_name(&params.workspace_id),
         image_ref: params.provisioner_image_ref,
         network_volume_id: params.network_volume_id,
-        mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
         bearer_token,
         required_model_assets: params.required_model_assets,
         hugging_face_api_key,
@@ -473,7 +471,6 @@ fn serverless_template_request(
     CreateServerlessTemplateRequest {
         name: mapping::endpoint_template_name(&params.workspace_id),
         image_ref: params.endpoint_image_ref,
-        mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
     }
 }
 
@@ -513,7 +510,6 @@ mod tests {
     };
 
     use super::super::api::{RunpodEndpoint, RunpodId};
-    use super::super::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
 
@@ -938,7 +934,6 @@ mod tests {
         let state = api_state.lock().expect("api state");
         let template_request = &state.template_requests[0];
         let endpoint_request = &state.endpoint_requests[0];
-        assert_eq!(template_request.mount_path, ENDPOINT_WORKSPACE_MOUNT_PATH);
         assert_eq!(
             template_request.name,
             "luma-forge-workspace-endpoint-template"

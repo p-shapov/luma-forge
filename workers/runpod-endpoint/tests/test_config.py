@@ -1,57 +1,35 @@
-import os
-from pathlib import Path
 from unittest import TestCase
-from unittest.mock import patch
 
-from runpod_endpoint_worker.config import EndpointConfig
+from runpod_endpoint_worker.config import (
+    COMFY_CLI_PATH,
+    COMFY_UI_READY_POLL_SECONDS,
+    COMFYUI_HOST,
+    COMFYUI_PATH,
+    COMFYUI_PORT,
+    COMFYUI_STARTUP_TIMEOUT_SECONDS,
+    EXECUTION_CONTRACT_PATH,
+    EXECUTION_TIMEOUT_SECONDS,
+    EndpointConfig,
+    MAX_ARTIFACT_BYTES,
+    MAX_RESPONSE_BYTES,
+    WORKFLOW_PATH,
+    WORKSPACE_MOUNT_PATH,
+)
 
 
 class EndpointConfigTests(TestCase):
-    def test_reads_shared_workspace_mount_path(self):
-        with patch.dict(os.environ, {"LUMA_FORGE_WORKSPACE_MOUNT_PATH": "/shared-workspace"}, clear=True):
-            config = EndpointConfig.from_env()
+    def test_uses_baked_runtime_configuration(self):
+        config = EndpointConfig.from_env()
 
-        self.assertEqual(config.workspace_mount_path, Path("/shared-workspace"))
-
-    def test_endpoint_workspace_mount_path_overrides_shared_path(self):
-        with patch.dict(
-            os.environ,
-            {
-                "LUMA_FORGE_WORKSPACE_MOUNT_PATH": "/shared-workspace",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH": "/endpoint-workspace",
-            },
-            clear=True,
-        ):
-            config = EndpointConfig.from_env()
-
-        self.assertEqual(config.workspace_mount_path, Path("/endpoint-workspace"))
-
-    def test_reads_comfy_runtime_configuration(self):
-        with patch.dict(
-            os.environ,
-            {
-                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFY_CLI_PATH": "/runtime/bin/comfy",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH": "/runtime/ComfyUI",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH": "/runtime/workflows/workflow.json",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH": "/runtime/contracts/execution-contract.json",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST": "0.0.0.0",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT": "8199",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS": "12",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS": "34",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES": "56",
-                "LUMA_FORGE_RUNPOD_ENDPOINT_MAX_ARTIFACT_BYTES": "78",
-            },
-            clear=True,
-        ):
-            config = EndpointConfig.from_env()
-
-        self.assertEqual(config.comfy_cli_path, Path("/runtime/bin/comfy"))
-        self.assertEqual(config.comfyui_path, Path("/runtime/ComfyUI"))
-        self.assertEqual(config.workflow_path, Path("/runtime/workflows/workflow.json"))
-        self.assertEqual(config.execution_contract_path, Path("/runtime/contracts/execution-contract.json"))
-        self.assertEqual(config.comfyui_host, "0.0.0.0")
-        self.assertEqual(config.comfyui_port, 8199)
-        self.assertEqual(config.comfyui_startup_timeout_seconds, 12)
-        self.assertEqual(config.execution_timeout_seconds, 34)
-        self.assertEqual(config.max_response_bytes, 56)
-        self.assertEqual(config.max_artifact_bytes, 78)
+        self.assertEqual(config.workspace_mount_path, WORKSPACE_MOUNT_PATH)
+        self.assertEqual(config.comfy_cli_path, COMFY_CLI_PATH)
+        self.assertEqual(config.comfyui_path, COMFYUI_PATH)
+        self.assertEqual(config.workflow_path, WORKFLOW_PATH)
+        self.assertEqual(config.execution_contract_path, EXECUTION_CONTRACT_PATH)
+        self.assertEqual(config.comfyui_host, COMFYUI_HOST)
+        self.assertEqual(config.comfyui_port, COMFYUI_PORT)
+        self.assertEqual(config.comfyui_startup_timeout_seconds, COMFYUI_STARTUP_TIMEOUT_SECONDS)
+        self.assertEqual(config.comfy_ui_ready_poll_seconds, COMFY_UI_READY_POLL_SECONDS)
+        self.assertEqual(config.execution_timeout_seconds, EXECUTION_TIMEOUT_SECONDS)
+        self.assertEqual(config.max_response_bytes, MAX_RESPONSE_BYTES)
+        self.assertEqual(config.max_artifact_bytes, MAX_ARTIFACT_BYTES)

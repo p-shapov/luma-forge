@@ -1,32 +1,22 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 import json
-import ipaddress
-import math
 import os
 from pathlib import Path
-import re
 
 from app.schemas import StartRequest, parse_start_request
 from app.errors import ValidationError
 
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8000
-DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS = 3600.0
-DEFAULT_WORKSPACE_MOUNT_PATH = "/workspace"
+HOST = "127.0.0.1"
+PORT = 8000
+DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS = 3600.0
+WORKSPACE_MOUNT_PATH = "/workspace"
 
-MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 MIN_BEARER_TOKEN_LENGTH = 32
 
 BEARER_TOKEN_ENV = "LUMA_FORGE_PROVISIONER_BEARER_TOKEN"
 REQUIRED_MODEL_ASSETS_ENV = "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"
-HOST_ENV = "LUMA_FORGE_PROVISIONER_HOST"
-PORT_ENV = "LUMA_FORGE_PROVISIONER_PORT"
-DOWNLOAD_INACTIVITY_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS"
-WORKSPACE_MOUNT_PATH_ENV = "LUMA_FORGE_WORKSPACE_MOUNT_PATH"
 HUGGING_FACE_API_KEY_ENV = "LUMA_FORGE_HUGGING_FACE_API_KEY"
-
-_DNS_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
 class ConfigurationError(Exception):
@@ -58,24 +48,12 @@ class WorkerConfig:
     def from_env(cls, env: Mapping[str, str] | None = None) -> "WorkerConfig":
         source = os.environ if env is None else env
         return cls(
-            host=_parse_host(source),
-            port=_parse_int(
-                source,
-                PORT_ENV,
-                DEFAULT_PORT,
-                minimum=1,
-                maximum=65535,
-            ),
+            host=HOST,
+            port=PORT,
             bearer_token=_parse_bearer_token(source),
             start_request=_parse_start_request(source),
-            download_inactivity_timeout_seconds=_parse_float(
-                source,
-                DOWNLOAD_INACTIVITY_TIMEOUT_ENV,
-                DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
-                minimum=0.0,
-                maximum=MAX_TIMEOUT_SECONDS,
-            ),
-            workspace_mount_path=_parse_workspace_mount_path(source),
+            download_inactivity_timeout_seconds=DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
+            workspace_mount_path=Path(WORKSPACE_MOUNT_PATH).resolve(strict=False),
             hugging_face_api_key=_parse_optional_secret(source, HUGGING_FACE_API_KEY_ENV),
         )
 
@@ -124,83 +102,12 @@ def _parse_start_request(env: Mapping[str, str]) -> StartRequest:
         raise ConfigurationError(REQUIRED_MODEL_ASSETS_ENV, "invalid_request", error.message) from error
 
 
-def _parse_host(env: Mapping[str, str]) -> str:
-    host = _configured_or_default(env, HOST_ENV, DEFAULT_HOST)
-    if _is_valid_ip_address(host) or _is_valid_dns_hostname(host):
-        return host
-    raise ConfigurationError(HOST_ENV, "invalid_host", "value must be a valid IP address or DNS hostname")
-
-
-def _parse_workspace_mount_path(env: Mapping[str, str]) -> Path:
-    return _parse_absolute_path(env, WORKSPACE_MOUNT_PATH_ENV, DEFAULT_WORKSPACE_MOUNT_PATH)
-
-
 def _parse_optional_secret(env: Mapping[str, str], name: str) -> str | None:
     raw = env.get(name)
     if raw is None:
         return None
     value = raw.strip()
     return value or None
-
-
-def _parse_absolute_path(env: Mapping[str, str], name: str, default: str) -> Path:
-    raw = _configured_or_default(env, name, default)
-    path = Path(raw)
-    if not path.is_absolute():
-        raise ConfigurationError(name, "path_not_absolute", "value must be an absolute path")
-    if str(path) != raw or any(part in ("", ".", "..") for part in path.parts):
-        raise ConfigurationError(name, "path_not_normalized", "value must be normalized")
-    return path.resolve(strict=False)
-
-
-def _parse_int(
-    env: Mapping[str, str],
-    name: str,
-    default: int,
-    *,
-    minimum: int,
-    maximum: int,
-) -> int:
-    raw = env.get(name)
-    if raw is None:
-        return default
-    value = raw.strip()
-    if value == "":
-        raise ConfigurationError(name, "blank_value", "value must not be blank")
-    try:
-        parsed = int(value, 10)
-    except ValueError as error:
-        raise ConfigurationError(name, "invalid_integer", "value must be an integer") from error
-    if parsed < minimum or parsed > maximum:
-        raise ConfigurationError(name, "integer_out_of_range", f"value must be between {minimum} and {maximum}")
-    return parsed
-
-
-def _parse_float(
-    env: Mapping[str, str],
-    name: str,
-    default: float,
-    *,
-    minimum: float,
-    maximum: float,
-) -> float:
-    raw = env.get(name)
-    if raw is None:
-        return default
-    value = raw.strip()
-    if value == "":
-        raise ConfigurationError(name, "blank_value", "value must not be blank")
-    try:
-        parsed = float(value)
-    except ValueError as error:
-        raise ConfigurationError(name, "invalid_number", "value must be a number") from error
-    if not math.isfinite(parsed) or parsed <= minimum or parsed > maximum:
-        raise ConfigurationError(
-            name,
-            "number_out_of_range",
-            f"value must be greater than {minimum:g} and at most {maximum:g}",
-    )
-    return parsed
 
 
 def _parse_required_model_assets(env: Mapping[str, str]) -> list[dict[str, object]]:
@@ -222,13 +129,6 @@ def _parse_required_model_assets(env: Mapping[str, str]) -> list[dict[str, objec
     return payload
 
 
-def _configured_or_default(env: Mapping[str, str], name: str, default: str) -> str:
-    raw = env.get(name)
-    if raw is None:
-        return default
-    return _non_blank_configured_value(name, raw)
-
-
 def _required_configured_value(env: Mapping[str, str], name: str) -> str:
     raw = env.get(name)
     if raw is None:
@@ -241,20 +141,3 @@ def _non_blank_configured_value(name: str, raw: str) -> str:
     if value == "":
         raise ConfigurationError(name, "blank_value", "value must not be blank")
     return value
-
-
-def _is_valid_ip_address(value: str) -> bool:
-    try:
-        ipaddress.ip_address(value)
-    except ValueError:
-        return False
-    return True
-
-
-def _is_valid_dns_hostname(value: str) -> bool:
-    if len(value) > 253:
-        return False
-    hostname = value[:-1] if value.endswith(".") else value
-    if not hostname:
-        return False
-    return all(_DNS_LABEL.fullmatch(label) is not None for label in hostname.split("."))

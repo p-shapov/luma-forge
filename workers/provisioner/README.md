@@ -1,6 +1,6 @@
 # LumaForge Provisioner Worker
 
-Container-side one-shot worker that prepares a mounted ComfyUI workspace from startup environment configuration. The worker auto-starts the single provisioning job after configuration validation and exposes `GET /status` for authenticated progress polling.
+Container-side one-shot worker that prepares a mounted ComfyUI workspace from startup configuration. The worker auto-starts the single provisioning job after configuration validation and exposes `GET /status` for authenticated progress polling.
 
 ## Local Run
 
@@ -11,7 +11,7 @@ LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   PYTHONPATH=src python -m app
 ```
 
-The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` before startup. It listens on `127.0.0.1:8000` by default and auto-starts the single provisioning job as soon as the HTTP server is created. Clients observe progress with `GET /status`.
+The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` before startup. It listens on `127.0.0.1:8000` and auto-starts the single provisioning job as soon as the HTTP server is created. Clients observe progress with `GET /status`.
 
 During preparation, the Provisioner Worker prepares only workspace-specific data on the mounted volume:
 
@@ -62,15 +62,15 @@ Provisioner and endpoint images use separate Dockerfiles. The provisioner Docker
 
 See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
 
-## Runtime Environment
+## Runtime Configuration
 
-The worker validates runtime environment before binding the HTTP server. Invalid configured values fail startup instead of falling back silently. Startup configuration failures write one JSON error record to stderr, exit with code `78`, and do not start the HTTP API:
+The worker validates startup environment before binding the HTTP server. Invalid configured values fail startup instead of falling back silently. Startup configuration failures write one JSON error record to stderr, exit with code `78`, and do not start the HTTP API:
 
 ```json
 {
-  "code": "invalid_integer",
-  "env_name": "LUMA_FORGE_PROVISIONER_PORT",
-  "message": "Invalid Provisioner Worker configuration for LUMA_FORGE_PROVISIONER_PORT: value must be an integer."
+  "code": "invalid_json",
+  "env_name": "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS",
+  "message": "Invalid Provisioner Worker configuration for LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS: value must be valid JSON."
 }
 ```
 
@@ -80,10 +80,6 @@ The error record never includes configured environment values or secrets.
 | --- | --- | --- |
 | `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
 | `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | Required | JSON array of valid `ModelAsset` objects. |
-| `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. |
-| `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
-| `LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`; measured since the last received download byte. |
-| `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
 | `LUMA_FORGE_HUGGING_FACE_API_KEY` | Optional | Optional Hugging Face bearer token used for model downloads; never returned in worker responses. |
 
 ## API
