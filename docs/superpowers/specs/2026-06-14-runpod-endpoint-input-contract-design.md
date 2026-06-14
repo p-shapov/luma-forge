@@ -62,18 +62,22 @@ Example shape:
   "execution_schemas": [
     {
       "id": "text-to-image",
-      "version": "1.0.0",
-      "inputs": [
+      "revisions": [
         {
-          "id": "prompt",
-          "type": "string",
-          "required": true,
-          "max_length": 4000
+          "version": "1.0.0",
+          "inputs": [
+            {
+              "id": "prompt",
+              "type": "string",
+              "required": true,
+              "max_length": 4000
+            }
+          ],
+          "outputs": {
+            "type": "image_set"
+          }
         }
-      ],
-      "outputs": {
-        "type": "image_set"
-      }
+      ]
     }
   ]
 }
@@ -176,7 +180,8 @@ numeric string segment is interpreted as an array index.
 Schema registry validation should reject:
 
 - duplicate schema ids or duplicate versions for one schema id
-- missing or empty schema id, version, inputs, or outputs
+- missing or empty schema id or revisions
+- missing or empty revision version, inputs, or outputs
 - unknown input types
 - invalid input constraints, such as a zero `max_length`
 - missing or empty `outputs.type`
