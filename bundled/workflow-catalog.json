@@ -16,17 +16,26 @@
               {
                 "value": "{{prompt}}",
                 "node_id": "171",
-                "path": ["widgets_values", "0"]
+                "path": [
+                  "widgets_values",
+                  "0"
+                ]
               },
               {
                 "value": false,
                 "node_id": "154",
-                "path": ["widgets_values", "0"]
+                "path": [
+                  "widgets_values",
+                  "0"
+                ]
               },
               {
                 "value": false,
                 "node_id": "177",
-                "path": ["widgets_values", "0"]
+                "path": [
+                  "widgets_values",
+                  "0"
+                ]
               }
             ]
           },
@@ -37,7 +46,7 @@
               "runtime_type": "runpod",
               "endpoint_contract": {
                 "id": "runpod-endpoint-comfyui-hidream-o1-dev",
-                "version": "1.0.16"
+                "version": "1.0.17"
               },
               "provisioner_contract": {
                 "id": "provisioner",
