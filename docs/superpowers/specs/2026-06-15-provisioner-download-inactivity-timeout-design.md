@@ -2,18 +2,26 @@
 
 ## Context
 
-The Provisioner Worker prepares a mounted ComfyUI workspace inside a provider-managed pod. Current code already auto-starts provisioning from validated environment configuration when the HTTP server is created, and the native layer polls `GET /status` for progress. The README is stale: it still describes a `/start` API and an idle startup contract.
+The Provisioner Worker prepares a mounted ComfyUI workspace inside a provider-managed pod. Current code already auto-starts provisioning from validated environment configuration when the HTTP server is created, and the native layer polls `GET /status` for progress. The README is stale: it still describes an idle worker and a `POST /start` API.
 
 The current download timeout setting is also misleading. `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS` is enforced as a total wall-clock deadline around the whole download process. Large downloads that are actively receiving bytes can therefore fail even when healthy.
+
+The worker also carries two stale environment contract fields:
+
+- `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY` duplicates behavior that can be handled by using `LUMA_FORGE_HUGGING_FACE_API_KEY` when present and mapping auth failures when absent.
+- `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` is dead API configuration because the worker no longer accepts a JSON request body endpoint.
 
 ## Goals
 
 - Document the provisioner as one-shot, non-retryable, and non-cancellable.
 - Document env-driven auto-start and status polling through `GET /status`.
-- State that native/control-plane owns pod termination and startup reachability timeout.
+- State that native/control-plane owns startup reachability timeout, retry policy, cancellation policy, and provider pod termination.
 - Replace the download wall-clock timeout with an inactivity timeout.
 - Rename config, env, and function/variable names so they say inactivity.
-- Keep the change scoped to provisioner config, downloader, request handler cleanup, tests, README, and Dockerfile env cleanup.
+- Remove `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY` from the worker contract.
+- Document `LUMA_FORGE_HUGGING_FACE_API_KEY` as the optional Hugging Face secret env.
+- Remove `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` from the worker contract.
+- Keep changes scoped to provisioner config, schemas, downloader, narrow dead request-body handler cleanup, tests, and README.
 - Verify with provisioner unit tests and provisioner compile check.
 
 ## Non-Goals
@@ -22,8 +30,11 @@ The current download timeout setting is also misleading. `LUMA_FORGE_PROVISIONER
 - No worker cancellation API.
 - No retry or resume manifest work.
 - No native config injection change.
+- No Dockerfile cleanup.
+- No host or port configuration cleanup.
+- No API lifecycle changes beyond deleting dead request-body handling.
 - No broader lifecycle refactor.
-- No compatibility shim for `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS`.
+- No compatibility shim for removed or renamed env vars.
 
 ## Contract
 
@@ -36,7 +47,14 @@ GET /status
 Authorization: Bearer <LUMA_FORGE_PROVISIONER_BEARER_TOKEN>
 ```
 
-Terminal states remain `succeeded` and `failed`. The worker exposes no retry endpoint, no cancel endpoint, and no pod termination endpoint. Native/control-plane code owns startup reachability timeout, status polling policy, and provider pod termination.
+Terminal states remain `succeeded` and `failed`. The worker exposes no retry endpoint, no cancel endpoint, no start endpoint, and no pod termination endpoint. Native/control-plane code owns startup reachability timeout, status polling policy, cancellation policy, retry policy, and provider pod termination.
+
+The env-derived job contract contains:
+
+- `LUMA_FORGE_PROVISIONER_JOB_ID`
+- `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS`
+
+It no longer contains `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY`.
 
 ## Configuration
 
@@ -51,21 +69,15 @@ The default remains `3600.0`. Validation remains a positive finite number up to 
 
 Because LumaForge is pre-v1, the old env name is removed directly. The worker will not read, alias, warn on, or test compatibility with `LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS`.
 
-Remove host and port runtime configuration from the worker:
+Remove `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY` from config parsing and schema parsing. The provisioner will pass `LUMA_FORGE_HUGGING_FACE_API_KEY` to Hugging Face downloads when it is configured. If the secret is absent, downloads proceed unauthenticated; gated or private assets fail through the existing auth-error mapping as `asset_auth_required`.
 
-- Delete `LUMA_FORGE_PROVISIONER_HOST` parsing from worker config.
-- Delete `LUMA_FORGE_PROVISIONER_PORT` parsing from worker config.
-- Replace them with internal worker constants: bind host `0.0.0.0`, port `8000`.
+Remove `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` from worker config and README. The current contract exposes no JSON request body endpoint because provisioning auto-starts from env and clients only call `GET /status`. If removing the config field leaves unused request-body parsing in the API handler, delete that dead parsing path as part of this change.
 
-This avoids fake flexibility. Native already constructs the provisioner status URL with port `8000`, and the provider container must bind outside loopback to be reachable through Docker port publishing and RunPod proxying. Making host configurable only adds a way to create an unreachable pod.
-
-Remove `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` from worker config and README. The current contract exposes no JSON request body endpoint because provisioning auto-starts from env and clients only call `GET /status`. Keeping request body size configuration after removing `/start` would document dead behavior.
-
-Document `LUMA_FORGE_HUGGING_FACE_API_KEY` in the README as an optional secret env. It is required only when `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY=true`; the worker must not echo, log, or expose the raw value.
+Keep host and port config unchanged in this refactor.
 
 ## Downloader Design
 
-The no-timeout path can continue using direct synchronous download behavior for tests and internal callers that pass `None`.
+The no-inactivity-timeout path can continue using direct synchronous download behavior for tests and internal callers that pass `None`.
 
 The configured inactivity timeout path keeps the existing child-process isolation. The child process resolves the Hugging Face URL, opens the request, creates the `.part` file, and reads response chunks manually instead of using `copyfileobj`.
 
@@ -88,23 +100,6 @@ When the child exits normally, the parent reads the final status message. Auth e
 
 Large downloads that continuously produce non-empty chunks must never fail because of total elapsed time. A stream that blocks before the first chunk or stops after a partial chunk fails after the inactivity window.
 
-## Dockerfile Env Audit And Cleanup
-
-`workers/provisioner/Dockerfile` currently sets:
-
-- `PYTHONUNBUFFERED=1`
-- `LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace`
-- `LUMA_FORGE_PROVISIONER_HOST=0.0.0.0`
-- `LUMA_FORGE_PROVISIONER_PORT=8000`
-
-Keep `PYTHONUNBUFFERED=1`; it controls Python output buffering.
-
-Remove `LUMA_FORGE_PROVISIONER_HOST=0.0.0.0` and `LUMA_FORGE_PROVISIONER_PORT=8000`; worker code will own those fixed bind values.
-
-Remove `LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace`; it duplicates the worker default and native mount-path assumption.
-
-Do not add `LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS` to the Dockerfile. The worker default remains authoritative.
-
 ## Tests
 
 Update existing tests and helpers to the new inactivity names.
@@ -117,22 +112,23 @@ Downloader tests:
 - Inactivity timeout removes `.part` and does not leave the final target.
 - Auth and generic download failure mapping remains unchanged.
 
-Config tests:
+Config and schema tests:
 
 - Default inactivity timeout is used when env is absent.
 - Explicit `LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS` is accepted.
 - Invalid inactivity timeout values are rejected.
-- Host and port are no longer accepted as worker config fields or env-driven options.
-- Max request bytes is no longer accepted as a worker config field or env-driven option.
-- Optional Hugging Face API key parsing remains covered without leaking the value.
+- `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY` is removed from config and env-derived job schema.
+- `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES` is removed from worker config.
+- Optional `LUMA_FORGE_HUGGING_FACE_API_KEY` parsing remains covered without leaking the value.
 
-Documentation test:
+Documentation test or targeted README assertion:
 
 - README describes env-driven auto-start and `GET /status`.
-- README documents fixed worker bind host `0.0.0.0` and port `8000` as implementation/runtime constants, not env variables.
+- README does not describe `POST /start`.
+- README documents `LUMA_FORGE_HUGGING_FACE_API_KEY` as the optional Hugging Face secret.
+- README does not list `LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY`.
 - README does not list `LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES`.
-- README lists `LUMA_FORGE_HUGGING_FACE_API_KEY` as the optional Hugging Face secret.
-- README states that retry/cancel/termination are not worker API responsibilities.
+- README states that retry, cancellation, startup reachability timeout, and pod termination are not worker API responsibilities.
 
 ## Validation
 
