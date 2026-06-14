@@ -12,10 +12,6 @@ WORKFLOW_PATH = Path(__file__).resolve().parents[3] / "bundled/workflows/comfyui
 
 def contract():
     return {
-        "schema_ref": {
-            "id": "text-to-image",
-            "version": "1.0.0",
-        },
         "input_bindings": [
             {
                 "value": "{{prompt}}",
@@ -59,7 +55,6 @@ class WorkflowBindingTests(unittest.TestCase):
         patched = apply_input_bindings(
             workflow,
             {
-                "schema_ref": {"id": "text-to-image", "version": "1.0.0"},
                 "input_bindings": [{"value": "literal prompt", "node_id": "1", "path": ["widgets_values", "0"]}],
             },
             {"prompt": "ignored"},
@@ -74,7 +69,6 @@ class WorkflowBindingTests(unittest.TestCase):
             apply_input_bindings(
                 workflow,
                 {
-                    "schema_ref": {"id": "text-to-image", "version": "1.0.0"},
                     "input_bindings": [{"value": "{{prompt}}", "node_id": "2", "path": ["widgets_values", "0"]}],
                 },
                 {"prompt": "a lamp"},
@@ -87,7 +81,6 @@ class WorkflowBindingTests(unittest.TestCase):
             apply_input_bindings(
                 workflow,
                 {
-                    "schema_ref": {"id": "text-to-image", "version": "1.0.0"},
                     "input_bindings": [{"value": "{{prompt}}", "node_id": "1", "path": ["widgets_values", "0"]}],
                 },
                 {"prompt": "a lamp"},
@@ -102,7 +95,6 @@ class WorkflowBindingTests(unittest.TestCase):
             contract_path.write_text(
                 json.dumps(
                     {
-                        "schema_ref": {"id": "text-to-image", "version": "1.0.0"},
                         "input_bindings": [{"value": "{{prompt}}", "node_id": "1", "path": ["widgets_values", "0"]}],
                     }
                 ),

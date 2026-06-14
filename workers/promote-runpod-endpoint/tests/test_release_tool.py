@@ -1,6 +1,5 @@
 import importlib.util
 import json
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -126,34 +125,24 @@ runtime:
 
     def test_endpoint_dockerfile_keeps_runtime_build_inputs(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
+        dockerfile_lines = dockerfile.splitlines()
 
         self.assertIn("python -m venv --copies /opt/luma-forge/runtime/.venv", dockerfile)
-        self.assertIn(
-            "ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json",
-            dockerfile,
-        )
+        self.assertIn("ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION", dockerfile_lines)
+        self.assertIn("ARG LUMA_FORGE_COMFYUI_REVISION", dockerfile_lines)
+        self.assertIn("ARG LUMA_FORGE_PYTORCH_INDEX_URL", dockerfile_lines)
+        self.assertIn("ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON", dockerfile_lines)
+        self.assertIn("ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH", dockerfile_lines)
         self.assertIn("comfy-cli==1.10.3", dockerfile)
         self.assertIn("test -f /opt/luma-forge/runtime/ComfyUI/main.py", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/workflows/workflow.json", dockerfile)
-        self.assertIn("ARG LUMA_FORGE_WORKFLOW_ID=", dockerfile)
-        self.assertIn("ARG LUMA_FORGE_WORKFLOW_VERSION=", dockerfile)
+        self.assertIn("ARG LUMA_FORGE_WORKFLOW_ID", dockerfile_lines)
+        self.assertIn("ARG LUMA_FORGE_WORKFLOW_VERSION", dockerfile_lines)
+        self.assertIn('test -n "$LUMA_FORGE_WORKFLOW_VERSION"', dockerfile)
         self.assertIn("bundled/workflow-catalog.json", dockerfile)
         self.assertIn("bundled/execution-schemas.json", dockerfile)
         self.assertIn("workers/runpod_endpoint_build_metadata.py", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/contracts/execution-contract.json", dockerfile)
-        self.assertIn("/opt/luma-forge/runtime/contracts/execution-schema.json", dockerfile)
-
-    def test_endpoint_dockerfile_default_pytorch_packages_arg_is_valid_json(self):
-        dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
-        match = re.search(r"^ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=(.+)$", dockerfile, re.MULTILINE)
-
-        self.assertIsNotNone(match)
-        raw_value = match.group(1)
-        self.assertIn('\\"torch==2.9.1\\"', raw_value)
-        self.assertEqual(
-            ["torch==2.9.1", "torchvision==0.24.1", "torchaudio==2.9.1"],
-            json.loads(raw_value.replace('\\"', '"')),
-        )
 
     def test_workflow_promotes_endpoint_image_after_publish(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")

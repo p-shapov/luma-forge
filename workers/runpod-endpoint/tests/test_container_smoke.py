@@ -23,6 +23,20 @@ class ContainerSmokeTests(unittest.TestCase):
                     image,
                     "-f",
                     str(WORKERS_DIR / "runpod-endpoint/Dockerfile"),
+                    "--build-arg",
+                    "LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12",
+                    "--build-arg",
+                    "LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1",
+                    "--build-arg",
+                    "LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126",
+                    "--build-arg",
+                    'LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.9.1","torchvision==0.24.1","torchaudio==2.9.1"]',
+                    "--build-arg",
+                    "LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json",
+                    "--build-arg",
+                    "LUMA_FORGE_WORKFLOW_ID=comfyui-hidream-o1-dev",
+                    "--build-arg",
+                    "LUMA_FORGE_WORKFLOW_VERSION=1.0.0",
                     str(REPO_ROOT),
                 ],
                 check=True,
@@ -49,7 +63,6 @@ class ContainerSmokeTests(unittest.TestCase):
                     " && test -f /opt/luma-forge/runtime/base-runtime/install-report.json"
                     " && test -s /opt/luma-forge/runtime/workflows/workflow.json"
                     " && test -s /opt/luma-forge/runtime/contracts/execution-contract.json"
-                    " && test -s /opt/luma-forge/runtime/contracts/execution-schema.json"
                     " && test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager"
                     " && python -c 'from runpod_endpoint_worker.handler import build_default_handler; handler = build_default_handler(); assert handler is not None'"
                 ),

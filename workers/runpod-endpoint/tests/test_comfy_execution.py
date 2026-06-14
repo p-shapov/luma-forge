@@ -72,10 +72,6 @@ def _write_execution_contract(directory: str) -> Path:
     path.write_text(
         json.dumps(
             {
-                "schema_ref": {
-                    "id": "text-to-image",
-                    "version": "1.0.0",
-                },
                 "input_bindings": [
                     {
                         "value": "{{prompt}}",

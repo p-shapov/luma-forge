@@ -13,7 +13,6 @@ class BuildMetadataTests(unittest.TestCase):
             workflow_catalog = root / "workflow-catalog.json"
             execution_schemas = root / "execution-schemas.json"
             contract_output = root / "execution-contract.json"
-            schema_output = root / "execution-schema.json"
             workflow_catalog.write_text(
                 json.dumps(
                     {
@@ -70,11 +69,12 @@ class BuildMetadataTests(unittest.TestCase):
                 workflow_id="comfyui-hidream-o1-dev",
                 workflow_version="1.0.0",
                 execution_contract_output_path=contract_output,
-                execution_schema_output_path=schema_output,
             )
 
-            self.assertEqual("text-to-image", json.loads(contract_output.read_text(encoding="utf-8"))["schema_ref"]["id"])
-            self.assertEqual("image_set", json.loads(schema_output.read_text(encoding="utf-8"))["outputs"]["type"])
+            contract = json.loads(contract_output.read_text(encoding="utf-8"))
+            self.assertNotIn("schema_ref", contract)
+            self.assertEqual("image_set", contract["execution_schema"]["outputs"]["type"])
+            self.assertEqual("{{prompt}}", contract["input_bindings"][0]["value"])
 
 
 if __name__ == "__main__":

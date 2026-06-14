@@ -17,21 +17,22 @@ def extract_runtime_metadata(
     workflow_id: str,
     workflow_version: str,
     execution_contract_output_path: Path,
-    execution_schema_output_path: Path,
 ) -> None:
     workflow_catalog = _load_json(workflow_catalog_path)
     execution_schemas = _load_json(execution_schemas_path)
     revision = _find_workflow_revision(workflow_catalog, workflow_id, workflow_version)
-    execution_contract = _dict_value(revision, "execution_contract")
-    schema_ref = _dict_value(execution_contract, "schema_ref")
+    catalog_execution_contract = _dict_value(revision, "execution_contract")
+    schema_ref = _dict_value(catalog_execution_contract, "schema_ref")
     schema_id = _string_value(schema_ref, "id")
     schema_version = _string_value(schema_ref, "version")
     execution_schema_revision = _find_execution_schema_revision(execution_schemas, schema_id, schema_version)
+    execution_contract = {
+        "execution_schema": execution_schema_revision,
+        "input_bindings": _list_value(catalog_execution_contract, "input_bindings"),
+    }
 
     execution_contract_output_path.parent.mkdir(parents=True, exist_ok=True)
-    execution_schema_output_path.parent.mkdir(parents=True, exist_ok=True)
     _write_json(execution_contract_output_path, execution_contract)
-    _write_json(execution_schema_output_path, execution_schema_revision)
 
 
 def _find_workflow_revision(catalog: dict[str, Any], workflow_id: str, workflow_version: str) -> dict[str, Any]:
@@ -91,7 +92,6 @@ def main() -> int:
     parser.add_argument("--workflow-id", required=True)
     parser.add_argument("--workflow-version", required=True)
     parser.add_argument("--execution-contract-output", required=True)
-    parser.add_argument("--execution-schema-output", required=True)
     args = parser.parse_args()
     extract_runtime_metadata(
         workflow_catalog_path=Path(args.workflow_catalog),
@@ -99,7 +99,6 @@ def main() -> int:
         workflow_id=args.workflow_id,
         workflow_version=args.workflow_version,
         execution_contract_output_path=Path(args.execution_contract_output),
-        execution_schema_output_path=Path(args.execution_schema_output),
     )
     return 0
 

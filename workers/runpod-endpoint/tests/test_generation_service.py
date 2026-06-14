@@ -12,23 +12,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from helpers import WorkerFixture
 
 
-def _write_schema(directory: str) -> Path:
-    path = Path(directory) / "execution-schema.json"
+def _write_contract(directory: str) -> Path:
+    path = Path(directory) / "execution-contract.json"
     path.write_text(
         json.dumps(
             {
-                "version": "1.0.0",
-                "inputs": [
-                    {
-                        "id": "prompt",
-                        "type": "string",
-                        "required": True,
-                        "max_length": 4000,
-                    }
-                ],
-                "outputs": {
-                    "type": "image_set",
+                "execution_schema": {
+                    "version": "1.0.0",
+                    "inputs": [
+                        {
+                            "id": "prompt",
+                            "type": "string",
+                            "required": True,
+                            "max_length": 4000,
+                        }
+                    ],
+                    "outputs": {
+                        "type": "image_set",
+                    },
                 },
+                "input_bindings": [],
             }
         ),
         encoding="utf-8",
@@ -55,7 +58,7 @@ class GenerationServiceTests(unittest.TestCase):
 
         executor = Executor()
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(execution_schema_path=_write_schema(directory))
+            config = EndpointConfig(execution_contract_path=_write_contract(directory))
             with WorkerFixture(config=config, executor=executor) as fixture:
                 response = fixture.service.generate_from_payload({"prompt": "a lamp"})
 
@@ -69,7 +72,7 @@ class GenerationServiceTests(unittest.TestCase):
 
     def test_service_from_config_uses_runtime_executor(self):
         with tempfile.TemporaryDirectory() as directory:
-            config = EndpointConfig(execution_schema_path=_write_schema(directory))
+            config = EndpointConfig(execution_contract_path=_write_contract(directory))
             with WorkerFixture(config=config) as fixture:
                 service = GenerationService.from_config(fixture.config)
 
