@@ -17,17 +17,20 @@ def load_execution_schema(path) -> ExecutionSchemaRevision:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise WorkflowValidationError("Baked execution schema could not be loaded.") from error
+        raise WorkflowValidationError("Baked execution contract could not be loaded.") from error
     if not isinstance(value, dict):
-        raise WorkflowValidationError("Baked execution schema must be a JSON object.")
-    outputs = value.get("outputs")
-    inputs = value.get("inputs")
+        raise WorkflowValidationError("Baked execution contract must be a JSON object.")
+    schema = value.get("execution_schema")
+    if not isinstance(schema, dict):
+        raise WorkflowValidationError("Baked execution contract schema is invalid.")
+    outputs = schema.get("outputs")
+    inputs = schema.get("inputs")
     if not isinstance(outputs, dict) or not isinstance(inputs, list):
-        raise WorkflowValidationError("Baked execution schema is invalid.")
+        raise WorkflowValidationError("Baked execution contract schema is invalid.")
     parsed_inputs = []
     for input in inputs:
         if not isinstance(input, dict):
-            raise WorkflowValidationError("Baked execution schema input is invalid.")
+            raise WorkflowValidationError("Baked execution contract schema input is invalid.")
         parsed_inputs.append(
             ExecutionSchemaInput(
                 id=input.get("id") if isinstance(input.get("id"), str) else "",
@@ -37,7 +40,7 @@ def load_execution_schema(path) -> ExecutionSchemaRevision:
             )
         )
     return ExecutionSchemaRevision(
-        version=value.get("version") if isinstance(value.get("version"), str) else "",
+        version=schema.get("version") if isinstance(schema.get("version"), str) else "",
         inputs=parsed_inputs,
         output_type=outputs.get("type") if isinstance(outputs.get("type"), str) else "",
     )
@@ -53,7 +56,7 @@ class GenerationService:
         return cls(config=config, executor=ComfyExecutor.from_config(config))
 
     def generate_from_payload(self, payload: Any, *, job_id: str = "local") -> GenerationResponse:
-        schema = load_execution_schema(self.config.execution_schema_path)
+        schema = load_execution_schema(self.config.execution_contract_path)
         request = parse_generation_request(payload, schema, job_id=job_id)
         executor = self.executor or ComfyExecutor.from_config(self.config)
         return GenerationResponse(images=executor.generate(request))

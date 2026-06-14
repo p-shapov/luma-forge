@@ -12,7 +12,7 @@ class WorkerFixture:
         self.workspace = Path(self.tempdir.name)
         self.config = config or EndpointConfig(
             workspace_mount_path=self.workspace,
-            execution_schema_path=_write_schema(self.workspace),
+            execution_contract_path=_write_contract(self.workspace),
         )
         self.service = GenerationService(config=self.config, executor=executor)
 
@@ -26,23 +26,26 @@ class WorkerFixture:
         self.close()
 
 
-def _write_schema(directory: Path) -> Path:
-    path = directory / "execution-schema.json"
+def _write_contract(directory: Path) -> Path:
+    path = directory / "execution-contract.json"
     path.write_text(
         json.dumps(
             {
-                "version": "1.0.0",
-                "inputs": [
-                    {
-                        "id": "prompt",
-                        "type": "string",
-                        "required": True,
-                        "max_length": 4000,
-                    }
-                ],
-                "outputs": {
-                    "type": "image_set",
+                "execution_schema": {
+                    "version": "1.0.0",
+                    "inputs": [
+                        {
+                            "id": "prompt",
+                            "type": "string",
+                            "required": True,
+                            "max_length": 4000,
+                        }
+                    ],
+                    "outputs": {
+                        "type": "image_set",
+                    },
                 },
+                "input_bindings": [],
             }
         ),
         encoding="utf-8",

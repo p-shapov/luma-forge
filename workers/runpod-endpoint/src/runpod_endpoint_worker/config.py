@@ -10,7 +10,6 @@ class EndpointConfig:
     comfyui_path: Path = Path("/opt/luma-forge/runtime/ComfyUI")
     workflow_path: Path = Path("/opt/luma-forge/runtime/workflows/workflow.json")
     execution_contract_path: Path = Path("/opt/luma-forge/runtime/contracts/execution-contract.json")
-    execution_schema_path: Path = Path("/opt/luma-forge/runtime/contracts/execution-schema.json")
     comfyui_host: str = "127.0.0.1"
     comfyui_port: int = 8188
     comfyui_startup_timeout_seconds: int = 300
@@ -33,7 +32,6 @@ class EndpointConfig:
             comfyui_path=Path(_string("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH", "/opt/luma-forge/runtime/ComfyUI")),
             workflow_path=Path(_string("LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH", "/opt/luma-forge/runtime/workflows/workflow.json")),
             execution_contract_path=Path(_string("LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH", "/opt/luma-forge/runtime/contracts/execution-contract.json")),
-            execution_schema_path=Path(_string("LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_SCHEMA_PATH", "/opt/luma-forge/runtime/contracts/execution-schema.json")),
             comfyui_host=_string("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST", "127.0.0.1"),
             comfyui_port=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT", 8188),
             comfyui_startup_timeout_seconds=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS", 300),

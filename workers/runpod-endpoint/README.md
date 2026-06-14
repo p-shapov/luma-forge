@@ -69,8 +69,7 @@ The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` s
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFY_CLI_PATH` | `/opt/luma-forge/runtime/.venv/bin/comfy` | Comfy CLI executable path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH` | `/opt/luma-forge/runtime/ComfyUI` | Image-local ComfyUI checkout path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH` | `/opt/luma-forge/runtime/workflows/workflow.json` | Image-local baked UI workflow path. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH` | `/opt/luma-forge/runtime/contracts/execution-contract.json` | Image-local workflow revision execution contract path. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_SCHEMA_PATH` | `/opt/luma-forge/runtime/contracts/execution-schema.json` | Image-local execution schema revision path. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH` | `/opt/luma-forge/runtime/contracts/execution-contract.json` | Image-local workflow revision execution contract with resolved execution schema. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | Local ComfyUI host. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | Local ComfyUI port. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `300` | Time allowed for lazy ComfyUI startup readiness. |
@@ -86,7 +85,15 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 ## Container
 
 ```bash
-docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile ../..
+docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile \
+  --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12 \
+  --build-arg LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1 \
+  --build-arg LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 \
+  --build-arg 'LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.9.1","torchvision==0.24.1","torchaudio==2.9.1"]' \
+  --build-arg LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json \
+  --build-arg LUMA_FORGE_WORKFLOW_ID=comfyui-hidream-o1-dev \
+  --build-arg LUMA_FORGE_WORKFLOW_VERSION=1.0.0 \
+  ../..
 ```
 
 Optional smoke validation builds or uses an endpoint image and proves the handler imports, ComfyUI checkout, Comfy CLI, and baked workflow are present without running GPU generation:
