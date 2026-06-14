@@ -33,6 +33,8 @@ class EndpointConfigTests(TestCase):
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFY_CLI_PATH": "/runtime/bin/comfy",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH": "/runtime/ComfyUI",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH": "/runtime/workflows/workflow.json",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH": "/runtime/contracts/execution-contract.json",
+                "LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_SCHEMA_PATH": "/runtime/contracts/execution-schema.json",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST": "0.0.0.0",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT": "8199",
                 "LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS": "12",
@@ -47,6 +49,8 @@ class EndpointConfigTests(TestCase):
         self.assertEqual(config.comfy_cli_path, Path("/runtime/bin/comfy"))
         self.assertEqual(config.comfyui_path, Path("/runtime/ComfyUI"))
         self.assertEqual(config.workflow_path, Path("/runtime/workflows/workflow.json"))
+        self.assertEqual(config.execution_contract_path, Path("/runtime/contracts/execution-contract.json"))
+        self.assertEqual(config.execution_schema_path, Path("/runtime/contracts/execution-schema.json"))
         self.assertEqual(config.comfyui_host, "0.0.0.0")
         self.assertEqual(config.comfyui_port, 8199)
         self.assertEqual(config.comfyui_startup_timeout_seconds, 12)
