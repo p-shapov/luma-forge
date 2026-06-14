@@ -15,7 +15,7 @@ class ReleaseToolError(Exception):
 
 
 def load_runtime_preset(path: Path) -> dict[str, Any]:
-    preset = _load_yaml(path)
+    preset = _load_json(path) if path.suffix == ".json" else _load_yaml(path)
     schema = _load_json(Path(__file__).resolve().parent / "schema.json")
     _validate_with_schema(preset, schema)
     _validate_runtime_preset(preset, path)
@@ -58,7 +58,7 @@ def resolve_runtime_preset_path(
     runtime_preset = _string_value(revision, "runtime_preset")
     if not _is_safe_identifier(runtime_preset):
         raise ReleaseToolError("invalid runtime preset id")
-    path = runtime_presets_dir / f"{runtime_preset}.yaml"
+    path = runtime_presets_dir / f"{runtime_preset}.json"
     if not path.is_file():
         raise ReleaseToolError(f"runtime preset file does not exist: {path}")
     return path
@@ -573,7 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--workflow-catalog", required=True)
     resolve.add_argument("--workflow-id", required=True)
     resolve.add_argument("--workflow-version", required=True)
-    resolve.add_argument("--runtime-presets-dir", default="runtime-presets")
+    resolve.add_argument("--runtime-presets-dir", default="bundled/runtime-presets")
     resolve.add_argument("--catalog")
     resolve.add_argument("--github-output")
     resolve.set_defaults(func=_cmd_resolve)

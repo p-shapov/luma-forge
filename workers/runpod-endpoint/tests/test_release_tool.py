@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/runpod-endpoint/release_tool.py"
-RUNTIME_PRESET_PATH = ROOT / "runtime-presets/comfyui-py312-cu126-torch291.yaml"
+RUNTIME_PRESET_PATH = ROOT / "bundled/runtime-presets/comfyui-py312-cu126-torch291.json"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 CATALOG_PATH = ROOT / "bundled/runtime-contracts.json"
 WORKFLOW_PATH = ROOT / ".github/workflows/deploy-runpod-endpoint.yml"
@@ -109,7 +109,7 @@ runtime:
             workflow_catalog=_workflow_catalog(),
             workflow_id="comfyui-hidream-o1-dev",
             workflow_version="1.0.0",
-            runtime_presets_dir=ROOT / "runtime-presets",
+            runtime_presets_dir=ROOT / "bundled/runtime-presets",
         )
 
         self.assertEqual(RUNTIME_PRESET_PATH, path)
@@ -120,7 +120,7 @@ runtime:
                 workflow_catalog=_workflow_catalog(),
                 workflow_id="comfyui-hidream-o1-dev",
                 workflow_version="9.9.9",
-                runtime_presets_dir=ROOT / "runtime-presets",
+                runtime_presets_dir=ROOT / "bundled/runtime-presets",
             )
 
     def test_resolve_bundled_workflow_path_uses_selected_workflow(self):
