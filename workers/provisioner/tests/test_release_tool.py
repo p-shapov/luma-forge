@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TOOL_PATH = ROOT / "workers/promote-provisioner/release_tool.py"
+TOOL_PATH = ROOT / "workers/provisioner/release_tool.py"
 PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner.yml"
 
 spec = importlib.util.spec_from_file_location("provisioner_promotion_tool", TOOL_PATH)
@@ -33,9 +33,9 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
         self.assertLess(publish_index, digest_index)
         self.assertLess(digest_index, promotion_index)
         self.assertIn("docker inspect --format='{{index .RepoDigests 0}}'", workflow)
-        self.assertIn("workers/promote-provisioner/release_tool.py resolve-provisioner", workflow)
+        self.assertIn("workers/provisioner/release_tool.py resolve-provisioner", workflow)
         self.assertIn(
-            "workers/promote-provisioner/release_tool.py promote-provisioner-image",
+            "workers/provisioner/release_tool.py promote-provisioner-image",
             promotion_section,
         )
         self.assertIn("--image-ref \"${{ steps.digest.outputs.provisioner_ref }}\"", promotion_section)

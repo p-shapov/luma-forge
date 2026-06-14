@@ -49,7 +49,7 @@ jobs:
           WORKFLOW_ID: ${{ inputs.workflow_id || 'comfyui-hidream-o1-dev' }}
           WORKFLOW_VERSION: ${{ inputs.workflow_version || '1.0.0' }}
         run: |
-          python workers/promote-runpod-endpoint/release_tool.py resolve \
+          python workers/runpod-endpoint/release_tool.py resolve \
             --workflow-catalog bundled/workflow-catalog.json \
             --workflow-id "$WORKFLOW_ID" \
             --workflow-version "$WORKFLOW_VERSION" \
@@ -59,7 +59,6 @@ jobs:
       - name: Validate workers
         run: |
           python -m pip install workers/provisioner workers/runpod-endpoint pyyaml
-          python -m unittest discover -s workers/promote-runpod-endpoint/tests
           PYTHONPATH=workers/runpod-endpoint/src python -m unittest discover -s workers/runpod-endpoint/tests
 
       - name: Resolve image tags
@@ -115,7 +114,7 @@ jobs:
 
       - name: Promote endpoint image to catalog
         run: |
-          python workers/promote-runpod-endpoint/release_tool.py promote-endpoint-image \
+          python workers/runpod-endpoint/release_tool.py promote-endpoint-image \
             --runtime-preset "${{ steps.contract.outputs.runtime_preset }}" \
             --workflow-id "${{ steps.contract.outputs.workflow_id }}" \
             --workflow-version "${{ steps.contract.outputs.workflow_version }}" \

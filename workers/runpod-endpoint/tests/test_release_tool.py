@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TOOL_PATH = ROOT / "workers/promote-runpod-endpoint/release_tool.py"
+TOOL_PATH = ROOT / "workers/runpod-endpoint/release_tool.py"
 RUNTIME_PRESET_PATH = ROOT / "runtime-presets/comfyui-py312-cu126-torch291.yaml"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 CATALOG_PATH = ROOT / "bundled/runtime-contracts.json"
@@ -166,8 +166,8 @@ runtime:
         self.assertIn("workflow_version:", workflow)
         self.assertIn("LUMA_FORGE_WORKFLOW_ID", workflow)
         self.assertIn("LUMA_FORGE_WORKFLOW_VERSION", workflow)
-        self.assertIn("workers/promote-runpod-endpoint/release_tool.py resolve", workflow)
-        self.assertIn("workers/promote-runpod-endpoint/release_tool.py promote-endpoint-image", promotion_section)
+        self.assertIn("workers/runpod-endpoint/release_tool.py resolve", workflow)
+        self.assertIn("workers/runpod-endpoint/release_tool.py promote-endpoint-image", promotion_section)
         self.assertIn("--runtime-preset \"${{ steps.contract.outputs.runtime_preset }}\"", promotion_section)
         self.assertIn("--workflow-id \"${{ steps.contract.outputs.workflow_id }}\"", promotion_section)
         self.assertIn("--workflow-version \"${{ steps.contract.outputs.workflow_version }}\"", promotion_section)

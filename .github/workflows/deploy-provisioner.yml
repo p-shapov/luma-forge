@@ -32,7 +32,7 @@ jobs:
       - name: Resolve provisioner metadata
         id: contract
         run: |
-          python workers/promote-provisioner/release_tool.py resolve-provisioner \
+          python workers/provisioner/release_tool.py resolve-provisioner \
             --catalog bundled/runtime-contracts.json \
             --github-output "$GITHUB_OUTPUT"
 
@@ -92,7 +92,7 @@ jobs:
 
       - name: Promote provisioner image to catalog
         run: |
-          python workers/promote-provisioner/release_tool.py promote-provisioner-image \
+          python workers/provisioner/release_tool.py promote-provisioner-image \
             --catalog bundled/runtime-contracts.json \
             --workflow-catalog bundled/workflow-catalog.json \
             --contract-version "${{ steps.contract.outputs.contract_version }}" \
