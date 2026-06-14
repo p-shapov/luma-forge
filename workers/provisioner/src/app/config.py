@@ -7,7 +7,7 @@ from pathlib import Path
 from app.schemas import StartRequest, parse_start_request
 from app.errors import ValidationError
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8000
 DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS = 3600.0
 WORKSPACE_MOUNT_PATH = "/workspace"
