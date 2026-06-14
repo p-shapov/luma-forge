@@ -141,7 +141,7 @@ runtime:
         self.assertIn('test -n "$LUMA_FORGE_WORKFLOW_VERSION"', dockerfile)
         self.assertIn("bundled/workflow-catalog.json", dockerfile)
         self.assertIn("bundled/execution-schemas.json", dockerfile)
-        self.assertIn("workers/runpod_endpoint_build_metadata.py", dockerfile)
+        self.assertIn("workers/runpod-endpoint/src/runpod_endpoint_worker/build_metadata.py", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/contracts/execution-contract.json", dockerfile)
 
     def test_workflow_promotes_endpoint_image_after_publish(self):
