@@ -67,6 +67,39 @@ def _write_valid_workflow(directory: str) -> Path:
     return workflow
 
 
+def _write_execution_contract(directory: str) -> Path:
+    path = Path(directory) / "execution-contract.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_ref": {
+                    "id": "text-to-image",
+                    "version": "1.0.0",
+                },
+                "input_bindings": [
+                    {
+                        "value": "{{prompt}}",
+                        "node_id": "171",
+                        "path": ["widgets_values", "0"],
+                    },
+                    {
+                        "value": False,
+                        "node_id": "154",
+                        "path": ["widgets_values", "0"],
+                    },
+                    {
+                        "value": False,
+                        "node_id": "177",
+                        "path": ["widgets_values", "0"],
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _write_required_models(directory: str) -> Path:
     workspace = Path(directory) / "workspace"
     (workspace / "models/checkpoints").mkdir(parents=True)
@@ -79,6 +112,7 @@ def _write_required_models(directory: str) -> Path:
 def _endpoint_config_with_required_models(directory: str, **kwargs) -> EndpointConfig:
     return EndpointConfig(
         workflow_path=_write_valid_workflow(directory),
+        execution_contract_path=_write_execution_contract(directory),
         workspace_mount_path=_write_required_models(directory),
         **kwargs,
     )
@@ -353,7 +387,11 @@ class ComfyExecutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)
             workspace = _write_required_models(directory)
-            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
+            config = EndpointConfig(
+                workflow_path=workflow,
+                execution_contract_path=_write_execution_contract(directory),
+                workspace_mount_path=workspace,
+            )
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient(image_body=b"png"))
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
@@ -383,7 +421,7 @@ class ComfyExecutionTests(unittest.TestCase):
                         stderr="",
                     )
 
-                    images = executor.generate(GenerationRequest(prompt="new prompt", job_id="job-123"))
+                    images = executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}, job_id="job-123"))
                     artifact_body = (workspace / images[0].relative_path).read_bytes()
 
         ready.assert_called_once()
@@ -409,7 +447,11 @@ class ComfyExecutionTests(unittest.TestCase):
             workflow = _write_valid_workflow(directory)
             workspace = _write_required_models(directory)
             client = FakeHttpClient(image_bodies=[b"first", b"second"])
-            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
+            config = EndpointConfig(
+                workflow_path=workflow,
+                execution_contract_path=_write_execution_contract(directory),
+                workspace_mount_path=workspace,
+            )
             runtime = ComfyRuntime(config=config, http_client=client)
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
 
@@ -444,7 +486,7 @@ class ComfyExecutionTests(unittest.TestCase):
                         stderr="",
                     )
 
-                    images = executor.generate(GenerationRequest(prompt="new prompt", job_id="job-123"))
+                    images = executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}, job_id="job-123"))
                     first_body = (workspace / images[0].relative_path).read_bytes()
                     second_body = (workspace / images[1].relative_path).read_bytes()
 
@@ -458,14 +500,18 @@ class ComfyExecutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)
             workspace = Path(directory) / "workspace"
-            config = EndpointConfig(workflow_path=workflow, workspace_mount_path=workspace)
+            config = EndpointConfig(
+                workflow_path=workflow,
+                execution_contract_path=_write_execution_contract(directory),
+                workspace_mount_path=workspace,
+            )
             runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
 
             with self.assertRaises(ComfyWorkflowError) as context:
                 with patch.object(runtime, "ensure_ready") as ready:
                     with patch("subprocess.run") as run:
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         ready.assert_not_called()
         run.assert_not_called()
@@ -484,7 +530,12 @@ class ComfyExecutionTests(unittest.TestCase):
             workflow = _write_valid_workflow(directory)
             workspace = _write_required_models(directory)
             client = FakeHttpClient(image_body=b"png")
-            config = EndpointConfig(workflow_path=workflow, comfyui_host="0.0.0.0", workspace_mount_path=workspace)
+            config = EndpointConfig(
+                workflow_path=workflow,
+                execution_contract_path=_write_execution_contract(directory),
+                comfyui_host="0.0.0.0",
+                workspace_mount_path=workspace,
+            )
             runtime = ComfyRuntime(config=config, http_client=client)
             executor = ComfyExecutor(config=config, runtime=runtime, http_client=client)
 
@@ -513,7 +564,7 @@ class ComfyExecutionTests(unittest.TestCase):
                         stderr="",
                     )
 
-                    executor.generate(GenerationRequest(prompt="new prompt"))
+                    executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertTrue(any(url.startswith("http://127.0.0.1:") for url in client.urls))
         self.assertFalse(any(url.startswith("http://0.0.0.0:") for url in client.urls))
@@ -549,7 +600,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             ),
                             stderr="",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
             artifact_output_exists = (config.workspace_mount_path / "luma-forge/outputs").exists()
 
         self.assertFalse(artifact_output_exists)
@@ -585,7 +636,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             ),
                             stderr="",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
     def test_executor_rejects_artifact_bytes_that_exceed_configured_limit(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -602,7 +653,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             stdout=_completed_process_stdout(),
                             stderr="",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertFalse((config.workspace_mount_path / "luma-forge/outputs").exists())
 
@@ -638,7 +689,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 ),
                                 stderr="",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
         self.assertEqual(context.exception.stage, "output_fetch")
@@ -687,7 +738,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 ),
                                 stderr="",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt", job_id="job-123"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}, job_id="job-123"))
 
             job_dir_exists = (config.workspace_mount_path / "luma-forge/outputs/jobs/job-123").exists()
 
@@ -710,7 +761,7 @@ class ComfyExecutionTests(unittest.TestCase):
                         stdout=_completed_process_stdout(),
                         stderr="",
                     )
-                    images = executor.generate(GenerationRequest(prompt="new prompt", job_id="job-123"))
+                    images = executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}, job_id="job-123"))
 
             stale_exists = stale.exists()
             fresh_body = (config.workspace_mount_path / images[0].relative_path).read_bytes()
@@ -744,7 +795,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 stdout=_completed_process_stdout(),
                                 stderr="",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt", job_id="job-123"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}, job_id="job-123"))
 
         self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
         self.assertEqual(context.exception.stage, "output_fetch")
@@ -763,7 +814,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             cmd=["comfy", "run"],
                             stderr="Prompt outputs failed validation",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(context.exception.code, "comfyui_workflow_failed")
         self.assertEqual(context.exception.message, "ComfyUI workflow execution failed. Process exited with status 1.")
@@ -790,7 +841,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             cmd=["comfy", "run"],
                             stderr="ImportError: libGL.so.1: cannot open shared object file",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(context.exception.code, "comfyui_workflow_failed")
         self.assertEqual(
@@ -827,7 +878,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             output=json.dumps(failed_event),
                             stderr="",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(
             context.exception.metadata,
@@ -887,7 +938,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             output=json.dumps(failed_event),
                             stderr="",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(
             context.exception.metadata["comfy_node_errors"],
@@ -912,7 +963,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr="Bearer token abc failed",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("subprocess_output=redacted", joined)
@@ -933,7 +984,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr="download failed for hf_abcdefghijklmnopqrstuvwxyz1234567890",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("download failed for <redacted:hf>", joined)
@@ -954,7 +1005,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr="OPENAI_API_KEY=sk-live-value RUNPOD_API_KEY=runpod-live-value",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("OPENAI_API_KEY=<redacted:value>", joined)
@@ -980,7 +1031,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                     "Bearer abc"
                                 ),
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("subprocess_output=redacted", joined)
@@ -1002,7 +1053,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr="Command: comfy --workspace /opt/luma-forge/runtime/ComfyUI launch",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("subprocess_output=redacted", joined)
@@ -1023,7 +1074,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr="PATH=/usr/bin\nPYTHONPATH=/opt/luma-forge/runtime\nHOME=/root",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("subprocess_output=redacted", joined)
@@ -1049,7 +1100,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr=f"download failed: {signed_url}",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("download failed: https://bucket.example/model.safetensors?<redacted:signed-query>", joined)
@@ -1072,7 +1123,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 output="full comfy run stdout",
                                 stderr="full comfy run stderr",
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         joined = "\n".join(logs.output)
         self.assertIn("ComfyUI workflow subprocess failed", joined)
@@ -1095,7 +1146,7 @@ class ComfyExecutionTests(unittest.TestCase):
                                 cmd=["comfy", "run"],
                                 stderr=long_output,
                             )
-                            executor.generate(GenerationRequest(prompt="new prompt"))
+                            executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertIn(long_output, "\n".join(logs.output))
 
@@ -1109,7 +1160,7 @@ class ComfyExecutionTests(unittest.TestCase):
                 with patch.object(runtime, "ensure_ready"):
                     with patch("subprocess.run") as run:
                         run.side_effect = subprocess.TimeoutExpired(cmd=["comfy", "run"], timeout=1, stderr="workflow stalled")
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(context.exception.code, "comfyui_workflow_timeout")
         self.assertEqual(context.exception.message, "ComfyUI workflow execution timed out. Timed out after 1 seconds.")
@@ -1138,7 +1189,7 @@ class ComfyExecutionTests(unittest.TestCase):
                             stdout=_completed_process_stdout(),
                             stderr="",
                         )
-                        executor.generate(GenerationRequest(prompt="new prompt"))
+                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
 
         self.assertEqual(context.exception.code, "comfyui_output_fetch_failed")
 

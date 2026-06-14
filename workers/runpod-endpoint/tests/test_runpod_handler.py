@@ -11,10 +11,10 @@ class RunPodHandlerTests(unittest.TestCase):
     def test_invalid_input_returns_safe_error(self):
         with WorkerFixture() as fixture:
             handler = create_handler(fixture.service)
-        payload = handler({"input": {}})
+            payload = handler({"input": {}})
 
         self.assertEqual(payload["status"], "failed")
-        self.assertEqual(payload["error"], "invalid_request: prompt must be a non-empty string")
+        self.assertEqual(payload["error"], "invalid_request: prompt is required")
         self.assertEqual(payload["failure"]["code"], "invalid_request")
         self.assertEqual(payload["failure"]["stage"], "request_validation")
         self.assertFalse(payload["failure"]["retryable"])

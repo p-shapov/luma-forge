@@ -1,8 +1,39 @@
+import json
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
+from runpod_endpoint_worker.config import EndpointConfig
 from runpod_endpoint_worker.schemas import GenerationImage
 from runpod_endpoint_worker.service import GenerationService
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from helpers import WorkerFixture
+
+
+def _write_schema(directory: str) -> Path:
+    path = Path(directory) / "execution-schema.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "inputs": [
+                    {
+                        "id": "prompt",
+                        "type": "string",
+                        "required": True,
+                        "max_length": 4000,
+                    }
+                ],
+                "outputs": {
+                    "type": "image_set",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 class GenerationServiceTests(unittest.TestCase):
@@ -23,8 +54,10 @@ class GenerationServiceTests(unittest.TestCase):
                 ]
 
         executor = Executor()
-        with WorkerFixture(executor=executor) as fixture:
-            response = fixture.service.generate_from_payload({"prompt": "a lamp"})
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(execution_schema_path=_write_schema(directory))
+            with WorkerFixture(config=config, executor=executor) as fixture:
+                response = fixture.service.generate_from_payload({"prompt": "a lamp"})
 
         payload = response.to_payload()
         self.assertEqual(payload["status"], "succeeded")
@@ -32,11 +65,13 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertEqual(payload["generation"]["images"][0]["artifact_uri"], "runpod-volume://luma-forge/outputs/jobs/job-123/0001/result.png")
         self.assertEqual(payload["generation"]["images"][0]["storage"]["type"], "runpod_volume")
         self.assertNotIn("data_base64", payload["generation"]["images"][0])
-        self.assertEqual(executor.request.prompt, "a lamp")
+        self.assertEqual(executor.request.inputs["prompt"], "a lamp")
 
     def test_service_from_config_uses_runtime_executor(self):
-        with WorkerFixture() as fixture:
-            service = GenerationService.from_config(fixture.config)
+        with tempfile.TemporaryDirectory() as directory:
+            config = EndpointConfig(execution_schema_path=_write_schema(directory))
+            with WorkerFixture(config=config) as fixture:
+                service = GenerationService.from_config(fixture.config)
 
         self.assertIsNotNone(service.executor)
 
