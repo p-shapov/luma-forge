@@ -215,20 +215,23 @@ Workflow application should fail fast when:
 
 ## Worker Boundary
 
-The RunPod endpoint worker should load image-local runtime files for:
+Endpoint deployment should resolve the selected workflow revision and bake
+image-local runtime files for:
 
 - the selected ComfyUI workflow JSON
 - the selected workflow revision execution contract
-- the referenced execution schema
+- the referenced execution schema revision
+
+The worker should load only those image-local files at request time. It should
+not fetch workflow catalog or execution schema registry data from the app,
+RunPod, or another external source while handling a generation request.
 
 The worker should not hard-code HiDream-specific node ids, prompt fields, or
-constant patches. It validates the request, applies all bindings to a deep copy
-of the workflow, runs ComfyUI, and returns UI-safe success and failure payloads
-using the existing failure safety rules.
-
-The endpoint image build should copy the selected workflow and contract metadata
-into the image. The worker should fail during request handling if any required
-runtime file is absent or invalid.
+constant patches. It validates the request against the baked execution schema
+revision, applies the baked execution contract bindings to a deep copy of the
+workflow, runs ComfyUI, and returns UI-safe success and failure payloads using
+the existing failure safety rules. The worker should fail during request
+handling if any required runtime file is absent or invalid.
 
 ## Testing
 
