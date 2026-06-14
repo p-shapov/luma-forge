@@ -51,6 +51,7 @@ pub struct WorkflowPresetResponse {
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowRevisionResponse {
     pub version: String,
+    pub runtime_preset: String,
     pub requires_hugging_face_api_key: bool,
     pub required_volume_size_gb: u64,
     pub contract_requirements: Vec<WorkflowContractRequirementsResponse>,
@@ -151,6 +152,7 @@ impl From<WorkflowRevision> for WorkflowRevisionResponse {
     fn from(value: WorkflowRevision) -> Self {
         Self {
             version: value.version,
+            runtime_preset: value.runtime_preset,
             requires_hugging_face_api_key: value.requires_hugging_face_api_key,
             required_volume_size_gb: value.required_volume_size_gb,
             contract_requirements: value
@@ -236,7 +238,7 @@ mod tests {
     fn runtime_catalog_response_serializes_flat_contracts() {
         let response = RuntimeCatalogResponse {
             contracts: vec![RuntimeContractResponse {
-                id: "luma-forge-provisioner".to_string(),
+                id: "provisioner".to_string(),
                 revisions: vec![RuntimeContractRevisionResponse {
                     version: "1.0.0".to_string(),
                     image_ref: "ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
@@ -248,7 +250,7 @@ mod tests {
 
         assert_eq!(
             json,
-            r#"{"contracts":[{"id":"luma-forge-provisioner","revisions":[{"version":"1.0.0","imageRef":"ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}]}"#
+            r#"{"contracts":[{"id":"provisioner","revisions":[{"version":"1.0.0","imageRef":"ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}]}"#
         );
     }
 }

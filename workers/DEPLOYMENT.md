@@ -5,16 +5,16 @@ LumaForge worker images are released through separate GitHub Actions workflows:
 - Provisioner Worker releases publish the generic workspace-preparation image.
 - Endpoint contract releases publish RunPod Endpoint Worker images for a selected endpoint contract.
 
-RunPod Endpoint Worker deployment is driven by [`promote-runtime-contract/`](./promote-runtime-contract/). That module owns endpoint contract YAML, schema validation, endpoint image build metadata resolution, and endpoint runtime contract promotion. [`promote-provisioner-contract/`](./promote-provisioner-contract/) owns provisioner runtime contract promotion.
+RunPod Endpoint Worker deployment is driven by [`promote-runpod-endpoint/`](./promote-runpod-endpoint/). That module owns runtime preset YAML, schema validation, endpoint image build metadata resolution, and RunPod endpoint promotion. [`promote-provisioner/`](./promote-provisioner/) owns provisioner promotion.
 
 ## Release Triggers
 
-- Push a provisioner release tag matching `provisioner-worker-v*`, or run `Deploy Provisioner Contract` manually, to publish the generic provisioner image.
-- Push a endpoint contract release tag matching `runtime-contract-v*`, or run `Deploy Endpoint Contract` manually and select one contract, for example `runtime-presets/comfyui-py312-cu126-torch291.yaml`.
+- Push a provisioner release tag matching `provisioner-worker-v*`, or run `Deploy Provisioner` manually, to publish the generic provisioner image.
+- Push a RunPod endpoint release tag matching `runpod-endpoint-v*`, or run `Deploy RunPod Endpoint` manually with `workflow_id` and `workflow_version`. The workflow resolves that revision's `runtime_preset`, for example `comfyui-py312-cu126-torch291`.
 
 Manual endpoint contract releases publish a workflow-specific endpoint image, then automatically propose Runtime Contracts promotion under the selected endpoint contract id. The workflow resolves the next endpoint runtime contract patch version from `bundled/runtime-contracts.json`, for example `1.0.0` to `1.0.1`, before endpoint worker validation, image builds, or publication. If the contract declares a higher SemVer version than the next patch, the workflow uses the contract version instead.
 
-Manual provisioner releases publish a provisioner image, then automatically propose Runtime Contracts promotion under `luma-forge-provisioner`. The workflow resolves the next provisioner runtime contract patch version from `bundled/runtime-contracts.json`, for example `1.0.0` to `1.0.1`, before provisioner validation, image build, or publication.
+Manual provisioner releases publish a provisioner image, then automatically propose catalog promotion under `provisioner`. The workflow resolves the next provisioner contract patch version from `bundled/runtime-contracts.json`, for example `1.0.0` to `1.0.1`, before provisioner validation, image build, or publication.
 
 Do not publish another worker image for the same contract while a promotion PR for that contract remains open. Endpoint and provisioner releases choose the next patch version from the current bundled contracts, so concurrent releases for the same contract can compute the same next version.
 

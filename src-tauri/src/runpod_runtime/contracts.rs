@@ -27,6 +27,7 @@ pub struct RunpodRuntimeContracts {
 pub struct RunpodWorkflowResolved {
     pub id: String,
     pub version: String,
+    pub runtime_preset: String,
     pub _name: String,
     pub _execution_type: WorkflowExecutionType,
     pub requires_hugging_face_api_key: bool,
@@ -142,6 +143,7 @@ fn resolve_workflow_revision(
     Some(RunpodWorkflowResolved {
         id,
         version: revision.version.clone(),
+        runtime_preset: revision.runtime_preset.clone(),
         _name: name,
         _execution_type: execution_type,
         requires_hugging_face_api_key: revision.requires_hugging_face_api_key,

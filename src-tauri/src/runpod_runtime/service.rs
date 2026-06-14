@@ -836,10 +836,10 @@ mod tests {
                 "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c7253ac8abbca0c4d849110132c327595ff224ab953eeb93462f16f52f74f3a1"
             ]
         );
-        assert_ne!(state.provisioner_image_refs, vec!["luma-forge-provisioner"]);
+        assert_ne!(state.provisioner_image_refs, vec!["provisioner"]);
         assert_ne!(
             state.endpoint_image_refs,
-            vec!["comfyui-py312-cu126-torch291"]
+            vec!["runpod-endpoint-comfyui-hidream-o1-dev"]
         );
     }
 

@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["contract", "runtime"],
+  "required": ["runtime_preset", "runtime"],
   "additionalProperties": false,
   "properties": {
-    "contract": {
+    "runtime_preset": {
       "type": "object",
       "required": ["id", "version"],
       "additionalProperties": false,

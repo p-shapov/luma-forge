@@ -1,4 +1,4 @@
-name: Deploy Provisioner Contract
+name: Deploy Provisioner
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: deploy-provisioner-contract-${{ github.ref }}
+  group: deploy-provisioner-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -29,10 +29,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Resolve provisioner runtime contract metadata
+      - name: Resolve provisioner metadata
         id: contract
         run: |
-          python workers/promote-provisioner-contract/release_tool.py resolve-provisioner \
+          python workers/promote-provisioner/release_tool.py resolve-provisioner \
             --catalog bundled/runtime-contracts.json \
             --github-output "$GITHUB_OUTPUT"
 
@@ -92,13 +92,13 @@ jobs:
 
       - name: Promote provisioner image to catalog
         run: |
-          python workers/promote-provisioner-contract/release_tool.py promote-provisioner-image \
+          python workers/promote-provisioner/release_tool.py promote-provisioner-image \
             --catalog bundled/runtime-contracts.json \
             --workflow-catalog bundled/workflow-catalog.json \
             --contract-version "${{ steps.contract.outputs.contract_version }}" \
             --image-ref "${{ steps.digest.outputs.provisioner_ref }}"
 
-      - name: Verify Runtime Contracts promotion PR scope
+      - name: Verify provisioner promotion PR scope
         run: |
           changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
           if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/runtime-contracts.json'; then
@@ -118,18 +118,18 @@ jobs:
             exit 1
           fi
 
-      - name: Open Runtime Contracts promotion PR
+      - name: Open provisioner promotion PR
         uses: peter-evans/create-pull-request@v8
         with:
           add-paths: |
             bundled/runtime-contracts.json
             bundled/workflow-catalog.json
-          branch: runtime-contracts/provisioner-${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          branch: provisioners/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
           title: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           commit-message: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           body: |
-            Promotes the validated provisioner image into Runtime Contracts and points Workflow Presets at it.
+            Promotes the validated provisioner image and points Workflow Presets at it.
 
             Published image: `${{ steps.digest.outputs.provisioner_ref }}`
             Catalog version: `${{ steps.contract.outputs.contract_version }}`
-          labels: runtime-contracts
+          labels: provisioner

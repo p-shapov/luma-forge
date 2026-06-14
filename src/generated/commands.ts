@@ -206,6 +206,7 @@ export type WorkflowReferenceResponse = {
 
 export type WorkflowRevisionResponse = {
 	version: string,
+	runtimePreset: string,
 	requiresHuggingFaceApiKey: boolean,
 	requiredVolumeSizeGb: number,
 	contractRequirements: WorkflowContractRequirementsResponse[],

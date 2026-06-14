@@ -6,26 +6,26 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[3]
-TOOL_PATH = ROOT / "workers/promote-provisioner-contract/release_tool.py"
-PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner-contract.yml"
+TOOL_PATH = ROOT / "workers/promote-provisioner/release_tool.py"
+PROVISIONER_WORKFLOW_PATH = ROOT / ".github/workflows/deploy-provisioner.yml"
 
-spec = importlib.util.spec_from_file_location("provisioner_contract_promotion_tool", TOOL_PATH)
+spec = importlib.util.spec_from_file_location("provisioner_promotion_tool", TOOL_PATH)
 release_tool = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(release_tool)
 
 
-class ProvisionerContractPromotionToolTests(unittest.TestCase):
+class ProvisionerPromotionToolTests(unittest.TestCase):
     def test_provisioner_workflow_promotes_digest_after_publish(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
 
-        resolve_index = workflow.index("Resolve provisioner runtime contract metadata")
+        resolve_index = workflow.index("Resolve provisioner metadata")
         tag_index = workflow.index("Resolve image tag")
         publish_index = workflow.index("Publish provisioner image")
         digest_index = workflow.index("Resolve pushed image digest")
         promotion_index = workflow.index("Promote provisioner image to catalog")
         promotion_section = workflow.split("Promote provisioner image to catalog", maxsplit=1)[1].split(
-            "Verify Runtime Contracts promotion PR scope",
+            "Verify provisioner promotion PR scope",
             maxsplit=1,
         )[0]
 
@@ -33,20 +33,20 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         self.assertLess(publish_index, digest_index)
         self.assertLess(digest_index, promotion_index)
         self.assertIn("docker inspect --format='{{index .RepoDigests 0}}'", workflow)
-        self.assertIn("workers/promote-provisioner-contract/release_tool.py resolve-provisioner", workflow)
+        self.assertIn("workers/promote-provisioner/release_tool.py resolve-provisioner", workflow)
         self.assertIn(
-            "workers/promote-provisioner-contract/release_tool.py promote-provisioner-image",
+            "workers/promote-provisioner/release_tool.py promote-provisioner-image",
             promotion_section,
         )
         self.assertIn("--image-ref \"${{ steps.digest.outputs.provisioner_ref }}\"", promotion_section)
 
     def test_provisioner_workflow_restricts_catalog_promotion_pr_to_catalog_files(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
-        verify_section = workflow.split("Verify Runtime Contracts promotion PR scope", maxsplit=1)[1].split(
-            "Open Runtime Contracts promotion PR",
+        verify_section = workflow.split("Verify provisioner promotion PR scope", maxsplit=1)[1].split(
+            "Open provisioner promotion PR",
             maxsplit=1,
         )[0]
-        pr_section = workflow.split("Open Runtime Contracts promotion PR", maxsplit=1)[1]
+        pr_section = workflow.split("Open provisioner promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
         self.assertIn("grep -Evx 'bundled/(runtime-contracts|workflow-catalog)\\.json'", verify_section)
@@ -56,7 +56,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         self.assertIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote provisioner image", pr_section)
         self.assertIn(
-            "branch: runtime-contracts/provisioner-${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
+            "branch: provisioners/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
             pr_section,
         )
         self.assertIn(
@@ -71,7 +71,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
         version = release_tool.next_provisioner_contract_version(
             catalog=catalog,
-            contract_id="luma-forge-provisioner",
+            contract_id="provisioner",
         )
 
         self.assertEqual("1.0.1", version)
@@ -81,7 +81,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
         updated = release_tool.promote_provisioner_image(
             catalog=catalog,
-            contract_id="luma-forge-provisioner",
+            contract_id="provisioner",
             image_ref=_image_ref("4"),
         )
 
@@ -97,7 +97,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "already exists"):
             release_tool.promote_provisioner_image(
                 catalog=catalog,
-                contract_id="luma-forge-provisioner",
+                contract_id="provisioner",
                 image_ref=_image_ref("4"),
                 contract_version="1.0.0",
             )
@@ -108,7 +108,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "digest-pinned"):
             release_tool.promote_provisioner_image(
                 catalog=catalog,
-                contract_id="luma-forge-provisioner",
+                contract_id="provisioner",
                 image_ref="ghcr.io/luma-forge/provisioner-worker:latest",
             )
 
@@ -117,13 +117,13 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
         updated = release_tool.update_provisioner_workflow_catalog(
             catalog=workflow_catalog,
-            contract_id="luma-forge-provisioner",
+            contract_id="provisioner",
             contract_version="1.0.1",
         )
 
         self.assertEqual(
             "1.0.1",
-            updated["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"]["provisioner_contract"][
+            updated["workflow_presets"][0]["revisions"][0]["contract_requirements"][0]["provisioner_contract"][
                 "version"
             ],
         )
@@ -146,7 +146,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
             self.assertEqual(0, exit_code)
             output = output_path.read_text(encoding="utf-8")
-            self.assertIn("contract_id=luma-forge-provisioner", output)
+            self.assertIn("contract_id=provisioner", output)
             self.assertIn("contract_version=1.0.1", output)
 
     def test_cli_promote_provisioner_image_appends_revision_and_updates_workflow_catalog(self):
@@ -176,7 +176,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
             self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
             self.assertEqual(
                 "1.0.1",
-                updated_workflow["workflow_presets"][0]["revisions"][0]["runpod_runtime_requirements"][
+                updated_workflow["workflow_presets"][0]["revisions"][0]["contract_requirements"][0][
                     "provisioner_contract"
                 ]["version"],
             )
@@ -185,14 +185,15 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
         with self.assertRaisesRegex(release_tool.ReleaseToolError, "contracts must be a list"):
             release_tool.next_provisioner_contract_version(
                 catalog={"contracts": {}},
-                contract_id="luma-forge-provisioner",
+                contract_id="provisioner",
             )
+
 
 def _provisioner_catalog():
     return {
         "contracts": [
             {
-                "id": "luma-forge-provisioner",
+                "id": "provisioner",
                 "revisions": [
                     {
                         "version": "1.0.0",
@@ -212,16 +213,20 @@ def _workflow_catalog():
                 "revisions": [
                     {
                         "version": "1.0.0",
-                        "runpod_runtime_requirements": {
-                            "endpoint_contract": {
-                                "id": "comfyui-py312-cu126-torch291",
-                                "version": "1.0.0",
-                            },
-                            "provisioner_contract": {
-                                "id": "luma-forge-provisioner",
-                                "version": "1.0.0",
-                            },
-                        },
+                        "runtime_preset": "comfyui-py312-cu126-torch291",
+                        "contract_requirements": [
+                            {
+                                "runtime_type": "runpod",
+                                "endpoint_contract": {
+                                    "id": "runpod-endpoint-preset",
+                                    "version": "1.0.0",
+                                },
+                                "provisioner_contract": {
+                                    "id": "provisioner",
+                                    "version": "1.0.0",
+                                },
+                            }
+                        ],
                     }
                 ],
             }

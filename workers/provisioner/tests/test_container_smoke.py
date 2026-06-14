@@ -13,7 +13,7 @@ REPO_ROOT = WORKERS_DIR.parent
 @unittest.skipUnless(os.environ.get("LUMA_FORGE_RUN_CONTAINER_SMOKE") == "1", "container smoke test is opt-in")
 class ContainerSmokeTests(unittest.TestCase):
     def test_container_reports_idle_status(self):
-        image = os.environ.get("LUMA_FORGE_PROVISIONER_SMOKE_IMAGE", "luma-forge-provisioner:smoke")
+        image = os.environ.get("LUMA_FORGE_PROVISIONER_SMOKE_IMAGE", "provisioner:smoke")
         token = "smoke-token-0123456789abcdef0123"
         if "LUMA_FORGE_PROVISIONER_SMOKE_IMAGE" not in os.environ:
             subprocess.run(

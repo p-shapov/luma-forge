@@ -37,10 +37,10 @@ mod tests {
         assert!(catalog
             .contracts
             .iter()
-            .any(|contract| contract.id == "comfyui-py312-cu126-torch291"));
+            .any(|contract| contract.id == "runpod-endpoint-comfyui-hidream-o1-dev"));
         assert!(catalog
             .contracts
             .iter()
-            .any(|contract| contract.id == "luma-forge-provisioner"));
+            .any(|contract| contract.id == "provisioner"));
     }
 }

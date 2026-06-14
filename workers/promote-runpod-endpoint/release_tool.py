@@ -14,12 +14,54 @@ class ReleaseToolError(Exception):
     pass
 
 
-def load_contract(path: Path) -> dict[str, Any]:
-    contract = _load_yaml(path)
+def load_runtime_preset(path: Path) -> dict[str, Any]:
+    preset = _load_yaml(path)
     schema = _load_json(Path(__file__).resolve().parent / "schema.json")
-    _validate_with_schema(contract, schema)
-    _validate_contract(contract, path)
-    return contract
+    _validate_with_schema(preset, schema)
+    _validate_runtime_preset(preset, path)
+    return preset
+
+
+def endpoint_contract_id(workflow_id: str) -> str:
+    if not _is_safe_identifier(workflow_id):
+        raise ReleaseToolError("invalid workflow id")
+    return f"runpod-endpoint-{workflow_id}"
+
+
+def find_workflow_revision(
+    catalog: dict[str, Any],
+    workflow_id: str,
+    workflow_version: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    for preset in _list_value(catalog, "workflow_presets"):
+        if not isinstance(preset, dict):
+            raise ReleaseToolError("workflow catalog contains a malformed preset entry")
+        if preset.get("id") != workflow_id:
+            continue
+        for revision in _list_value(preset, "revisions"):
+            if not isinstance(revision, dict):
+                raise ReleaseToolError("workflow catalog contains a malformed revision entry")
+            if revision.get("version") == workflow_version:
+                return preset, revision
+        raise ReleaseToolError(f"workflow revision was not found: {workflow_id} {workflow_version}")
+    raise ReleaseToolError(f"workflow was not found: {workflow_id}")
+
+
+def resolve_runtime_preset_path(
+    *,
+    workflow_catalog: dict[str, Any],
+    workflow_id: str,
+    workflow_version: str,
+    runtime_presets_dir: Path,
+) -> Path:
+    _preset, revision = find_workflow_revision(workflow_catalog, workflow_id, workflow_version)
+    runtime_preset = _string_value(revision, "runtime_preset")
+    if not _is_safe_identifier(runtime_preset):
+        raise ReleaseToolError("invalid runtime preset id")
+    path = runtime_presets_dir / f"{runtime_preset}.yaml"
+    if not path.is_file():
+        raise ReleaseToolError(f"runtime preset file does not exist: {path}")
+    return path
 
 
 def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
@@ -40,9 +82,14 @@ def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, 
     return None
 
 
-def next_contract_version(*, contract: dict[str, Any], catalog: dict[str, Any]) -> str:
-    declared_version = _parse_semver(contract["contract"]["version"])
-    catalog_contract = find_contract(catalog, contract["contract"]["id"])
+def next_contract_version(
+    *,
+    runtime_preset: dict[str, Any],
+    catalog: dict[str, Any],
+    contract_id: str,
+) -> str:
+    declared_version = _parse_semver(runtime_preset["runtime_preset"]["version"])
+    catalog_contract = find_contract(catalog, contract_id)
     if catalog_contract is None:
         return _format_semver(declared_version)
 
@@ -55,9 +102,7 @@ def next_contract_version(*, contract: dict[str, Any], catalog: dict[str, Any]) 
     return _format_semver(max(declared_version, next_patch))
 
 
-def validate_catalog_compatibility(*, contract: dict[str, Any], catalog: dict[str, Any]) -> None:
-    contract_id = contract["contract"]["id"]
-    contract_version = contract["contract"]["version"]
+def validate_catalog_compatibility(*, catalog: dict[str, Any], contract_id: str, contract_version: str) -> None:
     catalog_contract = find_contract(catalog, contract_id)
     if catalog_contract is None:
         return
@@ -69,19 +114,28 @@ def validate_catalog_compatibility(*, contract: dict[str, Any], catalog: dict[st
     _validate_image_ref(_string_value(revision, "image_ref"))
 
 
-def promote_runtime_image(
+def promote_endpoint_image(
     *,
-    contract: dict[str, Any],
+    runtime_preset: dict[str, Any],
     catalog: dict[str, Any],
+    contract_id: str,
     image_ref: str,
     contract_version: str | None = None,
 ) -> dict[str, Any]:
-    validate_catalog_compatibility(contract=contract, catalog=catalog)
+    resolved_contract_version = contract_version or next_contract_version(
+        runtime_preset=runtime_preset,
+        catalog=catalog,
+        contract_id=contract_id,
+    )
+    validate_catalog_compatibility(
+        catalog=catalog,
+        contract_id=contract_id,
+        contract_version=resolved_contract_version,
+    )
     _validate_image_ref(image_ref)
-    contracts = _list_value(catalog, "contracts")
-    contract_id = contract["contract"]["id"]
-    resolved_contract_version = contract_version or next_contract_version(contract=contract, catalog=catalog)
     _parse_semver(resolved_contract_version)
+
+    contracts = _list_value(catalog, "contracts")
     catalog_contract = find_contract(catalog, contract_id)
     if catalog_contract is None:
         contracts.append(
@@ -109,52 +163,59 @@ def promote_runtime_image(
     return catalog
 
 
-def update_runtime_workflow_catalog(
+def update_endpoint_workflow_catalog(
     *,
     catalog: dict[str, Any],
+    workflow_id: str,
+    workflow_version: str,
     contract_id: str,
     contract_version: str,
 ) -> dict[str, Any]:
-    updated = False
-    workflow_presets = _list_value(catalog, "workflow_presets")
-    for preset in workflow_presets:
-        if not isinstance(preset, dict):
-            raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        for runtime_requirements in _runpod_runtime_requirements(preset):
-            endpoint_contract = _dict_value(runtime_requirements, "endpoint_contract")
-            if endpoint_contract.get("id") == contract_id:
-                endpoint_contract["version"] = contract_version
-                updated = True
-    if not updated:
-        raise ReleaseToolError(f"workflow catalog does not reference endpoint contract: {contract_id}")
+    _preset, revision = find_workflow_revision(catalog, workflow_id, workflow_version)
+    requirements = _runpod_contract_requirements(revision)
+    endpoint_contract = _dict_value(requirements, "endpoint_contract")
+    if endpoint_contract.get("id") != contract_id:
+        raise ReleaseToolError(f"workflow revision does not reference endpoint contract: {contract_id}")
+    endpoint_contract["version"] = contract_version
     return catalog
 
 
-def contract_outputs(
-    contract: dict[str, Any],
-    contract_path: Path,
+def runtime_preset_outputs(
+    *,
+    runtime_preset: dict[str, Any],
+    runtime_preset_path: Path,
+    workflow_id: str,
+    workflow_version: str,
     catalog: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    runtime = contract["runtime"]
+    runtime = runtime_preset["runtime"]
     packages_json = json.dumps(runtime["pytorch"]["packages"], separators=(",", ":"))
+    contract_id = endpoint_contract_id(workflow_id)
     contract_version = (
-        next_contract_version(contract=contract, catalog=catalog)
+        next_contract_version(
+            runtime_preset=runtime_preset,
+            catalog=catalog,
+            contract_id=contract_id,
+        )
         if catalog is not None
-        else contract["contract"]["version"]
+        else runtime_preset["runtime_preset"]["version"]
     )
     return {
-        "contract": str(contract_path),
-        "contract_id": contract["contract"]["id"],
+        "runtime_preset": str(runtime_preset_path),
+        "runtime_preset_id": runtime_preset["runtime_preset"]["id"],
+        "workflow_id": workflow_id,
+        "workflow_version": workflow_version,
+        "contract_id": contract_id,
         "contract_version": contract_version,
         "runtime_python_version": runtime["python_version"],
         "comfyui_revision": runtime["comfyui_revision"],
         "pytorch_index_url": runtime["pytorch"]["index_url"],
         "pytorch_packages_json": packages_json,
-        "bundled_workflow_path": str(resolve_bundled_workflow_path(contract, contract_path)),
+        "bundled_workflow_path": str(resolve_bundled_workflow_path(runtime_preset, runtime_preset_path)),
     }
 
 
-def resolve_bundled_workflow_path(contract: dict[str, Any], contract_path: Path) -> Path:
+def resolve_bundled_workflow_path(runtime_preset: dict[str, Any], runtime_preset_path: Path) -> Path:
     repository_root = Path(__file__).resolve().parents[2]
     workflow_path = repository_root / "bundled" / "workflows" / "comfyui-hidream-o1-dev.json"
     if not workflow_path.is_file():
@@ -184,13 +245,13 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
         handle.write("\n")
 
 
-def _runpod_runtime_requirements(preset: dict[str, Any]) -> list[dict[str, Any]]:
-    requirements: list[dict[str, Any]] = []
-    for revision in _list_value(preset, "revisions"):
-        if not isinstance(revision, dict):
-            raise ReleaseToolError("workflow catalog contains a malformed revision entry")
-        requirements.append(_dict_value(revision, "runpod_runtime_requirements"))
-    return requirements
+def _runpod_contract_requirements(revision: dict[str, Any]) -> dict[str, Any]:
+    for requirements in _list_value(revision, "contract_requirements"):
+        if not isinstance(requirements, dict):
+            raise ReleaseToolError("workflow catalog contains malformed contract requirements")
+        if requirements.get("runtime_type") == "runpod":
+            return requirements
+    raise ReleaseToolError("workflow revision does not contain RunPod contract requirements")
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -217,23 +278,23 @@ def _validate_with_schema(value: Any, schema: dict[str, Any]) -> None:
         if errors:
             error = errors[0]
             location = "$" + "".join(f".{part}" for part in error.path)
-            raise ReleaseToolError(f"contract schema validation failed at {location}: {error.message}")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {location}: {error.message}")
 
 
 def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) -> None:
     expected_type = schema.get("type")
     if expected_type == "object":
         if not isinstance(value, dict):
-            raise ReleaseToolError(f"contract schema validation failed at {path}: expected object")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: expected object")
         required = schema.get("required", [])
         for key in required:
             if key not in value:
-                raise ReleaseToolError(f"contract schema validation failed at {path}.{key}: missing required property")
+                raise ReleaseToolError(f"runtime preset schema validation failed at {path}.{key}: missing required property")
         properties = schema.get("properties", {})
         if schema.get("additionalProperties") is False:
             extra = sorted(set(value) - set(properties))
             if extra:
-                raise ReleaseToolError(f"contract schema validation failed at {path}.{extra[0]}: unsupported property")
+                raise ReleaseToolError(f"runtime preset schema validation failed at {path}.{extra[0]}: unsupported property")
         for key, nested_schema in properties.items():
             if key in value:
                 _validate_schema_subset(value[key], nested_schema, path=f"{path}.{key}")
@@ -241,10 +302,10 @@ def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) ->
 
     if expected_type == "array":
         if not isinstance(value, list):
-            raise ReleaseToolError(f"contract schema validation failed at {path}: expected array")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: expected array")
         min_items = schema.get("minItems")
         if isinstance(min_items, int) and len(value) < min_items:
-            raise ReleaseToolError(f"contract schema validation failed at {path}: expected at least {min_items} items")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: expected at least {min_items} items")
         item_schema = schema.get("items")
         if isinstance(item_schema, dict):
             for index, item in enumerate(value):
@@ -253,18 +314,18 @@ def _validate_schema_subset(value: Any, schema: dict[str, Any], *, path: str) ->
 
     if expected_type == "string":
         if not isinstance(value, str):
-            raise ReleaseToolError(f"contract schema validation failed at {path}: expected string")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: expected string")
         min_length = schema.get("minLength")
         if isinstance(min_length, int) and len(value) < min_length:
-            raise ReleaseToolError(f"contract schema validation failed at {path}: expected at least {min_length} characters")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: expected at least {min_length} characters")
         pattern = schema.get("pattern")
         if isinstance(pattern, str) and re.fullmatch(pattern, value) is None:
-            raise ReleaseToolError(f"contract schema validation failed at {path}: pattern mismatch")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: pattern mismatch")
         if schema.get("format") == "uri" and not _is_uri(value):
-            raise ReleaseToolError(f"contract schema validation failed at {path}: expected uri")
+            raise ReleaseToolError(f"runtime preset schema validation failed at {path}: expected uri")
         return
 
-    raise ReleaseToolError(f"contract schema validation failed at {path}: unsupported schema")
+    raise ReleaseToolError(f"runtime preset schema validation failed at {path}: unsupported schema")
 
 
 def _is_uri(value: str) -> bool:
@@ -328,17 +389,17 @@ def _parse_scalar(value: str) -> str:
     return value
 
 
-def _validate_contract(value: dict[str, Any], contract_path: Path) -> None:
-    contract = _dict_value(value, "contract")
+def _validate_runtime_preset(value: dict[str, Any], runtime_preset_path: Path) -> None:
+    runtime_preset = _dict_value(value, "runtime_preset")
     runtime = _dict_value(value, "runtime")
 
-    contract_id = _string_value(contract, "id")
-    contract_version = _string_value(contract, "version")
-    if not _is_safe_identifier(contract_id):
-        raise ReleaseToolError("invalid contract id")
-    _parse_semver(contract_version)
+    runtime_preset_id = _string_value(runtime_preset, "id")
+    runtime_preset_version = _string_value(runtime_preset, "version")
+    if not _is_safe_identifier(runtime_preset_id):
+        raise ReleaseToolError("invalid runtime preset id")
+    _parse_semver(runtime_preset_version)
 
-    resolve_bundled_workflow_path(value, contract_path)
+    resolve_bundled_workflow_path(value, runtime_preset_path)
 
     _string_value(runtime, "python_version")
     comfyui_revision = _string_value(runtime, "comfyui_revision")
@@ -407,10 +468,22 @@ def _format_semver(value: tuple[int, int, int]) -> str:
 
 
 def _cmd_resolve(args: argparse.Namespace) -> None:
-    contract_path = Path(args.contract)
-    contract = load_contract(contract_path)
+    workflow_catalog = _load_json(Path(args.workflow_catalog))
+    runtime_preset_path = resolve_runtime_preset_path(
+        workflow_catalog=workflow_catalog,
+        workflow_id=args.workflow_id,
+        workflow_version=args.workflow_version,
+        runtime_presets_dir=Path(args.runtime_presets_dir),
+    )
+    runtime_preset = load_runtime_preset(runtime_preset_path)
     catalog = _load_json(Path(args.catalog)) if args.catalog else None
-    outputs = contract_outputs(contract, contract_path, catalog)
+    outputs = runtime_preset_outputs(
+        runtime_preset=runtime_preset,
+        runtime_preset_path=runtime_preset_path,
+        workflow_id=args.workflow_id,
+        workflow_version=args.workflow_version,
+        catalog=catalog,
+    )
     if args.github_output:
         write_github_outputs(outputs, Path(args.github_output))
     else:
@@ -418,27 +491,31 @@ def _cmd_resolve(args: argparse.Namespace) -> None:
             print(f"{key}={value}")
 
 
-def _cmd_validate_catalog(args: argparse.Namespace) -> None:
-    validate_catalog_compatibility(contract=load_contract(Path(args.contract)), catalog=_load_json(Path(args.catalog)))
-
-
-def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
-    contract = load_contract(Path(args.contract))
+def _cmd_promote_endpoint_image(args: argparse.Namespace) -> None:
+    runtime_preset = load_runtime_preset(Path(args.runtime_preset))
     catalog_path = Path(args.catalog)
     runtime_catalog = _load_json(catalog_path)
-    contract_version = args.contract_version or next_contract_version(contract=contract, catalog=runtime_catalog)
-    updated = promote_runtime_image(
-        contract=contract,
+    contract_id = endpoint_contract_id(args.workflow_id)
+    contract_version = args.contract_version or next_contract_version(
+        runtime_preset=runtime_preset,
         catalog=runtime_catalog,
+        contract_id=contract_id,
+    )
+    updated = promote_endpoint_image(
+        runtime_preset=runtime_preset,
+        catalog=runtime_catalog,
+        contract_id=contract_id,
         image_ref=args.image_ref,
         contract_version=contract_version,
     )
     updated_workflow_catalog = None
     if args.workflow_catalog:
         workflow_catalog_path = Path(args.workflow_catalog)
-        updated_workflow_catalog = update_runtime_workflow_catalog(
+        updated_workflow_catalog = update_endpoint_workflow_catalog(
             catalog=_load_json(workflow_catalog_path),
-            contract_id=contract["contract"]["id"],
+            workflow_id=args.workflow_id,
+            workflow_version=args.workflow_version,
+            contract_id=contract_id,
             contract_version=contract_version,
         )
     _write_json(catalog_path, updated)
@@ -447,30 +524,30 @@ def _cmd_promote_runtime_image(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Endpoint contract release and promotion helper")
+    parser = argparse.ArgumentParser(description="RunPod endpoint release and promotion helper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    resolve = subparsers.add_parser("resolve", help="resolve contract outputs")
-    resolve.add_argument("--contract", required=True)
+    resolve = subparsers.add_parser("resolve", help="resolve workflow endpoint build outputs")
+    resolve.add_argument("--workflow-catalog", required=True)
+    resolve.add_argument("--workflow-id", required=True)
+    resolve.add_argument("--workflow-version", required=True)
+    resolve.add_argument("--runtime-presets-dir", default="runtime-presets")
     resolve.add_argument("--catalog")
     resolve.add_argument("--github-output")
     resolve.set_defaults(func=_cmd_resolve)
 
-    validate_catalog = subparsers.add_parser("validate-catalog", help="validate catalog shape")
-    validate_catalog.add_argument("--contract", required=True)
-    validate_catalog.add_argument("--catalog", required=True)
-    validate_catalog.set_defaults(func=_cmd_validate_catalog)
-
-    promote_runtime = subparsers.add_parser(
-        "promote-runtime-image",
-        help="promote a digest-pinned endpoint image into Runtime Contracts",
+    promote_endpoint = subparsers.add_parser(
+        "promote-endpoint-image",
+        help="promote a digest-pinned RunPod endpoint image into Runtime Contracts",
     )
-    promote_runtime.add_argument("--contract", required=True)
-    promote_runtime.add_argument("--catalog", required=True)
-    promote_runtime.add_argument("--image-ref", required=True)
-    promote_runtime.add_argument("--contract-version")
-    promote_runtime.add_argument("--workflow-catalog")
-    promote_runtime.set_defaults(func=_cmd_promote_runtime_image)
+    promote_endpoint.add_argument("--runtime-preset", required=True)
+    promote_endpoint.add_argument("--workflow-id", required=True)
+    promote_endpoint.add_argument("--workflow-version", required=True)
+    promote_endpoint.add_argument("--catalog", required=True)
+    promote_endpoint.add_argument("--image-ref", required=True)
+    promote_endpoint.add_argument("--contract-version")
+    promote_endpoint.add_argument("--workflow-catalog")
+    promote_endpoint.set_defaults(func=_cmd_promote_endpoint_image)
 
     return parser
 
