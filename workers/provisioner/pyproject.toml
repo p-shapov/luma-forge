@@ -12,9 +12,5 @@ dependencies = ["huggingface_hub>=1,<2"]
 [project.optional-dependencies]
 dev = []
 
-[tool.luma_forge_provisioner]
-http_port = 8000
-default_workspace_mount_path = "/workspace"
-
 [tool.setuptools.packages.find]
 where = ["src"]
