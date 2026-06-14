@@ -9,17 +9,6 @@
 
 ---
 
-## Structure
-
-- `provisioner/src/`: Provisioner Worker implementation.
-- `provisioner/tests/`: Provisioner Worker tests.
-- `runpod-endpoint/src/`: RunPod Endpoint Worker implementation.
-- `runpod-endpoint/tests/`: RunPod Endpoint Worker tests.
-- `promote-provisioner/`: Provisioner promotion tooling and tests.
-- `promote-runpod-endpoint/`: Runtime preset schema, metadata, and RunPod endpoint promotion tooling.
-
----
-
 ## Contract Rules
 
 - Keep request/response shapes compatible with the corresponding catalog metadata and native callers.

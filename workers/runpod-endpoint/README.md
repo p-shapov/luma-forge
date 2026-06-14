@@ -44,9 +44,13 @@ Provisioner and endpoint images use separate Dockerfiles. The endpoint Dockerfil
 
 ## Deployment
 
-See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
+Publish an endpoint image by pushing a `runpod-endpoint-v*` tag or running the `Deploy RunPod Endpoint` GitHub Actions workflow manually with `workflow_id` and `workflow_version`.
 
-Published runtime images are digest-pinned in Runtime Contracts. Existing deployed Workspaces keep their persisted endpoint image snapshot; endpoint runtime image changes require publishing a new endpoint image and promoting a new Runtime Contracts revision before newly created Workspaces use them.
+The workflow resolves the selected workflow revision's runtime preset, validates the endpoint contract tooling and endpoint package, builds `ghcr.io/<owner>/<repo>/runpod-endpoint-worker`, and resolves the pushed digest. The endpoint contract id matches the Workflow Preset id, so the build bakes `bundled/workflows/{contract.id}.json` into `/opt/luma-forge/runtime/workflows/workflow.json`.
+
+After publication, the workflow opens a Runtime Contracts promotion PR. That PR appends the new endpoint contract revision to `bundled/runtime-contracts.json` and updates the matching Workflow Preset in `bundled/workflow-catalog.json`.
+
+New Workspaces use the image only after the promotion PR is reviewed, merged, and bundled into the app. Existing Workspaces remain pinned to their persisted endpoint image snapshot.
 
 ## Runtime Configuration
 

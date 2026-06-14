@@ -60,7 +60,11 @@ Provisioner and endpoint images use separate Dockerfiles. The provisioner Docker
 
 ## Deployment
 
-See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
+Publish the provisioner image by pushing a `provisioner-worker-v*` tag or running the `Deploy Provisioner` GitHub Actions workflow manually.
+
+The workflow validates the provisioner package, builds `ghcr.io/<owner>/<repo>/provisioner-worker`, resolves the pushed digest, and opens a Runtime Contracts promotion PR. That PR appends the new provisioner contract revision to `bundled/runtime-contracts.json` and updates matching Workflow Presets in `bundled/workflow-catalog.json`.
+
+New Workspaces use the image only after the promotion PR is reviewed, merged, and bundled into the app. Existing Workspaces remain pinned to their persisted provisioner image snapshot.
 
 ## Runtime Configuration
 
