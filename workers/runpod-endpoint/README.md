@@ -1,6 +1,6 @@
 # RunPod Endpoint Worker
 
-The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. It accepts the current request contract and executes the image-baked HiDream O1 Dev ComfyUI workflow through Comfy CLI.
+The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. It accepts the current request contract and executes the image-baked ComfyUI workflow through Comfy CLI.
 
 ```json
 {
@@ -8,7 +8,7 @@ The RunPod Endpoint Worker is the runtime container used behind RunPod Serverles
 }
 ```
 
-On the first valid request in a warm worker process, the handler starts ComfyUI lazily with `comfy launch --background`, waits for the local server to become ready, then reuses that server for later jobs. For each job it writes a temporary workflow copy, patches HiDream node `171` (`User Prompt`) with the request prompt, sets node `154` (`Switch to Image Edit`) to `false`, sets node `177` (`Enable Prompt Refine?`) to `false`, runs the patched workflow with `comfy run --json`, fetches local ComfyUI image outputs, writes them under the configured network volume mount, and returns artifact references.
+On the first valid request in a warm worker process, the handler starts ComfyUI lazily with `comfy launch --background`, waits for the local server to become ready, then reuses that server for later jobs. For each job it validates the flat request payload against the image-baked execution schema revision, writes a temporary workflow copy, applies the image-baked execution contract bindings to that copy, runs the patched workflow with `comfy run --json`, fetches local ComfyUI image outputs, writes them under the configured network volume mount, and returns artifact references.
 
 Successful responses are UI-safe:
 
@@ -69,13 +69,14 @@ The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` s
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFY_CLI_PATH` | `/opt/luma-forge/runtime/.venv/bin/comfy` | Comfy CLI executable path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH` | `/opt/luma-forge/runtime/ComfyUI` | Image-local ComfyUI checkout path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH` | `/opt/luma-forge/runtime/workflows/workflow.json` | Image-local baked UI workflow path. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH` | `/opt/luma-forge/runtime/contracts/execution-contract.json` | Image-local workflow revision execution contract path. |
+| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_SCHEMA_PATH` | `/opt/luma-forge/runtime/contracts/execution-schema.json` | Image-local execution schema revision path. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | Local ComfyUI host. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | Local ComfyUI port. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `300` | Time allowed for lazy ComfyUI startup readiness. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS` | `900` | Time allowed for `comfy run --json`. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES` | `9000000` | Maximum allowed JSON response metadata size. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_ARTIFACT_BYTES` | `512000000` | Maximum generated artifact bytes buffered and persisted per request. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS` | `4000` | Maximum accepted prompt length. |
 ## Development
 
 ```bash

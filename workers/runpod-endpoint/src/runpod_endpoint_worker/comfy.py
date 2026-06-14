@@ -170,7 +170,12 @@ class ComfyExecutor:
         self.runtime.ensure_ready()
         with tempfile.TemporaryDirectory(prefix="luma-forge-workflow-") as directory:
             patched_workflow = Path(directory) / "workflow.json"
-            write_patched_workflow(self.config.workflow_path, patched_workflow, request.prompt)
+            write_patched_workflow(
+                self.config.workflow_path,
+                self.config.execution_contract_path,
+                patched_workflow,
+                request.inputs,
+            )
             outputs = self._run_workflow(patched_workflow)
 
         if not outputs:
