@@ -24,12 +24,11 @@ class GenerationServiceTests(unittest.TestCase):
 
         executor = Executor()
         with WorkerFixture(executor=executor) as fixture:
-            response = fixture.service.generate_from_payload({"execution_type": "t2i", "prompt": "a lamp"})
+            response = fixture.service.generate_from_payload({"prompt": "a lamp"})
 
         payload = response.to_payload()
         self.assertEqual(payload["status"], "succeeded")
         self.assertTrue(payload["generation"]["implemented"])
-        self.assertEqual(payload["generation"]["execution_type"], "t2i")
         self.assertEqual(payload["generation"]["images"][0]["artifact_uri"], "runpod-volume://luma-forge/outputs/jobs/job-123/0001/result.png")
         self.assertEqual(payload["generation"]["images"][0]["storage"]["type"], "runpod_volume")
         self.assertNotIn("data_base64", payload["generation"]["images"][0])

@@ -17,7 +17,6 @@ class EndpointConfig:
     max_response_bytes: int = 9_000_000
     max_artifact_bytes: int = 512_000_000
     max_prompt_chars: int = 4000
-    supported_execution_types: tuple[str, ...] = ("t2i",)
 
     @classmethod
     def from_env(cls) -> "EndpointConfig":
@@ -39,7 +38,6 @@ class EndpointConfig:
             max_response_bytes=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES", 9_000_000),
             max_artifact_bytes=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_MAX_ARTIFACT_BYTES", 512_000_000),
             max_prompt_chars=_positive_int("LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS", 4000),
-            supported_execution_types=tuple(_csv("LUMA_FORGE_RUNPOD_ENDPOINT_SUPPORTED_EXECUTION_TYPES", ("t2i",))),
         )
 
 
@@ -65,9 +63,3 @@ def _positive_int(name: str, default: int) -> int:
         return default
     return value if value > 0 else default
 
-
-def _csv(name: str, default: tuple[str, ...]) -> list[str]:
-    raw = os.environ.get(name)
-    if raw is None:
-        return list(default)
-    return [part.strip() for part in raw.split(",") if part.strip()]

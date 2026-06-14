@@ -154,8 +154,7 @@ mod tests {
         runpod::RunpodContractRequirements,
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
-            ModelAsset, ModelAssetSource, WorkflowContractRequirements, WorkflowExecutionType,
-            WorkflowRevision,
+            ModelAsset, ModelAssetSource, WorkflowContractRequirements, WorkflowRevision,
         },
     };
 
@@ -199,7 +198,6 @@ mod tests {
         WorkflowPreset {
             id: id.to_string(),
             name: "ComfyUI HiDream O1 Dev".to_string(),
-            execution_type: WorkflowExecutionType::T2i,
             revisions: vec![valid_revision("1.0.0")],
         }
     }

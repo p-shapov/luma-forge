@@ -8,7 +8,7 @@ use crate::domain::{
     },
     workflow_preset::{
         ModelAsset, ModelAssetSource, WorkflowCatalog, WorkflowContractRequirements,
-        WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
+        WorkflowPreset, WorkflowRevision,
     },
 };
 
@@ -43,7 +43,6 @@ pub struct RuntimeContractRevisionResponse {
 pub struct WorkflowPresetResponse {
     pub id: String,
     pub name: String,
-    pub execution_type: WorkflowExecutionTypeDto,
     pub revisions: Vec<WorkflowRevisionResponse>,
 }
 
@@ -56,12 +55,6 @@ pub struct WorkflowRevisionResponse {
     pub required_volume_size_gb: u64,
     pub contract_requirements: Vec<WorkflowContractRequirementsResponse>,
     pub required_model_assets: Vec<ModelAssetResponse>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-pub enum WorkflowExecutionTypeDto {
-    #[serde(rename = "t2i")]
-    T2i,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -142,7 +135,6 @@ impl From<WorkflowPreset> for WorkflowPresetResponse {
         Self {
             id: value.id,
             name: value.name,
-            execution_type: value.execution_type.into(),
             revisions: value.revisions.into_iter().map(Into::into).collect(),
         }
     }
@@ -165,14 +157,6 @@ impl From<WorkflowRevision> for WorkflowRevisionResponse {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-        }
-    }
-}
-
-impl From<WorkflowExecutionType> for WorkflowExecutionTypeDto {
-    fn from(value: WorkflowExecutionType) -> Self {
-        match value {
-            WorkflowExecutionType::T2i => Self::T2i,
         }
     }
 }
