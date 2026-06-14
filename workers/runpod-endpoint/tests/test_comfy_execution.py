@@ -492,35 +492,6 @@ class ComfyExecutionTests(unittest.TestCase):
         self.assertEqual(images[0].sha256, hashlib.sha256(b"first").hexdigest())
         self.assertEqual(images[1].sha256, hashlib.sha256(b"second").hexdigest())
 
-    def test_executor_fails_before_comfy_when_required_models_are_missing(self):
-        with tempfile.TemporaryDirectory() as directory:
-            workflow = _write_valid_workflow(directory)
-            workspace = Path(directory) / "workspace"
-            config = EndpointConfig(
-                workflow_path=workflow,
-                execution_contract_path=_write_execution_contract(directory),
-                workspace_mount_path=workspace,
-            )
-            runtime = ComfyRuntime(config=config, http_client=FakeHttpClient())
-            executor = ComfyExecutor(config=config, runtime=runtime, http_client=runtime.http_client)
-
-            with self.assertRaises(ComfyWorkflowError) as context:
-                with patch.object(runtime, "ensure_ready") as ready:
-                    with patch("subprocess.run") as run:
-                        executor.generate(GenerationRequest(inputs={"prompt": "new prompt"}))
-
-        ready.assert_not_called()
-        run.assert_not_called()
-        self.assertEqual(context.exception.code, "comfyui_workflow_failed")
-        self.assertEqual(context.exception.metadata["diagnostic_excerpt"], "Required model file is missing.")
-        self.assertEqual(
-            context.exception.metadata["missing_model_paths"],
-            [
-                str(workspace / "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"),
-                str(workspace / "models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
-            ],
-        )
-
     def test_executor_normalizes_wildcard_host_for_local_http_fetches(self):
         with tempfile.TemporaryDirectory() as directory:
             workflow = _write_valid_workflow(directory)

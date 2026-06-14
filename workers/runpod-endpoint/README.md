@@ -35,7 +35,7 @@ docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile \
 
 Publish an endpoint image by pushing a `runpod-endpoint-v*` tag or running the `Deploy RunPod Endpoint` GitHub Actions workflow manually with `workflow_id` and `workflow_version`.
 
-The workflow resolves the selected workflow revision's runtime preset, validates the endpoint contract tooling and endpoint package, builds `ghcr.io/<owner>/<repo>/runpod-endpoint-worker`, and resolves the pushed digest. The endpoint contract id matches the Workflow Preset id, so the build bakes `bundled/workflows/{contract.id}.json` into `/opt/luma-forge/runtime/workflows/workflow.json`.
+The workflow resolves the selected workflow revision's runtime preset, validates the endpoint contract tooling and endpoint package, builds `ghcr.io/<owner>/<repo>/runpod-endpoint-worker`, and resolves the pushed digest. The build bakes `bundled/workflows/{workflow_id}.json` into `/opt/luma-forge/runtime/workflows/workflow.json`.
 
 After publication, the workflow opens a Runtime Contracts promotion PR. That PR appends the new endpoint contract revision to `bundled/runtime-contracts.json` and updates the matching Workflow Preset in `bundled/workflow-catalog.json`.
 
