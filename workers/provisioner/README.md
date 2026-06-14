@@ -22,8 +22,6 @@ During preparation, the Provisioner Worker prepares only workspace-specific data
   workflows/
 ```
 
-The worker validates only workspace path safety and declared model asset files. It does not write `.luma-forge/runtime-manifest.json`, validate workflow or output paths, validate endpoint runtime paths, contain or validate the endpoint ComfyUI runtime, create the base virtual environment, clone ComfyUI, run `comfy install`, install ComfyUI base requirements, clone runtime extensions, or run `pip` during provisioning.
-
 ## Test
 
 ```bash
@@ -64,8 +62,6 @@ Provisioner and endpoint images use separate Dockerfiles. The provisioner Docker
 
 See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
 
-Remote provisioning must inject a unique per-pod bearer token through `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`, then send `Authorization: Bearer <token>` on every worker API request. The token must not be logged, persisted in workspace metadata, or returned in worker responses.
-
 ## Runtime Environment
 
 The worker validates runtime environment before binding the HTTP server. Invalid configured values fail startup instead of falling back silently. Startup configuration failures write one JSON error record to stderr, exit with code `78`, and do not start the HTTP API:
@@ -84,7 +80,7 @@ The error record never includes configured environment values or secrets.
 | --- | --- | --- |
 | `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
 | `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | Required | JSON array of valid `ModelAsset` objects. |
-| `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
+| `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. |
 | `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
 | `LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS` | `3600` | Positive finite number up to `86400`; measured since the last received download byte. |
 | `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Absolute normalized path. |
@@ -92,13 +88,9 @@ The error record never includes configured environment values or secrets.
 
 ## API
 
-Every endpoint requires:
+Remote provisioning must inject a unique per-pod bearer token through `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`, then send `Authorization: Bearer <token>` on every worker API request. The token must not be logged, persisted in workspace metadata, or returned in worker responses.
 
-```http
-Authorization: Bearer <LUMA_FORGE_PROVISIONER_BEARER_TOKEN>
-```
-
-The worker API is observation-only. Provisioning starts from environment configuration at process startup. There is no start, retry, cancel, or termination endpoint. Native/control-plane code owns startup reachability timeout, status polling policy, cancellation policy, retry policy, and provider pod termination.
+The worker API is observation-only. Provisioning starts from environment configuration at process startup.
 
 ### `GET /status`
 

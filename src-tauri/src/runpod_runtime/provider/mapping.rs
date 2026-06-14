@@ -16,9 +16,10 @@ use super::{
     },
     config::{
         ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_ENDPOINT_WORKSPACE_MOUNT_PATH,
-        ENV_HUGGING_FACE_API_KEY, ENV_PROVISIONER_BEARER_TOKEN,
-        ENV_PROVISIONER_REQUIRED_MODEL_ASSETS, PROVISIONER_COMPUTE_TYPE, PROVISIONER_PORT,
-        WORKER_PORT_PROTOCOL,
+        ENV_HUGGING_FACE_API_KEY, ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_HOST,
+        ENV_PROVISIONER_PORT, ENV_PROVISIONER_REQUIRED_MODEL_ASSETS,
+        ENV_PROVISIONER_WORKSPACE_MOUNT_PATH, PROVISIONER_COMPUTE_TYPE, PROVISIONER_HOST,
+        PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
     },
 };
 
@@ -234,6 +235,18 @@ pub(super) fn provisioner_pod_create_body(
         (
             ENV_PROVISIONER_REQUIRED_MODEL_ASSETS.to_string(),
             required_model_assets,
+        ),
+        (
+            ENV_PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
+            request.mount_path.clone(),
+        ),
+        (
+            ENV_PROVISIONER_HOST.to_string(),
+            PROVISIONER_HOST.to_string(),
+        ),
+        (
+            ENV_PROVISIONER_PORT.to_string(),
+            PROVISIONER_PORT.to_string(),
         ),
     ]);
 
@@ -491,6 +504,12 @@ mod tests {
             body["env"]["LUMA_FORGE_HUGGING_FACE_API_KEY"],
             json!("hf-key")
         );
+        assert_eq!(
+            body["env"]["LUMA_FORGE_WORKSPACE_MOUNT_PATH"],
+            json!("/workspace")
+        );
+        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_HOST"], json!("0.0.0.0"));
+        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_PORT"], json!("8000"));
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
                 body["env"]["LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"]

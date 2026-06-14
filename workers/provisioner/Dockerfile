@@ -1,9 +1,6 @@
 FROM python:3.12-slim
 
-ENV PYTHONUNBUFFERED=1 \
-    LUMA_FORGE_WORKSPACE_MOUNT_PATH=/workspace \
-    LUMA_FORGE_PROVISIONER_HOST=0.0.0.0 \
-    LUMA_FORGE_PROVISIONER_PORT=8000
+ENV PYTHONUNBUFFERED=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -15,5 +12,4 @@ COPY workers/provisioner/src ./src
 
 RUN python -m pip install --no-cache-dir .
 
-EXPOSE 8000
 CMD ["python", "-m", "app"]
