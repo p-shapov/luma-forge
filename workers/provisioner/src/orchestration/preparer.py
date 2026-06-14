@@ -2,7 +2,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app.config import WorkerConfig
-from app.errors import AssetAuthRequiredError, PreparationError
+from app.errors import PreparationError
 from app.schemas import StartRequest
 from auxiliary.huggingface import PublicFileDownloader
 from auxiliary.paths import safe_child_path
@@ -36,9 +36,6 @@ class Provisioner:
         self._prepare_workspace_paths(workspace_root)
         progress("preparing_workspace", 25, "Workspace directories prepared")
 
-        if request.requires_hugging_face_api_key and not self.config.hugging_face_api_key:
-            raise AssetAuthRequiredError("Hugging Face asset requires authentication.")
-
         self._download_assets(request, workspace_root, progress)
 
         progress("validating_environment", 95, "Validating prepared model assets")
@@ -63,10 +60,8 @@ class Provisioner:
             self.downloader.download(
                 asset,
                 target,
-                timeout_seconds=self.config.download_timeout_seconds,
-                hugging_face_api_key=self.config.hugging_face_api_key
-                if request.requires_hugging_face_api_key
-                else None,
+                download_inactivity_timeout_seconds=self.config.download_inactivity_timeout_seconds,
+                hugging_face_api_key=self.config.hugging_face_api_key,
             )
             progress(
                 "downloading_assets",

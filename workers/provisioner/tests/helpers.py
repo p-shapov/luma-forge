@@ -10,7 +10,6 @@ from api.handler import ProvisionerRequestHandler
 from app.config import (
     BEARER_TOKEN_ENV,
     JOB_ID_ENV,
-    REQUIRES_HUGGING_FACE_API_KEY_ENV,
     REQUIRED_MODEL_ASSETS_ENV,
     WORKSPACE_MOUNT_PATH_ENV,
     WorkerConfig,
@@ -22,7 +21,6 @@ TEST_BEARER_TOKEN = "test-token-0123456789abcdef012345"
 
 def sample_preset() -> dict[str, Any]:
     return {
-        "requires_hugging_face_api_key": False,
         "required_model_assets": [
             {
                 "id": "model",
@@ -43,7 +41,6 @@ def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None
     preset_payload = preset or sample_preset()
     return {
         "job_id": job_id,
-        "requires_hugging_face_api_key": preset_payload["requires_hugging_face_api_key"],
         "required_model_assets": preset_payload["required_model_assets"],
     }
 
@@ -87,7 +84,6 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
             "LUMA_FORGE_PROVISIONER_PORT": "8000",
             WORKSPACE_MOUNT_PATH_ENV: str(workspace_mount_path or Path("/workspace")),
             JOB_ID_ENV: "job-1",
-            REQUIRES_HUGGING_FACE_API_KEY_ENV: str(start_payload()["requires_hugging_face_api_key"]).lower(),
             REQUIRED_MODEL_ASSETS_ENV: json.dumps(start_payload()["required_model_assets"]),
         }
     )
@@ -96,8 +92,10 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
         port=overrides.get("port", config.port),
         bearer_token=overrides.get("bearer_token", config.bearer_token),
         start_request=overrides.get("start_request", config.start_request),
-        max_request_bytes=overrides.get("max_request_bytes", config.max_request_bytes),
-        download_timeout_seconds=overrides.get("download_timeout_seconds", config.download_timeout_seconds),
+        download_inactivity_timeout_seconds=overrides.get(
+            "download_inactivity_timeout_seconds",
+            config.download_inactivity_timeout_seconds,
+        ),
         workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
         hugging_face_api_key=overrides.get("hugging_face_api_key", config.hugging_face_api_key),
     )

@@ -29,19 +29,14 @@ class ModelAsset:
 @dataclass(frozen=True)
 class StartRequest:
     job_id: str
-    requires_hugging_face_api_key: bool
     required_model_assets: list[ModelAsset]
 
 
 def parse_start_request(payload: Any) -> StartRequest:
     data = _object(payload, "request")
-    _require_keys(data, {"job_id", "requires_hugging_face_api_key", "required_model_assets"}, "request")
+    _require_keys(data, {"job_id", "required_model_assets"}, "request")
     return StartRequest(
         job_id=_non_empty_string(data.get("job_id"), "job_id"),
-        requires_hugging_face_api_key=_bool(
-            data.get("requires_hugging_face_api_key"),
-            "requires_hugging_face_api_key",
-        ),
         required_model_assets=[
             _parse_model_asset(item, f"required_model_assets[{index}]")
             for index, item in enumerate(
@@ -94,12 +89,6 @@ def _list(payload: Any, field: str) -> list[Any]:
     if not isinstance(payload, list):
         raise ValidationError(f"{field} must be an array")
     return payload
-
-
-def _bool(value: Any, field: str) -> bool:
-    if not isinstance(value, bool):
-        raise ValidationError(f"{field} must be a boolean")
-    return value
 
 
 def _non_empty_string(value: Any, field: str) -> str:

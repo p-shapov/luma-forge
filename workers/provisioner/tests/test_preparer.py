@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.errors import AssetAuthRequiredError, PreparationError, ValidationError
+from app.errors import PreparationError, ValidationError
 from app.schemas import parse_start_request
 from helpers import start_payload, test_config
 from orchestration.preparer import Provisioner
@@ -12,14 +12,14 @@ class FakeDownloader:
     def __init__(self):
         self.calls = []
 
-    def download(self, asset, target, *, timeout_seconds=None, hugging_face_api_key=None):
-        self.calls.append((asset, target, timeout_seconds, hugging_face_api_key))
+    def download(self, asset, target, *, download_inactivity_timeout_seconds=None, hugging_face_api_key=None):
+        self.calls.append((asset, target, download_inactivity_timeout_seconds, hugging_face_api_key))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"model")
 
 
 class MissingFileDownloader:
-    def download(self, asset, target, *, timeout_seconds=None, hugging_face_api_key=None):
+    def download(self, asset, target, *, download_inactivity_timeout_seconds=None, hugging_face_api_key=None):
         target.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -55,7 +55,6 @@ class PreparerTests(unittest.TestCase):
     def test_download_progress_advances_after_each_asset_completes(self):
         with tempfile.TemporaryDirectory() as directory:
             preset = {
-                "requires_hugging_face_api_key": False,
                 "required_model_assets": [
                     model_asset(id="model-a", install_path="models/checkpoints/model-a.safetensors"),
                     model_asset(id="model-b", install_path="models/checkpoints/model-b.safetensors"),
@@ -86,10 +85,9 @@ class PreparerTests(unittest.TestCase):
                 ],
             )
 
-    def test_passes_hugging_face_key_to_downloads_when_workflow_requires_it(self):
+    def test_passes_hugging_face_key_to_downloads_when_configured(self):
         with tempfile.TemporaryDirectory() as directory:
             preset = {
-                "requires_hugging_face_api_key": True,
                 "required_model_assets": [
                     model_asset(id="model-a"),
                     model_asset(id="model-b"),
@@ -152,36 +150,12 @@ class PreparerTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     parse_start_request(payload)
 
-    def test_rejects_missing_or_invalid_workflow_auth_requirement_flag(self):
-        cases = [
-            lambda payload: payload.pop("requires_hugging_face_api_key"),
-            lambda payload: payload.update({"requires_hugging_face_api_key": "true"}),
-        ]
+    def test_rejects_unsupported_hugging_face_requirement_flag(self):
+        payload = start_payload()
+        payload["requires_hugging_face_api_key"] = True
 
-        for mutate in cases:
-            payload = start_payload()
-            mutate(payload)
-
-            with self.assertRaises(ValidationError):
-                parse_start_request(payload)
-
-    def test_missing_required_hugging_face_key_fails_with_asset_auth_required(self):
-        with tempfile.TemporaryDirectory() as directory:
-            preset = {
-                "requires_hugging_face_api_key": True,
-                "required_model_assets": [
-                    model_asset(),
-                ]
-            }
-            request = parse_start_request(start_payload(preset=preset))
-            downloader = FakeDownloader()
-
-            with self.assertRaises(AssetAuthRequiredError):
-                Provisioner(
-                    downloader=downloader,
-                    config=test_config(workspace_mount_path=Path(directory)),
-                ).prepare(request, lambda phase, progress, message: None)
-            self.assertEqual(downloader.calls, [])
+        with self.assertRaises(ValidationError):
+            parse_start_request(payload)
 
     def test_rejects_missing_downloaded_model_file(self):
         with tempfile.TemporaryDirectory() as directory:
