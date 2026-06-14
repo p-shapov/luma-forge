@@ -19,7 +19,6 @@ MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 MIN_BEARER_TOKEN_LENGTH = 32
 
 BEARER_TOKEN_ENV = "LUMA_FORGE_PROVISIONER_BEARER_TOKEN"
-JOB_ID_ENV = "LUMA_FORGE_PROVISIONER_JOB_ID"
 REQUIRED_MODEL_ASSETS_ENV = "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"
 HOST_ENV = "LUMA_FORGE_PROVISIONER_HOST"
 PORT_ENV = "LUMA_FORGE_PROVISIONER_PORT"
@@ -117,7 +116,6 @@ def _parse_bearer_token(env: Mapping[str, str]) -> str:
 
 def _parse_start_request(env: Mapping[str, str]) -> StartRequest:
     payload = {
-        "job_id": _required_configured_value(env, JOB_ID_ENV),
         "required_model_assets": _parse_required_model_assets(env),
     }
     try:

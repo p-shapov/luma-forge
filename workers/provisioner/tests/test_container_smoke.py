@@ -36,8 +36,6 @@ class ContainerSmokeTests(unittest.TestCase):
                 "-e",
                 f"LUMA_FORGE_PROVISIONER_BEARER_TOKEN={token}",
                 "-e",
-                "LUMA_FORGE_PROVISIONER_JOB_ID=smoke-job",
-                "-e",
                 'LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS=[]',
                 "-p",
                 "127.0.0.1::8000",

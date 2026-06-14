@@ -7,12 +7,11 @@ Container-side one-shot worker that prepares a mounted ComfyUI workspace from st
 ```bash
 cd workers/provisioner
 LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
-LUMA_FORGE_PROVISIONER_JOB_ID=workspace-id \
 LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   PYTHONPATH=src python -m app
 ```
 
-The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN`, `LUMA_FORGE_PROVISIONER_JOB_ID`, and `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` before startup. It listens on `127.0.0.1:8000` by default and auto-starts the single provisioning job as soon as the HTTP server is created. Clients observe progress with `GET /status`.
+The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` before startup. It listens on `127.0.0.1:8000` by default and auto-starts the single provisioning job as soon as the HTTP server is created. Clients observe progress with `GET /status`.
 
 During preparation, the Provisioner Worker prepares only workspace-specific data on the mounted volume:
 
@@ -46,7 +45,6 @@ cd workers/provisioner
 docker build -t provisioner:local -f Dockerfile ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
-  -e LUMA_FORGE_PROVISIONER_JOB_ID=workspace-id \
   -e LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   -p 8000:8000 \
   -v "$PWD/tmp-workspace:/workspace" \
@@ -85,7 +83,6 @@ The error record never includes configured environment values or secrets.
 | Variable | Default | Validation |
 | --- | --- | --- |
 | `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
-| `LUMA_FORGE_PROVISIONER_JOB_ID` | Required | Non-empty string. |
 | `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | Required | JSON array of valid `ModelAsset` objects. |
 | `LUMA_FORGE_PROVISIONER_HOST` | `127.0.0.1` | Valid IP address or DNS hostname. The container image sets `0.0.0.0`. |
 | `LUMA_FORGE_PROVISIONER_PORT` | `8000` | Integer from `1` through `65535`. |
@@ -117,7 +114,6 @@ curl http://127.0.0.1:8000/status \
 ```json
 {
   "status": "idle",
-  "job_id": null,
   "phase": null,
   "progress_percent": null,
   "error": null,
@@ -131,7 +127,6 @@ During an active job:
 ```json
 {
   "status": "running",
-  "job_id": "workspace-id",
   "phase": "downloading_assets",
   "progress_percent": 56,
   "error": null,
@@ -147,7 +142,6 @@ Failure responses include UI-safe error metadata:
 ```json
 {
   "status": "failed",
-  "job_id": "workspace-id",
   "phase": null,
   "progress_percent": 56,
   "error": {

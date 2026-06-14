@@ -9,7 +9,6 @@ from typing import Any
 from api.handler import ProvisionerRequestHandler
 from app.config import (
     BEARER_TOKEN_ENV,
-    JOB_ID_ENV,
     REQUIRED_MODEL_ASSETS_ENV,
     WORKSPACE_MOUNT_PATH_ENV,
     WorkerConfig,
@@ -37,10 +36,9 @@ def sample_preset() -> dict[str, Any]:
     }
 
 
-def start_payload(*, job_id: str = "job-1", preset: dict[str, Any] | None = None) -> dict[str, Any]:
+def start_payload(*, preset: dict[str, Any] | None = None) -> dict[str, Any]:
     preset_payload = preset or sample_preset()
     return {
-        "job_id": job_id,
         "required_model_assets": preset_payload["required_model_assets"],
     }
 
@@ -83,7 +81,6 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
             "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
             "LUMA_FORGE_PROVISIONER_PORT": "8000",
             WORKSPACE_MOUNT_PATH_ENV: str(workspace_mount_path or Path("/workspace")),
-            JOB_ID_ENV: "job-1",
             REQUIRED_MODEL_ASSETS_ENV: json.dumps(start_payload()["required_model_assets"]),
         }
     )

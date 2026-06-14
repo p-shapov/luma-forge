@@ -23,13 +23,13 @@ class WorkerErrorTests(unittest.TestCase):
     def test_serializes_safe_context_when_present(self):
         error = ConflictError(
             "Provisioner worker already has an active job.",
-            context={"active_job_id": "job-1"},
+            context={"phase": "starting"},
         )
 
         payload = error.to_dict()
 
         self.assertEqual(payload["code"], "active_job_exists")
-        self.assertEqual(payload["context"], {"active_job_id": "job-1"})
+        self.assertEqual(payload["context"], {"phase": "starting"})
 
     def test_allows_code_override_for_specific_validation_failures(self):
         error = ValidationError(

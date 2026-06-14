@@ -15,7 +15,6 @@ ACTIVE_STATUSES = {"running"}
 
 class JobSnapshotPayload(TypedDict):
     status: str
-    job_id: str | None
     phase: str | None
     progress_percent: int | None
     error: WorkerErrorPayload | None
@@ -26,7 +25,6 @@ class JobSnapshotPayload(TypedDict):
 @dataclass
 class JobSnapshot:
     status: str
-    job_id: str | None
     phase: str | None
     progress_percent: int | None
     error: WorkerErrorPayload | None
@@ -36,7 +34,6 @@ class JobSnapshot:
     def to_dict(self) -> JobSnapshotPayload:
         return {
             "status": self.status,
-            "job_id": self.job_id,
             "phase": self.phase,
             "progress_percent": self.progress_percent,
             "error": self.error,
@@ -51,7 +48,6 @@ class JobManager:
         self._lock = Lock()
         self._snapshot = JobSnapshot(
             status="idle",
-            job_id=None,
             phase=None,
             progress_percent=None,
             error=None,
@@ -69,12 +65,10 @@ class JobManager:
             if self._snapshot.status in ACTIVE_STATUSES:
                 raise ConflictError(
                     "Provisioner worker already has an active job.",
-                    context={"active_job_id": self._snapshot.job_id},
                 )
 
             self._snapshot = JobSnapshot(
                 status="running",
-                job_id=request.job_id,
                 phase="starting",
                 progress_percent=0,
                 error=None,
@@ -85,7 +79,6 @@ class JobManager:
             self._thread.start()
             _log_event(
                 "provisioner_job_started",
-                job_id=request.job_id,
                 status=self._snapshot.status,
                 phase=self._snapshot.phase,
                 progress_percent=self._snapshot.progress_percent,
@@ -117,7 +110,6 @@ class JobManager:
             self._snapshot.updated_at = _now()
             _log_event(
                 "provisioner_job_progress",
-                job_id=self._snapshot.job_id,
                 status=self._snapshot.status,
                 phase=phase,
                 progress_percent=progress_percent,
@@ -132,7 +124,6 @@ class JobManager:
             self._snapshot.updated_at = _now()
             _log_event(
                 "provisioner_job_terminal",
-                job_id=self._snapshot.job_id,
                 status=status,
                 progress_percent=self._snapshot.progress_percent,
                 error_code=error.get("code") if error else None,
@@ -142,7 +133,6 @@ class JobManager:
 def _copy_snapshot(snapshot: JobSnapshot) -> JobSnapshot:
     return JobSnapshot(
         status=snapshot.status,
-        job_id=snapshot.job_id,
         phase=snapshot.phase,
         progress_percent=snapshot.progress_percent,
         error=snapshot.error.copy() if snapshot.error else None,
