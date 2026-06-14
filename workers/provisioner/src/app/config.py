@@ -12,22 +12,18 @@ from app.errors import ValidationError
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
-DEFAULT_MAX_REQUEST_BYTES = 1024 * 1024
-DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 3600.0
+DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS = 3600.0
 DEFAULT_WORKSPACE_MOUNT_PATH = "/workspace"
 
-MAX_REQUEST_BYTES_LIMIT = 100 * 1024 * 1024
 MAX_TIMEOUT_SECONDS = 24 * 60 * 60
 MIN_BEARER_TOKEN_LENGTH = 32
 
 BEARER_TOKEN_ENV = "LUMA_FORGE_PROVISIONER_BEARER_TOKEN"
 JOB_ID_ENV = "LUMA_FORGE_PROVISIONER_JOB_ID"
-REQUIRES_HUGGING_FACE_API_KEY_ENV = "LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY"
 REQUIRED_MODEL_ASSETS_ENV = "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"
 HOST_ENV = "LUMA_FORGE_PROVISIONER_HOST"
 PORT_ENV = "LUMA_FORGE_PROVISIONER_PORT"
-MAX_REQUEST_BYTES_ENV = "LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES"
-DOWNLOAD_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS"
+DOWNLOAD_INACTIVITY_TIMEOUT_ENV = "LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS"
 WORKSPACE_MOUNT_PATH_ENV = "LUMA_FORGE_WORKSPACE_MOUNT_PATH"
 HUGGING_FACE_API_KEY_ENV = "LUMA_FORGE_HUGGING_FACE_API_KEY"
 
@@ -55,8 +51,7 @@ class WorkerConfig:
     port: int
     bearer_token: str
     start_request: StartRequest
-    max_request_bytes: int
-    download_timeout_seconds: float
+    download_inactivity_timeout_seconds: float
     workspace_mount_path: Path
     hugging_face_api_key: str | None
 
@@ -74,17 +69,10 @@ class WorkerConfig:
             ),
             bearer_token=_parse_bearer_token(source),
             start_request=_parse_start_request(source),
-            max_request_bytes=_parse_int(
+            download_inactivity_timeout_seconds=_parse_float(
                 source,
-                MAX_REQUEST_BYTES_ENV,
-                DEFAULT_MAX_REQUEST_BYTES,
-                minimum=1,
-                maximum=MAX_REQUEST_BYTES_LIMIT,
-            ),
-            download_timeout_seconds=_parse_float(
-                source,
-                DOWNLOAD_TIMEOUT_ENV,
-                DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
+                DOWNLOAD_INACTIVITY_TIMEOUT_ENV,
+                DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
                 minimum=0.0,
                 maximum=MAX_TIMEOUT_SECONDS,
             ),
@@ -130,10 +118,6 @@ def _parse_bearer_token(env: Mapping[str, str]) -> str:
 def _parse_start_request(env: Mapping[str, str]) -> StartRequest:
     payload = {
         "job_id": _required_configured_value(env, JOB_ID_ENV),
-        "requires_hugging_face_api_key": _parse_bool_env(
-            env,
-            REQUIRES_HUGGING_FACE_API_KEY_ENV,
-        ),
         "required_model_assets": _parse_required_model_assets(env),
     }
     try:
@@ -219,16 +203,6 @@ def _parse_float(
             f"value must be greater than {minimum:g} and at most {maximum:g}",
     )
     return parsed
-
-
-def _parse_bool_env(env: Mapping[str, str], name: str) -> bool:
-    raw = _required_configured_value(env, name)
-    normalized = raw.lower()
-    if normalized == "true":
-        return True
-    if normalized == "false":
-        return False
-    raise ConfigurationError(name, "invalid_request", "value must be true or false")
 
 
 def _parse_required_model_assets(env: Mapping[str, str]) -> list[dict[str, object]]:

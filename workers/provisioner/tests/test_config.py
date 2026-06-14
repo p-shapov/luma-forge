@@ -8,15 +8,13 @@ from pathlib import Path
 
 from app.config import (
     ConfigurationError,
-    DEFAULT_DOWNLOAD_TIMEOUT_SECONDS,
+    DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
     DEFAULT_HOST,
-    DEFAULT_MAX_REQUEST_BYTES,
     DEFAULT_PORT,
     DEFAULT_WORKSPACE_MOUNT_PATH,
+    DOWNLOAD_INACTIVITY_TIMEOUT_ENV,
     JOB_ID_ENV,
-    REQUIRES_HUGGING_FACE_API_KEY_ENV,
     REQUIRED_MODEL_ASSETS_ENV,
-    MAX_REQUEST_BYTES_LIMIT,
     MAX_TIMEOUT_SECONDS,
     WorkerConfig,
 )
@@ -30,7 +28,6 @@ def valid_env(**overrides):
     env = {
         "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": VALID_TOKEN,
         JOB_ID_ENV: "job-1",
-        REQUIRES_HUGGING_FACE_API_KEY_ENV: "false",
         REQUIRED_MODEL_ASSETS_ENV: r'[{"id":"model","name":"Model","download_source":{"source_type":"huggingface","repository_id":"owner/model","file_path":"model.safetensors","revision":"main"},"install_comfyui_relative_path":"models/checkpoints/model.safetensors"}]',
     }
     env.update(overrides)
@@ -44,17 +41,20 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.host, DEFAULT_HOST)
         self.assertEqual(config.port, DEFAULT_PORT)
         self.assertEqual(config.bearer_token, VALID_TOKEN)
-        self.assertEqual(config.max_request_bytes, DEFAULT_MAX_REQUEST_BYTES)
-        self.assertEqual(config.download_timeout_seconds, DEFAULT_DOWNLOAD_TIMEOUT_SECONDS)
+        self.assertEqual(
+            config.download_inactivity_timeout_seconds,
+            DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
+        )
         self.assertEqual(config.workspace_mount_path, Path(DEFAULT_WORKSPACE_MOUNT_PATH).resolve(strict=False))
+        self.assertFalse(hasattr(config, "max_request_bytes"))
+        self.assertFalse(hasattr(config.start_request, "requires_hugging_face_api_key"))
 
     def test_valid_config_accepts_explicit_values(self):
         config = WorkerConfig.from_env(
             valid_env(
                 LUMA_FORGE_PROVISIONER_HOST="worker.internal",
                 LUMA_FORGE_PROVISIONER_PORT="9000",
-                LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES="2048",
-                LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS="14.5",
+                LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS="14.5",
                 LUMA_FORGE_WORKSPACE_MOUNT_PATH="/workspace/custom",
                 LUMA_FORGE_HUGGING_FACE_API_KEY="test-hugging-face-key",
             )
@@ -62,8 +62,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.host, "worker.internal")
         self.assertEqual(config.port, 9000)
-        self.assertEqual(config.max_request_bytes, 2048)
-        self.assertEqual(config.download_timeout_seconds, 14.5)
+        self.assertEqual(config.download_inactivity_timeout_seconds, 14.5)
         self.assertEqual(config.workspace_mount_path, Path("/workspace/custom").resolve(strict=False))
         self.assertEqual(config.hugging_face_api_key, "test-hugging-face-key")
 
@@ -116,8 +115,7 @@ class ConfigTests(unittest.TestCase):
     def test_rejects_invalid_numeric_values(self):
         invalid_values = {
             "LUMA_FORGE_PROVISIONER_PORT": ["", "abc", "0", "65536"],
-            "LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES": ["", "abc", "0", str(MAX_REQUEST_BYTES_LIMIT + 1)],
-            "LUMA_FORGE_PROVISIONER_DOWNLOAD_TIMEOUT_SECONDS": [
+            DOWNLOAD_INACTIVITY_TIMEOUT_ENV: [
                 "",
                 "abc",
                 "-1",
