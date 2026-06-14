@@ -433,7 +433,6 @@ mod tests {
                 datacenter_id: "dc-1".to_string(),
                 gpu_id: "gpu-1".to_string(),
                 volume_size_gb: 100,
-                keep_alive_limits: None,
             },
         };
 

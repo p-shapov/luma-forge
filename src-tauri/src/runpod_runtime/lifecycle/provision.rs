@@ -472,7 +472,6 @@ where
             gpu_type_id: placement.gpu_type_id.clone(),
             network_volume_id: volume_id.to_string(),
             template_id: template_id.to_string(),
-            keep_alive_limits: None,
         })
         .await
     {

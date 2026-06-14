@@ -411,7 +411,6 @@ mod tests {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 volume_size_gb: 1,
-                keep_alive_limits: None,
             },
         };
 
@@ -429,7 +428,6 @@ mod tests {
                 datacenter_id: "dc".to_string(),
                 gpu_id: "gpu".to_string(),
                 volume_size_gb: 1,
-                keep_alive_limits: None,
             },
             resources: RunpodResourcesResponse {
                 volume_id: None,

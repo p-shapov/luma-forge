@@ -31,19 +31,10 @@ pub struct RunpodPlacementOptionsResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-pub struct RunpodEndpointKeepAliveLimitsDto {
-    pub default_seconds: u32,
-    pub min_seconds: u32,
-    pub max_seconds: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct RunpodPlacementPlanInput {
     pub datacenter_id: String,
     pub gpu_id: String,
     pub volume_size_gb: u64,
-    pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimitsDto>,
 }
 
 impl From<RunpodPlacementPlanInput> for RunpodPlacementPlan {
@@ -62,7 +53,6 @@ impl From<RunpodPlacementPlan> for RunpodPlacementPlanInput {
             datacenter_id: value.data_center_id,
             gpu_id: value.gpu_type_id,
             volume_size_gb: value.volume_size_gb,
-            keep_alive_limits: None,
         }
     }
 }
@@ -106,7 +96,6 @@ mod tests {
             datacenter_id: "dc".to_string(),
             gpu_id: "gpu".to_string(),
             volume_size_gb: 19,
-            keep_alive_limits: None,
         });
 
         assert_eq!(plan.volume_size_gb, 19);
@@ -118,7 +107,6 @@ mod tests {
             datacenter_id: "dc".to_string(),
             gpu_id: "gpu".to_string(),
             volume_size_gb: 0,
-            keep_alive_limits: None,
         });
 
         assert_eq!(plan.volume_size_gb, 0);

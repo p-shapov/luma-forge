@@ -129,7 +129,6 @@ const commandProbes: CommandProbe[] = [
         datacenterId: "",
         gpuId: "",
         volumeSizeGb: 0,
-        keepAliveLimits: null,
       },
     }),
     run: async request =>

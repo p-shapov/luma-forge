@@ -167,8 +167,6 @@ pub(super) struct EndpointCreateBody {
     datacenter_ids: Vec<String>,
     #[serde(rename = "gpuTypeIds")]
     gpu_type_ids: Vec<String>,
-    #[serde(rename = "idleTimeout")]
-    idle_timeout: u32,
     name: String,
     #[serde(rename = "networkVolumeId")]
     network_volume_id: String,
@@ -183,7 +181,6 @@ pub(super) struct EndpointCreateBody {
 #[derive(Debug, Deserialize)]
 pub(super) struct EndpointResponse {
     pub(super) id: String,
-    pub(super) url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -264,7 +261,6 @@ pub(super) fn endpoint_create_body(
     EndpointCreateBody {
         datacenter_ids: vec![request.datacenter_id.clone()],
         gpu_type_ids: vec![request.gpu_id.clone()],
-        idle_timeout: request.keep_alive_limits.default_seconds,
         name: request.name.clone(),
         network_volume_id: request.network_volume_id.clone(),
         template_id: request.template_id.clone(),
@@ -377,7 +373,6 @@ mod tests {
 
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
-    use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
 
     #[test]
     fn workspace_resource_names_are_deterministic() {
@@ -497,11 +492,6 @@ mod tests {
             name: "luma-forge-workspace-endpoint".to_string(),
             template_id: "template-1".to_string(),
             network_volume_id: "volume-1".to_string(),
-            keep_alive_limits: RunpodEndpointKeepAliveLimits {
-                default_seconds: 300,
-                min_seconds: 0,
-                max_seconds: 86_400,
-            },
         };
 
         let template_body = serde_json::to_value(endpoint_template_create_body(&template_request))
@@ -522,7 +512,6 @@ mod tests {
             json!({
                 "dataCenterIds": ["US-TX-1"],
                 "gpuTypeIds": ["NVIDIA GeForce RTX 4090"],
-                "idleTimeout": 300,
                 "name": "luma-forge-workspace-endpoint",
                 "networkVolumeId": "volume-1",
                 "templateId": "template-1",
@@ -547,15 +536,13 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_response_preserves_id_and_url_without_template_id() {
+    fn endpoint_response_preserves_id() {
         let response: EndpointResponse = serde_json::from_value(json!({
             "id": "endpoint-1",
-            "url": "https://endpoint.example",
         }))
         .expect("endpoint should deserialize");
 
         assert_eq!(response.id, "endpoint-1");
-        assert_eq!(response.url, Some("https://endpoint.example".to_string()));
     }
 
     #[test]

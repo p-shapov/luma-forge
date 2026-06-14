@@ -121,12 +121,6 @@ export type RunpodDatacenterPlacementOptionResponse = {
 
 export type RunpodDeleteStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner_pod" | "delete_network_volume" | "delete_local_workspace";
 
-export type RunpodEndpointKeepAliveLimitsDto = {
-	defaultSeconds: number,
-	minSeconds: number,
-	maxSeconds: number,
-};
-
 export type RunpodGpuPlacementOptionResponse = {
 	id: string,
 	name: string,
@@ -144,7 +138,6 @@ export type RunpodPlacementPlanInput = {
 	datacenterId: string,
 	gpuId: string,
 	volumeSizeGb: number,
-	keepAliveLimits: RunpodEndpointKeepAliveLimitsDto | null,
 };
 
 export type RunpodProvisionStepResponse = "create_network_volume" | "start_provisioner_pod" | "poll_provisioner" | "terminate_provisioner_pod" | "create_template" | "create_endpoint";

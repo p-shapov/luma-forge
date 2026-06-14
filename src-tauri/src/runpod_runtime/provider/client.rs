@@ -12,13 +12,6 @@ use super::super::errors::{
 use crate::secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunpodEndpointKeepAliveLimits {
-    pub default_seconds: u32,
-    pub min_seconds: u32,
-    pub max_seconds: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunpodProvisionerStatus {
     Pending,
     Starting,
@@ -57,7 +50,6 @@ pub struct CreateRunpodServerlessEndpointParams {
     pub gpu_type_id: String,
     pub network_volume_id: String,
     pub template_id: String,
-    pub keep_alive_limits: Option<RunpodEndpointKeepAliveLimits>,
 }
 
 pub trait RunpodRuntimeClient: Send + Sync {
@@ -118,8 +110,7 @@ use super::{
         CreateServerlessTemplateRequest, HttpRunpodApi, RunpodApi,
     },
     config::{
-        DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS, NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT,
-        RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
+        NETWORK_VOLUME_MAX_SIZE_GB, PROVISIONER_PORT, RUNPOD_GRAPHQL_URL, RUNPOD_REST_BASE_URL,
     },
     mapping,
     provisioner::{ProvisionerWorkerApi, ProvisionerWorkerClient},
@@ -483,9 +474,6 @@ fn serverless_endpoint_request(
         name: mapping::endpoint_name(&params.workspace_id),
         template_id: params.template_id,
         network_volume_id: params.network_volume_id,
-        keep_alive_limits: params
-            .keep_alive_limits
-            .unwrap_or(DEFAULT_ENDPOINT_KEEP_ALIVE_LIMITS),
     }
 }
 
@@ -621,8 +609,6 @@ mod tests {
 
                 Ok(RunpodEndpoint {
                     id: "endpoint".to_string(),
-                    template_id: "template".to_string(),
-                    url: "https://endpoint.example".to_string(),
                 })
             })
         }
@@ -924,7 +910,6 @@ mod tests {
                 gpu_type_id: "gpu".to_string(),
                 network_volume_id: "volume".to_string(),
                 template_id: template_id.clone(),
-                keep_alive_limits: None,
             })
             .await
             .expect("endpoint");
@@ -940,14 +925,6 @@ mod tests {
         );
         assert_eq!(endpoint_request.name, "luma-forge-workspace-endpoint");
         assert_eq!(endpoint_request.template_id, "template");
-        assert_eq!(
-            endpoint_request.keep_alive_limits,
-            RunpodEndpointKeepAliveLimits {
-                default_seconds: 300,
-                min_seconds: 0,
-                max_seconds: 86_400,
-            }
-        );
     }
 
     #[tokio::test]

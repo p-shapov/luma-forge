@@ -8,14 +8,11 @@ use crate::{
     shared::AppFuture,
 };
 
-use super::{
-    mapping::{
-        endpoint_create_body, endpoint_template_create_body, map_empty_response,
-        map_placement_response, map_send_error, network_volume_create_body, parse_json_response,
-        placement_graphql_request, provisioner_pod_create_body, EndpointResponse, GraphqlResponse,
-        NetworkVolumeResponse, PlacementQueryData, PodResponse, RunpodOperation, TemplateResponse,
-    },
-    RunpodEndpointKeepAliveLimits,
+use super::mapping::{
+    endpoint_create_body, endpoint_template_create_body, map_empty_response,
+    map_placement_response, map_send_error, network_volume_create_body, parse_json_response,
+    placement_graphql_request, provisioner_pod_create_body, EndpointResponse, GraphqlResponse,
+    NetworkVolumeResponse, PlacementQueryData, PodResponse, RunpodOperation, TemplateResponse,
 };
 
 pub trait RunpodApi: Send + Sync {
@@ -95,7 +92,6 @@ pub struct CreateServerlessEndpointRequest {
     pub name: String,
     pub template_id: String,
     pub network_volume_id: String,
-    pub keep_alive_limits: RunpodEndpointKeepAliveLimits,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,8 +102,6 @@ pub struct RunpodId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunpodEndpoint {
     pub id: String,
-    pub template_id: String,
-    pub url: String,
 }
 
 pub struct HttpRunpodApi<S, I> {
@@ -309,8 +303,6 @@ where
 
             Ok(RunpodEndpoint {
                 id: endpoint_response.id,
-                template_id: request.template_id,
-                url: endpoint_response.url.unwrap_or_default(),
             })
         })
     }

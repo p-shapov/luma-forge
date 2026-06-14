@@ -6,6 +6,6 @@ mod provisioner;
 
 pub use client::{
     CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
-    CreateRunpodServerlessTemplateParams, RunpodEndpointKeepAliveLimits, RunpodProvisionerStatus,
-    RunpodRuntimeClient, RunpodRuntimeProvider, StartRunpodProvisionerPodParams,
+    CreateRunpodServerlessTemplateParams, RunpodProvisionerStatus, RunpodRuntimeClient,
+    RunpodRuntimeProvider, StartRunpodProvisionerPodParams,
 };
