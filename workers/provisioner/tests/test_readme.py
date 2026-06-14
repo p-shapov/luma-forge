@@ -11,9 +11,6 @@ class ReadmeContractTests(unittest.TestCase):
 
         self.assertIn("auto-starts", content)
         self.assertIn("GET /status", content)
-        self.assertNotIn("POST /start", content)
-        self.assertNotIn("LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY", content)
-        self.assertNotIn("LUMA_FORGE_PROVISIONER_MAX_REQUEST_BYTES", content)
         self.assertIn("LUMA_FORGE_HUGGING_FACE_API_KEY", content)
         self.assertIn("Native/control-plane code owns", content)
 

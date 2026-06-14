@@ -463,7 +463,6 @@ fn provisioner_pod_request(
         mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
         bearer_token,
         job_id: params.workspace_id,
-        requires_hugging_face_api_key: params.requires_hugging_face_api_key,
         required_model_assets: params.required_model_assets,
         hugging_face_api_key,
     }
@@ -813,7 +812,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_provisioner_pod_derives_token_and_injects_hf_when_required() {
+    async fn start_provisioner_pod_derives_token_and_injects_hf_when_workflow_requires_it() {
         let api_state = Arc::new(Mutex::new(ApiState::default()));
         let provider = provider(Arc::clone(&api_state), Arc::default());
 
@@ -847,7 +846,6 @@ mod tests {
         assert_eq!(request.name, "luma-forge-workspace-provisioner");
         assert_eq!(request.hugging_face_api_key, Some("hf-secret".to_string()));
         assert_eq!(request.job_id, "workspace");
-        assert!(request.requires_hugging_face_api_key);
         assert_eq!(
             request.required_model_assets,
             vec![ModelAsset {

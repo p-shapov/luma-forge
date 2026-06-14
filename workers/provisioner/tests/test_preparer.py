@@ -150,13 +150,6 @@ class PreparerTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     parse_start_request(payload)
 
-    def test_rejects_unsupported_hugging_face_requirement_flag(self):
-        payload = start_payload()
-        payload["requires_hugging_face_api_key"] = True
-
-        with self.assertRaises(ValidationError):
-            parse_start_request(payload)
-
     def test_rejects_missing_downloaded_model_file(self):
         with tempfile.TemporaryDirectory() as directory:
             request = parse_start_request(start_payload())

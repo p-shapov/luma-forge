@@ -17,8 +17,8 @@ use super::{
     config::{
         ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_ENDPOINT_WORKSPACE_MOUNT_PATH,
         ENV_HUGGING_FACE_API_KEY, ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_JOB_ID,
-        ENV_PROVISIONER_REQUIRED_MODEL_ASSETS, ENV_PROVISIONER_REQUIRES_HF_KEY,
-        PROVISIONER_COMPUTE_TYPE, PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
+        ENV_PROVISIONER_REQUIRED_MODEL_ASSETS, PROVISIONER_COMPUTE_TYPE, PROVISIONER_PORT,
+        WORKER_PORT_PROTOCOL,
     },
 };
 
@@ -233,10 +233,6 @@ pub(super) fn provisioner_pod_create_body(
         ),
         (ENV_PROVISIONER_JOB_ID.to_string(), request.job_id.clone()),
         (
-            ENV_PROVISIONER_REQUIRES_HF_KEY.to_string(),
-            request.requires_hugging_face_api_key.to_string(),
-        ),
-        (
             ENV_PROVISIONER_REQUIRED_MODEL_ASSETS.to_string(),
             required_model_assets,
         ),
@@ -450,7 +446,6 @@ mod tests {
             mount_path: "/workspace".to_string(),
             bearer_token: "derived-token".to_string(),
             job_id: "job-1".to_string(),
-            requires_hugging_face_api_key: false,
             required_model_assets: vec![ModelAsset {
                 id: "model".to_string(),
                 name: "Model".to_string(),
@@ -499,10 +494,6 @@ mod tests {
             json!("hf-key")
         );
         assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_JOB_ID"], json!("job-1"));
-        assert_eq!(
-            body["env"]["LUMA_FORGE_PROVISIONER_REQUIRES_HUGGING_FACE_API_KEY"],
-            json!("false")
-        );
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
                 body["env"]["LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"]
