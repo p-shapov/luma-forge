@@ -78,7 +78,7 @@ The error record never includes configured environment values or secrets.
 
 | Variable | Default | Validation |
 | --- | --- | --- |
-| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | At least 32 ASCII characters; no whitespace or control characters. |
+| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | Required | Non-empty string. |
 | `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | Required | JSON array of valid `ModelAsset` objects. |
 | `LUMA_FORGE_HUGGING_FACE_API_KEY` | Optional | Optional Hugging Face bearer token used for model downloads; never returned in worker responses. |
 
@@ -144,6 +144,40 @@ Failure responses include UI-safe error metadata:
 ## Error Responses
 
 Worker API errors use `code` as the stable specific classifier. Safe structured metadata appears under `context` when available. Error payloads must not include `reason_code`, bearer tokens, provider API keys, request bodies, raw command output, stack traces, environment dumps, or credential-bearing URLs.
+
+Startup configuration failures are written to stderr before the HTTP API starts. The `env_name` field identifies the failed variable:
+
+| Variable | Code | Meaning |
+| --- | --- | --- |
+| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | `missing_required_value` | Bearer token environment variable is not set. |
+| `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` | `blank_value` | Bearer token is an empty string. |
+| `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | `missing_required_value` | Required model assets environment variable is not set. |
+| `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | `blank_value` | Required model assets value is empty after trimming whitespace. |
+| `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | `invalid_json` | Required model assets value is not valid JSON. |
+| `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` | `invalid_request` | Required model assets value is valid JSON but does not match the required model asset contract. |
+
+HTTP API errors are returned directly from worker endpoints:
+
+| Code | HTTP status | Meaning |
+| --- | ---: | --- |
+| `invalid_authorization` | 401 | The `Authorization` header is missing, malformed, non-ASCII, or does not match the per-pod bearer token. |
+| `endpoint_not_found` | 404 | The requested endpoint or HTTP method is unsupported. |
+| `invalid_request` | 400 | The request shape is invalid. Reserved for request-taking endpoints. |
+| `invalid_json` | 400 | The request body is not valid JSON. Reserved for request-taking endpoints. |
+| `request_body_too_large` | 413 | The request body exceeds the worker limit. Reserved for request-taking endpoints. |
+| `active_job_exists` | 409 | A new provisioning job was requested while another job was already running. |
+| `worker_error` | 400 | Generic worker error fallback. |
+
+Provisioning job failures appear under `error` in `GET /status` after the job reaches `status: "failed"`:
+
+| Code | Meaning |
+| --- | --- |
+| `preparation_failed` | Workspace preparation or final model asset validation failed. |
+| `asset_download_failed` | A required model asset could not be downloaded. |
+| `asset_auth_required` | A Hugging Face asset requires authentication and no valid token was available. |
+| `path_validation_failed` | A configured workspace-relative path is unsafe or escapes the workspace root. |
+| `step_timeout` | A provisioning step timed out, including inactive model download streams. |
+| `unexpected_exception` | An unhandled exception escaped the provisioning job. |
 
 Unknown endpoints return `404`:
 

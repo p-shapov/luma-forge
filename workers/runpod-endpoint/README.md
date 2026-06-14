@@ -1,16 +1,73 @@
-# RunPod Endpoint Worker
+# LumaForge RunPod Endpoint Worker
 
-The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. It accepts the current request contract and executes the image-baked ComfyUI workflow through Comfy CLI.
+RunPod Serverless runtime worker that executes an image-baked ComfyUI workflow through Comfy CLI. The worker accepts the current flat request contract, starts ComfyUI lazily on the first valid job, writes generated images to the configured RunPod network volume, and returns UI-safe artifact references.
 
-```json
-{
-  "prompt": "a product photo of a small lamp"
-}
+## Test
+
+```bash
+cd workers/runpod-endpoint
+PYTHONPATH=src python3 -m unittest discover -s tests
 ```
 
-On the first valid request in a warm worker process, the handler starts ComfyUI lazily with `comfy launch --background`, waits for the local server to become ready, then reuses that server for later jobs. For each job it validates the flat request payload against the image-baked execution schema revision, writes a temporary workflow copy, applies the image-baked execution contract bindings to that copy, runs the patched workflow with `comfy run --json`, fetches local ComfyUI image outputs, writes them under the configured network volume mount, and returns artifact references.
+## Lint / Syntax Check
 
-Successful responses are UI-safe:
+```bash
+cd workers/runpod-endpoint
+PYTHONPATH=src python3 -m compileall src tests
+```
+
+## Container
+
+```bash
+cd workers/runpod-endpoint
+docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile \
+  --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12 \
+  --build-arg LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1 \
+  --build-arg LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 \
+  --build-arg 'LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.9.1","torchvision==0.24.1","torchaudio==2.9.1"]' \
+  --build-arg LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json \
+  --build-arg LUMA_FORGE_WORKFLOW_ID=comfyui-hidream-o1-dev \
+  --build-arg LUMA_FORGE_WORKFLOW_VERSION=1.0.0 \
+  ../..
+```
+
+Optional smoke check:
+
+```bash
+cd workers/runpod-endpoint
+LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python3 -m unittest tests.test_container_smoke
+```
+
+The smoke check builds or uses an endpoint image and verifies the handler import, ComfyUI checkout, Comfy CLI, and baked workflow without running GPU generation.
+
+Provisioner and endpoint images use separate Dockerfiles. The endpoint Dockerfile owns the ComfyUI checkout, Comfy CLI installation, baked workflow, and baked execution contract under `/opt/luma-forge/runtime`.
+
+## Deployment
+
+See [Worker Deployment](../DEPLOYMENT.md) for image release triggers, registry conventions, catalog PR ownership, and rollback.
+
+Published runtime images are digest-pinned in Runtime Contracts. Existing deployed Workspaces keep their persisted endpoint image snapshot; endpoint runtime image changes require publishing a new endpoint image and promoting a new Runtime Contracts revision before newly created Workspaces use them.
+
+## Runtime Configuration
+
+Runtime configuration is baked into the endpoint image instead of loaded from startup environment. The worker does not require a provisioner-written runtime manifest.
+
+| Value | Source |
+| --- | --- |
+| ComfyUI checkout | `/opt/luma-forge/runtime/ComfyUI` |
+| Comfy CLI | `/opt/luma-forge/runtime/.venv/bin/comfy` |
+| Workflow file | `/opt/luma-forge/runtime/workflows/workflow.json` |
+| Execution contract | `/opt/luma-forge/runtime/contracts/execution-contract.json` |
+| Workspace mount | `/workspace` |
+| Artifact output prefix | `luma-forge/outputs/jobs/<job-id>/` |
+
+The runtime image pins ComfyUI to `ea62dc11c9a10dae52186fdcc3da033eb46018a1` and installs PyTorch `2.9.1` CUDA `12.6` wheels before installing ComfyUI requirements. The final image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` so `comfy` resolves by name.
+
+## API
+
+The worker is invoked by RunPod Serverless. The job `input` must match the baked execution schema for the selected workflow.
+
+Successful responses are UI-safe and include generated image artifacts:
 
 ```json
 {
@@ -34,7 +91,9 @@ Successful responses are UI-safe:
 }
 ```
 
-Failed responses include UI-safe diagnostic metadata:
+## Error Responses
+
+Failed responses include a UI-safe `failure` object and a top-level `error` string so RunPod marks the job failed. `failure.code` is the stable specific classifier, `failure.stage` identifies the failing worker boundary, and `failure.retryable` is the worker-owned retry classification:
 
 ```json
 {
@@ -52,46 +111,25 @@ Failed responses include UI-safe diagnostic metadata:
 }
 ```
 
-The failed response keeps structured diagnostics in `failure` because the RunPod Python serverless SDK reserves and removes top-level `error` during hosted result normalization. The top-level `error` is still returned as a safe platform failure signal so RunPod marks the job failed; hosted job `output` preserves `status` and `failure`. Stable diagnostic codes include `invalid_request`, `workflow_validation_failed`, `comfyui_launch_failed`, `comfyui_startup_timeout`, `comfyui_workflow_failed`, `comfyui_workflow_timeout`, `comfyui_output_parse_failed`, `comfyui_no_outputs`, `comfyui_output_fetch_failed`, `response_too_large`, and `runtime_failed`. `failure.stage` identifies the failing worker boundary, `failure.retryable` is the worker-owned retry classification, and optional `failure.metadata` contains only bounded primitive values such as an exit status, timeout duration, Comfy CLI JSON failure hints, or normalized and truncated `diagnostic_excerpt` derived from subprocess output. Messages and metadata never include raw stdout, raw stderr, command output, stack traces, credentials, authorization headers, environment dumps, command invocations, or generated image data. Subprocess launch and workflow failures also write full-length captured Comfy CLI output to worker logs for operator debugging after credential-pattern scrubbing; those logs are not part of the hosted response contract.
+Endpoint failure codes:
 
-The worker does not require a provisioner-written runtime manifest. Provisioning remains responsible for prepared workspace directories and model assets only; the endpoint image owns the ComfyUI checkout, Comfy CLI installation, and baked workflow file under `/opt/luma-forge/runtime`.
+| Code | Stage | Retryable | Meaning |
+| --- | --- | --- | --- |
+| `invalid_request` | `request_validation` | No | The RunPod job `input` is not an object, contains unknown inputs, misses required inputs, or contains invalid input values. |
+| `workflow_validation_failed` | `workflow_validation` | No | The baked workflow, execution contract, or execution schema is missing, unreadable, malformed, or internally inconsistent. |
+| `comfyui_startup_failed` | `comfyui_startup` | Yes | Generic ComfyUI startup failure fallback. |
+| `comfyui_launch_failed` | `comfyui_launch` | No | `comfy launch --background` failed before ComfyUI became ready. |
+| `comfyui_startup_timeout` | `comfyui_startup` | Yes | ComfyUI did not become ready before the startup timeout. |
+| `comfyui_execution_failed` | `workflow_execution` | No | Generic ComfyUI execution failure fallback. |
+| `comfyui_workflow_failed` | `workflow_execution` | No | `comfy run --json` failed or did not report workflow completion. |
+| `comfyui_workflow_timeout` | `workflow_execution` | Yes | Workflow execution exceeded the worker timeout. |
+| `comfyui_output_parse_failed` | `output_parse` | No | Comfy CLI emitted malformed or unexpected JSON events. |
+| `comfyui_no_outputs` | `output_parse` | No | ComfyUI completed without image outputs. |
+| `comfyui_output_fetch_failed` | `output_fetch` | Yes | Generated output could not be fetched from ComfyUI, persisted to the workspace volume, or cleaned up safely. |
+| `response_too_large` | `response_size` | No | Generated artifacts or response metadata exceed worker size limits. |
+| `runtime_failed` | `runtime` | Yes | An unexpected endpoint worker exception was caught and converted to a safe failure response. |
+| `runpod_endpoint_worker_error` | `runtime` | No | Generic endpoint worker error fallback. |
 
-The runtime image pins ComfyUI to `ea62dc11c9a10dae52186fdcc3da033eb46018a1` and installs PyTorch `2.9.1` CUDA `12.6` wheels (`torch`, `torchvision`, and `torchaudio`) before installing ComfyUI requirements.
+Safe structured metadata may appear under `failure.metadata` for `exit_status`, `timeout_seconds`, `diagnostic_excerpt`, normalized ComfyUI error fields, and missing model paths.
 
-The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` so Comfy CLI background launches can resolve the image-baked `comfy` executable by name.
-
-## Development
-
-```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
-```
-
-## Container
-
-```bash
-docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile \
-  --build-arg LUMA_FORGE_RUNTIME_PYTHON_VERSION=3.12 \
-  --build-arg LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1 \
-  --build-arg LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 \
-  --build-arg 'LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.9.1","torchvision==0.24.1","torchaudio==2.9.1"]' \
-  --build-arg LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json \
-  --build-arg LUMA_FORGE_WORKFLOW_ID=comfyui-hidream-o1-dev \
-  --build-arg LUMA_FORGE_WORKFLOW_VERSION=1.0.0 \
-  ../..
-```
-
-Optional smoke validation builds or uses an endpoint image and proves the handler imports, ComfyUI checkout, Comfy CLI, and baked workflow are present without running GPU generation:
-
-```bash
-LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python3 -m unittest tests.test_container_smoke
-```
-
-## Manual Invocation
-
-After publishing and provisioning a workspace that uses this runtime image, invoke the RunPod serverless endpoint with an input payload shaped like the example above. The response should have `status: "succeeded"`, `generation.implemented: true`, and at least one `runpod_volume` image artifact entry.
-
-## Deployment
-
-RunPod Endpoint Worker images are released through runtime contract deployments. See [Worker Deployment](../DEPLOYMENT.md) for shared release policy, registry conventions, catalog PR ownership, and rollback.
-
-Published runtime images are digest-pinned in Runtime Contracts. Existing deployed Workspaces keep their persisted endpoint image snapshot; endpoint runtime image changes require publishing a new endpoint image and promoting a new Runtime Contracts revision before newly created Workspaces use them.
+Error payloads must not include raw stdout, raw stderr, command output, stack traces, credentials, authorization headers, environment dumps, command invocations, credential-bearing URLs, or generated image data.
