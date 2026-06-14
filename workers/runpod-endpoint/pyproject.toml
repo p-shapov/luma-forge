@@ -12,11 +12,5 @@ dependencies = ["runpod>=1,<2"]
 [project.optional-dependencies]
 dev = []
 
-[tool.luma_forge_runpod_endpoint]
-default_workspace_mount_path = "/runpod-volume"
-default_comfyui_host = "127.0.0.1"
-default_comfyui_port = 8188
-default_workflow_relative_path = "workflows/workflow.json"
-
 [tool.setuptools.packages.find]
 where = ["src"]
