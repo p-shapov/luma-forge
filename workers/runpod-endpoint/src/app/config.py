@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-WORKSPACE_MOUNT_PATH = Path("/workspace")
+WORKSPACE_MOUNT_PATH = Path("/runpod-volume")
 COMFY_CLI_PATH = Path("/opt/luma-forge/runtime/.venv/bin/comfy")
 COMFYUI_PATH = Path("/opt/luma-forge/runtime/ComfyUI")
 WORKFLOW_PATH = Path("/opt/luma-forge/runtime/workflows/workflow.json")

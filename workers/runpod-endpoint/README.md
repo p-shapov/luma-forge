@@ -31,17 +31,6 @@ docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile \
   ../..
 ```
 
-Optional smoke check:
-
-```bash
-cd workers/runpod-endpoint
-LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python3 -m unittest tests.test_container_smoke
-```
-
-The smoke check builds or uses an endpoint image and verifies the handler import, ComfyUI checkout, Comfy CLI, and baked workflow without running GPU generation.
-
-Provisioner and endpoint images use separate Dockerfiles. The endpoint Dockerfile owns the ComfyUI checkout, Comfy CLI installation, baked workflow, and baked execution contract under `/opt/luma-forge/runtime`.
-
 ## Deployment
 
 Publish an endpoint image by pushing a `runpod-endpoint-v*` tag or running the `Deploy RunPod Endpoint` GitHub Actions workflow manually with `workflow_id` and `workflow_version`.
@@ -62,7 +51,7 @@ Runtime configuration is baked into the endpoint image instead of loaded from st
 | Comfy CLI | `/opt/luma-forge/runtime/.venv/bin/comfy` |
 | Workflow file | `/opt/luma-forge/runtime/workflows/workflow.json` |
 | Execution contract | `/opt/luma-forge/runtime/contracts/execution-contract.json` |
-| Workspace mount | `/workspace` |
+| Workspace mount | `/runpod-volume` |
 | Artifact output prefix | `luma-forge/outputs/jobs/<job-id>/` |
 
 The runtime image pins ComfyUI to `ea62dc11c9a10dae52186fdcc3da033eb46018a1` and installs PyTorch `2.9.1` CUDA `12.6` wheels before installing ComfyUI requirements. The final image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` so `comfy` resolves by name.

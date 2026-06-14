@@ -11,7 +11,7 @@ LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   PYTHONPATH=src python -m app
 ```
 
-The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` before startup. It listens on `127.0.0.1:8000` and auto-starts the single provisioning job as soon as the HTTP server is created. Clients observe progress with `GET /status`.
+The worker requires `LUMA_FORGE_PROVISIONER_BEARER_TOKEN` and `LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS` before startup. It listens on `0.0.0.0:8000` and auto-starts the single provisioning job as soon as the HTTP server is created. Clients observe progress with `GET /status`.
 
 During preparation, the Provisioner Worker prepares only workspace-specific data on the mounted volume:
 
@@ -48,15 +48,6 @@ docker run --rm \
   -v "$PWD/tmp-workspace:/workspace" \
   provisioner:local
 ```
-
-Optional smoke check:
-
-```bash
-cd workers/provisioner
-LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python -m unittest tests.test_container_smoke
-```
-
-Provisioner and endpoint images use separate Dockerfiles. The provisioner Dockerfile does not contain endpoint runtime stages or runtime contract build arguments.
 
 ## Deployment
 
