@@ -462,7 +462,6 @@ fn provisioner_pod_request(
         network_volume_id: params.network_volume_id,
         mount_path: PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
         bearer_token,
-        job_id: params.workspace_id,
         required_model_assets: params.required_model_assets,
         hugging_face_api_key,
     }
@@ -845,7 +844,6 @@ mod tests {
             .provisioner_pod_requests[0];
         assert_eq!(request.name, "luma-forge-workspace-provisioner");
         assert_eq!(request.hugging_face_api_key, Some("hf-secret".to_string()));
-        assert_eq!(request.job_id, "workspace");
         assert_eq!(
             request.required_model_assets,
             vec![ModelAsset {

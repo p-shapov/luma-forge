@@ -22,7 +22,6 @@ class ApiTests(unittest.TestCase):
             payload = _wait_for_status(server, "succeeded")
 
         self.assertEqual(payload["status"], "succeeded")
-        self.assertEqual(payload["job_id"], "job-1")
         self.assertEqual(payload["progress_percent"], 100)
 
     def test_running_is_returned_before_job_finishes(self):
@@ -42,7 +41,6 @@ class ApiTests(unittest.TestCase):
     def test_auto_start_fails_on_invalid_start_request_env(self):
         env = {
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "test-token-0123456789abcdef012345",
-            "LUMA_FORGE_PROVISIONER_JOB_ID": "job-1",
             "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS": '{"bad": "request"}',
             "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
             "LUMA_FORGE_PROVISIONER_PORT": "8000",

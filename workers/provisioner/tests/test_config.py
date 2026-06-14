@@ -13,7 +13,6 @@ from app.config import (
     DEFAULT_PORT,
     DEFAULT_WORKSPACE_MOUNT_PATH,
     DOWNLOAD_INACTIVITY_TIMEOUT_ENV,
-    JOB_ID_ENV,
     REQUIRED_MODEL_ASSETS_ENV,
     MAX_TIMEOUT_SECONDS,
     WorkerConfig,
@@ -27,7 +26,6 @@ VALID_TOKEN = "config-token-0123456789abcdef0123"
 def valid_env(**overrides):
     env = {
         "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": VALID_TOKEN,
-        JOB_ID_ENV: "job-1",
         REQUIRED_MODEL_ASSETS_ENV: r'[{"id":"model","name":"Model","download_source":{"source_type":"huggingface","repository_id":"owner/model","file_path":"model.safetensors","revision":"main"},"install_comfyui_relative_path":"models/checkpoints/model.safetensors"}]',
     }
     env.update(overrides)
@@ -88,7 +86,7 @@ class ConfigTests(unittest.TestCase):
                 }
             )
 
-        self.assertEqual(context.exception.env_name, JOB_ID_ENV)
+        self.assertEqual(context.exception.env_name, REQUIRED_MODEL_ASSETS_ENV)
         self.assertEqual(context.exception.code, "missing_required_value")
 
     def test_rejects_malformed_bearer_tokens_without_leaking_value(self):
