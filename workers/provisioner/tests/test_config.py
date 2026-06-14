@@ -86,35 +86,30 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(context.exception.env_name, REQUIRED_MODEL_ASSETS_ENV)
         self.assertEqual(context.exception.code, "missing_required_value")
 
-    def test_rejects_malformed_bearer_tokens_without_leaking_value(self):
-        invalid_values = [
-            "",
-            "short-token",
-            f"{VALID_TOKEN} with-space",
-            f"{VALID_TOKEN}\n",
-            f"{VALID_TOKEN}\x7f",
-            f"{VALID_TOKEN}é",
-        ]
+    def test_rejects_empty_bearer_token_without_leaking_value(self):
+        with self.assertRaises(ConfigurationError) as context:
+            WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_BEARER_TOKEN=""))
 
-        for value in invalid_values:
-            with self.subTest(value=repr(value)):
-                with self.assertRaises(ConfigurationError) as context:
-                    WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_BEARER_TOKEN=value))
+        self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
+        self.assertEqual(context.exception.code, "blank_value")
 
-                self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
-                if value:
-                    self.assertNotIn(value, str(context.exception))
+    def test_accepts_non_empty_bearer_token_without_normalizing_value(self):
+        value = " short token with spaces é "
+
+        config = WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_BEARER_TOKEN=value))
+
+        self.assertEqual(config.bearer_token, value)
 
     def test_configuration_error_payload_is_machine_readable_without_secret(self):
         error = ConfigurationError(
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN",
-            "value_too_short",
-            "value must be at least 32 characters",
+            "blank_value",
+            "value must not be blank",
         )
 
         payload = error.to_dict()
 
-        self.assertEqual(payload["code"], "value_too_short")
+        self.assertEqual(payload["code"], "blank_value")
         self.assertEqual(payload["env_name"], "LUMA_FORGE_PROVISIONER_BEARER_TOKEN")
         self.assertNotIn(VALID_TOKEN, json.dumps(payload))
 

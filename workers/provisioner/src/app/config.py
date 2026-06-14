@@ -12,8 +12,6 @@ PORT = 8000
 DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS = 3600.0
 WORKSPACE_MOUNT_PATH = "/workspace"
 
-MIN_BEARER_TOKEN_LENGTH = 32
-
 BEARER_TOKEN_ENV = "LUMA_FORGE_PROVISIONER_BEARER_TOKEN"
 REQUIRED_MODEL_ASSETS_ENV = "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"
 HUGGING_FACE_API_KEY_ENV = "LUMA_FORGE_HUGGING_FACE_API_KEY"
@@ -62,34 +60,9 @@ def _parse_bearer_token(env: Mapping[str, str]) -> str:
     raw = env.get(BEARER_TOKEN_ENV)
     if raw is None:
         raise ConfigurationError(BEARER_TOKEN_ENV, "missing_required_value", "value is required")
-    token = raw.strip()
-    if token == "":
+    if raw == "":
         raise ConfigurationError(BEARER_TOKEN_ENV, "blank_value", "value must not be blank")
-    if token != raw:
-        raise ConfigurationError(
-            BEARER_TOKEN_ENV,
-            "surrounding_whitespace",
-            "value must not contain surrounding whitespace",
-        )
-    if len(token) < MIN_BEARER_TOKEN_LENGTH:
-        raise ConfigurationError(
-            BEARER_TOKEN_ENV,
-            "value_too_short",
-            f"value must be at least {MIN_BEARER_TOKEN_LENGTH} characters",
-        )
-    if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in token):
-        raise ConfigurationError(
-            BEARER_TOKEN_ENV,
-            "invalid_characters",
-            "value must not contain whitespace or control characters",
-        )
-    if not token.isascii():
-        raise ConfigurationError(
-            BEARER_TOKEN_ENV,
-            "invalid_characters",
-            "value must contain only ASCII characters",
-        )
-    return token
+    return raw
 
 
 def _parse_start_request(env: Mapping[str, str]) -> StartRequest:
