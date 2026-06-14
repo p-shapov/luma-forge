@@ -16,17 +16,26 @@
               {
                 "value": "{{prompt}}",
                 "node_id": "171",
-                "path": ["widgets_values", "0"]
+                "path": [
+                  "widgets_values",
+                  "0"
+                ]
               },
               {
                 "value": false,
                 "node_id": "154",
-                "path": ["widgets_values", "0"]
+                "path": [
+                  "widgets_values",
+                  "0"
+                ]
               },
               {
                 "value": false,
                 "node_id": "177",
-                "path": ["widgets_values", "0"]
+                "path": [
+                  "widgets_values",
+                  "0"
+                ]
               }
             ]
           },
@@ -41,7 +50,7 @@
               },
               "provisioner_contract": {
                 "id": "provisioner",
-                "version": "1.0.8"
+                "version": "1.0.9"
               }
             }
           ],
