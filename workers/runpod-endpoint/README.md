@@ -106,4 +106,4 @@ After publishing and provisioning a workspace that uses this runtime image, invo
 
 RunPod Endpoint Worker images are released through runtime contract deployments. See [Worker Deployment](../DEPLOYMENT.md) for shared release policy, registry conventions, catalog PR ownership, and rollback.
 
-Published runtime images are digest-pinned in Endpoint Contracts. Existing deployed Workspaces keep their persisted endpoint image snapshot; endpoint runtime image changes require publishing a new endpoint image and promoting a new Endpoint Contracts revision before newly created Workspaces use them.
+Published runtime images are digest-pinned in Runtime Contracts. Existing deployed Workspaces keep their persisted endpoint image snapshot; endpoint runtime image changes require publishing a new endpoint image and promoting a new Runtime Contracts revision before newly created Workspaces use them.

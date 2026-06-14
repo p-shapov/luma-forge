@@ -4,12 +4,12 @@ use crate::{
     domain::lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
     lifecycle_journal::LifecycleJournalRepository,
     runpod_runtime::{
+        catalogs::RunpodRuntimeCatalogServices,
         errors::RunpodRuntimeError,
         events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
         provider::RunpodRuntimeClient,
     },
     shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
-    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -25,7 +25,7 @@ where
 {
     pub(crate) workspace_repository: W,
     pub(crate) lifecycle_journal: L,
-    pub(crate) workflow_catalog: WorkflowCatalogService,
+    pub(crate) catalogs: RunpodRuntimeCatalogServices,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
     pub(crate) event_sink: Arc<dyn RunpodRuntimeEventSink>,
@@ -79,7 +79,7 @@ where
         let registry = context.lifecycle_operation_registry.clone();
         let workspace_repository = context.workspace_repository;
         let lifecycle_journal = context.lifecycle_journal;
-        let workflow_catalog = context.workflow_catalog;
+        let catalogs = context.catalogs;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
         spawn_lifecycle_runner(
@@ -93,7 +93,7 @@ where
                     &operation_id,
                     &workspace_repository,
                     &lifecycle_journal,
-                    &workflow_catalog,
+                    &catalogs,
                     runpod_client.as_ref(),
                     &event_sink,
                     PROVISIONER_POLL_INTERVAL,

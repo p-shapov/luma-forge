@@ -9,6 +9,7 @@ pub mod diagnostics;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod runpod_runtime;
+pub mod runtime_catalog;
 pub mod secrets_storage;
 pub mod shared;
 pub mod sqlite;
@@ -84,6 +85,7 @@ fn command_builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             commands::native::get_native_startup_status,
             commands::catalog::get_workflow_catalog,
+            commands::catalog::get_runtime_contract_catalog,
             commands::catalog::get_runpod_placement_options,
             commands::catalog::get_workspace_catalog,
             commands::secrets::setup_runpod_api_key,

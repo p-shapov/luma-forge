@@ -20,12 +20,14 @@ use crate::{
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
     runpod_runtime::provider::RunpodProvisionerStatus,
+    runtime_catalog::RuntimeCatalogService,
     shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, NoopEventSink},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
 
 use super::{
+    catalogs::RunpodRuntimeCatalogServices,
     errors::RunpodRuntimeError,
     lifecycle::{
         self,
@@ -131,7 +133,7 @@ where
                 &operation_id,
                 &context.workspace_repository,
                 &context.lifecycle_journal,
-                &context.workflow_catalog,
+                &context.catalogs,
                 context.runpod_client.as_ref(),
                 &context.event_sink,
                 Duration::ZERO,
@@ -671,7 +673,10 @@ pub(crate) fn service_with_state(
     RunpodRuntimeService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
-        WorkflowCatalogService::new(),
+        RunpodRuntimeCatalogServices::new(
+            WorkflowCatalogService::new(),
+            RuntimeCatalogService::new(),
+        ),
         Arc::new(FakeRunpodRuntimeClient::new(state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
@@ -685,7 +690,10 @@ pub(crate) fn service_without_lifecycle_spawning(
     RunpodRuntimeService::new(
         InMemoryWorkspaceRepository::default(),
         InMemoryLifecycleJournalRepository::default(),
-        WorkflowCatalogService::new(),
+        RunpodRuntimeCatalogServices::new(
+            WorkflowCatalogService::new(),
+            RuntimeCatalogService::new(),
+        ),
         Arc::new(FakeRunpodRuntimeClient::new(state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),
@@ -700,7 +708,10 @@ pub(crate) fn service_with_state_and_workspace_repository(
     RunpodRuntimeService::new(
         workspace_repository,
         InMemoryLifecycleJournalRepository::default(),
-        WorkflowCatalogService::new(),
+        RunpodRuntimeCatalogServices::new(
+            WorkflowCatalogService::new(),
+            RuntimeCatalogService::new(),
+        ),
         Arc::new(FakeRunpodRuntimeClient::new(client_state)),
         Arc::new(NoopEventSink::new()),
         Arc::new(TestBackgroundTaskSpawner),

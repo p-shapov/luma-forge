@@ -7,6 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	getNativeStartupStatus: () => typedError<NativeStartupStatusResponse, NativeCommandError>(__TAURI_INVOKE("get_native_startup_status")),
 	getWorkflowCatalog: () => typedError<WorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
+	getRuntimeContractCatalog: () => typedError<RuntimeCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_runtime_contract_catalog")),
 	getRunpodPlacementOptions: () => typedError<RunpodPlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_runpod_placement_options")),
 	getWorkspaceCatalog: () => typedError<WorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
 	setupRunpodApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_runpod_api_key", { request })),
@@ -92,7 +93,7 @@ export type NativeCommandError = {
 	diagnosticId: string,
 };
 
-export type NativeCommandErrorCode = "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "runpod_api_key_unavailable" | "hugging_face_api_key_unavailable" | "runpod_workflow_catalog_invalid" | "runpod_workspace_catalog_invalid" | "provisioner_worker_unavailable" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "runpod_workspace_not_found" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "lifecycle_state_restore_failed";
+export type NativeCommandErrorCode = "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "runpod_api_key_unavailable" | "hugging_face_api_key_unavailable" | "runpod_workflow_catalog_invalid" | "runpod_runtime_catalog_invalid" | "runpod_workspace_catalog_invalid" | "provisioner_worker_unavailable" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "runpod_workspace_not_found" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "lifecycle_state_restore_failed";
 
 export type NativeStartupStatusResponse = { status: "ready" } | { status: "failed"; error: NativeCommandError };
 
@@ -160,9 +161,23 @@ export type RunpodWorkspaceResponse = {
 	resources: RunpodResourcesResponse,
 };
 
+export type RuntimeCatalogResponse = {
+	contracts: RuntimeContractResponse[],
+};
+
 export type RuntimeContractReferenceResponse = {
 	id: string,
 	version: string,
+};
+
+export type RuntimeContractResponse = {
+	id: string,
+	revisions: RuntimeContractRevisionResponse[],
+};
+
+export type RuntimeContractRevisionResponse = {
+	version: string,
+	imageRef: string,
 };
 
 export type SetupApiKeyRequest = {

@@ -8,7 +8,7 @@ use crate::domain::{
 };
 
 use super::errors::{invalid_runtime_state_message, RunpodRuntimeError};
-use crate::workflow_catalog::WorkflowCatalogService;
+use crate::runtime_catalog::RuntimeCatalogService;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunpodRuntimeContract {
@@ -81,21 +81,18 @@ pub struct RunpodContractResolver;
 impl RunpodContractResolver {
     pub fn resolve(
         workflow: &RunpodWorkflowResolved,
-        workflow_catalog: &WorkflowCatalogService,
+        runtime_catalog: &RuntimeCatalogService,
     ) -> Result<RunpodRuntimeContracts, RunpodRuntimeError> {
-        let endpoint_catalog = workflow_catalog
-            .get_endpoint_contract_catalog()
-            .map_err(RunpodRuntimeError::from)?;
-        let provisioner_catalog = workflow_catalog
-            .get_provisioner_contract_catalog()
+        let runtime_catalog = runtime_catalog
+            .get_runtime_contract_catalog()
             .map_err(RunpodRuntimeError::from)?;
 
-        let endpoint_contract = endpoint_catalog
+        let endpoint_contract = runtime_catalog
             .resolve(&workflow.contract_requirements.endpoint_contract)
             .ok_or_else(|| {
                 invalid_runtime_state_message("endpoint runtime contract was not found")
             })?;
-        let provisioner_contract = provisioner_catalog
+        let provisioner_contract = runtime_catalog
             .resolve(&workflow.contract_requirements.provisioner_contract)
             .ok_or_else(|| {
                 invalid_runtime_state_message("provisioner runtime contract was not found")

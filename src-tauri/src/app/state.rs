@@ -2,6 +2,7 @@ use crate::{
     commands::errors::NativeCommandError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::service::RunpodRuntimeService,
+    runtime_catalog::RuntimeCatalogService,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,
@@ -22,6 +23,7 @@ pub type HuggingFaceSecretsService =
 
 pub struct AppState {
     pub workflow_catalog: WorkflowCatalogService,
+    pub runtime_catalog: RuntimeCatalogService,
     pub workspace_catalog: WorkspaceCatalogAppService,
     pub runpod_runtime: RunpodRuntimeAppService,
     pub runpod_secrets: RunpodSecretsService,

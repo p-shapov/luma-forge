@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    secrets_storage::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace_catalog::WorkspaceCatalogError,
+    runtime_catalog::RuntimeCatalogError, secrets_storage::SecretsStorageError, shared::ApiError,
+    workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
@@ -16,6 +16,8 @@ pub enum RunpodRuntimeError {
     HuggingFaceApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("workflow catalog invalid")]
     WorkflowCatalogInvalid(#[from] WorkflowCatalogError),
+    #[error("runtime catalog invalid")]
+    RuntimeCatalogInvalid(#[from] RuntimeCatalogError),
     #[error("workspace catalog invalid")]
     WorkspaceCatalogInvalid(#[from] WorkspaceCatalogError),
     #[error("provisioner worker unavailable: {message}")]

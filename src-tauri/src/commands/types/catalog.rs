@@ -3,7 +3,9 @@ use specta::Type;
 
 use crate::domain::{
     runpod::RunpodContractRequirements,
-    runtime_contract::RuntimeContractReference,
+    runtime_contract::{
+        RuntimeCatalog, RuntimeContract, RuntimeContractReference, RuntimeContractRevision,
+    },
     workflow_preset::{
         ModelAsset, ModelAssetSource, WorkflowCatalog, WorkflowContractRequirements,
         WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
@@ -14,6 +16,26 @@ use crate::domain::{
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCatalogResponse {
     pub workflow_presets: Vec<WorkflowPresetResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeCatalogResponse {
+    pub contracts: Vec<RuntimeContractResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeContractResponse {
+    pub id: String,
+    pub revisions: Vec<RuntimeContractRevisionResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeContractRevisionResponse {
+    pub version: String,
+    pub image_ref: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -84,6 +106,32 @@ impl From<WorkflowCatalog> for WorkflowCatalogResponse {
     fn from(value: WorkflowCatalog) -> Self {
         Self {
             workflow_presets: value.workflow_presets.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<RuntimeCatalog> for RuntimeCatalogResponse {
+    fn from(value: RuntimeCatalog) -> Self {
+        Self {
+            contracts: value.contracts.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<RuntimeContract> for RuntimeContractResponse {
+    fn from(value: RuntimeContract) -> Self {
+        Self {
+            id: value.id,
+            revisions: value.revisions.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<RuntimeContractRevision> for RuntimeContractRevisionResponse {
+    fn from(value: RuntimeContractRevision) -> Self {
+        Self {
+            version: value.version,
+            image_ref: value.image_ref,
         }
     }
 }
@@ -177,5 +225,30 @@ impl From<ModelAssetSource> for ModelAssetSourceResponse {
                 revision,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_catalog_response_serializes_flat_contracts() {
+        let response = RuntimeCatalogResponse {
+            contracts: vec![RuntimeContractResponse {
+                id: "luma-forge-provisioner".to_string(),
+                revisions: vec![RuntimeContractRevisionResponse {
+                    version: "1.0.0".to_string(),
+                    image_ref: "ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+                }],
+            }],
+        };
+
+        let json = serde_json::to_string(&response).expect("runtime catalog response json");
+
+        assert_eq!(
+            json,
+            r#"{"contracts":[{"id":"luma-forge-provisioner","revisions":[{"version":"1.0.0","imageRef":"ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}]}"#
+        );
     }
 }

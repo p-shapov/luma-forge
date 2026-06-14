@@ -1,28 +1,16 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::domain::{
-    runtime_contract::RuntimeCatalog,
-    workflow_preset::{
-        ModelAsset, WorkflowCatalog, WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
-    },
+use crate::domain::workflow_preset::{
+    ModelAsset, WorkflowCatalog, WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
 };
 
 use super::{contract_requirements::decode_contract_requirements, WorkflowCatalogError};
 
 const WORKFLOW_CATALOG_JSON: &str = include_str!("../../../bundled/workflow-catalog.json");
-const ENDPOINT_CONTRACTS_JSON: &str = include_str!("../../../bundled/endpoint-contracts.json");
-const PROVISIONER_CONTRACTS_JSON: &str =
-    include_str!("../../../bundled/provisioner-contracts.json");
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BundledWorkflowCatalogReader;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BundledEndpointContractCatalogReader;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BundledProvisionerContractCatalogReader;
 
 impl BundledWorkflowCatalogReader {
     pub fn read_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
@@ -30,20 +18,6 @@ impl BundledWorkflowCatalogReader {
             serde_json::from_str(WORKFLOW_CATALOG_JSON).map_err(parse_error)?;
 
         document.decode()
-    }
-}
-
-impl BundledEndpointContractCatalogReader {
-    pub fn read_endpoint_contract_catalog(&self) -> Result<RuntimeCatalog, WorkflowCatalogError> {
-        serde_json::from_str(ENDPOINT_CONTRACTS_JSON).map_err(parse_error)
-    }
-}
-
-impl BundledProvisionerContractCatalogReader {
-    pub fn read_provisioner_contract_catalog(
-        &self,
-    ) -> Result<RuntimeCatalog, WorkflowCatalogError> {
-        serde_json::from_str(PROVISIONER_CONTRACTS_JSON).map_err(parse_error)
     }
 }
 
@@ -116,10 +90,7 @@ impl WorkflowRevisionDocument {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        BundledEndpointContractCatalogReader, BundledProvisionerContractCatalogReader,
-        BundledWorkflowCatalogReader,
-    };
+    use super::BundledWorkflowCatalogReader;
 
     #[test]
     fn bundled_workflow_reader_deserializes_workflows() {
@@ -133,36 +104,6 @@ mod tests {
                 .iter()
                 .any(|workflow| workflow.id == "comfyui-hidream-o1-dev"),
             "expected bundled HiDream workflow"
-        );
-    }
-
-    #[test]
-    fn bundled_endpoint_contract_reader_deserializes_contracts() {
-        let catalog = BundledEndpointContractCatalogReader
-            .read_endpoint_contract_catalog()
-            .expect("bundled endpoint contracts should deserialize");
-
-        assert!(
-            catalog
-                .contracts
-                .iter()
-                .any(|contract| contract.id == "comfyui-py312-cu126-torch291"),
-            "expected bundled ComfyUI endpoint contract"
-        );
-    }
-
-    #[test]
-    fn bundled_provisioner_contract_reader_deserializes_contracts() {
-        let catalog = BundledProvisionerContractCatalogReader
-            .read_provisioner_contract_catalog()
-            .expect("bundled provisioner contracts should deserialize");
-
-        assert!(
-            catalog
-                .contracts
-                .iter()
-                .any(|contract| contract.id == "luma-forge-provisioner"),
-            "expected bundled provisioner contract"
         );
     }
 }

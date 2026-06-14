@@ -19,13 +19,13 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
     def test_provisioner_workflow_promotes_digest_after_publish(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
 
-        resolve_index = workflow.index("Resolve provisioner contracts metadata")
+        resolve_index = workflow.index("Resolve provisioner runtime contract metadata")
         tag_index = workflow.index("Resolve image tag")
         publish_index = workflow.index("Publish provisioner image")
         digest_index = workflow.index("Resolve pushed image digest")
         promotion_index = workflow.index("Promote provisioner image to catalog")
         promotion_section = workflow.split("Promote provisioner image to catalog", maxsplit=1)[1].split(
-            "Verify Provisioner Contracts promotion PR scope",
+            "Verify Runtime Contracts promotion PR scope",
             maxsplit=1,
         )[0]
 
@@ -42,21 +42,21 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
     def test_provisioner_workflow_restricts_catalog_promotion_pr_to_catalog_files(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
-        verify_section = workflow.split("Verify Provisioner Contracts promotion PR scope", maxsplit=1)[1].split(
-            "Open Provisioner Contracts promotion PR",
+        verify_section = workflow.split("Verify Runtime Contracts promotion PR scope", maxsplit=1)[1].split(
+            "Open Runtime Contracts promotion PR",
             maxsplit=1,
         )[0]
-        pr_section = workflow.split("Open Provisioner Contracts promotion PR", maxsplit=1)[1]
+        pr_section = workflow.split("Open Runtime Contracts promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("grep -Evx 'bundled/(provisioner-contracts|workflow-catalog)\\.json'", verify_section)
+        self.assertIn("grep -Evx 'bundled/(runtime-contracts|workflow-catalog)\\.json'", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
-        self.assertIn("bundled/provisioner-contracts.json", pr_section)
+        self.assertIn("bundled/runtime-contracts.json", pr_section)
         self.assertIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote provisioner image", pr_section)
         self.assertIn(
-            "branch: provisioner-contracts/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
+            "branch: runtime-contracts/provisioner-${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
             pr_section,
         )
         self.assertIn(
@@ -130,7 +130,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
     def test_cli_resolve_provisioner_writes_next_catalog_revision(self):
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "provisioner-contracts.json"
+            catalog_path = Path(directory) / "runtime-contracts.json"
             output_path = Path(directory) / "github-output"
             catalog_path.write_text(json.dumps(_provisioner_catalog()), encoding="utf-8")
 
@@ -151,7 +151,7 @@ class ProvisionerContractPromotionToolTests(unittest.TestCase):
 
     def test_cli_promote_provisioner_image_appends_revision_and_updates_workflow_catalog(self):
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "provisioner-contracts.json"
+            catalog_path = Path(directory) / "runtime-contracts.json"
             workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(json.dumps(_provisioner_catalog()), encoding="utf-8")
             workflow_path.write_text(json.dumps(_workflow_catalog()), encoding="utf-8")

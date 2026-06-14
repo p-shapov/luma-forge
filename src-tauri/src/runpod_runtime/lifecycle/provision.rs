@@ -7,13 +7,13 @@ use crate::{
         workspace::{Workspace, WorkspaceId, WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::LifecycleJournalRepository,
-    workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::super::provider::RunpodProvisionerStatus;
 use super::{
     super::{
+        catalogs::RunpodRuntimeCatalogServices,
         contracts::{
             RunpodContractResolver, RunpodRuntimeContracts, RunpodWorkflowResolved,
             RunpodWorkflowResolver,
@@ -58,11 +58,11 @@ struct ProvisioningStepContext<'a, W, L> {
         workspace_id = tracing::field::Empty
     )
 )]
-pub async fn run_once<W, L>(
+pub(crate) async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
     workspace_repository: &W,
     lifecycle_journal: &L,
-    workflow_catalog: &WorkflowCatalogService,
+    catalogs: &RunpodRuntimeCatalogServices,
     runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     provisioner_poll_interval: Duration,
@@ -109,7 +109,7 @@ where
 
     let mut failed_step = RunpodProvisionStep::CreateNetworkVolume;
     let result = async {
-        let inputs = resolve_provisioning_inputs(&workspace, workflow_catalog)?;
+        let inputs = resolve_provisioning_inputs(&workspace, catalogs)?;
         let step_context = ProvisioningStepContext {
             workspace_repository,
             lifecycle_journal,
@@ -203,14 +203,15 @@ where
 
 fn resolve_provisioning_inputs(
     workspace: &Workspace,
-    workflow_catalog: &WorkflowCatalogService,
+    catalogs: &RunpodRuntimeCatalogServices,
 ) -> Result<ProvisioningInputs, RunpodRuntimeError> {
-    let workflows = workflow_catalog
+    let workflows = catalogs
+        .workflow_catalog
         .get_workflow_catalog()
         .map_err(RunpodRuntimeError::from)?;
     let workflow = RunpodWorkflowResolver::resolve(&workflows, &workspace.workflow)
         .ok_or_else(|| invalid_runtime_state_message("workflow reference was not found"))?;
-    let contracts = RunpodContractResolver::resolve(&workflow, workflow_catalog)?;
+    let contracts = RunpodContractResolver::resolve(&workflow, &catalogs.runtime_catalog)?;
 
     Ok(ProvisioningInputs {
         placement: runpod_runtime(workspace).placement.clone(),

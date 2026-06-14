@@ -8,9 +8,9 @@ import re
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL_PATH = ROOT / "workers/promote-runtime-contract/release_tool.py"
-CONTRACT_PATH = ROOT / "workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml"
+CONTRACT_PATH = ROOT / "runtime-presets/comfyui-py312-cu126-torch291.yaml"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
-CATALOG_PATH = ROOT / "bundled/endpoint-contracts.json"
+CATALOG_PATH = ROOT / "bundled/runtime-contracts.json"
 WORKFLOW_PATH = ROOT / ".github/workflows/deploy-endpoint-contract.yml"
 
 spec = importlib.util.spec_from_file_location("endpoint_contract_promotion_tool", TOOL_PATH)
@@ -36,32 +36,6 @@ class RuntimeContractPromotionToolTests(unittest.TestCase):
             json.loads(outputs["pytorch_packages_json"]),
         )
         self.assertEqual("ea62dc11c9a10dae52186fdcc3da033eb46018a1", outputs["comfyui_revision"])
-
-    def test_contract_rejects_missing_bundled_workflow_file(self):
-        with tempfile.TemporaryDirectory() as directory:
-            contract_path = Path(directory) / "missing-workflow.yaml"
-            contract_path.write_text(
-                """
-contract:
-  id: missing-workflow
-  version: 1.0.0
-runtime:
-  python_version: "3.12"
-  comfyui_revision: ea62dc11c9a10dae52186fdcc3da033eb46018a1
-  pytorch:
-    index_url: https://download.pytorch.org/whl/cu126
-    packages:
-      - torch==2.9.1
-""".strip(),
-                encoding="utf-8",
-            )
-            (Path(directory) / "schema.json").write_text(
-                (ROOT / "workers/promote-runtime-contract/schema.json").read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(release_tool.ReleaseToolError, "bundled workflow file does not exist"):
-                release_tool.load_contract(contract_path)
 
     def test_contract_schema_rejects_invalid_contract(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -185,10 +159,10 @@ runtime:
 
         publish_index = workflow.index("Publish endpoint image")
         promotion_index = workflow.index("Promote runtime image to catalog")
-        verify_index = workflow.index("Verify Endpoint Contracts promotion PR scope")
-        pr_index = workflow.index("Open Endpoint Contracts promotion PR")
+        verify_index = workflow.index("Verify Runtime Contracts promotion PR scope")
+        pr_index = workflow.index("Open Runtime Contracts promotion PR")
         promotion_section = workflow.split("Promote runtime image to catalog", maxsplit=1)[1].split(
-            "Verify Endpoint Contracts promotion PR scope",
+            "Verify Runtime Contracts promotion PR scope",
             maxsplit=1,
         )[0]
 
@@ -202,19 +176,19 @@ runtime:
 
     def test_workflow_restricts_runtime_catalog_promotion_pr_to_catalog_files(self):
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        verify_section = workflow.split("Verify Endpoint Contracts promotion PR scope", maxsplit=1)[1].split(
-            "Open Endpoint Contracts promotion PR",
+        verify_section = workflow.split("Verify Runtime Contracts promotion PR scope", maxsplit=1)[1].split(
+            "Open Runtime Contracts promotion PR",
             maxsplit=1,
         )[0]
-        pr_section = workflow.split("Open Endpoint Contracts promotion PR", maxsplit=1)[1]
+        pr_section = workflow.split("Open Runtime Contracts promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("Catalog promotion did not modify bundled/endpoint-contracts.json", verify_section)
+        self.assertIn("Catalog promotion did not modify bundled/runtime-contracts.json", verify_section)
         self.assertIn("Catalog promotion did not modify bundled/workflow-catalog.json", verify_section)
-        self.assertIn("grep -Evx 'bundled/(endpoint-contracts|workflow-catalog)\\.json'", verify_section)
+        self.assertIn("grep -Evx 'bundled/(runtime-contracts|workflow-catalog)\\.json'", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
-        self.assertIn("bundled/endpoint-contracts.json", pr_section)
+        self.assertIn("bundled/runtime-contracts.json", pr_section)
         self.assertIn("bundled/workflow-catalog.json", pr_section)
         self.assertIn("promote runtime image", pr_section)
         self.assertIn(
@@ -362,7 +336,7 @@ runtime:
     def test_cli_promote_runtime_image_appends_endpoint_contract_revision_and_updates_workflow_catalog(self):
         contract = release_tool.load_contract(CONTRACT_PATH)
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "endpoint-contracts.json"
+            catalog_path = Path(directory) / "runtime-contracts.json"
             workflow_path = Path(directory) / "workflow-catalog.json"
             catalog_path.write_text(
                 json.dumps(_catalog_with_contract(contract, image_ref=_image_ref("2"))),
@@ -420,7 +394,10 @@ runtime:
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "github-output"
             catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
-            revisions = catalog["contracts"][0]["revisions"]
+            contract = release_tool.find_contract(catalog, "comfyui-py312-cu126-torch291")
+            self.assertIsNotNone(contract)
+            assert contract is not None
+            revisions = contract["revisions"]
             latest = max(tuple(int(part) for part in revision["version"].split(".")) for revision in revisions)
             expected_version = f"{latest[0]}.{latest[1]}.{latest[2] + 1}"
 

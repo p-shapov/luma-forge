@@ -4,7 +4,8 @@ use crate::{
     app::state::NativeAppState,
     commands::{
         types::{
-            catalog::WorkflowCatalogResponse, placement::RunpodPlacementOptionsResponse,
+            catalog::{RuntimeCatalogResponse, WorkflowCatalogResponse},
+            placement::RunpodPlacementOptionsResponse,
             workspace::WorkspaceCatalogResponse,
         },
         CommandResult,
@@ -27,6 +28,25 @@ pub fn get_workflow_catalog(
         .workflow_catalog
         .get_workflow_catalog()
         .map_err(|error| command_error("get_workflow_catalog", error))?;
+
+    Ok(catalog.into())
+}
+
+#[tauri::command]
+#[specta::specta]
+#[tracing::instrument(
+    name = "native_command",
+    skip_all,
+    fields(command = "get_runtime_contract_catalog", request_metadata = tracing::field::debug(empty_command_request_metadata()))
+)]
+pub fn get_runtime_contract_catalog(
+    state: State<'_, NativeAppState>,
+) -> CommandResult<RuntimeCatalogResponse> {
+    let state = state.ready().map_err(native_command_error)?;
+    let catalog = state
+        .runtime_catalog
+        .get_runtime_contract_catalog()
+        .map_err(|error| command_error("get_runtime_contract_catalog", error))?;
 
     Ok(catalog.into())
 }
