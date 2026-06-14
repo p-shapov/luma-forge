@@ -1,9 +1,14 @@
 use std::collections::HashSet;
 
+use serde_json::Value;
+
 use crate::domain::workflow_preset::{
     ModelAsset, ModelAssetSource, WorkflowPreset, WorkflowRevision,
 };
 
+use super::execution_schemas::{
+    input_ids, required_input_ids, ExecutionSchemaRegistry,
+};
 use super::errors::WorkflowCatalogError;
 
 const EMPTY_WORKFLOWS: &str = "workflows are empty";
@@ -16,14 +21,17 @@ const EMPTY_CONTRACT_REQUIREMENTS: &str = "contract requirements are empty";
 const INVALID_MODEL_ASSET: &str =
     "model asset ID, name, install path, or download source is invalid";
 
-pub(super) fn validate_workflows(workflows: &[WorkflowPreset]) -> Result<(), WorkflowCatalogError> {
+pub(super) fn validate_workflows(
+    workflows: &[WorkflowPreset],
+    execution_schemas: &ExecutionSchemaRegistry,
+) -> Result<(), WorkflowCatalogError> {
     if workflows.is_empty() {
         return validation_error(EMPTY_WORKFLOWS);
     }
 
     let mut workflow_ids = HashSet::new();
     for workflow in workflows {
-        validate_workflow(workflow, &mut workflow_ids)?;
+        validate_workflow(workflow, &mut workflow_ids, execution_schemas)?;
     }
 
     Ok(())
@@ -32,6 +40,7 @@ pub(super) fn validate_workflows(workflows: &[WorkflowPreset]) -> Result<(), Wor
 fn validate_workflow<'catalog>(
     workflow: &'catalog WorkflowPreset,
     workflow_ids: &mut HashSet<&'catalog str>,
+    execution_schemas: &ExecutionSchemaRegistry,
 ) -> Result<(), WorkflowCatalogError> {
     if workflow.id.trim().is_empty()
         || !workflow_ids.insert(workflow.id.as_str())
@@ -46,7 +55,7 @@ fn validate_workflow<'catalog>(
 
     let mut revision_versions = HashSet::new();
     for revision in &workflow.revisions {
-        validate_workflow_revision(revision, &mut revision_versions)?;
+        validate_workflow_revision(revision, &mut revision_versions, execution_schemas)?;
     }
 
     Ok(())
@@ -55,6 +64,7 @@ fn validate_workflow<'catalog>(
 fn validate_workflow_revision<'workflow>(
     revision: &'workflow WorkflowRevision,
     revision_versions: &mut HashSet<&'workflow str>,
+    execution_schemas: &ExecutionSchemaRegistry,
 ) -> Result<(), WorkflowCatalogError> {
     if revision.version.trim().is_empty() || !revision_versions.insert(revision.version.as_str()) {
         return validation_error(INVALID_WORKFLOW_REVISION_VERSION);
@@ -65,12 +75,66 @@ fn validate_workflow_revision<'workflow>(
     }
 
     validate_runtime_requirements_shape(revision)?;
+    validate_execution_contract(revision, execution_schemas)?;
 
     for asset in &revision.required_model_assets {
         validate_model_asset(asset)?;
     }
 
     Ok(())
+}
+
+fn validate_execution_contract(
+    revision: &WorkflowRevision,
+    execution_schemas: &ExecutionSchemaRegistry,
+) -> Result<(), WorkflowCatalogError> {
+    let schema_ref = &revision.execution_contract.schema_ref;
+    let Some(schema_revision) = execution_schemas.find_revision(&schema_ref.id, &schema_ref.version)
+    else {
+        return validation_error("execution contract schema reference is invalid");
+    };
+    if revision.execution_contract.input_bindings.is_empty() {
+        return validation_error("execution contract input bindings are empty");
+    }
+
+    let valid_inputs = input_ids(schema_revision);
+    let mut bound_inputs = HashSet::new();
+    for binding in &revision.execution_contract.input_bindings {
+        if binding.node_id.trim().is_empty() || binding.path.is_empty() {
+            return validation_error("execution contract input binding target is invalid");
+        }
+        if let Some(input_id) = template_input_id(&binding.value)? {
+            if !valid_inputs.contains(input_id) {
+                return validation_error("execution contract input binding references unknown input");
+            }
+            bound_inputs.insert(input_id.to_string());
+        }
+    }
+
+    for required in required_input_ids(schema_revision) {
+        if !bound_inputs.contains(required) {
+            return validation_error("execution contract missing required input binding");
+        }
+    }
+
+    Ok(())
+}
+
+fn template_input_id(value: &Value) -> Result<Option<&str>, WorkflowCatalogError> {
+    let Value::String(text) = value else {
+        return Ok(None);
+    };
+    if !text.starts_with("{{") && !text.ends_with("}}") {
+        return Ok(None);
+    }
+    if !(text.starts_with("{{") && text.ends_with("}}")) || text.len() <= 4 {
+        return validation_error("execution contract input binding template is malformed");
+    }
+    let inner = &text[2..text.len() - 2];
+    if inner.trim() != inner || inner.is_empty() || inner.contains('{') || inner.contains('}') {
+        return validation_error("execution contract input binding template is malformed");
+    }
+    Ok(Some(inner))
 }
 
 fn validate_runtime_requirements_shape(
@@ -154,7 +218,8 @@ mod tests {
         runpod::RunpodContractRequirements,
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
-            ModelAsset, ModelAssetSource, WorkflowContractRequirements, WorkflowRevision,
+            ExecutionContract, ExecutionSchemaReference, InputBinding, ModelAsset,
+            ModelAssetSource, WorkflowContractRequirements, WorkflowRevision,
         },
     };
 
@@ -176,6 +241,7 @@ mod tests {
         WorkflowRevision {
             version: version.to_string(),
             runtime_preset: "comfyui-py312-cu126-torch291".to_string(),
+            execution_contract: valid_execution_contract(),
             requires_hugging_face_api_key: true,
             required_volume_size_gb: 19,
             contract_requirements: vec![WorkflowContractRequirements::Runpod(
@@ -194,6 +260,32 @@ mod tests {
         }
     }
 
+    fn valid_execution_contract() -> ExecutionContract {
+        ExecutionContract {
+            schema_ref: ExecutionSchemaReference {
+                id: "text-to-image".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            input_bindings: vec![
+                InputBinding {
+                    value: serde_json::Value::String("{{prompt}}".to_string()),
+                    node_id: "171".to_string(),
+                    path: vec!["widgets_values".to_string(), "0".to_string()],
+                },
+                InputBinding {
+                    value: serde_json::Value::Bool(false),
+                    node_id: "154".to_string(),
+                    path: vec!["widgets_values".to_string(), "0".to_string()],
+                },
+                InputBinding {
+                    value: serde_json::Value::Bool(false),
+                    node_id: "177".to_string(),
+                    path: vec!["widgets_values".to_string(), "0".to_string()],
+                },
+            ],
+        }
+    }
+
     fn valid_workflow(id: &str) -> WorkflowPreset {
         WorkflowPreset {
             id: id.to_string(),
@@ -202,10 +294,38 @@ mod tests {
         }
     }
 
+    fn execution_schemas() -> crate::workflow_catalog::execution_schemas::ExecutionSchemaRegistry {
+        crate::workflow_catalog::execution_schemas::ExecutionSchemaRegistry {
+            execution_schemas: vec![crate::workflow_catalog::execution_schemas::ExecutionSchema {
+                id: "text-to-image".to_string(),
+                revisions: vec![
+                    crate::workflow_catalog::execution_schemas::ExecutionSchemaRevision {
+                        version: "1.0.0".to_string(),
+                        inputs: vec![
+                            crate::workflow_catalog::execution_schemas::ExecutionSchemaInput {
+                                id: "prompt".to_string(),
+                                input_type: "string".to_string(),
+                                required: true,
+                                max_length: Some(4000),
+                            },
+                        ],
+                        outputs: crate::workflow_catalog::execution_schemas::ExecutionSchemaOutputs {
+                            output_type: "image_set".to_string(),
+                        },
+                    },
+                ],
+            }],
+        }
+    }
+
+    fn validate_test_workflows(workflows: &[WorkflowPreset]) -> Result<(), WorkflowCatalogError> {
+        validate_workflows(workflows, &execution_schemas())
+    }
+
     #[test]
     fn validate_workflows_accepts_valid_workflow() {
         let workflows = vec![valid_workflow("comfyui-hidream-o1-dev")];
-        assert_eq!(validate_workflows(&workflows), Ok(()));
+        assert_eq!(validate_test_workflows(&workflows), Ok(()));
     }
 
     #[test]
@@ -215,7 +335,7 @@ mod tests {
             valid_workflow("comfyui-hidream-o1-dev"),
         ];
         assert_eq!(
-            validate_workflows(&workflows),
+            validate_test_workflows(&workflows),
             Err(WorkflowCatalogError::ValidationFailed {
                 message: "workflow ID is empty, duplicate, or name is empty".to_string()
             })
@@ -228,7 +348,7 @@ mod tests {
         workflow.revisions.clear();
 
         assert_eq!(
-            validate_workflows(&[workflow]),
+            validate_test_workflows(&[workflow]),
             Err(WorkflowCatalogError::ValidationFailed {
                 message: "workflow has no revisions".to_string()
             })
@@ -241,7 +361,7 @@ mod tests {
         workflow.revisions.push(workflow.revisions[0].clone());
 
         assert_eq!(
-            validate_workflows(&[workflow]),
+            validate_test_workflows(&[workflow]),
             Err(WorkflowCatalogError::ValidationFailed {
                 message: "revision version is empty or duplicate".to_string()
             })
@@ -254,7 +374,7 @@ mod tests {
         workflow.revisions[0].required_volume_size_gb = 0;
 
         assert_eq!(
-            validate_workflows(&[workflow]),
+            validate_test_workflows(&[workflow]),
             Err(WorkflowCatalogError::ValidationFailed {
                 message: "required volume size is zero".to_string()
             })
@@ -268,7 +388,7 @@ mod tests {
             "../outside.safetensors".to_string();
         let workflows = vec![workflow];
         assert_eq!(
-            validate_workflows(&workflows),
+            validate_test_workflows(&workflows),
             Err(WorkflowCatalogError::ValidationFailed {
                 message: "model asset ID, name, install path, or download source is invalid"
                     .to_string()
@@ -288,10 +408,23 @@ mod tests {
         let workflows = vec![workflow];
 
         assert_eq!(
-            validate_workflows(&workflows),
+            validate_test_workflows(&workflows),
             Err(WorkflowCatalogError::ValidationFailed {
                 message: "model asset ID, name, install path, or download source is invalid"
                     .to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn validate_workflows_rejects_missing_required_execution_binding() {
+        let mut workflow = valid_workflow("comfyui-hidream-o1-dev");
+        workflow.revisions[0].execution_contract.input_bindings.clear();
+
+        assert_eq!(
+            validate_test_workflows(&[workflow]),
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "execution contract input bindings are empty".to_string()
             })
         );
     }

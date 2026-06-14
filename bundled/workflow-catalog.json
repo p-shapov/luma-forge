@@ -7,6 +7,29 @@
         {
           "version": "1.0.0",
           "runtime_preset": "comfyui-py312-cu126-torch291",
+          "execution_contract": {
+            "schema_ref": {
+              "id": "text-to-image",
+              "version": "1.0.0"
+            },
+            "input_bindings": [
+              {
+                "value": "{{prompt}}",
+                "node_id": "171",
+                "path": ["widgets_values", "0"]
+              },
+              {
+                "value": false,
+                "node_id": "154",
+                "path": ["widgets_values", "0"]
+              },
+              {
+                "value": false,
+                "node_id": "177",
+                "path": ["widgets_values", "0"]
+              }
+            ]
+          },
           "requires_hugging_face_api_key": true,
           "required_volume_size_gb": 19,
           "contract_requirements": [

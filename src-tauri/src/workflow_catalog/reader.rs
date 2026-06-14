@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::domain::workflow_preset::{
-    ModelAsset, WorkflowCatalog, WorkflowPreset, WorkflowRevision,
+    ExecutionContract, ModelAsset, WorkflowCatalog, WorkflowPreset, WorkflowRevision,
 };
 
 use super::{contract_requirements::decode_contract_requirements, WorkflowCatalogError};
@@ -43,6 +43,7 @@ struct WorkflowPresetDocument {
 struct WorkflowRevisionDocument {
     version: String,
     runtime_preset: String,
+    execution_contract: ExecutionContract,
     requires_hugging_face_api_key: bool,
     required_volume_size_gb: u64,
     contract_requirements: Vec<Value>,
@@ -80,6 +81,7 @@ impl WorkflowRevisionDocument {
         Ok(WorkflowRevision {
             version: self.version,
             runtime_preset: self.runtime_preset,
+            execution_contract: self.execution_contract,
             requires_hugging_face_api_key: self.requires_hugging_face_api_key,
             required_volume_size_gb: self.required_volume_size_gb,
             contract_requirements: decode_contract_requirements(self.contract_requirements)?,
@@ -105,5 +107,21 @@ mod tests {
                 .any(|workflow| workflow.id == "comfyui-hidream-o1-dev"),
             "expected bundled HiDream workflow"
         );
+
+        let revision = workflows
+            .workflow_presets
+            .iter()
+            .find(|workflow| workflow.id == "comfyui-hidream-o1-dev")
+            .and_then(|workflow| {
+                workflow
+                    .revisions
+                    .iter()
+                    .find(|revision| revision.version == "1.0.0")
+            })
+            .expect("expected HiDream revision");
+
+        assert_eq!(revision.execution_contract.schema_ref.id, "text-to-image");
+        assert_eq!(revision.execution_contract.schema_ref.version, "1.0.0");
+        assert_eq!(revision.execution_contract.input_bindings.len(), 3);
     }
 }
