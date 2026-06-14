@@ -80,7 +80,6 @@ pub struct CreateProvisionerPodRequest {
     pub mount_path: String,
     pub bearer_token: String,
     pub job_id: String,
-    pub requires_hugging_face_api_key: bool,
     pub required_model_assets: Vec<ModelAsset>,
     pub hugging_face_api_key: Option<String>,
 }

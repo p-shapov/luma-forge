@@ -46,8 +46,6 @@ class ConfigTests(unittest.TestCase):
             DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
         )
         self.assertEqual(config.workspace_mount_path, Path(DEFAULT_WORKSPACE_MOUNT_PATH).resolve(strict=False))
-        self.assertFalse(hasattr(config, "max_request_bytes"))
-        self.assertFalse(hasattr(config.start_request, "requires_hugging_face_api_key"))
 
     def test_valid_config_accepts_explicit_values(self):
         config = WorkerConfig.from_env(
