@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 from queue import Empty
-from shutil import copyfileobj
 from time import monotonic
 from urllib.error import HTTPError
 from urllib.parse import urlparse
@@ -33,7 +32,7 @@ class PublicFileDownloader:
         asset: ModelAsset,
         target: Path,
         *,
-        timeout_seconds: float | None = None,
+        download_inactivity_timeout_seconds: float | None = None,
         hugging_face_api_key: str | None = None,
     ) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -44,7 +43,7 @@ class PublicFileDownloader:
                 target,
                 self.hub_url,
                 self.open_url,
-                timeout_seconds=timeout_seconds,
+                download_inactivity_timeout_seconds=download_inactivity_timeout_seconds,
                 hugging_face_api_key=hugging_face_api_key,
             )
         except WorkerError:
@@ -69,10 +68,10 @@ def _download_with_isolated_process(
     hub_url: HubUrl | None,
     open_url: UrlOpen | None,
     *,
-    timeout_seconds: float | None,
+    download_inactivity_timeout_seconds: float | None,
     hugging_face_api_key: str | None,
 ) -> None:
-    if timeout_seconds is None:
+    if download_inactivity_timeout_seconds is None:
         _download_to_target(source, target, hub_url, open_url, hugging_face_api_key)
         return
 
@@ -91,28 +90,47 @@ def _download_with_isolated_process(
     )
     process.start()
 
-    deadline = monotonic() + timeout_seconds
+    last_chunk_at = monotonic()
     while process.is_alive():
-        if monotonic() >= deadline:
+        last_chunk_at = _drain_chunk_events(result_queue, last_chunk_at)
+        if monotonic() - last_chunk_at >= download_inactivity_timeout_seconds:
             _terminate_process(process)
             temporary = target.with_suffix(target.suffix + ".part")
             if temporary.exists():
                 temporary.unlink()
-            raise StepTimeoutError("Hugging Face asset download timed out.")
+            raise StepTimeoutError("Hugging Face asset download timed out due to inactivity.")
         process.join(timeout=0.1)
 
-    try:
-        status, *payload = result_queue.get(timeout=1)
-    except Empty as error:
-        raise AssetDownloadError("Hugging Face asset download failed.") from error
+    _handle_download_process_result(result_queue)
 
-    if status == "ok":
-        return
 
-    error_class, status_code, message = payload
-    if error_class == "GatedRepoError" or status_code in (401, 403):
-        raise AssetAuthRequiredError("Hugging Face asset requires authentication.")
-    raise AssetDownloadError("Hugging Face asset download failed.") from RuntimeError(message)
+def _drain_chunk_events(result_queue, last_chunk_at: float) -> float:
+    while True:
+        try:
+            status, *payload = result_queue.get_nowait()
+        except Empty:
+            return last_chunk_at
+        if status == "chunk":
+            last_chunk_at = monotonic()
+            continue
+        result_queue.put((status, *payload))
+        return last_chunk_at
+
+
+def _handle_download_process_result(result_queue) -> None:
+    while True:
+        try:
+            status, *payload = result_queue.get(timeout=1)
+        except Empty as error:
+            raise AssetDownloadError("Hugging Face asset download failed.") from error
+        if status == "chunk":
+            continue
+        if status == "ok":
+            return
+        error_class, status_code, message = payload
+        if error_class == "GatedRepoError" or status_code in (401, 403):
+            raise AssetAuthRequiredError("Hugging Face asset requires authentication.")
+        raise AssetDownloadError("Hugging Face asset download failed.") from RuntimeError(message)
 
 
 def _download_to_target(
@@ -121,6 +139,7 @@ def _download_to_target(
     hub_url: HubUrl | None,
     open_url: UrlOpen | None,
     hugging_face_api_key: str | None,
+    on_chunk: Callable[[], None] | None = None,
 ) -> None:
     temporary = target.with_suffix(target.suffix + ".part")
     url = _resolve_hub_url(source, hub_url)
@@ -131,7 +150,13 @@ def _download_to_target(
     try:
         with (open_url or _open_request)(Request(url, headers=headers)) as response:
             with temporary.open("wb") as output:
-                copyfileobj(response, output, CHUNK_SIZE)
+                while True:
+                    chunk = response.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+                    if on_chunk is not None:
+                        on_chunk()
         temporary.replace(target)
     finally:
         if temporary.exists():
@@ -173,7 +198,14 @@ def _download_process(
     result_queue,
 ) -> None:
     try:
-        _download_to_target(source, Path(target), hub_url, open_url, hugging_face_api_key)
+        _download_to_target(
+            source,
+            Path(target),
+            hub_url,
+            open_url,
+            hugging_face_api_key,
+            on_chunk=lambda: result_queue.put(("chunk",)),
+        )
         result_queue.put(("ok",))
     except BaseException as error:
         response = getattr(error, "response", None)

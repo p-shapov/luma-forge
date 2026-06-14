@@ -55,6 +55,56 @@ class SlowUrlOpen:
         return BytesIO(b"late")
 
 
+class ChunkedSlowStream:
+    def __init__(self, chunks, delay_seconds):
+        self.chunks = list(chunks)
+        self.delay_seconds = delay_seconds
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size=-1):
+        if not self.chunks:
+            return b""
+        time.sleep(self.delay_seconds)
+        return self.chunks.pop(0)
+
+
+class ChunkedSlowUrlOpen:
+    def __init__(self, chunks, delay_seconds):
+        self.chunks = chunks
+        self.delay_seconds = delay_seconds
+
+    def __call__(self, request):
+        return ChunkedSlowStream(self.chunks, self.delay_seconds)
+
+
+class StallingStream:
+    def __init__(self):
+        self.reads = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size=-1):
+        self.reads += 1
+        if self.reads == 1:
+            return b"partial"
+        time.sleep(10)
+        return b"late"
+
+
+class StallingUrlOpen:
+    def __call__(self, request):
+        return StallingStream()
+
+
 class PublicFileDownloaderTests(unittest.TestCase):
     def test_downloads_asset_with_huggingface_hub_client(self):
         request = parse_start_request(start_payload())
@@ -67,7 +117,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
             PublicFileDownloader(hub_url, open_url).download(
                 asset,
                 target,
-                timeout_seconds=None,
+                download_inactivity_timeout_seconds=None,
             )
 
             self.assertEqual(hub_url.calls[0]["repo_id"], "owner/model")
@@ -90,7 +140,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
             PublicFileDownloader(FakeHubUrl(), open_url).download(
                 asset,
                 target,
-                timeout_seconds=None,
+                download_inactivity_timeout_seconds=None,
                 hugging_face_api_key="test-hugging-face-key",
             )
 
@@ -117,7 +167,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
             PublicFileDownloader(FakeHubUrl(), FakeUrlOpen()).download(
                 asset,
                 target,
-                timeout_seconds=None,
+                download_inactivity_timeout_seconds=None,
             )
 
             self.assertTrue(target.is_file())
@@ -137,7 +187,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 PublicFileDownloader(FakeHubUrl(), fail_download).download(
                     asset,
                     target,
-                    timeout_seconds=None,
+                    download_inactivity_timeout_seconds=None,
                 )
 
             self.assertFalse(target.exists())
@@ -155,7 +205,7 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 PublicFileDownloader(FakeHubUrl(), fail_auth).download(
                     request.required_model_assets[0],
                     Path(directory) / "model.safetensors",
-                    timeout_seconds=None,
+                    download_inactivity_timeout_seconds=None,
                 )
 
     def test_maps_huggingface_download_failure(self):
@@ -168,25 +218,42 @@ class PublicFileDownloaderTests(unittest.TestCase):
                 PublicFileDownloader(FakeHubUrl(), fail_download).download(
                     request.required_model_assets[0],
                     Path(directory) / "model.safetensors",
-                    timeout_seconds=None,
+                    download_inactivity_timeout_seconds=None,
                 )
 
-    def test_download_timeout_terminates_hub_process(self):
+    def test_download_inactivity_timeout_terminates_hub_process_and_removes_partial(self):
         request = parse_start_request(start_payload())
         asset = request.required_model_assets[0]
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "models/checkpoints/model.safetensors"
 
             with self.assertRaises(StepTimeoutError):
-                PublicFileDownloader(FakeHubUrl(), SlowUrlOpen()).download(
+                PublicFileDownloader(FakeHubUrl(), StallingUrlOpen()).download(
                     asset,
                     target,
-                    timeout_seconds=0.1,
-            )
+                    download_inactivity_timeout_seconds=0.2,
+                )
 
             time.sleep(0.3)
             self.assertFalse(target.exists())
             self.assertFalse(target.with_suffix(target.suffix + ".part").exists())
+
+    def test_active_slow_download_does_not_hit_inactivity_timeout(self):
+        request = parse_start_request(start_payload())
+        asset = request.required_model_assets[0]
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "models/checkpoints/model.safetensors"
+
+            PublicFileDownloader(
+                FakeHubUrl(),
+                ChunkedSlowUrlOpen([b"ab", b"cd", b"ef", b"gh", b"ij"], 0.25),
+            ).download(
+                asset,
+                target,
+                download_inactivity_timeout_seconds=1.0,
+            )
+
+            self.assertEqual(target.read_bytes(), b"abcdefghij")
 
 
 if __name__ == "__main__":
