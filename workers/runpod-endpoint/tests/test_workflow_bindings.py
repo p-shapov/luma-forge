@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from runpod_endpoint_worker.errors import WorkflowValidationError
-from runpod_endpoint_worker.workflow import apply_input_bindings, load_workflow, write_patched_workflow
+from app.errors import WorkflowValidationError
+from runtime.workflow import apply_input_bindings, load_workflow, write_patched_workflow
 
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[3] / "bundled/workflows/comfyui-hidream-o1-dev.json"

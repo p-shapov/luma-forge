@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 import tempfile
 
-from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.service import GenerationService
+from app.config import EndpointConfig
+from app.service import GenerationService
 
 
 class WorkerFixture:

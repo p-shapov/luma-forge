@@ -1,7 +1,7 @@
 import unittest
 
-from runpod_endpoint_worker.errors import ValidationError, WorkflowValidationError
-from runpod_endpoint_worker.schemas import (
+from app.errors import ValidationError, WorkflowValidationError
+from app.schemas import (
     ExecutionSchemaInput,
     ExecutionSchemaRevision,
     GenerationRequest,

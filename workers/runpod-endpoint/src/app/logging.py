@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from runpod_endpoint_worker.errors import EndpointWorkerError, safe_error_message
+from app.errors import EndpointWorkerError, safe_error_message
 
 
 LOGGER = logging.getLogger("runpod_endpoint_worker")

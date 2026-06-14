@@ -1,1 +1,0 @@
-"""LumaForge RunPod Endpoint Worker."""

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from runpod_endpoint_worker.build_metadata import extract_runtime_metadata
+from tools.build_metadata import extract_runtime_metadata
 
 
 class BuildMetadataTests(unittest.TestCase):

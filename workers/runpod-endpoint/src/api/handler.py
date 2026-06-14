@@ -1,10 +1,10 @@
 import time
 from typing import Any
 
-from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import EndpointWorkerError, UnexpectedRuntimeError, safe_failure_payload
-from runpod_endpoint_worker.logging import configure_logging, log_failure_context, log_unexpected_exception_context
-from runpod_endpoint_worker.service import GenerationService
+from app.config import EndpointConfig
+from app.errors import EndpointWorkerError, UnexpectedRuntimeError, safe_failure_payload
+from app.logging import configure_logging, log_failure_context, log_unexpected_exception_context
+from app.service import GenerationService
 
 
 def create_handler(service: GenerationService):

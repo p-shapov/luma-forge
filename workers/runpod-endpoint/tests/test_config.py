@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from runpod_endpoint_worker.config import (
+from app.config import (
     COMFY_CLI_PATH,
     COMFY_UI_READY_POLL_SECONDS,
     COMFYUI_HOST,

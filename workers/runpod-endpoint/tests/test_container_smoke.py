@@ -64,7 +64,7 @@ class ContainerSmokeTests(unittest.TestCase):
                     " && test -s /opt/luma-forge/runtime/workflows/workflow.json"
                     " && test -s /opt/luma-forge/runtime/contracts/execution-contract.json"
                     " && test ! -e /opt/luma-forge/runtime/ComfyUI/custom_nodes/ComfyUI-Manager"
-                    " && python -c 'from runpod_endpoint_worker.handler import build_default_handler; handler = build_default_handler(); assert handler is not None'"
+                    " && python -c 'from api.handler import build_default_handler; handler = build_default_handler(); assert handler is not None'"
                 ),
             ],
             check=True,

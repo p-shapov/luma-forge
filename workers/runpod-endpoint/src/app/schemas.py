@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from runpod_endpoint_worker.errors import ValidationError, WorkflowValidationError
+from app.errors import ValidationError, WorkflowValidationError
 
 
 @dataclass(frozen=True)

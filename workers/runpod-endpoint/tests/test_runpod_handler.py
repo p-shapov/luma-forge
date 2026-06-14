@@ -1,9 +1,9 @@
 import unittest
 from unittest.mock import patch
 
-from runpod_endpoint_worker.errors import ComfyWorkflowError
-from runpod_endpoint_worker.handler import create_handler
-from runpod_endpoint_worker.schemas import GenerationImage
+from app.errors import ComfyWorkflowError
+from api.handler import create_handler
+from app.schemas import GenerationImage
 from helpers import WorkerFixture
 
 
@@ -93,7 +93,7 @@ class RunPodHandlerTests(unittest.TestCase):
                 raise ComfyWorkflowError("ComfyUI workflow execution failed. password leaked")
 
         handler = create_handler(FailingService())
-        with patch("runpod_endpoint_worker.logging.LOGGER.warning") as warning:
+        with patch("app.logging.LOGGER.warning") as warning:
             payload = handler({"id": "job-123", "input": {"prompt": "a lamp"}})
 
         self.assertEqual(payload["status"], "failed")
@@ -129,7 +129,7 @@ class RunPodHandlerTests(unittest.TestCase):
                 raise RuntimeError("secret token failed")
 
         handler = create_handler(FailingService())
-        with patch("runpod_endpoint_worker.logging.LOGGER.warning") as warning:
+        with patch("app.logging.LOGGER.warning") as warning:
             handler({"id": "job-123", "input": {"prompt": "a lamp"}})
 
         self.assertEqual(warning.call_args_list[0].args[1], "Unexpected endpoint worker exception")
