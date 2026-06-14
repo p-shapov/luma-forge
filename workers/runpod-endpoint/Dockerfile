@@ -14,9 +14,22 @@ ARG LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1
 ARG LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
 ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON=[\"torch==2.9.1\",\"torchvision==0.24.1\",\"torchaudio==2.9.1\"]
 ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json
+ARG LUMA_FORGE_WORKFLOW_ID=comfyui-hidream-o1-dev
+ARG LUMA_FORGE_WORKFLOW_VERSION=1.0.0
 
 WORKDIR /runtime-build
 COPY ${LUMA_FORGE_BUNDLED_WORKFLOW_PATH} ./workflow.json
+COPY bundled/workflow-catalog.json ./workflow-catalog.json
+COPY bundled/execution-schemas.json ./execution-schemas.json
+COPY workers/runpod_endpoint_build_metadata.py ./extract_runtime_metadata.py
+
+RUN python /runtime-build/extract_runtime_metadata.py \
+    --workflow-catalog /runtime-build/workflow-catalog.json \
+    --execution-schemas /runtime-build/execution-schemas.json \
+    --workflow-id "$LUMA_FORGE_WORKFLOW_ID" \
+    --workflow-version "$LUMA_FORGE_WORKFLOW_VERSION" \
+    --execution-contract-output /runtime-build/execution-contract.json \
+    --execution-schema-output /runtime-build/execution-schema.json
 
 RUN mkdir -p /opt/luma-forge/runtime \
     && python -m venv --copies /opt/luma-forge/runtime/.venv \
@@ -47,7 +60,12 @@ RUN mkdir -p /opt/luma-forge/runtime/base-runtime \
     && printf '{"reports":[]}\n' > /opt/luma-forge/runtime/base-runtime/install-report.json \
     && mkdir -p /opt/luma-forge/runtime/workflows \
     && cp /runtime-build/workflow.json /opt/luma-forge/runtime/workflows/workflow.json \
-    && test -s /opt/luma-forge/runtime/workflows/workflow.json
+    && test -s /opt/luma-forge/runtime/workflows/workflow.json \
+    && mkdir -p /opt/luma-forge/runtime/contracts \
+    && cp /runtime-build/execution-contract.json /opt/luma-forge/runtime/contracts/execution-contract.json \
+    && cp /runtime-build/execution-schema.json /opt/luma-forge/runtime/contracts/execution-schema.json \
+    && test -s /opt/luma-forge/runtime/contracts/execution-contract.json \
+    && test -s /opt/luma-forge/runtime/contracts/execution-schema.json
 
 FROM worker-base
 

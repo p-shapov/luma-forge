@@ -82,6 +82,8 @@ jobs:
             --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.contract.outputs.pytorch_index_url }}" \
             --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.contract.outputs.pytorch_packages_json }}' \
             --build-arg LUMA_FORGE_BUNDLED_WORKFLOW_PATH="${{ steps.contract.outputs.bundled_workflow_path }}" \
+            --build-arg LUMA_FORGE_WORKFLOW_ID="${{ steps.contract.outputs.workflow_id }}" \
+            --build-arg LUMA_FORGE_WORKFLOW_VERSION="${{ steps.contract.outputs.workflow_version }}" \
             --tag "${{ steps.image.outputs.endpoint_tag }}" .
 
       - name: Log in to GHCR

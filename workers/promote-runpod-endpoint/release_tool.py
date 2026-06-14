@@ -64,6 +64,36 @@ def resolve_runtime_preset_path(
     return path
 
 
+def execution_schema_ref(workflow_revision: dict[str, Any]) -> tuple[str, str]:
+    execution_contract = _dict_value(workflow_revision, "execution_contract")
+    schema_ref = _dict_value(execution_contract, "schema_ref")
+    schema_id = _string_value(schema_ref, "id")
+    schema_version = _string_value(schema_ref, "version")
+    if not _is_safe_identifier(schema_id):
+        raise ReleaseToolError("invalid execution schema id")
+    _parse_semver(schema_version)
+    return schema_id, schema_version
+
+
+def find_execution_schema_revision(
+    registry: dict[str, Any],
+    schema_id: str,
+    schema_version: str,
+) -> dict[str, Any]:
+    for schema in _list_value(registry, "execution_schemas"):
+        if not isinstance(schema, dict):
+            raise ReleaseToolError("execution schema registry contains a malformed schema entry")
+        if schema.get("id") != schema_id:
+            continue
+        for revision in _list_value(schema, "revisions"):
+            if not isinstance(revision, dict):
+                raise ReleaseToolError("execution schema registry contains a malformed revision entry")
+            if revision.get("version") == schema_version:
+                return revision
+        raise ReleaseToolError(f"execution schema revision was not found: {schema_id} {schema_version}")
+    raise ReleaseToolError(f"execution schema was not found: {schema_id}")
+
+
 def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
     for contract in _list_value(catalog, "contracts"):
         if not isinstance(contract, dict):
@@ -187,7 +217,15 @@ def runtime_preset_outputs(
     workflow_id: str,
     workflow_version: str,
     catalog: dict[str, Any] | None = None,
+    workflow_catalog: dict[str, Any] | None = None,
 ) -> dict[str, str]:
+    repository_root = Path(__file__).resolve().parents[2]
+    workflow_catalog = workflow_catalog or _load_json(repository_root / "bundled/workflow-catalog.json")
+    _preset, workflow_revision = find_workflow_revision(workflow_catalog, workflow_id, workflow_version)
+    execution_schema_registry = _load_json(repository_root / "bundled/execution-schemas.json")
+    schema_id, schema_version = execution_schema_ref(workflow_revision)
+    find_execution_schema_revision(execution_schema_registry, schema_id, schema_version)
+
     runtime = runtime_preset["runtime"]
     packages_json = json.dumps(runtime["pytorch"]["packages"], separators=(",", ":"))
     contract_id = endpoint_contract_id(workflow_id)
@@ -207,6 +245,8 @@ def runtime_preset_outputs(
         "workflow_version": workflow_version,
         "contract_id": contract_id,
         "contract_version": contract_version,
+        "execution_schema_id": schema_id,
+        "execution_schema_version": schema_version,
         "runtime_python_version": runtime["python_version"],
         "comfyui_revision": runtime["comfyui_revision"],
         "pytorch_index_url": runtime["pytorch"]["index_url"],
@@ -483,6 +523,7 @@ def _cmd_resolve(args: argparse.Namespace) -> None:
         workflow_id=args.workflow_id,
         workflow_version=args.workflow_version,
         catalog=catalog,
+        workflow_catalog=workflow_catalog,
     )
     if args.github_output:
         write_github_outputs(outputs, Path(args.github_output))
