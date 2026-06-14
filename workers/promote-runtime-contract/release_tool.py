@@ -16,7 +16,7 @@ class ReleaseToolError(Exception):
 
 def load_contract(path: Path) -> dict[str, Any]:
     contract = _load_yaml(path)
-    schema = _load_json(path.parent / "schema.json")
+    schema = _load_json(Path(__file__).resolve().parent / "schema.json")
     _validate_with_schema(contract, schema)
     _validate_contract(contract, path)
     return contract
@@ -25,7 +25,7 @@ def load_contract(path: Path) -> dict[str, Any]:
 def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] | None:
     for contract in _list_value(catalog, "contracts"):
         if not isinstance(contract, dict):
-            raise ReleaseToolError("endpoint contracts contains a malformed contract entry")
+            raise ReleaseToolError("runtime contracts contains a malformed contract entry")
         if contract.get("id") == contract_id:
             return contract
     return None
@@ -34,7 +34,7 @@ def find_contract(catalog: dict[str, Any], contract_id: str) -> dict[str, Any] |
 def find_revision(contract: dict[str, Any], contract_version: str) -> dict[str, Any] | None:
     for revision in _list_value(contract, "revisions"):
         if not isinstance(revision, dict):
-            raise ReleaseToolError("endpoint contracts contains a malformed revision entry")
+            raise ReleaseToolError("runtime contracts contains a malformed revision entry")
         if revision.get("version") == contract_version:
             return revision
     return None
@@ -99,7 +99,7 @@ def promote_runtime_image(
         revisions = _list_value(catalog_contract, "revisions")
         revision = find_revision(catalog_contract, resolved_contract_version)
         if revision is not None:
-            raise ReleaseToolError(f"endpoint contracts revision already exists: {contract_id} {resolved_contract_version}")
+            raise ReleaseToolError(f"runtime contracts revision already exists: {contract_id} {resolved_contract_version}")
         revisions.append(
             {
                 "version": resolved_contract_version,
@@ -155,7 +155,7 @@ def contract_outputs(
 
 
 def resolve_bundled_workflow_path(contract: dict[str, Any], contract_path: Path) -> Path:
-    repository_root = contract_path.resolve().parents[2]
+    repository_root = Path(__file__).resolve().parents[2]
     workflow_path = repository_root / "bundled" / "workflows" / "comfyui-hidream-o1-dev.json"
     if not workflow_path.is_file():
         raise ReleaseToolError(f"bundled workflow file does not exist: {workflow_path}")
@@ -463,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     promote_runtime = subparsers.add_parser(
         "promote-runtime-image",
-        help="promote a digest-pinned endpoint image into the Endpoint Contracts",
+        help="promote a digest-pinned endpoint image into Runtime Contracts",
     )
     promote_runtime.add_argument("--contract", required=True)
     promote_runtime.add_argument("--catalog", required=True)

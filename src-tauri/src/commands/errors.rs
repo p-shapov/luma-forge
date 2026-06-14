@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    runpod_runtime::errors::RunpodRuntimeError, secrets_storage::SecretsStorageError,
-    shared::ApiError, workflow_catalog::WorkflowCatalogError,
+    runpod_runtime::errors::RunpodRuntimeError, runtime_catalog::RuntimeCatalogError,
+    secrets_storage::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
@@ -55,6 +55,10 @@ pub enum NativeCommandErrorCode {
     WorkflowCatalogParseFailed,
     #[error("workflow catalog validation failed")]
     WorkflowCatalogValidationFailed,
+    #[error("runtime catalog parse failed")]
+    RuntimeCatalogParseFailed,
+    #[error("runtime catalog validation failed")]
+    RuntimeCatalogValidationFailed,
     #[error("workspace catalog storage unavailable")]
     WorkspaceCatalogStorageUnavailable,
     #[error("workspace catalog schema is invalid")]
@@ -103,6 +107,8 @@ pub enum NativeCommandErrorCode {
     HuggingFaceApiKeyUnavailable,
     #[error("runpod workflow catalog invalid")]
     RunpodWorkflowCatalogInvalid,
+    #[error("runpod runtime catalog invalid")]
+    RunpodRuntimeCatalogInvalid,
     #[error("runpod workspace catalog invalid")]
     RunpodWorkspaceCatalogInvalid,
     #[error("provisioner worker unavailable")]
@@ -151,6 +157,30 @@ impl From<WorkflowCatalogError> for NativeCommandError {
 impl From<WorkflowCatalogError> for NativeCommandErrorCode {
     fn from(error: WorkflowCatalogError) -> Self {
         Self::from(&error)
+    }
+}
+
+impl From<RuntimeCatalogError> for NativeCommandError {
+    fn from(error: RuntimeCatalogError) -> Self {
+        let message = crate::diagnostics::leaf_error_message(&error);
+        let code = NativeCommandErrorCode::from(&error);
+
+        Self::new(code, message, crate::diagnostics::new_diagnostic_id())
+    }
+}
+
+impl From<RuntimeCatalogError> for NativeCommandErrorCode {
+    fn from(error: RuntimeCatalogError) -> Self {
+        Self::from(&error)
+    }
+}
+
+impl From<&RuntimeCatalogError> for NativeCommandErrorCode {
+    fn from(error: &RuntimeCatalogError) -> Self {
+        match error {
+            RuntimeCatalogError::ParseFailed { .. } => Self::RuntimeCatalogParseFailed,
+            RuntimeCatalogError::ValidationFailed { .. } => Self::RuntimeCatalogValidationFailed,
+        }
     }
 }
 
@@ -266,6 +296,7 @@ impl From<&RunpodRuntimeError> for NativeCommandErrorCode {
                 Self::HuggingFaceApiKeyUnavailable
             }
             RunpodRuntimeError::WorkflowCatalogInvalid(_) => Self::RunpodWorkflowCatalogInvalid,
+            RunpodRuntimeError::RuntimeCatalogInvalid(_) => Self::RunpodRuntimeCatalogInvalid,
             RunpodRuntimeError::WorkspaceCatalogInvalid(_) => Self::RunpodWorkspaceCatalogInvalid,
             RunpodRuntimeError::ProvisionerWorkerUnavailable { .. } => {
                 Self::ProvisionerWorkerUnavailable
@@ -376,6 +407,22 @@ mod tests {
         assert_eq!(
             error.code,
             NativeCommandErrorCode::WorkspaceCatalogSchemaInvalid
+        );
+    }
+
+    #[test]
+    fn runtime_catalog_error_preserves_service_message() {
+        let error = NativeCommandError::from(RuntimeCatalogError::ValidationFailed {
+            message: "duplicate runtime contract".to_string(),
+        });
+
+        assert_eq!(
+            error.message,
+            "runtime catalog validation failed: duplicate runtime contract"
+        );
+        assert_eq!(
+            error.code,
+            NativeCommandErrorCode::RuntimeCatalogValidationFailed
         );
     }
 

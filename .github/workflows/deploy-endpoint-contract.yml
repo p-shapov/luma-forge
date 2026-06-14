@@ -11,8 +11,8 @@ on:
         required: true
         type: choice
         options:
-          - workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml
-        default: workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml
+          - runtime-presets/comfyui-py312-cu126-torch291.yaml
+        default: runtime-presets/comfyui-py312-cu126-torch291.yaml
 
 permissions:
   contents: write
@@ -43,11 +43,11 @@ jobs:
       - name: Resolve contract metadata
         id: contract
         env:
-          CONTRACT: ${{ inputs.contract || 'workers/promote-runtime-contract/comfyui-py312-cu126-torch291.yaml' }}
+          CONTRACT: ${{ inputs.contract || 'runtime-presets/comfyui-py312-cu126-torch291.yaml' }}
         run: |
           python workers/promote-runtime-contract/release_tool.py resolve \
             --contract "$CONTRACT" \
-            --catalog bundled/endpoint-contracts.json \
+            --catalog bundled/runtime-contracts.json \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate workers
@@ -109,16 +109,16 @@ jobs:
         run: |
           python workers/promote-runtime-contract/release_tool.py promote-runtime-image \
             --contract "${{ steps.contract.outputs.contract }}" \
-            --catalog bundled/endpoint-contracts.json \
+            --catalog bundled/runtime-contracts.json \
             --workflow-catalog bundled/workflow-catalog.json \
             --contract-version "${{ steps.contract.outputs.contract_version }}" \
             --image-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
-      - name: Verify Endpoint Contracts promotion PR scope
+      - name: Verify Runtime Contracts promotion PR scope
         run: |
           changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
-          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/endpoint-contracts.json'; then
-            echo "::error::Catalog promotion did not modify bundled/endpoint-contracts.json"
+          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/runtime-contracts.json'; then
+            echo "::error::Catalog promotion did not modify bundled/runtime-contracts.json"
             exit 1
           fi
 
@@ -127,22 +127,22 @@ jobs:
             exit 1
           fi
 
-          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(endpoint-contracts|workflow-catalog)\.json' || true)"
+          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(runtime-contracts|workflow-catalog)\.json' || true)"
           if [ -n "$unexpected_paths" ]; then
             echo "::error::Catalog promotion produced unexpected changed paths:"
             printf '%s\n' "$unexpected_paths"
             exit 1
           fi
 
-      - name: Open Endpoint Contracts promotion PR
+      - name: Open Runtime Contracts promotion PR
         uses: peter-evans/create-pull-request@v8
         with:
           add-paths: |
-            bundled/endpoint-contracts.json
+            bundled/runtime-contracts.json
             bundled/workflow-catalog.json
-          branch: endpoint-contracts/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          branch: runtime-contracts/endpoint-${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
           title: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           commit-message: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           body: |
-            Promotes the validated endpoint runtime image into the Endpoint Contracts and points the matching Workflow Preset at it.
-          labels: endpoint-contracts
+            Promotes the validated endpoint runtime image into Runtime Contracts and points the matching Workflow Preset at it.
+          labels: runtime-contracts

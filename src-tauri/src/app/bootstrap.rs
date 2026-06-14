@@ -7,9 +7,11 @@ use crate::{
     commands::errors::{NativeCommandError, NativeInitializationCommandError},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::{
+        catalogs::RunpodRuntimeCatalogServices,
         lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner, provider::RunpodRuntimeProvider,
         service::RunpodRuntimeService,
     },
+    runtime_catalog::RuntimeCatalogService,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::{keyring::KeyringSecretStore, SecretKey},
@@ -60,6 +62,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let lifecycle_journal = SqliteLifecycleJournalRepository::new(pool);
     let workspace_catalog = WorkspaceCatalogService::new(workspace_repository.clone());
     let workflow_catalog = WorkflowCatalogService::new();
+    let runtime_catalog = RuntimeCatalogService::new();
 
     let runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
@@ -71,7 +74,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let runpod_runtime = RunpodRuntimeService::new(
         workspace_repository,
         lifecycle_journal,
-        workflow_catalog.clone(),
+        RunpodRuntimeCatalogServices::new(workflow_catalog.clone(), runtime_catalog.clone()),
         Arc::new(runpod_provider),
         Arc::new(TauriRunpodRuntimeEventSink::new(app_handle.clone())),
         Arc::new(TauriBackgroundTaskSpawner),
@@ -91,6 +94,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
 
     Ok(AppState {
         workflow_catalog,
+        runtime_catalog,
         workspace_catalog,
         runpod_runtime,
         runpod_secrets,
