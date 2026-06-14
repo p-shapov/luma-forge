@@ -1,18 +1,21 @@
-name: Deploy Endpoint Contract
+name: Deploy RunPod Endpoint
 
 on:
   push:
     tags:
-      - "runtime-contract-v*"
+      - "runpod-endpoint-v*"
   workflow_dispatch:
     inputs:
-      contract:
-        description: Endpoint contract
+      workflow_id:
+        description: Workflow ID
         required: true
-        type: choice
-        options:
-          - runtime-presets/comfyui-py312-cu126-torch291.yaml
-        default: runtime-presets/comfyui-py312-cu126-torch291.yaml
+        type: string
+        default: comfyui-hidream-o1-dev
+      workflow_version:
+        description: Workflow version
+        required: true
+        type: string
+        default: 1.0.0
 
 permissions:
   contents: write
@@ -20,12 +23,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: deploy-endpoint-contract-${{ github.ref }}-${{ inputs.contract || 'tag' }}
+  group: deploy-runpod-endpoint-${{ github.ref }}-${{ inputs.workflow_id || 'comfyui-hidream-o1-dev' }}-${{ inputs.workflow_version || '1.0.0' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Validate, build, and publish endpoint runtime
+    name: Validate, build, and publish RunPod endpoint
     runs-on: ubuntu-latest
 
     steps:
@@ -40,20 +43,23 @@ jobs:
       - name: Install release tooling
         run: python -m pip install --upgrade pip pyyaml jsonschema
 
-      - name: Resolve contract metadata
+      - name: Resolve endpoint build metadata
         id: contract
         env:
-          CONTRACT: ${{ inputs.contract || 'runtime-presets/comfyui-py312-cu126-torch291.yaml' }}
+          WORKFLOW_ID: ${{ inputs.workflow_id || 'comfyui-hidream-o1-dev' }}
+          WORKFLOW_VERSION: ${{ inputs.workflow_version || '1.0.0' }}
         run: |
-          python workers/promote-runtime-contract/release_tool.py resolve \
-            --contract "$CONTRACT" \
+          python workers/promote-runpod-endpoint/release_tool.py resolve \
+            --workflow-catalog bundled/workflow-catalog.json \
+            --workflow-id "$WORKFLOW_ID" \
+            --workflow-version "$WORKFLOW_VERSION" \
             --catalog bundled/runtime-contracts.json \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate workers
         run: |
           python -m pip install workers/provisioner workers/runpod-endpoint pyyaml
-          python -m unittest discover -s workers/promote-runtime-contract/tests
+          python -m unittest discover -s workers/promote-runpod-endpoint/tests
           PYTHONPATH=workers/runpod-endpoint/src python -m unittest discover -s workers/runpod-endpoint/tests
 
       - name: Resolve image tags
@@ -105,16 +111,18 @@ jobs:
           endpoint_digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${{ steps.image.outputs.endpoint_tag }}")"
           printf 'endpoint_ref=%s\n' "$endpoint_digest" >> "$GITHUB_OUTPUT"
 
-      - name: Promote runtime image to catalog
+      - name: Promote endpoint image to catalog
         run: |
-          python workers/promote-runtime-contract/release_tool.py promote-runtime-image \
-            --contract "${{ steps.contract.outputs.contract }}" \
+          python workers/promote-runpod-endpoint/release_tool.py promote-endpoint-image \
+            --runtime-preset "${{ steps.contract.outputs.runtime_preset }}" \
+            --workflow-id "${{ steps.contract.outputs.workflow_id }}" \
+            --workflow-version "${{ steps.contract.outputs.workflow_version }}" \
             --catalog bundled/runtime-contracts.json \
             --workflow-catalog bundled/workflow-catalog.json \
             --contract-version "${{ steps.contract.outputs.contract_version }}" \
             --image-ref "${{ steps.digest.outputs.endpoint_ref }}"
 
-      - name: Verify Runtime Contracts promotion PR scope
+      - name: Verify endpoint promotion PR scope
         run: |
           changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
           if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/runtime-contracts.json'; then
@@ -134,15 +142,15 @@ jobs:
             exit 1
           fi
 
-      - name: Open Runtime Contracts promotion PR
+      - name: Open endpoint promotion PR
         uses: peter-evans/create-pull-request@v8
         with:
           add-paths: |
             bundled/runtime-contracts.json
             bundled/workflow-catalog.json
-          branch: runtime-contracts/endpoint-${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
-          title: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
-          commit-message: "chore(workers): promote runtime image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
+          branch: runpod-endpoints/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
+          title: "chore(workers): promote endpoint image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
+          commit-message: "chore(workers): promote endpoint image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
           body: |
-            Promotes the validated endpoint runtime image into Runtime Contracts and points the matching Workflow Preset at it.
-          labels: runtime-contracts
+            Promotes the validated RunPod endpoint image and points the selected Workflow Preset revision at it.
+          labels: runpod-endpoint

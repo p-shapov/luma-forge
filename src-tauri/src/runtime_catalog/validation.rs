@@ -84,7 +84,10 @@ mod tests {
     #[test]
     fn validate_runtime_catalog_accepts_valid_catalog() {
         assert_eq!(
-            validate_runtime_catalog(&runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15")),
+            validate_runtime_catalog(&runtime_catalog(
+                "runpod-endpoint-comfyui-hidream-o1-dev",
+                "1.0.15"
+            )),
             Ok(())
         );
     }
@@ -129,7 +132,7 @@ mod tests {
 
     #[test]
     fn validate_runtime_catalog_rejects_empty_revision_image_ref() {
-        let mut catalog = runtime_catalog("comfyui-py312-cu126-torch291", "1.0.15");
+        let mut catalog = runtime_catalog("runpod-endpoint-comfyui-hidream-o1-dev", "1.0.15");
         catalog.contracts[0].revisions[0].image_ref = " ".to_string();
 
         assert_eq!(

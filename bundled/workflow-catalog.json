@@ -7,17 +7,18 @@
       "revisions": [
         {
           "version": "1.0.0",
+          "runtime_preset": "comfyui-py312-cu126-torch291",
           "requires_hugging_face_api_key": true,
           "required_volume_size_gb": 19,
           "contract_requirements": [
             {
               "runtime_type": "runpod",
               "endpoint_contract": {
-                "id": "comfyui-py312-cu126-torch291",
+                "id": "runpod-endpoint-comfyui-hidream-o1-dev",
                 "version": "1.0.16"
               },
               "provisioner_contract": {
-                "id": "luma-forge-provisioner",
+                "id": "provisioner",
                 "version": "1.0.8"
               }
             }

@@ -10,6 +10,7 @@ const EMPTY_WORKFLOWS: &str = "workflows are empty";
 const INVALID_WORKFLOW_ID: &str = "workflow ID is empty, duplicate, or name is empty";
 const EMPTY_WORKFLOW_REVISIONS: &str = "workflow has no revisions";
 const INVALID_WORKFLOW_REVISION_VERSION: &str = "revision version is empty or duplicate";
+const INVALID_RUNTIME_PRESET: &str = "runtime preset is empty";
 const ZERO_REQUIRED_VOLUME_SIZE: &str = "required volume size is zero";
 const EMPTY_CONTRACT_REQUIREMENTS: &str = "contract requirements are empty";
 const INVALID_MODEL_ASSET: &str =
@@ -57,6 +58,10 @@ fn validate_workflow_revision<'workflow>(
 ) -> Result<(), WorkflowCatalogError> {
     if revision.version.trim().is_empty() || !revision_versions.insert(revision.version.as_str()) {
         return validation_error(INVALID_WORKFLOW_REVISION_VERSION);
+    }
+
+    if revision.runtime_preset.trim().is_empty() {
+        return validation_error(INVALID_RUNTIME_PRESET);
     }
 
     validate_runtime_requirements_shape(revision)?;
@@ -171,16 +176,17 @@ mod tests {
     fn valid_revision(version: &str) -> WorkflowRevision {
         WorkflowRevision {
             version: version.to_string(),
+            runtime_preset: "comfyui-py312-cu126-torch291".to_string(),
             requires_hugging_face_api_key: true,
             required_volume_size_gb: 19,
             contract_requirements: vec![WorkflowContractRequirements::Runpod(
                 RunpodContractRequirements {
                     endpoint_contract: RuntimeContractReference {
-                        id: "comfyui-py312-cu126-torch291".to_string(),
+                        id: "runpod-endpoint-comfyui-hidream-o1-dev".to_string(),
                         version: "1.0.15".to_string(),
                     },
                     provisioner_contract: RuntimeContractReference {
-                        id: "luma-forge-provisioner".to_string(),
+                        id: "provisioner".to_string(),
                         version: "1.0.6".to_string(),
                     },
                 },

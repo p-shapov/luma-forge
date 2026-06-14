@@ -43,6 +43,7 @@ struct WorkflowPresetDocument {
 #[derive(Debug, Deserialize)]
 struct WorkflowRevisionDocument {
     version: String,
+    runtime_preset: String,
     requires_hugging_face_api_key: bool,
     required_volume_size_gb: u64,
     contract_requirements: Vec<Value>,
@@ -80,6 +81,7 @@ impl WorkflowRevisionDocument {
     fn decode(self) -> Result<WorkflowRevision, WorkflowCatalogError> {
         Ok(WorkflowRevision {
             version: self.version,
+            runtime_preset: self.runtime_preset,
             requires_hugging_face_api_key: self.requires_hugging_face_api_key,
             required_volume_size_gb: self.required_volume_size_gb,
             contract_requirements: decode_contract_requirements(self.contract_requirements)?,

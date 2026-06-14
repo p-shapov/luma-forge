@@ -15,8 +15,8 @@
 - `provisioner/tests/`: Provisioner Worker tests.
 - `runpod-endpoint/src/`: RunPod Endpoint Worker implementation.
 - `runpod-endpoint/tests/`: RunPod Endpoint Worker tests.
-- `promote-provisioner-contract/`: Provisioner runtime contract promotion tooling and tests.
-- `promote-runtime-contract/`: Runtime contract schema, metadata, and endpoint runtime contract promotion tooling.
+- `promote-provisioner/`: Provisioner promotion tooling and tests.
+- `promote-runpod-endpoint/`: Runtime preset schema, metadata, and RunPod endpoint promotion tooling.
 
 ---
 

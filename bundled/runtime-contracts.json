@@ -1,7 +1,7 @@
 {
   "contracts": [
     {
-      "id": "luma-forge-provisioner",
+      "id": "provisioner",
       "revisions": [
         {
           "version": "1.0.0",
@@ -42,7 +42,7 @@
       ]
     },
     {
-      "id": "comfyui-py312-cu126-torch291",
+      "id": "runpod-endpoint-comfyui-hidream-o1-dev",
       "revisions": [
         {
           "version": "1.0.0",

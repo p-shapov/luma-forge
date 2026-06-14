@@ -44,7 +44,7 @@ PYTHONPATH=src python -m compileall src tests
 
 ```bash
 cd workers/provisioner
-docker build -t luma-forge-provisioner:local -f Dockerfile ../..
+docker build -t provisioner:local -f Dockerfile ../..
 docker run --rm \
   -e LUMA_FORGE_PROVISIONER_BEARER_TOKEN=local-token-0123456789abcdef0123 \
   -e LUMA_FORGE_PROVISIONER_JOB_ID=workspace-id \
@@ -52,7 +52,7 @@ docker run --rm \
   -e LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS='[]' \
   -p 8000:8000 \
   -v "$PWD/tmp-workspace:/workspace" \
-  luma-forge-provisioner:local
+  provisioner:local
 ```
 
 Optional smoke check:

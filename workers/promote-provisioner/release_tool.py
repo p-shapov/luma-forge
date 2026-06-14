@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_PROVISIONER_CONTRACT_ID = "luma-forge-provisioner"
+DEFAULT_PROVISIONER_CONTRACT_ID = "provisioner"
 
 
 class ReleaseToolError(Exception):
@@ -93,7 +93,7 @@ def update_provisioner_workflow_catalog(
     for preset in workflow_presets:
         if not isinstance(preset, dict):
             raise ReleaseToolError("workflow catalog contains a malformed preset entry")
-        for runtime_requirements in _runpod_runtime_requirements(preset):
+        for runtime_requirements in _runpod_contract_requirements(preset):
             provisioner_contract = _dict_value(runtime_requirements, "provisioner_contract")
             if provisioner_contract.get("id") == contract_id:
                 provisioner_contract["version"] = contract_version
@@ -139,12 +139,16 @@ def _dict_value(value: dict[str, Any], key: str) -> dict[str, Any]:
     return item
 
 
-def _runpod_runtime_requirements(preset: dict[str, Any]) -> list[dict[str, Any]]:
+def _runpod_contract_requirements(preset: dict[str, Any]) -> list[dict[str, Any]]:
     requirements: list[dict[str, Any]] = []
     for revision in _list_value(preset, "revisions"):
         if not isinstance(revision, dict):
             raise ReleaseToolError("workflow catalog contains a malformed revision entry")
-        requirements.append(_dict_value(revision, "runpod_runtime_requirements"))
+        for item in _list_value(revision, "contract_requirements"):
+            if not isinstance(item, dict):
+                raise ReleaseToolError("workflow catalog contains malformed contract requirements")
+            if item.get("runtime_type") == "runpod":
+                requirements.append(item)
     return requirements
 
 
