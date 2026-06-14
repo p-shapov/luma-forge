@@ -6,10 +6,8 @@ use crate::domain::workflow_preset::{
     ModelAsset, ModelAssetSource, WorkflowPreset, WorkflowRevision,
 };
 
-use super::execution_schemas::{
-    input_ids, required_input_ids, ExecutionSchemaRegistry,
-};
 use super::errors::WorkflowCatalogError;
+use super::execution_schemas::{input_ids, required_input_ids, ExecutionSchemaRegistry};
 
 const EMPTY_WORKFLOWS: &str = "workflows are empty";
 const INVALID_WORKFLOW_ID: &str = "workflow ID is empty, duplicate, or name is empty";
@@ -89,7 +87,8 @@ fn validate_execution_contract(
     execution_schemas: &ExecutionSchemaRegistry,
 ) -> Result<(), WorkflowCatalogError> {
     let schema_ref = &revision.execution_contract.schema_ref;
-    let Some(schema_revision) = execution_schemas.find_revision(&schema_ref.id, &schema_ref.version)
+    let Some(schema_revision) =
+        execution_schemas.find_revision(&schema_ref.id, &schema_ref.version)
     else {
         return validation_error("execution contract schema reference is invalid");
     };
@@ -105,7 +104,9 @@ fn validate_execution_contract(
         }
         if let Some(input_id) = template_input_id(&binding.value)? {
             if !valid_inputs.contains(input_id) {
-                return validation_error("execution contract input binding references unknown input");
+                return validation_error(
+                    "execution contract input binding references unknown input",
+                );
             }
             bound_inputs.insert(input_id.to_string());
         }
@@ -296,25 +297,28 @@ mod tests {
 
     fn execution_schemas() -> crate::workflow_catalog::execution_schemas::ExecutionSchemaRegistry {
         crate::workflow_catalog::execution_schemas::ExecutionSchemaRegistry {
-            execution_schemas: vec![crate::workflow_catalog::execution_schemas::ExecutionSchema {
-                id: "text-to-image".to_string(),
-                revisions: vec![
-                    crate::workflow_catalog::execution_schemas::ExecutionSchemaRevision {
-                        version: "1.0.0".to_string(),
-                        inputs: vec![
-                            crate::workflow_catalog::execution_schemas::ExecutionSchemaInput {
-                                id: "prompt".to_string(),
-                                input_type: "string".to_string(),
-                                required: true,
-                                max_length: Some(4000),
-                            },
-                        ],
-                        outputs: crate::workflow_catalog::execution_schemas::ExecutionSchemaOutputs {
-                            output_type: "image_set".to_string(),
+            execution_schemas: vec![
+                crate::workflow_catalog::execution_schemas::ExecutionSchema {
+                    id: "text-to-image".to_string(),
+                    revisions: vec![
+                        crate::workflow_catalog::execution_schemas::ExecutionSchemaRevision {
+                            version: "1.0.0".to_string(),
+                            inputs: vec![
+                                crate::workflow_catalog::execution_schemas::ExecutionSchemaInput {
+                                    id: "prompt".to_string(),
+                                    input_type: "string".to_string(),
+                                    required: true,
+                                    max_length: Some(4000),
+                                },
+                            ],
+                            outputs:
+                                crate::workflow_catalog::execution_schemas::ExecutionSchemaOutputs {
+                                    output_type: "image_set".to_string(),
+                                },
                         },
-                    },
-                ],
-            }],
+                    ],
+                },
+            ],
         }
     }
 
@@ -419,7 +423,10 @@ mod tests {
     #[test]
     fn validate_workflows_rejects_missing_required_execution_binding() {
         let mut workflow = valid_workflow("comfyui-hidream-o1-dev");
-        workflow.revisions[0].execution_contract.input_bindings.clear();
+        workflow.revisions[0]
+            .execution_contract
+            .input_bindings
+            .clear();
 
         assert_eq!(
             validate_test_workflows(&[workflow]),

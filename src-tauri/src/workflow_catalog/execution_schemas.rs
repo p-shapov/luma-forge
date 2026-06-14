@@ -71,7 +71,9 @@ pub fn validate_execution_schema_registry(
             || !schema_ids.insert(schema.id.as_str())
             || schema.revisions.is_empty()
         {
-            return validation_error("execution schema id is empty, duplicate, or revisions are empty");
+            return validation_error(
+                "execution schema id is empty, duplicate, or revisions are empty",
+            );
         }
         let mut revision_versions = HashSet::new();
         for revision in &schema.revisions {
@@ -115,7 +117,11 @@ pub fn required_input_ids(revision: &ExecutionSchemaRevision) -> HashSet<&str> {
 }
 
 pub fn input_ids(revision: &ExecutionSchemaRevision) -> HashSet<&str> {
-    revision.inputs.iter().map(|input| input.id.as_str()).collect()
+    revision
+        .inputs
+        .iter()
+        .map(|input| input.id.as_str())
+        .collect()
 }
 
 fn is_secret_like(value: &str) -> bool {
