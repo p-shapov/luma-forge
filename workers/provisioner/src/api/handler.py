@@ -1,16 +1,13 @@
-import json
 import hmac
+import json
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from typing import Any
 
 from app.config import WorkerConfig
 from app.errors import (
-    InvalidJsonError,
     NotFoundError,
-    RequestTooLargeError,
     UnauthorizedError,
-    ValidationError,
     WorkerError,
 )
 from orchestration.preparation_job import JobManager
@@ -25,7 +22,6 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
             {
                 "/status": self._handle_status,
             },
-            read_json=False,
             success_status=200,
         )
 
@@ -42,7 +38,6 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
         self,
         routes: dict[str, Callable[[Any], dict[str, Any]]],
         *,
-        read_json: bool,
         success_status: int,
     ) -> None:
         try:
@@ -50,12 +45,9 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
             handler = routes.get(self.path)
             if handler is None:
                 raise NotFoundError("Endpoint not found")
-            payload = self._read_json() if read_json else None
-            self._json(success_status, handler(payload))
+            self._json(success_status, handler(None))
         except WorkerError as error:
             self._worker_error(error)
-        except json.JSONDecodeError:
-            self._worker_error(InvalidJsonError("Request body must be valid JSON."))
 
     def _handle_unsupported_method(self) -> None:
         try:
@@ -66,32 +58,6 @@ class ProvisionerRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_status(self, payload: Any) -> dict[str, Any]:
         return self._manager().status().to_dict()
-
-    def _read_json(self) -> Any:
-        raw_content_length = self.headers.get("Content-Length")
-        if raw_content_length is None:
-            raise ValidationError("Content-Length header is required.", code="missing_content_length")
-        try:
-            content_length = int(raw_content_length)
-        except ValueError as error:
-            raise ValidationError(
-                "Content-Length header must be an integer.",
-                code="malformed_content_length",
-            ) from error
-        if content_length < 0:
-            raise ValidationError(
-                "Content-Length header must be non-negative.",
-                code="negative_content_length",
-            )
-        if content_length > self._config().max_request_bytes:
-            raise RequestTooLargeError(
-                "Request body is too large.",
-                context={"max_request_bytes": self._config().max_request_bytes},
-            )
-        if content_length == 0:
-            return {}
-        raw = self.rfile.read(content_length)
-        return json.loads(raw.decode("utf-8"))
 
     def _authorize(self) -> None:
         token = self._config().bearer_token

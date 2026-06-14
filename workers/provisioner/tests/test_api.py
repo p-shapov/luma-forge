@@ -78,6 +78,7 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(status, 404)
         self.assertEqual(payload["code"], "endpoint_not_found")
+        self.assertEqual(payload["message"], "Endpoint not found")
 
     def test_unsupported_method_for_known_path_returns_not_found_when_authorized(self):
         with ServerFixture(ImmediateProvisioner()) as server:
