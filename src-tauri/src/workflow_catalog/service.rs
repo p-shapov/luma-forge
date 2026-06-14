@@ -2,7 +2,9 @@ use crate::domain::workflow_preset::WorkflowCatalog;
 
 use super::{
     errors::WorkflowCatalogError,
-    execution_schemas::{read_bundled_execution_schema_registry, validate_execution_schema_registry},
+    execution_schemas::{
+        read_bundled_execution_schema_registry, validate_execution_schema_registry,
+    },
     reader::BundledWorkflowCatalogReader,
     validation::validate_workflows,
 };
