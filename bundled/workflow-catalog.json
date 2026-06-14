@@ -46,11 +46,11 @@
               "runtime_type": "runpod",
               "endpoint_contract": {
                 "id": "runpod-endpoint-comfyui-hidream-o1-dev",
-                "version": "1.0.17"
+                "version": "1.0.0"
               },
               "provisioner_contract": {
                 "id": "provisioner",
-                "version": "1.0.9"
+                "version": "1.0.0"
               }
             }
           ],

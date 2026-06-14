@@ -5,42 +5,6 @@
       "revisions": [
         {
           "version": "1.0.0",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:b983bbbbe947676f3b2fdfe1a5ac85d72d0da5d8eda0f9ccec3e6076b0603e55"
-        },
-        {
-          "version": "1.0.1",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:02f02c2ed8fc975814713c237b1db841883d158422996436c0e09ceb187e21b3"
-        },
-        {
-          "version": "1.0.2",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:1053bf831843e5068604e79f0f23140b43595040dba8e802bff285732ab805dd"
-        },
-        {
-          "version": "1.0.3",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:539ad4de5d8621db4cd84997429ab06282e3f6368ebea6c83e7bc0b3daef4f96"
-        },
-        {
-          "version": "1.0.4",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:35d34acdbd8016af713a3d79472e4159e56556f56319bd61f8cc08024ffc0bb3"
-        },
-        {
-          "version": "1.0.5",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:fb08da4f8722ce4f2c04ecff423a28e91741660d9776fd3fbdf8aa8ab81fec39"
-        },
-        {
-          "version": "1.0.6",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8e0d74276a36db8b0fae428b492e8fd080eea5311a7d153a0d60023c7e5a8295"
-        },
-        {
-          "version": "1.0.7",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:5a6f1dd21599455b5e71a648de365557c03494c887447d46fec2b3d6de4958f3"
-        },
-        {
-          "version": "1.0.8",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:e890fabcd11d95bab36d2495c6b49d802ad72ab7350ecf5c3595d22b1fb66089"
-        },
-        {
-          "version": "1.0.9",
           "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8f09164389385499f59495f030ec3c79f84eb8c3d6de5adab09cf9246afd1cc6"
         }
       ]
@@ -50,74 +14,6 @@
       "revisions": [
         {
           "version": "1.0.0",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:1c954a52b11fe9947a9820dfaa33873e0bef5f23a7e5ffaadedbb3f42637d61e"
-        },
-        {
-          "version": "1.0.1",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:90637a1182d55b4c2de5db1d978b96c51aa8422a1ef5c85ec3170e9cb54528cb"
-        },
-        {
-          "version": "1.0.2",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c2518949aa54ef8eceb742deac576c1347cc2135a18933ee0072d05dfc13a908"
-        },
-        {
-          "version": "1.0.3",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:0c8854a2269b7c26762e1a2d9294962d1a70a3446c86560a06276718aa1d1c5f"
-        },
-        {
-          "version": "1.0.4",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:3096095c885ea1c2e093c462e867581563086c454451c5fd8e5bb2a5f89a1a18"
-        },
-        {
-          "version": "1.0.5",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:4a8e3a12b92286e4937c2fb1338526d192d579121b2c37ccb11d6eaef94f615d"
-        },
-        {
-          "version": "1.0.6",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:e949443220f880e1070326fa5f83d32d373543d62deecdf4d995e90814db7969"
-        },
-        {
-          "version": "1.0.7",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:8f39d63ff702078c4b18dbbad6ca2201c907fa845601992850c4632467dd2158"
-        },
-        {
-          "version": "1.0.8",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c3d141ccc676b22a724b6d14035b3f15ed65741a60e1e4f85485dca54ce77851"
-        },
-        {
-          "version": "1.0.9",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:eacb936bd610bda78e4168b13f268e21a0c1d88602627d9ca51444e1d679f8a1"
-        },
-        {
-          "version": "1.0.10",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:d9b0ea79ece7f587a3dcaa987f113ab8f869bb2f49b26728e619bdf12b18b68f"
-        },
-        {
-          "version": "1.0.11",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:7c8f6c190c79c732fdf9e9602cfa89501a43cae67806bcca5b53fe35cfbbbe3b"
-        },
-        {
-          "version": "1.0.12",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c785bbcf721ef7d5e2777e4dfc915223d59cf93a78b2d3023c20d509d817cdd8"
-        },
-        {
-          "version": "1.0.13",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:df66cf769c96bdc5933ad114af865a66bb029fd5c75869f9261594cd55bb0c01"
-        },
-        {
-          "version": "1.0.14",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:6474af2b1337ad7205422a8f89f272c520db2e7674174ff6425a9906ac2bb8a3"
-        },
-        {
-          "version": "1.0.15",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:ac7b4ee14423f5e74f444a03c429dece830fc4f72b01847df18b2a5b960cdd1a"
-        },
-        {
-          "version": "1.0.16",
-          "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c7253ac8abbca0c4d849110132c327595ff224ab953eeb93462f16f52f74f3a1"
-        },
-        {
-          "version": "1.0.17",
           "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:d26e2b7694ed8b56cdaabeff34478caa549d72b9f4863ba80f40a89583ee1812"
         }
       ]
