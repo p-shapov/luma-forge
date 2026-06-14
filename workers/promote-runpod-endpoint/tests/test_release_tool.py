@@ -36,6 +36,8 @@ class RunpodEndpointPromotionToolTests(unittest.TestCase):
         self.assertEqual("1.0.0", outputs["workflow_version"])
         self.assertEqual("runpod-endpoint-comfyui-hidream-o1-dev", outputs["contract_id"])
         self.assertEqual("1.0.0", outputs["contract_version"])
+        self.assertEqual("text-to-image", outputs["execution_schema_id"])
+        self.assertEqual("1.0.0", outputs["execution_schema_version"])
         self.assertEqual("3.12", outputs["runtime_python_version"])
         self.assertEqual("bundled/workflows/comfyui-hidream-o1-dev.json", outputs["bundled_workflow_path"])
         self.assertEqual("https://download.pytorch.org/whl/cu126", outputs["pytorch_index_url"])
@@ -44,6 +46,20 @@ class RunpodEndpointPromotionToolTests(unittest.TestCase):
             json.loads(outputs["pytorch_packages_json"]),
         )
         self.assertEqual("ea62dc11c9a10dae52186fdcc3da033eb46018a1", outputs["comfyui_revision"])
+
+    def test_runtime_preset_outputs_reject_missing_execution_contract(self):
+        catalog = _workflow_catalog()
+        del catalog["workflow_presets"][0]["revisions"][0]["execution_contract"]
+        runtime_preset = release_tool.load_runtime_preset(RUNTIME_PRESET_PATH)
+
+        with self.assertRaisesRegex(release_tool.ReleaseToolError, "execution_contract must be an object"):
+            release_tool.runtime_preset_outputs(
+                runtime_preset=runtime_preset,
+                runtime_preset_path=RUNTIME_PRESET_PATH,
+                workflow_id="comfyui-hidream-o1-dev",
+                workflow_version="1.0.0",
+                workflow_catalog=catalog,
+            )
 
     def test_runtime_preset_schema_rejects_invalid_runtime_preset(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -119,6 +135,13 @@ runtime:
         self.assertIn("comfy-cli==1.10.3", dockerfile)
         self.assertIn("test -f /opt/luma-forge/runtime/ComfyUI/main.py", dockerfile)
         self.assertIn("/opt/luma-forge/runtime/workflows/workflow.json", dockerfile)
+        self.assertIn("ARG LUMA_FORGE_WORKFLOW_ID=", dockerfile)
+        self.assertIn("ARG LUMA_FORGE_WORKFLOW_VERSION=", dockerfile)
+        self.assertIn("bundled/workflow-catalog.json", dockerfile)
+        self.assertIn("bundled/execution-schemas.json", dockerfile)
+        self.assertIn("workers/runpod_endpoint_build_metadata.py", dockerfile)
+        self.assertIn("/opt/luma-forge/runtime/contracts/execution-contract.json", dockerfile)
+        self.assertIn("/opt/luma-forge/runtime/contracts/execution-schema.json", dockerfile)
 
     def test_endpoint_dockerfile_default_pytorch_packages_arg_is_valid_json(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
@@ -148,6 +171,8 @@ runtime:
         self.assertLess(verify_index, pr_index)
         self.assertIn("workflow_id:", workflow)
         self.assertIn("workflow_version:", workflow)
+        self.assertIn("LUMA_FORGE_WORKFLOW_ID", workflow)
+        self.assertIn("LUMA_FORGE_WORKFLOW_VERSION", workflow)
         self.assertIn("workers/promote-runpod-endpoint/release_tool.py resolve", workflow)
         self.assertIn("workers/promote-runpod-endpoint/release_tool.py promote-endpoint-image", promotion_section)
         self.assertIn("--runtime-preset \"${{ steps.contract.outputs.runtime_preset }}\"", promotion_section)
@@ -422,6 +447,29 @@ def _workflow_catalog():
                     {
                         "version": "1.0.0",
                         "runtime_preset": "comfyui-py312-cu126-torch291",
+                        "execution_contract": {
+                            "schema_ref": {
+                                "id": "text-to-image",
+                                "version": "1.0.0",
+                            },
+                            "input_bindings": [
+                                {
+                                    "value": "{{prompt}}",
+                                    "node_id": "171",
+                                    "path": ["widgets_values", "0"],
+                                },
+                                {
+                                    "value": False,
+                                    "node_id": "154",
+                                    "path": ["widgets_values", "0"],
+                                },
+                                {
+                                    "value": False,
+                                    "node_id": "177",
+                                    "path": ["widgets_values", "0"],
+                                },
+                            ],
+                        },
                         "contract_requirements": [
                             {
                                 "runtime_type": "runpod",
