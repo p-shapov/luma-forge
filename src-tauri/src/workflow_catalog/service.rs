@@ -1,7 +1,9 @@
 use crate::domain::workflow_preset::WorkflowCatalog;
 
 use super::{
-    errors::WorkflowCatalogError, reader::BundledWorkflowCatalogReader,
+    errors::WorkflowCatalogError,
+    execution_schemas::{read_bundled_execution_schema_registry, validate_execution_schema_registry},
+    reader::BundledWorkflowCatalogReader,
     validation::validate_workflows,
 };
 
@@ -16,8 +18,11 @@ impl WorkflowCatalogService {
     }
 
     pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
+        let execution_schemas = read_bundled_execution_schema_registry()?;
+        validate_execution_schema_registry(&execution_schemas)?;
+
         let catalog = self.workflow_reader.read_workflow_catalog()?;
-        validate_workflows(&catalog.workflow_presets)?;
+        validate_workflows(&catalog.workflow_presets, &execution_schemas)?;
 
         Ok(catalog)
     }
