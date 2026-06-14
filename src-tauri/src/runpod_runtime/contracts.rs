@@ -2,8 +2,8 @@ use crate::domain::{
     runpod::RunpodContractRequirements,
     runtime_contract::{RuntimeCatalog, RuntimeContractReference},
     workflow_preset::{
-        ModelAsset, WorkflowCatalog, WorkflowContractRequirements, WorkflowExecutionType,
-        WorkflowReference, WorkflowRevision,
+        ModelAsset, WorkflowCatalog, WorkflowContractRequirements, WorkflowReference,
+        WorkflowRevision,
     },
 };
 
@@ -29,7 +29,6 @@ pub struct RunpodWorkflowResolved {
     pub version: String,
     pub runtime_preset: String,
     pub _name: String,
-    pub _execution_type: WorkflowExecutionType,
     pub requires_hugging_face_api_key: bool,
     pub required_volume_size_gb: u64,
     pub contract_requirements: RunpodContractRequirements,
@@ -48,12 +47,7 @@ impl RunpodWorkflowResolver {
             .iter()
             .find(|preset| preset.id == preset_id)?;
         let revision = preset.revisions.last()?;
-        resolve_workflow_revision(
-            preset.id.clone(),
-            preset.name.clone(),
-            preset.execution_type,
-            revision,
-        )
+        resolve_workflow_revision(preset.id.clone(), preset.name.clone(), revision)
     }
 
     pub fn resolve(
@@ -68,12 +62,7 @@ impl RunpodWorkflowResolver {
             .revisions
             .iter()
             .find(|revision| revision.version == reference.version)?;
-        resolve_workflow_revision(
-            preset.id.clone(),
-            preset.name.clone(),
-            preset.execution_type,
-            revision,
-        )
+        resolve_workflow_revision(preset.id.clone(), preset.name.clone(), revision)
     }
 }
 
@@ -128,7 +117,6 @@ impl RuntimeCatalog {
 fn resolve_workflow_revision(
     id: String,
     name: String,
-    execution_type: WorkflowExecutionType,
     revision: &WorkflowRevision,
 ) -> Option<RunpodWorkflowResolved> {
     let contract_requirements = revision
@@ -145,7 +133,6 @@ fn resolve_workflow_revision(
         version: revision.version.clone(),
         runtime_preset: revision.runtime_preset.clone(),
         _name: name,
-        _execution_type: execution_type,
         requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
         required_volume_size_gb: revision.required_volume_size_gb,
         contract_requirements,

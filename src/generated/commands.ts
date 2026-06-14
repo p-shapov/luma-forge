@@ -190,12 +190,9 @@ export type WorkflowCatalogResponse = {
 
 export type WorkflowContractRequirementsResponse = { runtimeType: "runpod" } & (RunpodContractRequirementsResponse);
 
-export type WorkflowExecutionTypeDto = "t2i";
-
 export type WorkflowPresetResponse = {
 	id: string,
 	name: string,
-	executionType: WorkflowExecutionTypeDto,
 	revisions: WorkflowRevisionResponse[],
 };
 

@@ -2,12 +2,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from runpod_endpoint_worker.config import EndpointConfig
-from runpod_endpoint_worker.errors import UnsupportedExecutionTypeError, ValidationError
+from runpod_endpoint_worker.errors import ValidationError
 
 
 @dataclass(frozen=True)
 class GenerationRequest:
-    execution_type: str
     prompt: str
     job_id: str = "local"
 
@@ -38,7 +37,6 @@ class GenerationImage:
 
 @dataclass(frozen=True)
 class GenerationResponse:
-    execution_type: str
     images: list[GenerationImage]
 
     def to_payload(self) -> dict[str, Any]:
@@ -46,7 +44,6 @@ class GenerationResponse:
             "status": "succeeded",
             "generation": {
                 "implemented": True,
-                "execution_type": self.execution_type,
                 "images": [image.to_payload() for image in self.images],
             },
         }
@@ -54,15 +51,11 @@ class GenerationResponse:
 
 def parse_generation_request(payload: Any, config: EndpointConfig, *, job_id: str = "local") -> GenerationRequest:
     data = _object(payload, "input")
-    execution_type = _non_empty_string(data.get("execution_type"), "execution_type")
-    if execution_type not in config.supported_execution_types:
-        raise UnsupportedExecutionTypeError("Execution type is not supported.")
-
     prompt = _non_empty_string(data.get("prompt"), "prompt")
     if len(prompt) > config.max_prompt_chars:
         raise ValidationError("prompt is too large")
 
-    return GenerationRequest(execution_type=execution_type, prompt=prompt, job_id=job_id)
+    return GenerationRequest(prompt=prompt, job_id=job_id)
 
 
 def _object(payload: Any, field: str) -> dict[str, Any]:

@@ -1,10 +1,9 @@
 # RunPod Endpoint Worker
 
-The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. It accepts the current temporary `t2i` request contract and executes the image-baked HiDream O1 Dev ComfyUI workflow through Comfy CLI.
+The RunPod Endpoint Worker is the runtime container used behind RunPod Serverless inference endpoints. It accepts the current request contract and executes the image-baked HiDream O1 Dev ComfyUI workflow through Comfy CLI.
 
 ```json
 {
-  "execution_type": "t2i",
   "prompt": "a product photo of a small lamp"
 }
 ```
@@ -18,7 +17,6 @@ Successful responses are UI-safe:
   "status": "succeeded",
   "generation": {
     "implemented": true,
-    "execution_type": "t2i",
     "images": [
       {
         "filename": "ComfyUI_00001_.png",
@@ -54,7 +52,7 @@ Failed responses include UI-safe diagnostic metadata:
 }
 ```
 
-The failed response keeps structured diagnostics in `failure` because the RunPod Python serverless SDK reserves and removes top-level `error` during hosted result normalization. The top-level `error` is still returned as a safe platform failure signal so RunPod marks the job failed; hosted job `output` preserves `status` and `failure`. Stable diagnostic codes include `invalid_request`, `unsupported_execution_type`, `workflow_validation_failed`, `comfyui_launch_failed`, `comfyui_startup_timeout`, `comfyui_workflow_failed`, `comfyui_workflow_timeout`, `comfyui_output_parse_failed`, `comfyui_no_outputs`, `comfyui_output_fetch_failed`, `response_too_large`, and `runtime_failed`. `failure.stage` identifies the failing worker boundary, `failure.retryable` is the worker-owned retry classification, and optional `failure.metadata` contains only bounded primitive values such as an exit status, timeout duration, Comfy CLI JSON failure hints, or normalized and truncated `diagnostic_excerpt` derived from subprocess output. Messages and metadata never include raw stdout, raw stderr, command output, stack traces, credentials, authorization headers, environment dumps, command invocations, or generated image data. Subprocess launch and workflow failures also write full-length captured Comfy CLI output to worker logs for operator debugging after credential-pattern scrubbing; those logs are not part of the hosted response contract.
+The failed response keeps structured diagnostics in `failure` because the RunPod Python serverless SDK reserves and removes top-level `error` during hosted result normalization. The top-level `error` is still returned as a safe platform failure signal so RunPod marks the job failed; hosted job `output` preserves `status` and `failure`. Stable diagnostic codes include `invalid_request`, `workflow_validation_failed`, `comfyui_launch_failed`, `comfyui_startup_timeout`, `comfyui_workflow_failed`, `comfyui_workflow_timeout`, `comfyui_output_parse_failed`, `comfyui_no_outputs`, `comfyui_output_fetch_failed`, `response_too_large`, and `runtime_failed`. `failure.stage` identifies the failing worker boundary, `failure.retryable` is the worker-owned retry classification, and optional `failure.metadata` contains only bounded primitive values such as an exit status, timeout duration, Comfy CLI JSON failure hints, or normalized and truncated `diagnostic_excerpt` derived from subprocess output. Messages and metadata never include raw stdout, raw stderr, command output, stack traces, credentials, authorization headers, environment dumps, command invocations, or generated image data. Subprocess launch and workflow failures also write full-length captured Comfy CLI output to worker logs for operator debugging after credential-pattern scrubbing; those logs are not part of the hosted response contract.
 
 The worker does not require a provisioner-written runtime manifest. Provisioning remains responsible for prepared workspace directories and model assets only; the endpoint image owns the ComfyUI checkout, Comfy CLI installation, and baked workflow file under `/opt/luma-forge/runtime`.
 
@@ -78,8 +76,6 @@ The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` s
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES` | `9000000` | Maximum allowed JSON response metadata size. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_ARTIFACT_BYTES` | `512000000` | Maximum generated artifact bytes buffered and persisted per request. |
 | `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_PROMPT_CHARS` | `4000` | Maximum accepted prompt length. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_SUPPORTED_EXECUTION_TYPES` | `t2i` | Comma-separated execution types accepted by the endpoint boundary. |
-
 ## Development
 
 ```bash
@@ -100,7 +96,7 @@ LUMA_FORGE_RUN_CONTAINER_SMOKE=1 PYTHONPATH=src python3 -m unittest tests.test_c
 
 ## Manual Invocation
 
-After publishing and provisioning a workspace that uses this runtime image, invoke the RunPod serverless endpoint with an input payload shaped like the `t2i` example above. The response should have `status: "succeeded"`, `generation.implemented: true`, and at least one `runpod_volume` image artifact entry.
+After publishing and provisioning a workspace that uses this runtime image, invoke the RunPod serverless endpoint with an input payload shaped like the example above. The response should have `status: "succeeded"`, `generation.implemented: true`, and at least one `runpod_volume` image artifact entry.
 
 ## Deployment
 

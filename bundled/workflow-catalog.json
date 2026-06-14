@@ -3,7 +3,6 @@
     {
       "id": "comfyui-hidream-o1-dev",
       "name": "ComfyUI HiDream O1 Dev",
-      "execution_type": "t2i",
       "revisions": [
         {
           "version": "1.0.0",

@@ -14,10 +14,6 @@ class ValidationError(EndpointWorkerError):
     stage = "request_validation"
 
 
-class UnsupportedExecutionTypeError(ValidationError):
-    code = "unsupported_execution_type"
-
-
 class WorkflowValidationError(EndpointWorkerError):
     code = "workflow_validation_failed"
     stage = "workflow_validation"

@@ -20,12 +20,6 @@ pub struct ModelAsset {
     pub install_comfyui_relative_path: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkflowExecutionType {
-    T2i,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowReference {
     pub id: String,
@@ -51,7 +45,6 @@ pub struct WorkflowRevision {
 pub struct WorkflowPreset {
     pub id: String,
     pub name: String,
-    pub execution_type: WorkflowExecutionType,
     pub revisions: Vec<WorkflowRevision>,
 }
 

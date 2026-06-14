@@ -2,7 +2,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::domain::workflow_preset::{
-    ModelAsset, WorkflowCatalog, WorkflowExecutionType, WorkflowPreset, WorkflowRevision,
+    ModelAsset, WorkflowCatalog, WorkflowPreset, WorkflowRevision,
 };
 
 use super::{contract_requirements::decode_contract_requirements, WorkflowCatalogError};
@@ -36,7 +36,6 @@ struct WorkflowCatalogDocument {
 struct WorkflowPresetDocument {
     id: String,
     name: String,
-    execution_type: WorkflowExecutionType,
     revisions: Vec<WorkflowRevisionDocument>,
 }
 
@@ -67,7 +66,6 @@ impl WorkflowPresetDocument {
         Ok(WorkflowPreset {
             id: self.id,
             name: self.name,
-            execution_type: self.execution_type,
             revisions: self
                 .revisions
                 .into_iter()
