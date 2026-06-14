@@ -1,20 +1,18 @@
 from contextlib import redirect_stderr
+from dataclasses import replace
 from io import StringIO
 import json
-import socket
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
 from app.config import (
     ConfigurationError,
-    DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
-    DEFAULT_HOST,
-    DEFAULT_PORT,
-    DEFAULT_WORKSPACE_MOUNT_PATH,
-    DOWNLOAD_INACTIVITY_TIMEOUT_ENV,
+    DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
+    HOST,
+    PORT,
     REQUIRED_MODEL_ASSETS_ENV,
-    MAX_TIMEOUT_SECONDS,
+    WORKSPACE_MOUNT_PATH,
     WorkerConfig,
 )
 from app.server import create_server, main
@@ -36,30 +34,29 @@ class ConfigTests(unittest.TestCase):
     def test_valid_config_uses_defaults_for_optional_values(self):
         config = WorkerConfig.from_env(valid_env())
 
-        self.assertEqual(config.host, DEFAULT_HOST)
-        self.assertEqual(config.port, DEFAULT_PORT)
+        self.assertEqual(config.host, HOST)
+        self.assertEqual(config.port, PORT)
         self.assertEqual(config.bearer_token, VALID_TOKEN)
         self.assertEqual(
             config.download_inactivity_timeout_seconds,
-            DEFAULT_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
+            DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
         )
-        self.assertEqual(config.workspace_mount_path, Path(DEFAULT_WORKSPACE_MOUNT_PATH).resolve(strict=False))
+        self.assertEqual(config.workspace_mount_path, Path(WORKSPACE_MOUNT_PATH).resolve(strict=False))
 
-    def test_valid_config_accepts_explicit_values(self):
+    def test_valid_config_uses_baked_values_and_hugging_face_env(self):
         config = WorkerConfig.from_env(
             valid_env(
-                LUMA_FORGE_PROVISIONER_HOST="worker.internal",
-                LUMA_FORGE_PROVISIONER_PORT="9000",
-                LUMA_FORGE_PROVISIONER_DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS="14.5",
-                LUMA_FORGE_WORKSPACE_MOUNT_PATH="/workspace/custom",
                 LUMA_FORGE_HUGGING_FACE_API_KEY="test-hugging-face-key",
             )
         )
 
-        self.assertEqual(config.host, "worker.internal")
-        self.assertEqual(config.port, 9000)
-        self.assertEqual(config.download_inactivity_timeout_seconds, 14.5)
-        self.assertEqual(config.workspace_mount_path, Path("/workspace/custom").resolve(strict=False))
+        self.assertEqual(config.host, HOST)
+        self.assertEqual(config.port, PORT)
+        self.assertEqual(
+            config.download_inactivity_timeout_seconds,
+            DOWNLOAD_INACTIVITY_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(config.workspace_mount_path, Path(WORKSPACE_MOUNT_PATH).resolve(strict=False))
         self.assertEqual(config.hugging_face_api_key, "test-hugging-face-key")
 
     def test_optional_hugging_face_api_key_absent_or_blank(self):
@@ -108,42 +105,6 @@ class ConfigTests(unittest.TestCase):
                 if value:
                     self.assertNotIn(value, str(context.exception))
 
-    def test_rejects_invalid_numeric_values(self):
-        invalid_values = {
-            "LUMA_FORGE_PROVISIONER_PORT": ["", "abc", "0", "65536"],
-            DOWNLOAD_INACTIVITY_TIMEOUT_ENV: [
-                "",
-                "abc",
-                "-1",
-                "inf",
-                str(MAX_TIMEOUT_SECONDS + 1),
-            ],
-        }
-
-        for name, values in invalid_values.items():
-            for value in values:
-                with self.subTest(name=name, value=value):
-                    with self.assertRaises(ConfigurationError) as context:
-                        WorkerConfig.from_env(valid_env(**{name: value}))
-
-                    self.assertEqual(context.exception.env_name, name)
-
-    def test_rejects_invalid_bind_host(self):
-        for value in ["", "-bad-host", "bad_host", ".bad", "bad..host"]:
-            with self.subTest(value=value):
-                with self.assertRaises(ConfigurationError) as context:
-                    WorkerConfig.from_env(valid_env(LUMA_FORGE_PROVISIONER_HOST=value))
-
-                self.assertEqual(context.exception.env_name, "LUMA_FORGE_PROVISIONER_HOST")
-
-    def test_rejects_invalid_workspace_mount_path(self):
-        for value in ["", "workspace", "/workspace/../other", "/workspace/./other"]:
-            with self.subTest(value=value):
-                with self.assertRaises(ConfigurationError) as context:
-                    WorkerConfig.from_env(valid_env(LUMA_FORGE_WORKSPACE_MOUNT_PATH=value))
-
-                self.assertEqual(context.exception.env_name, "LUMA_FORGE_WORKSPACE_MOUNT_PATH")
-
     def test_configuration_error_payload_is_machine_readable_without_secret(self):
         error = ConfigurationError(
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN",
@@ -159,9 +120,9 @@ class ConfigTests(unittest.TestCase):
 
     def test_main_prints_config_error_payload_and_exits_before_serving(self):
         error = ConfigurationError(
-            "LUMA_FORGE_PROVISIONER_PORT",
-            "invalid_integer",
-            "value must be an integer",
+            REQUIRED_MODEL_ASSETS_ENV,
+            "invalid_json",
+            "value must be valid JSON",
         )
         stderr = StringIO()
 
@@ -172,28 +133,17 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, 78)
         payload = json.loads(stderr.getvalue())
-        self.assertEqual(payload["code"], "invalid_integer")
-        self.assertEqual(payload["env_name"], "LUMA_FORGE_PROVISIONER_PORT")
+        self.assertEqual(payload["code"], "invalid_json")
+        self.assertEqual(payload["env_name"], REQUIRED_MODEL_ASSETS_ENV)
 
     def test_create_server_uses_validated_config(self):
-        config = WorkerConfig.from_env(
-            valid_env(
-                LUMA_FORGE_PROVISIONER_HOST="127.0.0.1",
-                LUMA_FORGE_PROVISIONER_PORT=str(_free_port()),
-            )
-        )
+        config = replace(WorkerConfig.from_env(valid_env()), port=0)
         server = create_server(config)
         try:
             self.assertEqual(server.server_address[0], config.host)
-            self.assertEqual(server.server_address[1], config.port)
+            self.assertGreater(server.server_address[1], 0)
         finally:
             server.server_close()
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 if __name__ == "__main__":

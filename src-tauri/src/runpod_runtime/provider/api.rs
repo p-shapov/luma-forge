@@ -77,7 +77,6 @@ pub struct CreateProvisionerPodRequest {
     pub name: String,
     pub image_ref: String,
     pub network_volume_id: String,
-    pub mount_path: String,
     pub bearer_token: String,
     pub required_model_assets: Vec<ModelAsset>,
     pub hugging_face_api_key: Option<String>,
@@ -87,7 +86,6 @@ pub struct CreateProvisionerPodRequest {
 pub struct CreateServerlessTemplateRequest {
     pub name: String,
     pub image_ref: String,
-    pub mount_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

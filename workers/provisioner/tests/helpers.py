@@ -10,7 +10,6 @@ from api.handler import ProvisionerRequestHandler
 from app.config import (
     BEARER_TOKEN_ENV,
     REQUIRED_MODEL_ASSETS_ENV,
-    WORKSPACE_MOUNT_PATH_ENV,
     WorkerConfig,
 )
 from orchestration.preparation_job import JobManager
@@ -78,9 +77,6 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
     config = WorkerConfig.from_env(
         {
             BEARER_TOKEN_ENV: bearer_token,
-            "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
-            "LUMA_FORGE_PROVISIONER_PORT": "8000",
-            WORKSPACE_MOUNT_PATH_ENV: str(workspace_mount_path or Path("/workspace")),
             REQUIRED_MODEL_ASSETS_ENV: json.dumps(start_payload()["required_model_assets"]),
         }
     )
@@ -93,7 +89,7 @@ def test_config(*, workspace_mount_path: Path | None = None, bearer_token: str =
             "download_inactivity_timeout_seconds",
             config.download_inactivity_timeout_seconds,
         ),
-        workspace_mount_path=overrides.get("workspace_mount_path", config.workspace_mount_path),
+        workspace_mount_path=overrides.get("workspace_mount_path", workspace_mount_path or config.workspace_mount_path),
         hugging_face_api_key=overrides.get("hugging_face_api_key", config.hugging_face_api_key),
     )
 

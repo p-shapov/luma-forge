@@ -15,11 +15,9 @@ use super::{
         CreateServerlessTemplateRequest,
     },
     config::{
-        ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_ENDPOINT_WORKSPACE_MOUNT_PATH,
-        ENV_HUGGING_FACE_API_KEY, ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_HOST,
-        ENV_PROVISIONER_PORT, ENV_PROVISIONER_REQUIRED_MODEL_ASSETS,
-        ENV_PROVISIONER_WORKSPACE_MOUNT_PATH, PROVISIONER_COMPUTE_TYPE, PROVISIONER_HOST,
-        PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
+        ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_HUGGING_FACE_API_KEY,
+        ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_REQUIRED_MODEL_ASSETS,
+        PROVISIONER_COMPUTE_TYPE, PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
     },
 };
 
@@ -139,8 +137,6 @@ pub(super) struct PodCreateBody {
     image_ref: String,
     #[serde(rename = "networkVolumeId")]
     network_volume_id: String,
-    #[serde(rename = "volumeMountPath")]
-    mount_path: String,
     name: String,
     ports: Vec<String>,
     env: HashMap<String, String>,
@@ -158,8 +154,6 @@ pub(super) struct TemplateCreateBody {
     name: String,
     #[serde(rename = "isServerless")]
     is_serverless: bool,
-    ports: Vec<String>,
-    env: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -236,18 +230,6 @@ pub(super) fn provisioner_pod_create_body(
             ENV_PROVISIONER_REQUIRED_MODEL_ASSETS.to_string(),
             required_model_assets,
         ),
-        (
-            ENV_PROVISIONER_WORKSPACE_MOUNT_PATH.to_string(),
-            request.mount_path.clone(),
-        ),
-        (
-            ENV_PROVISIONER_HOST.to_string(),
-            PROVISIONER_HOST.to_string(),
-        ),
-        (
-            ENV_PROVISIONER_PORT.to_string(),
-            PROVISIONER_PORT.to_string(),
-        ),
     ]);
 
     if let Some(hugging_face_api_key) = request.hugging_face_api_key.clone() {
@@ -260,7 +242,6 @@ pub(super) fn provisioner_pod_create_body(
         gpu_type_ids: Vec::new(),
         image_ref: request.image_ref.clone(),
         network_volume_id: request.network_volume_id.clone(),
-        mount_path: request.mount_path.clone(),
         name: request.name.clone(),
         ports: vec![worker_port()],
         env,
@@ -270,18 +251,10 @@ pub(super) fn provisioner_pod_create_body(
 pub(super) fn endpoint_template_create_body(
     request: &CreateServerlessTemplateRequest,
 ) -> TemplateCreateBody {
-    let mut env = HashMap::new();
-    env.insert(
-        ENV_ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
-        request.mount_path.clone(),
-    );
-
     TemplateCreateBody {
         image_ref: request.image_ref.clone(),
         name: request.name.clone(),
         is_serverless: true,
-        ports: vec![worker_port()],
-        env,
     }
 }
 
@@ -404,7 +377,6 @@ mod tests {
 
     use super::*;
     use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
-    use crate::runpod_runtime::provider::config::ENDPOINT_WORKSPACE_MOUNT_PATH;
     use crate::runpod_runtime::provider::RunpodEndpointKeepAliveLimits;
 
     #[test]
@@ -455,7 +427,6 @@ mod tests {
             name: "luma-forge-workspace-provisioner".to_string(),
             image_ref: "ghcr.io/luma/provisioner:latest".to_string(),
             network_volume_id: "volume-1".to_string(),
-            mount_path: "/workspace".to_string(),
             bearer_token: "derived-token".to_string(),
             required_model_assets: vec![ModelAsset {
                 id: "model".to_string(),
@@ -493,7 +464,6 @@ mod tests {
         assert_eq!(body["gpuTypeIds"], json!([]));
         assert_eq!(body["imageName"], json!("ghcr.io/luma/provisioner:latest"));
         assert_eq!(body["networkVolumeId"], json!("volume-1"));
-        assert_eq!(body["volumeMountPath"], json!("/workspace"));
         assert_eq!(body["name"], json!("luma-forge-workspace-provisioner"));
         assert_eq!(body["ports"], json!(["8000/http"]));
         assert_eq!(
@@ -504,12 +474,6 @@ mod tests {
             body["env"]["LUMA_FORGE_HUGGING_FACE_API_KEY"],
             json!("hf-key")
         );
-        assert_eq!(
-            body["env"]["LUMA_FORGE_WORKSPACE_MOUNT_PATH"],
-            json!("/workspace")
-        );
-        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_HOST"], json!("0.0.0.0"));
-        assert_eq!(body["env"]["LUMA_FORGE_PROVISIONER_PORT"], json!("8000"));
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(
                 body["env"]["LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"]
@@ -526,7 +490,6 @@ mod tests {
         let template_request = CreateServerlessTemplateRequest {
             name: "luma-forge-workspace-endpoint-template".to_string(),
             image_ref: "ghcr.io/luma/endpoint:latest".to_string(),
-            mount_path: ENDPOINT_WORKSPACE_MOUNT_PATH.to_string(),
         };
         let endpoint_request = CreateServerlessEndpointRequest {
             datacenter_id: "US-TX-1".to_string(),
@@ -551,11 +514,7 @@ mod tests {
             json!({
                 "imageName": "ghcr.io/luma/endpoint:latest",
                 "name": "luma-forge-workspace-endpoint-template",
-                "isServerless": true,
-                "ports": ["8000/http"],
-                "env": {
-                    "LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH": "/runpod-volume"
-                }
+                "isServerless": true
             })
         );
         assert_eq!(

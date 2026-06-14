@@ -42,9 +42,6 @@ class ApiTests(unittest.TestCase):
         env = {
             "LUMA_FORGE_PROVISIONER_BEARER_TOKEN": "test-token-0123456789abcdef012345",
             "LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS": '{"bad": "request"}',
-            "LUMA_FORGE_PROVISIONER_HOST": "127.0.0.1",
-            "LUMA_FORGE_PROVISIONER_PORT": "8000",
-            "LUMA_FORGE_WORKSPACE_MOUNT_PATH": "/workspace",
         }
         with self.assertRaises(ConfigurationError) as context:
             WorkerConfig.from_env(env)

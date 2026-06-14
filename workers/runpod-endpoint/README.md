@@ -60,22 +60,6 @@ The runtime image pins ComfyUI to `ea62dc11c9a10dae52186fdcc3da033eb46018a1` and
 
 The final endpoint image exposes `/opt/luma-forge/runtime/.venv/bin` on `PATH` so Comfy CLI background launches can resolve the image-baked `comfy` executable by name.
 
-## Configuration
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `LUMA_FORGE_WORKSPACE_MOUNT_PATH` | `/workspace` | Shared prepared workspace volume mount path. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKSPACE_MOUNT_PATH` | unset | Endpoint-specific workspace mount path override. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFY_CLI_PATH` | `/opt/luma-forge/runtime/.venv/bin/comfy` | Comfy CLI executable path. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PATH` | `/opt/luma-forge/runtime/ComfyUI` | Image-local ComfyUI checkout path. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_WORKFLOW_PATH` | `/opt/luma-forge/runtime/workflows/workflow.json` | Image-local baked UI workflow path. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_CONTRACT_PATH` | `/opt/luma-forge/runtime/contracts/execution-contract.json` | Image-local workflow revision execution contract with resolved execution schema. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_HOST` | `127.0.0.1` | Local ComfyUI host. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_PORT` | `8188` | Local ComfyUI port. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_COMFYUI_STARTUP_TIMEOUT_SECONDS` | `300` | Time allowed for lazy ComfyUI startup readiness. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_EXECUTION_TIMEOUT_SECONDS` | `900` | Time allowed for `comfy run --json`. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_RESPONSE_BYTES` | `9000000` | Maximum allowed JSON response metadata size. |
-| `LUMA_FORGE_RUNPOD_ENDPOINT_MAX_ARTIFACT_BYTES` | `512000000` | Maximum generated artifact bytes buffered and persisted per request. |
 ## Development
 
 ```bash
