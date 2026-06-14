@@ -251,13 +251,15 @@ def runtime_preset_outputs(
         "comfyui_revision": runtime["comfyui_revision"],
         "pytorch_index_url": runtime["pytorch"]["index_url"],
         "pytorch_packages_json": packages_json,
-        "bundled_workflow_path": str(resolve_bundled_workflow_path(runtime_preset, runtime_preset_path)),
+        "bundled_workflow_path": str(resolve_bundled_workflow_path(workflow_id)),
     }
 
 
-def resolve_bundled_workflow_path(runtime_preset: dict[str, Any], runtime_preset_path: Path) -> Path:
+def resolve_bundled_workflow_path(workflow_id: str) -> Path:
+    if not _is_safe_identifier(workflow_id):
+        raise ReleaseToolError("invalid workflow id")
     repository_root = Path(__file__).resolve().parents[2]
-    workflow_path = repository_root / "bundled" / "workflows" / "comfyui-hidream-o1-dev.json"
+    workflow_path = repository_root / "bundled" / "workflows" / f"{workflow_id}.json"
     if not workflow_path.is_file():
         raise ReleaseToolError(f"bundled workflow file does not exist: {workflow_path}")
     return workflow_path.relative_to(repository_root)
@@ -439,7 +441,6 @@ def _validate_runtime_preset(value: dict[str, Any], runtime_preset_path: Path) -
         raise ReleaseToolError("invalid runtime preset id")
     _parse_semver(runtime_preset_version)
 
-    resolve_bundled_workflow_path(value, runtime_preset_path)
 
     _string_value(runtime, "python_version")
     comfyui_revision = _string_value(runtime, "comfyui_revision")

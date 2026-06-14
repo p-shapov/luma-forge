@@ -34,10 +34,6 @@ from runtime.workflow import write_patched_workflow
 
 _COMFY_STARTUP_LOCK = threading.Lock()
 _DIAGNOSTIC_EXCERPT_MAX_CHARS = 600
-_REQUIRED_MODEL_PATHS = (
-    Path("models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"),
-    Path("models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"),
-)
 _SIGNED_URL_PATTERN = re.compile(
     r"(https?://[^\s?]+)\?[^\s]*(?:X-Amz-Signature|Signature=|AWSAccessKeyId|X-Amz-Credential|Expires=)[^\s]*"
 )
@@ -166,7 +162,6 @@ class ComfyExecutor:
         )
 
     def generate(self, request: GenerationRequest) -> list[GenerationImage]:
-        _validate_required_models(self.config)
         self.runtime.ensure_ready()
         with tempfile.TemporaryDirectory(prefix="luma-forge-workflow-") as directory:
             patched_workflow = Path(directory) / "workflow.json"
@@ -513,22 +508,6 @@ def _comfy_node_error_summaries(error_payload: dict[str, Any]) -> list[str]:
             if isinstance(error_type, str) and isinstance(details, str):
                 summaries.append(f"{node_id} {class_type} {error_type}: {details}")
     return summaries
-
-
-def _validate_required_models(config: EndpointConfig) -> None:
-    missing = [
-        str(config.workspace_mount_path / path)
-        for path in _REQUIRED_MODEL_PATHS
-        if not (config.workspace_mount_path / path).is_file()
-    ]
-    if missing:
-        raise ComfyWorkflowError(
-            "ComfyUI workflow execution failed. Required model file is missing.",
-            metadata={
-                "diagnostic_excerpt": "Required model file is missing.",
-                "missing_model_paths": missing,
-            },
-        )
 
 
 def _log_process_output(message: str, error: BaseException) -> None:

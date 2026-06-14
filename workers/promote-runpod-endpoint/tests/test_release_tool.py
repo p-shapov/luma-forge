@@ -123,6 +123,10 @@ runtime:
                 runtime_presets_dir=ROOT / "runtime-presets",
             )
 
+    def test_resolve_bundled_workflow_path_uses_selected_workflow(self):
+        with self.assertRaisesRegex(release_tool.ReleaseToolError, "other-workflow.json"):
+            release_tool.resolve_bundled_workflow_path("other-workflow")
+
     def test_endpoint_dockerfile_keeps_runtime_build_inputs(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
         dockerfile_lines = dockerfile.splitlines()
