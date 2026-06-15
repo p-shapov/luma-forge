@@ -837,13 +837,13 @@ mod tests {
         assert_eq!(
             state.provisioner_image_refs,
             vec![
-                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:e890fabcd11d95bab36d2495c6b49d802ad72ab7350ecf5c3595d22b1fb66089"
+                "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8f09164389385499f59495f030ec3c79f84eb8c3d6de5adab09cf9246afd1cc6"
             ]
         );
         assert_eq!(
             state.endpoint_image_refs,
             vec![
-                "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:c7253ac8abbca0c4d849110132c327595ff224ab953eeb93462f16f52f74f3a1"
+                "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:d26e2b7694ed8b56cdaabeff34478caa549d72b9f4863ba80f40a89583ee1812"
             ]
         );
         assert_ne!(state.provisioner_image_refs, vec!["provisioner"]);

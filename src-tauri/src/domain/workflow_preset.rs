@@ -27,6 +27,7 @@ pub struct WorkflowReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "runtime_type", rename_all = "snake_case")]
 pub enum WorkflowContractRequirements {
     Runpod(RunpodContractRequirements),
 }

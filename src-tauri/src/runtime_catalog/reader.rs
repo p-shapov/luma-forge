@@ -4,13 +4,9 @@ use super::RuntimeCatalogError;
 
 const RUNTIME_CONTRACTS_JSON: &str = include_str!("../../../bundled/runtime-contracts.json");
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BundledRuntimeContractCatalogReader;
-
-impl BundledRuntimeContractCatalogReader {
-    pub fn read_runtime_contract_catalog(&self) -> Result<RuntimeCatalog, RuntimeCatalogError> {
-        serde_json::from_str(RUNTIME_CONTRACTS_JSON).map_err(parse_error)
-    }
+pub(super) fn read_bundled_runtime_contract_catalog() -> Result<RuntimeCatalog, RuntimeCatalogError>
+{
+    serde_json::from_str(RUNTIME_CONTRACTS_JSON).map_err(parse_error)
 }
 
 fn parse_error(error: serde_json::Error) -> RuntimeCatalogError {
@@ -21,12 +17,11 @@ fn parse_error(error: serde_json::Error) -> RuntimeCatalogError {
 
 #[cfg(test)]
 mod tests {
-    use super::BundledRuntimeContractCatalogReader;
+    use super::read_bundled_runtime_contract_catalog;
 
     #[test]
     fn bundled_runtime_contract_reader_deserializes_contracts() {
-        let catalog = BundledRuntimeContractCatalogReader
-            .read_runtime_contract_catalog()
+        let catalog = read_bundled_runtime_contract_catalog()
             .expect("bundled runtime contracts should deserialize");
 
         assert!(

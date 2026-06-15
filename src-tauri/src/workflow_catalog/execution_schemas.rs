@@ -107,23 +107,6 @@ fn validate_schema_revision<'a>(
     Ok(())
 }
 
-pub fn required_input_ids(revision: &ExecutionSchemaRevision) -> HashSet<&str> {
-    revision
-        .inputs
-        .iter()
-        .filter(|input| input.required)
-        .map(|input| input.id.as_str())
-        .collect()
-}
-
-pub fn input_ids(revision: &ExecutionSchemaRevision) -> HashSet<&str> {
-    revision
-        .inputs
-        .iter()
-        .map(|input| input.id.as_str())
-        .collect()
-}
-
 fn is_secret_like(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
     value.contains("secret")
