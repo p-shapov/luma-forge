@@ -14,12 +14,13 @@ use crate::{
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::LifecycleJournalRepository,
+    shared::EventSink,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::super::{
     errors::{invalid_runtime_state_error, invalid_runtime_state_message, RunpodRuntimeError},
-    events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
+    events::RunpodRuntimeEvent,
 };
 
 pub async fn load_running_operation<L>(
@@ -40,7 +41,7 @@ where
 
 pub async fn mark_running_step<L, S>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     operation: &LifecycleOperation,
     step: S,
 ) -> Result<(), RunpodRuntimeError>
@@ -61,7 +62,7 @@ where
 
 pub async fn mark_operation_state<L, S>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     operation: &LifecycleOperation,
     state: LifecycleOperationState,
     step: S,
@@ -95,7 +96,7 @@ where
 
 pub async fn mark_operation_failed<L, S>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     operation: &LifecycleOperation,
     step: S,
     error: &RunpodRuntimeError,
@@ -130,7 +131,7 @@ where
 
 pub async fn persist_workspace<W>(
     workspace_catalog: &W,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     workspace: &Workspace,
 ) -> Result<Workspace, RunpodRuntimeError>
 where
@@ -187,18 +188,10 @@ pub fn failure_state_for_resources(resources: &RunpodResources) -> WorkspaceStat
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RunpodWorkspaceFailure {
-    Provision,
-    Cleanup,
-    Delete,
-}
-
 pub async fn mark_workspace_failed<W>(
     workspace: &mut Workspace,
     workspace_catalog: &W,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
-    _failure: RunpodWorkspaceFailure,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
@@ -276,7 +269,7 @@ mod tests {
 
         mark_operation_failed(
             &lifecycle_journal,
-            &(event_sink.clone() as Arc<dyn RunpodRuntimeEventSink>),
+            &(event_sink.clone() as Arc<dyn EventSink<RunpodRuntimeEvent>>),
             &operation,
             RunpodProvisionStep::CreateNetworkVolume,
             &error,

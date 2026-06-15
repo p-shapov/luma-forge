@@ -4,12 +4,10 @@ use crate::{
     domain::lifecycle_operation::{LifecycleOperationId, LifecycleOperationState},
     lifecycle_journal::LifecycleJournalRepository,
     runpod_runtime::{
-        errors::RunpodRuntimeError,
-        events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
-        provider::RunpodRuntimeClient,
+        errors::RunpodRuntimeError, events::RunpodRuntimeEvent, provider::RunpodRuntimeClient,
     },
     runtime_catalog::RuntimeCatalogService,
-    shared::{spawn_background_task, BackgroundTaskSpawner, InFlightRegistry},
+    shared::{spawn_background_task, BackgroundTaskSpawner, EventSink, InFlightRegistry},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
@@ -33,163 +31,136 @@ where
     pub(crate) runtime_catalog: RuntimeCatalogService,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
-    pub(crate) event_sink: Arc<dyn RunpodRuntimeEventSink>,
+    pub(crate) event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-pub(crate) trait RunpodRuntimeLifecycleRunner<W, L>: Send + Sync
-where
-    W: WorkspaceCatalogRepository,
-    L: LifecycleJournalRepository,
-{
-    fn spawn_provision(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    );
-
-    fn spawn_cleanup(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    );
-
-    fn spawn_delete(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    );
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BackgroundRunpodRuntimeLifecycleRunner;
-
-impl<W, L> RunpodRuntimeLifecycleRunner<W, L> for BackgroundRunpodRuntimeLifecycleRunner
-where
+pub(crate) fn spawn_provision<W, L>(
+    context: RunpodRuntimeLifecycleRunnerContext<W, L>,
+    operation_id: LifecycleOperationId,
+) where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
 {
-    fn spawn_provision(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    ) {
-        if !context
-            .lifecycle_operation_registry
-            .try_register(&operation_id)
-        {
-            return;
-        }
-
-        let registry = context.lifecycle_operation_registry.clone();
-        let workspace_catalog = context.workspace_catalog;
-        let lifecycle_journal = context.lifecycle_journal;
-        let workflow_catalog = context.workflow_catalog;
-        let runtime_catalog = context.runtime_catalog;
-        let runpod_client = context.runpod_client;
-        let event_sink = context.event_sink;
-        spawn_lifecycle_runner(
-            context.task_spawner.as_ref(),
-            registry,
-            lifecycle_journal.clone(),
-            event_sink.clone(),
-            operation_id.clone(),
-            async move {
-                provision::run_once(
-                    &operation_id,
-                    RunpodProvisionLifecycleContext {
-                        workspace_catalog: &workspace_catalog,
-                        lifecycle_journal: &lifecycle_journal,
-                        workflow_catalog: &workflow_catalog,
-                        runtime_catalog: &runtime_catalog,
-                        runpod_client: runpod_client.as_ref(),
-                        event_sink: &event_sink,
-                        provisioner_poll_interval: PROVISIONER_POLL_INTERVAL,
-                    },
-                )
-                .await
-            },
-        );
+    if !context
+        .lifecycle_operation_registry
+        .try_register(&operation_id)
+    {
+        return;
     }
 
-    fn spawn_cleanup(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    ) {
-        if !context
-            .lifecycle_operation_registry
-            .try_register(&operation_id)
-        {
-            return;
-        }
+    let registry = context.lifecycle_operation_registry.clone();
+    let workspace_catalog = context.workspace_catalog;
+    let lifecycle_journal = context.lifecycle_journal;
+    let workflow_catalog = context.workflow_catalog;
+    let runtime_catalog = context.runtime_catalog;
+    let runpod_client = context.runpod_client;
+    let event_sink = context.event_sink;
+    spawn_lifecycle_runner(
+        context.task_spawner.as_ref(),
+        registry,
+        lifecycle_journal.clone(),
+        event_sink.clone(),
+        operation_id.clone(),
+        async move {
+            provision::run_once(
+                &operation_id,
+                RunpodProvisionLifecycleContext {
+                    workspace_catalog: &workspace_catalog,
+                    lifecycle_journal: &lifecycle_journal,
+                    workflow_catalog: &workflow_catalog,
+                    runtime_catalog: &runtime_catalog,
+                    runpod_client: runpod_client.as_ref(),
+                    event_sink: &event_sink,
+                    provisioner_poll_interval: PROVISIONER_POLL_INTERVAL,
+                },
+            )
+            .await
+        },
+    );
+}
 
-        let registry = context.lifecycle_operation_registry.clone();
-        let workspace_catalog = context.workspace_catalog;
-        let lifecycle_journal = context.lifecycle_journal;
-        let runpod_client = context.runpod_client;
-        let event_sink = context.event_sink;
-        spawn_lifecycle_runner(
-            context.task_spawner.as_ref(),
-            registry,
-            lifecycle_journal.clone(),
-            event_sink.clone(),
-            operation_id.clone(),
-            async move {
-                cleanup::run_once(
-                    &operation_id,
-                    &workspace_catalog,
-                    &lifecycle_journal,
-                    runpod_client.as_ref(),
-                    &event_sink,
-                )
-                .await
-            },
-        );
+pub(crate) fn spawn_cleanup<W, L>(
+    context: RunpodRuntimeLifecycleRunnerContext<W, L>,
+    operation_id: LifecycleOperationId,
+) where
+    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
+    L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+{
+    if !context
+        .lifecycle_operation_registry
+        .try_register(&operation_id)
+    {
+        return;
     }
 
-    fn spawn_delete(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    ) {
-        if !context
-            .lifecycle_operation_registry
-            .try_register(&operation_id)
-        {
-            return;
-        }
+    let registry = context.lifecycle_operation_registry.clone();
+    let workspace_catalog = context.workspace_catalog;
+    let lifecycle_journal = context.lifecycle_journal;
+    let runpod_client = context.runpod_client;
+    let event_sink = context.event_sink;
+    spawn_lifecycle_runner(
+        context.task_spawner.as_ref(),
+        registry,
+        lifecycle_journal.clone(),
+        event_sink.clone(),
+        operation_id.clone(),
+        async move {
+            cleanup::run_once(
+                &operation_id,
+                &workspace_catalog,
+                &lifecycle_journal,
+                runpod_client.as_ref(),
+                &event_sink,
+            )
+            .await
+        },
+    );
+}
 
-        let registry = context.lifecycle_operation_registry.clone();
-        let workspace_catalog = context.workspace_catalog;
-        let lifecycle_journal = context.lifecycle_journal;
-        let runpod_client = context.runpod_client;
-        let event_sink = context.event_sink;
-        spawn_lifecycle_runner(
-            context.task_spawner.as_ref(),
-            registry,
-            lifecycle_journal.clone(),
-            event_sink.clone(),
-            operation_id.clone(),
-            async move {
-                delete::run_once(
-                    &operation_id,
-                    &workspace_catalog,
-                    &lifecycle_journal,
-                    runpod_client.as_ref(),
-                    &event_sink,
-                )
-                .await
-            },
-        );
+pub(crate) fn spawn_delete<W, L>(
+    context: RunpodRuntimeLifecycleRunnerContext<W, L>,
+    operation_id: LifecycleOperationId,
+) where
+    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
+    L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+{
+    if !context
+        .lifecycle_operation_registry
+        .try_register(&operation_id)
+    {
+        return;
     }
+
+    let registry = context.lifecycle_operation_registry.clone();
+    let workspace_catalog = context.workspace_catalog;
+    let lifecycle_journal = context.lifecycle_journal;
+    let runpod_client = context.runpod_client;
+    let event_sink = context.event_sink;
+    spawn_lifecycle_runner(
+        context.task_spawner.as_ref(),
+        registry,
+        lifecycle_journal.clone(),
+        event_sink.clone(),
+        operation_id.clone(),
+        async move {
+            delete::run_once(
+                &operation_id,
+                &workspace_catalog,
+                &lifecycle_journal,
+                runpod_client.as_ref(),
+                &event_sink,
+            )
+            .await
+        },
+    );
 }
 
 fn spawn_lifecycle_runner<F, T>(
     task_spawner: &dyn BackgroundTaskSpawner,
     registry: LifecycleOperationRegistry,
     lifecycle_journal: impl LifecycleJournalRepository + 'static,
-    event_sink: Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     operation_id: LifecycleOperationId,
     lifecycle: F,
 ) where
@@ -207,7 +178,7 @@ fn spawn_lifecycle_runner<F, T>(
 
 async fn record_lifecycle_runner_error<L>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     operation_id: &LifecycleOperationId,
     error: &RunpodRuntimeError,
 ) where

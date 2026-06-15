@@ -3,122 +3,73 @@ use std::sync::Arc;
 use crate::{
     domain::{
         lifecycle_operation::LifecycleOperation,
-        runpod::{RunpodCleanupStep, RunpodDeleteStep, RunpodResources},
+        runpod::RunpodResources,
         workspace::{Workspace, WorkspaceRuntime},
     },
     lifecycle_journal::LifecycleJournalRepository,
+    shared::EventSink,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::{
     super::{
-        errors::RunpodRuntimeError, events::RunpodRuntimeEventSink, provider::RunpodRuntimeClient,
+        errors::RunpodRuntimeError, events::RunpodRuntimeEvent, provider::RunpodRuntimeClient,
     },
     helpers::{mark_running_step, persist_workspace, RunpodStepPayload},
 };
 
-pub(super) trait RemoteResourceCleanupStep: Clone + RunpodStepPayload {
-    fn delete_endpoint() -> Self;
-    fn delete_template() -> Self;
-    fn terminate_provisioner_pod() -> Self;
-    fn delete_network_volume() -> Self;
+#[derive(Debug, Clone)]
+pub(super) struct RemoteResourceCleanupSteps<S> {
+    pub(super) delete_endpoint: S,
+    pub(super) delete_template: S,
+    pub(super) terminate_provisioner_pod: S,
+    pub(super) delete_network_volume: S,
 }
 
-impl RemoteResourceCleanupStep for RunpodCleanupStep {
-    fn delete_endpoint() -> Self {
-        Self::DeleteEndpoint
-    }
-
-    fn delete_template() -> Self {
-        Self::DeleteTemplate
-    }
-
-    fn terminate_provisioner_pod() -> Self {
-        Self::TerminateProvisionerPod
-    }
-
-    fn delete_network_volume() -> Self {
-        Self::DeleteNetworkVolume
-    }
-}
-
-impl RemoteResourceCleanupStep for RunpodDeleteStep {
-    fn delete_endpoint() -> Self {
-        Self::DeleteEndpoint
-    }
-
-    fn delete_template() -> Self {
-        Self::DeleteTemplate
-    }
-
-    fn terminate_provisioner_pod() -> Self {
-        Self::TerminateProvisionerPod
-    }
-
-    fn delete_network_volume() -> Self {
-        Self::DeleteNetworkVolume
-    }
+pub(super) struct RemoteResourceCleanupContext<'a, W, L>
+where
+    W: WorkspaceCatalogRepository,
+    L: LifecycleJournalRepository,
+{
+    pub(super) workspace_catalog: &'a W,
+    pub(super) lifecycle_journal: &'a L,
+    pub(super) operation: &'a LifecycleOperation,
+    pub(super) runpod_client: &'a dyn RunpodRuntimeClient,
+    pub(super) event_sink: &'a Arc<dyn EventSink<RunpodRuntimeEvent>>,
 }
 
 #[tracing::instrument(
     name = "runpod_lifecycle_cleanup",
     skip_all,
     fields(
-        operation_id = %operation.operation_id,
-        workspace_id = %operation.workspace_id
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id
     )
 )]
 pub(super) async fn delete_remote_resources<W, L, S>(
     workspace: &mut Workspace,
-    workspace_catalog: &W,
-    lifecycle_journal: &L,
-    operation: &LifecycleOperation,
-    runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    context: RemoteResourceCleanupContext<'_, W, L>,
+    steps: RemoteResourceCleanupSteps<S>,
     failed_step: &mut S,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
-    S: RemoteResourceCleanupStep,
+    S: Clone + RunpodStepPayload,
 {
-    delete_endpoint(
-        workspace,
-        workspace_catalog,
-        lifecycle_journal,
-        operation,
-        runpod_client,
-        event_sink,
-        failed_step,
-    )
-    .await?;
-    delete_template(
-        workspace,
-        workspace_catalog,
-        lifecycle_journal,
-        operation,
-        runpod_client,
-        event_sink,
-        failed_step,
-    )
-    .await?;
+    delete_endpoint(workspace, &context, steps.delete_endpoint, failed_step).await?;
+    delete_template(workspace, &context, steps.delete_template, failed_step).await?;
     terminate_provisioner_pod(
         workspace,
-        workspace_catalog,
-        lifecycle_journal,
-        operation,
-        runpod_client,
-        event_sink,
+        &context,
+        steps.terminate_provisioner_pod,
         failed_step,
     )
     .await?;
     delete_network_volume(
         workspace,
-        workspace_catalog,
-        lifecycle_journal,
-        operation,
-        runpod_client,
-        event_sink,
+        &context,
+        steps.delete_network_volume,
         failed_step,
     )
     .await
@@ -129,42 +80,41 @@ where
     skip_all,
     fields(
         step = "delete_endpoint",
-        operation_id = %operation.operation_id,
-        workspace_id = %operation.workspace_id
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id
     )
 )]
 async fn delete_endpoint<W, L, S>(
     workspace: &mut Workspace,
-    workspace_catalog: &W,
-    lifecycle_journal: &L,
-    operation: &LifecycleOperation,
-    runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    context: &RemoteResourceCleanupContext<'_, W, L>,
+    step: S,
     failed_step: &mut S,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
-    S: RemoteResourceCleanupStep,
+    S: Clone + RunpodStepPayload,
 {
     let Some(endpoint_id) = resources(workspace).endpoint_id.clone() else {
         return Ok(());
     };
 
-    *failed_step = S::delete_endpoint();
+    *failed_step = step;
     mark_running_step(
-        lifecycle_journal,
-        event_sink,
-        operation,
+        context.lifecycle_journal,
+        context.event_sink,
+        context.operation,
         failed_step.clone(),
     )
     .await?;
 
-    runpod_client
+    context
+        .runpod_client
         .delete_serverless_endpoint(&endpoint_id)
         .await?;
     resources_mut(workspace).endpoint_id = None;
-    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    *workspace =
+        persist_workspace(context.workspace_catalog, context.event_sink, workspace).await?;
     Ok(())
 }
 
@@ -173,40 +123,38 @@ where
     skip_all,
     fields(
         step = "delete_template",
-        operation_id = %operation.operation_id,
-        workspace_id = %operation.workspace_id
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id
     )
 )]
 async fn delete_template<W, L, S>(
     workspace: &mut Workspace,
-    workspace_catalog: &W,
-    lifecycle_journal: &L,
-    operation: &LifecycleOperation,
-    runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    context: &RemoteResourceCleanupContext<'_, W, L>,
+    step: S,
     failed_step: &mut S,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
-    S: RemoteResourceCleanupStep,
+    S: Clone + RunpodStepPayload,
 {
     let Some(template_id) = resources(workspace).template_id.clone() else {
         return Ok(());
     };
 
-    *failed_step = S::delete_template();
+    *failed_step = step;
     mark_running_step(
-        lifecycle_journal,
-        event_sink,
-        operation,
+        context.lifecycle_journal,
+        context.event_sink,
+        context.operation,
         failed_step.clone(),
     )
     .await?;
 
-    runpod_client.delete_template(&template_id).await?;
+    context.runpod_client.delete_template(&template_id).await?;
     resources_mut(workspace).template_id = None;
-    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    *workspace =
+        persist_workspace(context.workspace_catalog, context.event_sink, workspace).await?;
     Ok(())
 }
 
@@ -215,42 +163,41 @@ where
     skip_all,
     fields(
         step = "terminate_provisioner_pod",
-        operation_id = %operation.operation_id,
-        workspace_id = %operation.workspace_id
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id
     )
 )]
 async fn terminate_provisioner_pod<W, L, S>(
     workspace: &mut Workspace,
-    workspace_catalog: &W,
-    lifecycle_journal: &L,
-    operation: &LifecycleOperation,
-    runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    context: &RemoteResourceCleanupContext<'_, W, L>,
+    step: S,
     failed_step: &mut S,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
-    S: RemoteResourceCleanupStep,
+    S: Clone + RunpodStepPayload,
 {
     let Some(provisioner_id) = resources(workspace).provisioner_pod_id.clone() else {
         return Ok(());
     };
 
-    *failed_step = S::terminate_provisioner_pod();
+    *failed_step = step;
     mark_running_step(
-        lifecycle_journal,
-        event_sink,
-        operation,
+        context.lifecycle_journal,
+        context.event_sink,
+        context.operation,
         failed_step.clone(),
     )
     .await?;
 
-    runpod_client
+    context
+        .runpod_client
         .terminate_provisioner_pod(&provisioner_id)
         .await?;
     resources_mut(workspace).provisioner_pod_id = None;
-    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    *workspace =
+        persist_workspace(context.workspace_catalog, context.event_sink, workspace).await?;
     Ok(())
 }
 
@@ -259,40 +206,41 @@ where
     skip_all,
     fields(
         step = "delete_network_volume",
-        operation_id = %operation.operation_id,
-        workspace_id = %operation.workspace_id
+        operation_id = %context.operation.operation_id,
+        workspace_id = %context.operation.workspace_id
     )
 )]
 async fn delete_network_volume<W, L, S>(
     workspace: &mut Workspace,
-    workspace_catalog: &W,
-    lifecycle_journal: &L,
-    operation: &LifecycleOperation,
-    runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    context: &RemoteResourceCleanupContext<'_, W, L>,
+    step: S,
     failed_step: &mut S,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
-    S: RemoteResourceCleanupStep,
+    S: Clone + RunpodStepPayload,
 {
     let Some(volume_id) = resources(workspace).network_volume_id.clone() else {
         return Ok(());
     };
 
-    *failed_step = S::delete_network_volume();
+    *failed_step = step;
     mark_running_step(
-        lifecycle_journal,
-        event_sink,
-        operation,
+        context.lifecycle_journal,
+        context.event_sink,
+        context.operation,
         failed_step.clone(),
     )
     .await?;
 
-    runpod_client.delete_network_volume(&volume_id).await?;
+    context
+        .runpod_client
+        .delete_network_volume(&volume_id)
+        .await?;
     resources_mut(workspace).network_volume_id = None;
-    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    *workspace =
+        persist_workspace(context.workspace_catalog, context.event_sink, workspace).await?;
     Ok(())
 }
 

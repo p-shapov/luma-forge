@@ -7,20 +7,23 @@ use crate::{
         workspace::WorkspaceState,
     },
     lifecycle_journal::LifecycleJournalRepository,
+    shared::EventSink,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::{
     super::{
         errors::{invalid_runtime_state_message, RunpodRuntimeError},
-        events::RunpodRuntimeEventSink,
+        events::RunpodRuntimeEvent,
         provider::RunpodRuntimeClient,
     },
     helpers::{
         load_running_operation, mark_operation_failed, mark_operation_state, mark_workspace_failed,
-        persist_workspace, RunpodWorkspaceFailure,
+        persist_workspace,
     },
-    resource_cleanup::delete_remote_resources,
+    resource_cleanup::{
+        delete_remote_resources, RemoteResourceCleanupContext, RemoteResourceCleanupSteps,
+    },
 };
 
 #[tracing::instrument(
@@ -37,7 +40,7 @@ pub async fn run_once<W, L>(
     workspace_catalog: &W,
     lifecycle_journal: &L,
     runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
@@ -83,11 +86,19 @@ where
     let result = async {
         delete_remote_resources(
             &mut workspace,
-            workspace_catalog,
-            lifecycle_journal,
-            &operation,
-            runpod_client,
-            event_sink,
+            RemoteResourceCleanupContext {
+                workspace_catalog,
+                lifecycle_journal,
+                operation: &operation,
+                runpod_client,
+                event_sink,
+            },
+            RemoteResourceCleanupSteps {
+                delete_endpoint: RunpodCleanupStep::DeleteEndpoint,
+                delete_template: RunpodCleanupStep::DeleteTemplate,
+                terminate_provisioner_pod: RunpodCleanupStep::TerminateProvisionerPod,
+                delete_network_volume: RunpodCleanupStep::DeleteNetworkVolume,
+            },
             &mut failed_step,
         )
         .await?;
@@ -110,13 +121,7 @@ where
             .await?;
         }
         Err(error) => {
-            mark_workspace_failed(
-                &mut workspace,
-                workspace_catalog,
-                event_sink,
-                RunpodWorkspaceFailure::Cleanup,
-            )
-            .await?;
+            mark_workspace_failed(&mut workspace, workspace_catalog, event_sink).await?;
             mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
