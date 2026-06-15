@@ -11,6 +11,7 @@ use crate::{
         CommandResult,
     },
     diagnostics::{command_error, empty_command_request_metadata, native_command_error},
+    workspace_catalog::WorkspaceCatalogRepository,
 };
 
 #[tauri::command]

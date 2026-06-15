@@ -70,7 +70,7 @@ impl RemoteResourceCleanupStep for RunpodDeleteStep {
 )]
 pub(super) async fn delete_remote_resources<W, L, S>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     lifecycle_journal: &L,
     operation: &LifecycleOperation,
     runpod_client: &dyn RunpodRuntimeClient,
@@ -84,7 +84,7 @@ where
 {
     delete_endpoint(
         workspace,
-        workspace_repository,
+        workspace_catalog,
         lifecycle_journal,
         operation,
         runpod_client,
@@ -94,7 +94,7 @@ where
     .await?;
     delete_template(
         workspace,
-        workspace_repository,
+        workspace_catalog,
         lifecycle_journal,
         operation,
         runpod_client,
@@ -104,7 +104,7 @@ where
     .await?;
     terminate_provisioner_pod(
         workspace,
-        workspace_repository,
+        workspace_catalog,
         lifecycle_journal,
         operation,
         runpod_client,
@@ -114,7 +114,7 @@ where
     .await?;
     delete_network_volume(
         workspace,
-        workspace_repository,
+        workspace_catalog,
         lifecycle_journal,
         operation,
         runpod_client,
@@ -135,7 +135,7 @@ where
 )]
 async fn delete_endpoint<W, L, S>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     lifecycle_journal: &L,
     operation: &LifecycleOperation,
     runpod_client: &dyn RunpodRuntimeClient,
@@ -164,7 +164,7 @@ where
         .delete_serverless_endpoint(&endpoint_id)
         .await?;
     resources_mut(workspace).endpoint_id = None;
-    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
     Ok(())
 }
 
@@ -179,7 +179,7 @@ where
 )]
 async fn delete_template<W, L, S>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     lifecycle_journal: &L,
     operation: &LifecycleOperation,
     runpod_client: &dyn RunpodRuntimeClient,
@@ -206,7 +206,7 @@ where
 
     runpod_client.delete_template(&template_id).await?;
     resources_mut(workspace).template_id = None;
-    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
     Ok(())
 }
 
@@ -221,7 +221,7 @@ where
 )]
 async fn terminate_provisioner_pod<W, L, S>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     lifecycle_journal: &L,
     operation: &LifecycleOperation,
     runpod_client: &dyn RunpodRuntimeClient,
@@ -250,7 +250,7 @@ where
         .terminate_provisioner_pod(&provisioner_id)
         .await?;
     resources_mut(workspace).provisioner_pod_id = None;
-    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
     Ok(())
 }
 
@@ -265,7 +265,7 @@ where
 )]
 async fn delete_network_volume<W, L, S>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     lifecycle_journal: &L,
     operation: &LifecycleOperation,
     runpod_client: &dyn RunpodRuntimeClient,
@@ -292,7 +292,7 @@ where
 
     runpod_client.delete_network_volume(&volume_id).await?;
     resources_mut(workspace).network_volume_id = None;
-    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
     Ok(())
 }
 

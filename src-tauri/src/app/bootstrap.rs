@@ -19,9 +19,7 @@ use crate::{
     },
     sqlite::database::SqliteNativeDatabase,
     workflow_catalog::WorkflowCatalogService,
-    workspace_catalog::{
-        service::WorkspaceCatalogService, sqlite::SqliteWorkspaceCatalogRepository,
-    },
+    workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
 use super::state::AppState;
@@ -58,9 +56,8 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
             )
         })?;
     let pool = database.pool();
-    let workspace_repository = SqliteWorkspaceCatalogRepository::from_pool(pool.clone());
+    let workspace_catalog = SqliteWorkspaceCatalogRepository::new(pool.clone());
     let lifecycle_journal = SqliteLifecycleJournalRepository::new(pool);
-    let workspace_catalog = WorkspaceCatalogService::new(workspace_repository.clone());
     let workflow_catalog = WorkflowCatalogService::new();
     let runtime_catalog = RuntimeCatalogService::new();
 
@@ -72,7 +69,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let runpod_provider =
         RunpodRuntimeProvider::new(runtime_runpod_secrets, runtime_hugging_face_secrets);
     let runpod_runtime = RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
-        workspace_repository,
+        workspace_catalog: workspace_catalog.clone(),
         lifecycle_journal,
         workflow_catalog: workflow_catalog.clone(),
         runtime_catalog: runtime_catalog.clone(),

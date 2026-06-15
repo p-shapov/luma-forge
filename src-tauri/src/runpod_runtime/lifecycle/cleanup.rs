@@ -34,7 +34,7 @@ use super::{
 )]
 pub async fn run_once<W, L>(
     operation_id: &LifecycleOperationId,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     lifecycle_journal: &L,
     runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
@@ -48,7 +48,7 @@ where
         "workspace_id",
         tracing::field::display(&operation.workspace_id),
     );
-    let mut workspace = match workspace_repository
+    let mut workspace = match workspace_catalog
         .find_workspace_by_id(&operation.workspace_id)
         .await
     {
@@ -83,7 +83,7 @@ where
     let result = async {
         delete_remote_resources(
             &mut workspace,
-            workspace_repository,
+            workspace_catalog,
             lifecycle_journal,
             &operation,
             runpod_client,
@@ -93,7 +93,7 @@ where
         .await?;
 
         workspace.state = WorkspaceState::NotProvisioned;
-        persist_workspace(workspace_repository, event_sink, &workspace).await?;
+        persist_workspace(workspace_catalog, event_sink, &workspace).await?;
         Ok::<(), RunpodRuntimeError>(())
     }
     .await;
@@ -112,7 +112,7 @@ where
         Err(error) => {
             mark_workspace_failed(
                 &mut workspace,
-                workspace_repository,
+                workspace_catalog,
                 event_sink,
                 RunpodWorkspaceFailure::Cleanup,
             )

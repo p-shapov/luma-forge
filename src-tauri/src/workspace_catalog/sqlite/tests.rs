@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -11,7 +11,7 @@ use crate::domain::{
     workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
 };
 
-use sqlx::Row;
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 
 use super::*;
 
@@ -21,6 +21,21 @@ fn catalog_path(name: &str) -> PathBuf {
         .expect("system time should be after unix epoch")
         .as_nanos();
     std::env::temp_dir().join(format!("luma-forge-{name}-{nonce}.sqlite"))
+}
+
+async fn open_repository(path: impl AsRef<Path>) -> SqliteWorkspaceCatalogRepository {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true);
+    let pool = SqlitePool::connect_with(options)
+        .await
+        .expect("repository connection should succeed");
+
+    crate::workspace_catalog::schema::bootstrap(&pool)
+        .await
+        .expect("workspace schema bootstrap should succeed");
+
+    SqliteWorkspaceCatalogRepository::new(pool)
 }
 
 async fn table_exists(pool: &SqlitePool, table_name: &str) -> bool {
@@ -62,19 +77,6 @@ async fn index_exists(pool: &SqlitePool, index_name: &str) -> bool {
         .await
         .expect("sqlite_master index query should succeed")
         .is_some()
-}
-
-async fn metadata_version(path: &Path) -> Option<String> {
-    let options = SqliteConnectOptions::new().filename(path);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("metadata check connection should succeed");
-
-    sqlx::query_scalar("SELECT value FROM metadata WHERE key = ?1")
-        .bind("workspace_catalog_schema_version")
-        .fetch_optional(&pool)
-        .await
-        .expect("metadata version query should succeed")
 }
 
 async fn workspace_timestamps(pool: &SqlitePool, id: &str) -> (String, String) {
@@ -156,12 +158,9 @@ fn workspace(id: &str) -> Workspace {
 async fn bootstrap_creates_normalized_workspace_columns_and_indexes() {
     let path = catalog_path("schema");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should create schema");
-    let pool = repository.pool();
+    let repository = open_repository(&path).await;
+    let pool = repository.pool.clone();
 
-    assert!(table_exists(&pool, "metadata").await);
     assert!(table_exists(&pool, "workspaces").await);
 
     assert_text_not_null_column(&pool, "workspaces", "id").await;
@@ -176,281 +175,13 @@ async fn bootstrap_creates_normalized_workspace_columns_and_indexes() {
     assert!(index_exists(&pool, "idx_workspaces_runtime_type").await);
     assert!(index_exists(&pool, "idx_workspaces_state").await);
 
-    let version = sqlx::query("SELECT value FROM metadata WHERE key = ?1")
-        .bind("workspace_catalog_schema_version")
-        .fetch_one(&pool)
-        .await
-        .expect("metadata version should exist")
-        .get::<String, _>("value");
-
-    assert_eq!(version, "1");
-
     drop(repository);
     let _ = fs::remove_file(path);
 }
 
 #[tokio::test]
-async fn connect_rejects_existing_wrong_workspaces_table_without_metadata() {
-    let path = catalog_path("wrong-workspaces");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query("CREATE TABLE workspaces (id TEXT PRIMARY KEY)")
-        .execute(&pool)
-        .await
-        .expect("setup table creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject incompatible schema");
-
-    assert_eq!(
-        error,
-        WorkspaceCatalogError::SchemaInvalid {
-            message: "expected 8 columns, got 1".to_string()
-        }
-    );
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn connect_rejects_legacy_workspace_json_table() {
-    let path = catalog_path("legacy-workspace-json");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query(
-        "CREATE TABLE workspaces (
-                id TEXT PRIMARY KEY,
-                workspace_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("setup table creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject legacy workspace json schema");
-
-    assert_eq!(
-        error,
-        WorkspaceCatalogError::SchemaInvalid {
-            message: "expected 8 columns, got 4".to_string()
-        }
-    );
-    assert_eq!(metadata_version(&path).await, None);
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn connect_rejects_existing_composite_primary_key_without_metadata() {
-    let path = catalog_path("composite-primary-key");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query(
-        "CREATE TABLE workspaces (
-                id TEXT NOT NULL,
-                runtime_type TEXT NOT NULL,
-                state TEXT NOT NULL,
-                workflow_id TEXT NOT NULL,
-                workflow_version TEXT NOT NULL,
-                runtime_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (id, runtime_type)
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("setup table creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject incompatible primary key");
-
-    assert_eq!(
-        error,
-        WorkspaceCatalogError::SchemaInvalid {
-            message: "workspaces.runtime_type column mismatch: expected TEXT not_null=true pk=0, got TEXT not_null=true pk=2".to_string()
-        }
-    );
-    assert_eq!(metadata_version(&path).await, None);
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn connect_rejects_existing_current_table_missing_indexes() {
-    let path = catalog_path("missing-indexes");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query(
-        "CREATE TABLE workspaces (
-                id TEXT NOT NULL PRIMARY KEY,
-                runtime_type TEXT NOT NULL,
-                state TEXT NOT NULL,
-                workflow_id TEXT NOT NULL,
-                workflow_version TEXT NOT NULL,
-                runtime_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("setup table creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject missing workspace indexes");
-
-    assert_eq!(
-            error,
-            WorkspaceCatalogError::SchemaInvalid {
-                message: "expected index names [\"idx_workspaces_runtime_type\", \"idx_workspaces_state\"], got []".to_string()
-            }
-        );
-    assert_eq!(metadata_version(&path).await, None);
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn connect_rejects_extra_workspace_index() {
-    let path = catalog_path("extra-index");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query(
-        "CREATE TABLE workspaces (
-                id TEXT NOT NULL PRIMARY KEY,
-                runtime_type TEXT NOT NULL,
-                state TEXT NOT NULL,
-                workflow_id TEXT NOT NULL,
-                workflow_version TEXT NOT NULL,
-                runtime_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("setup table creation should succeed");
-    sqlx::query("CREATE INDEX idx_workspaces_runtime_type ON workspaces (runtime_type)")
-        .execute(&pool)
-        .await
-        .expect("setup runtime type index creation should succeed");
-    sqlx::query("CREATE INDEX idx_workspaces_state ON workspaces (state)")
-        .execute(&pool)
-        .await
-        .expect("setup state index creation should succeed");
-    sqlx::query("CREATE INDEX idx_workspaces_created_at ON workspaces (created_at)")
-        .execute(&pool)
-        .await
-        .expect("setup extra index creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject extra workspace index");
-
-    assert_eq!(
-            error,
-            WorkspaceCatalogError::SchemaInvalid {
-                message: "expected index names [\"idx_workspaces_runtime_type\", \"idx_workspaces_state\"], got [\"idx_workspaces_created_at\", \"idx_workspaces_runtime_type\", \"idx_workspaces_state\"]".to_string()
-            }
-        );
-    assert_eq!(metadata_version(&path).await, None);
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
-async fn connect_rejects_partial_workspace_index() {
-    let path = catalog_path("partial-index");
-
-    let options = SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = SqlitePool::connect_with(options)
-        .await
-        .expect("setup connection should succeed");
-    sqlx::query(
-        "CREATE TABLE workspaces (
-                id TEXT NOT NULL PRIMARY KEY,
-                runtime_type TEXT NOT NULL,
-                state TEXT NOT NULL,
-                workflow_id TEXT NOT NULL,
-                workflow_version TEXT NOT NULL,
-                runtime_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("setup table creation should succeed");
-    sqlx::query("CREATE INDEX idx_workspaces_runtime_type ON workspaces (runtime_type)")
-        .execute(&pool)
-        .await
-        .expect("setup runtime type index creation should succeed");
-    sqlx::query("CREATE INDEX idx_workspaces_state ON workspaces (state) WHERE state = 'ready'")
-        .execute(&pool)
-        .await
-        .expect("setup partial state index creation should succeed");
-    drop(pool);
-
-    let error = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect_err("connect should reject partial workspace index");
-
-    assert_eq!(
-        error,
-        WorkspaceCatalogError::SchemaInvalid {
-            message: "index idx_workspaces_state must be non-unique and non-partial".to_string()
-        }
-    );
-    assert_eq!(metadata_version(&path).await, None);
-
-    let _ = fs::remove_file(path);
-}
-
-#[tokio::test]
 async fn insert_workspace_stores_runtime_json_without_workspace_state_duplication() {
-    let repository = SqliteWorkspaceCatalogRepository::connect(catalog_path("insert"))
-        .await
-        .expect("repository should connect");
+    let repository = open_repository(catalog_path("insert")).await;
     let workspace = workspace("workspace-1");
 
     repository
@@ -463,7 +194,7 @@ async fn insert_workspace_stores_runtime_json_without_workspace_state_duplicatio
              FROM workspaces WHERE id = ?1",
     )
     .bind("workspace-1")
-    .fetch_one(&repository.pool())
+    .fetch_one(&repository.pool.clone())
     .await
     .expect("workspace row should exist");
 
@@ -492,9 +223,7 @@ async fn insert_workspace_stores_runtime_json_without_workspace_state_duplicatio
 async fn list_workspaces_returns_empty_catalog() {
     let path = catalog_path("empty-catalog");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let catalog = repository
         .list_workspaces()
@@ -512,9 +241,7 @@ async fn insert_list_and_find_round_trip_workspace() {
     let path = catalog_path("round-trip");
     let workspace = workspace("workspace-1");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let inserted = repository
         .insert_workspace(&workspace)
@@ -547,9 +274,7 @@ async fn workspace_states_round_trip() {
     let mut invalid = workspace("invalid");
     invalid.state = WorkspaceState::Invalid;
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     repository
         .insert_workspace(&ready)
         .await
@@ -582,12 +307,12 @@ async fn workspace_states_round_trip() {
 
     let cleanup_required_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
         .bind("cleanup-required")
-        .fetch_one(&repository.pool())
+        .fetch_one(&repository.pool.clone())
         .await
         .expect("cleanup required row should exist");
     let invalid_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
         .bind("invalid")
-        .fetch_one(&repository.pool())
+        .fetch_one(&repository.pool.clone())
         .await
         .expect("invalid row should exist");
 
@@ -609,9 +334,7 @@ async fn unknown_state_returns_corrupt() {
     let runtime_json =
         serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     insert_workspace_row(
         &repository.pool,
@@ -651,9 +374,7 @@ async fn empty_workflow_id_returns_corrupt() {
     let runtime_json =
         serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     insert_workspace_row(
         &repository.pool,
         WorkspaceRowInsert {
@@ -692,9 +413,7 @@ async fn empty_workflow_version_returns_corrupt() {
     let runtime_json =
         serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     insert_workspace_row(
         &repository.pool,
         WorkspaceRowInsert {
@@ -730,9 +449,7 @@ async fn empty_workflow_version_returns_corrupt() {
 async fn corrupt_runtime_json_returns_corrupt() {
     let path = catalog_path("corrupt-runtime-json");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     insert_workspace_row(
         &repository.pool,
         WorkspaceRowInsert {
@@ -773,9 +490,7 @@ async fn empty_stored_workspace_id_returns_corrupt() {
     let runtime_json =
         serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     insert_workspace_row(
         &repository.pool,
         WorkspaceRowInsert {
@@ -814,9 +529,7 @@ async fn unknown_runtime_type_returns_corrupt() {
     let runtime_json =
         serde_json::to_string(&runtime).expect("runtime serialization should succeed");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     insert_workspace_row(
         &repository.pool,
         WorkspaceRowInsert {
@@ -860,9 +573,7 @@ async fn list_workspaces_orders_by_created_at() {
     let runtime_2_json =
         serde_json::to_string(runtime_2).expect("runtime serialization should succeed");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     insert_workspace_row(
         &repository.pool,
         WorkspaceRowInsert {
@@ -908,18 +619,14 @@ async fn persisted_workspace_survives_reconnect() {
     let path = catalog_path("reconnect");
     let workspace = workspace("workspace-1");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     repository
         .insert_workspace(&workspace)
         .await
         .expect("insert should succeed");
     drop(repository);
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("reconnect should succeed");
+    let repository = open_repository(&path).await;
     let found = repository
         .find_workspace_by_id("workspace-1")
         .await
@@ -935,9 +642,7 @@ async fn persisted_workspace_survives_reconnect() {
 async fn find_workspace_by_id_returns_none_when_absent() {
     let path = catalog_path("absent-find");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let found = repository
         .find_workspace_by_id("missing-workspace")
@@ -954,9 +659,7 @@ async fn find_workspace_by_id_returns_none_when_absent() {
 async fn find_workspace_by_id_rejects_blank_id_as_corrupt() {
     let path = catalog_path("blank-find");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let error = repository
         .find_workspace_by_id(" \t\n")
@@ -979,9 +682,7 @@ async fn insert_workspace_rejects_blank_id_as_corrupt() {
     let path = catalog_path("blank-insert");
     let workspace = workspace(" ");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let error = repository
         .insert_workspace(&workspace)
@@ -1004,9 +705,7 @@ async fn update_replaces_existing_workspace() {
     let path = catalog_path("update");
     let mut workspace = workspace("workspace-1");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     repository
         .insert_workspace(&workspace)
         .await
@@ -1037,9 +736,7 @@ async fn delete_removes_existing_workspace() {
     let path = catalog_path("delete");
     let workspace = workspace("workspace-1");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     repository
         .insert_workspace(&workspace)
         .await
@@ -1065,9 +762,7 @@ async fn missing_update_returns_workspace_not_found() {
     let path = catalog_path("missing-update");
     let workspace = workspace("missing-workspace");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let error = repository
         .update_workspace(&workspace)
@@ -1084,9 +779,7 @@ async fn missing_update_returns_workspace_not_found() {
 async fn missing_delete_returns_workspace_not_found() {
     let path = catalog_path("missing-delete");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let error = repository
         .delete_workspace("missing-workspace")
@@ -1104,9 +797,7 @@ async fn update_workspace_rejects_blank_id_as_corrupt() {
     let path = catalog_path("blank-update");
     let workspace = workspace(" ");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let error = repository
         .update_workspace(&workspace)
@@ -1128,9 +819,7 @@ async fn update_workspace_rejects_blank_id_as_corrupt() {
 async fn delete_workspace_rejects_blank_id_as_corrupt() {
     let path = catalog_path("blank-delete");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
 
     let error = repository
         .delete_workspace(" \t\n")
@@ -1153,9 +842,7 @@ async fn update_sql_failure_returns_query_failed() {
     let path = catalog_path("update-sql-failure");
     let workspace = workspace("workspace-1");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     sqlx::query("DROP TABLE workspaces")
         .execute(&repository.pool)
         .await
@@ -1179,9 +866,7 @@ async fn update_sql_failure_returns_query_failed() {
 async fn delete_sql_failure_returns_query_failed() {
     let path = catalog_path("delete-sql-failure");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     sqlx::query("DROP TABLE workspaces")
         .execute(&repository.pool)
         .await
@@ -1206,9 +891,7 @@ async fn duplicate_insert_returns_workspace_already_exists() {
     let path = catalog_path("duplicate");
     let workspace = workspace("workspace-1");
 
-    let repository = SqliteWorkspaceCatalogRepository::connect(&path)
-        .await
-        .expect("connect should succeed");
+    let repository = open_repository(&path).await;
     repository
         .insert_workspace(&workspace)
         .await

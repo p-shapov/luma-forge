@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use sqlx::SqlitePool;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{
@@ -14,7 +12,7 @@ use crate::{
 use super::{
     errors::{data_invalid_message, storage_unavailable_error, WorkspaceCatalogError},
     repository::WorkspaceCatalogRepository,
-    runtime, schema,
+    runtime,
 };
 
 mod row;
@@ -58,25 +56,8 @@ pub struct SqliteWorkspaceCatalogRepository {
 }
 
 impl SqliteWorkspaceCatalogRepository {
-    pub async fn connect(path: impl AsRef<Path>) -> Result<Self, WorkspaceCatalogError> {
-        let options = SqliteConnectOptions::new()
-            .filename(path)
-            .create_if_missing(true);
-        let pool = SqlitePool::connect_with(options)
-            .await
-            .map_err(storage_unavailable_error)?;
-
-        schema::bootstrap(&pool).await?;
-
-        Ok(Self { pool })
-    }
-
-    pub fn from_pool(pool: SqlitePool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
-    }
-
-    pub fn pool(&self) -> SqlitePool {
-        self.pool.clone()
     }
 }
 

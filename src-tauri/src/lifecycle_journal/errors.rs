@@ -15,12 +15,6 @@ pub enum LifecycleJournalError {
     DataInvalid { message: String },
 }
 
-pub fn storage_unavailable_message(message: impl Into<String>) -> LifecycleJournalError {
-    LifecycleJournalError::StorageUnavailable {
-        message: message.into(),
-    }
-}
-
 pub fn schema_invalid_message(message: impl Into<String>) -> LifecycleJournalError {
     LifecycleJournalError::SchemaInvalid {
         message: message.into(),
@@ -34,13 +28,13 @@ pub fn data_invalid_message(message: impl Into<String>) -> LifecycleJournalError
 }
 
 pub fn storage_unavailable_error(error: impl std::fmt::Display) -> LifecycleJournalError {
-    storage_unavailable_message(error.to_string())
-}
-
-pub fn schema_invalid_error(error: impl std::fmt::Display) -> LifecycleJournalError {
-    schema_invalid_message(error.to_string())
+    LifecycleJournalError::StorageUnavailable {
+        message: error.to_string(),
+    }
 }
 
 pub fn data_invalid_error(error: impl std::fmt::Display) -> LifecycleJournalError {
-    data_invalid_message(error.to_string())
+    LifecycleJournalError::DataInvalid {
+        message: error.to_string(),
+    }
 }

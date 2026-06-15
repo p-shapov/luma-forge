@@ -129,14 +129,14 @@ where
 }
 
 pub async fn persist_workspace<W>(
-    workspace_repository: &W,
+    workspace_catalog: &W,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     workspace: &Workspace,
 ) -> Result<Workspace, RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
 {
-    let workspace = workspace_repository
+    let workspace = workspace_catalog
         .update_workspace(workspace)
         .await
         .map_err(RunpodRuntimeError::from)?;
@@ -196,7 +196,7 @@ pub enum RunpodWorkspaceFailure {
 
 pub async fn mark_workspace_failed<W>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     _failure: RunpodWorkspaceFailure,
 ) -> Result<(), RunpodRuntimeError>
@@ -208,7 +208,7 @@ where
         failure_state_for_resources(&runtime.resources)
     };
     workspace.state = failed_state;
-    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
     Ok(())
 }
 
