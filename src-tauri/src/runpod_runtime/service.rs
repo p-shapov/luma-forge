@@ -11,7 +11,7 @@ use crate::{
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
     runtime_catalog::RuntimeCatalogService,
-    shared::BackgroundTaskSpawner,
+    shared::{BackgroundTaskSpawner, EventSink},
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
@@ -22,16 +22,13 @@ use super::{
         invalid_runtime_state_message, lifecycle_operation_already_running, workspace_not_found,
         RunpodRuntimeError,
     },
-    events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
+    events::RunpodRuntimeEvent,
     lifecycle::{
         helpers::{
             interrupted_state_for_resources, payload_with_app_interrupted_error,
             runpod_resources_are_empty,
         },
-        runner::{
-            LifecycleOperationRegistry, RunpodRuntimeLifecycleRunner,
-            RunpodRuntimeLifecycleRunnerContext,
-        },
+        runner::{self, LifecycleOperationRegistry, RunpodRuntimeLifecycleRunnerContext},
     },
     provider::RunpodRuntimeClient,
 };
@@ -75,9 +72,8 @@ where
     runtime_catalog: RuntimeCatalogService,
     runpod_client: Arc<dyn RunpodRuntimeClient>,
     lifecycle_operation_registry: LifecycleOperationRegistry,
-    event_sink: Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
-    lifecycle_runner: Arc<dyn RunpodRuntimeLifecycleRunner<W, L>>,
 }
 
 pub(crate) struct RunpodRuntimeServiceDependencies<W, L>
@@ -90,9 +86,8 @@ where
     pub(crate) workflow_catalog: WorkflowCatalogService,
     pub(crate) runtime_catalog: RuntimeCatalogService,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
-    pub(crate) event_sink: Arc<dyn RunpodRuntimeEventSink>,
+    pub(crate) event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
-    pub(crate) lifecycle_runner: Arc<dyn RunpodRuntimeLifecycleRunner<W, L>>,
 }
 
 impl<W, L> RunpodRuntimeService<W, L>
@@ -110,7 +105,6 @@ where
             lifecycle_operation_registry: LifecycleOperationRegistry::default(),
             event_sink: dependencies.event_sink,
             task_spawner: dependencies.task_spawner,
-            lifecycle_runner: dependencies.lifecycle_runner,
         }
     }
 
@@ -220,7 +214,7 @@ where
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
-        self.lifecycle_runner.spawn_provision(
+        runner::spawn_provision(
             self.lifecycle_runner_context(),
             operation.operation_id.clone(),
         );
@@ -246,7 +240,7 @@ where
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
-        self.lifecycle_runner.spawn_cleanup(
+        runner::spawn_cleanup(
             self.lifecycle_runner_context(),
             operation.operation_id.clone(),
         );
@@ -293,7 +287,7 @@ where
             });
         }
 
-        self.lifecycle_runner.spawn_delete(
+        runner::spawn_delete(
             self.lifecycle_runner_context(),
             operation.operation_id.clone(),
         );
@@ -517,7 +511,7 @@ mod tests {
             lifecycle::helpers::runpod_resources_are_empty,
             provider::RunpodProvisionerStatus,
             test_support::{
-                block_on, draft_create_request, placement_options, service_with_state,
+                draft_create_request, placement_options, service_with_state,
                 service_with_state_and_workspace_catalog, service_without_lifecycle_spawning,
                 InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, RunpodClientState,
                 WorkspaceRepositoryState,
@@ -553,14 +547,15 @@ mod tests {
         assert_eq!(fields.volume_size_gb, request.placement.volume_size_gb);
     }
 
-    #[test]
-    fn create_runpod_workspace_persists_not_provisioned_workspace_without_client_calls() {
+    #[tokio::test]
+    async fn create_runpod_workspace_persists_not_provisioned_workspace_without_client_calls() {
         let state = Arc::new(Mutex::new(RunpodClientState::default()));
         let service = service_with_state(state.clone());
 
-        let workspace =
-            block_on(service.create_runpod_workspace(draft_create_request("workspace-1")))
-                .expect("workspace should be created");
+        let workspace = service
+            .create_runpod_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
 
         assert_eq!(workspace.id, "workspace-1");
         assert_eq!(workspace.workflow.id, "comfyui-hidream-o1-dev");
@@ -575,71 +570,75 @@ mod tests {
         assert!(runpod_resources_are_empty(resources));
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
 
-        let persisted = block_on(
-            service
-                .workspace_catalog
-                .find_workspace_by_id("workspace-1"),
-        )
-        .expect("repository read should succeed")
-        .expect("workspace should be persisted");
+        let persisted = service
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed")
+            .expect("workspace should be persisted");
         assert_eq!(persisted, workspace);
     }
 
-    #[test]
-    fn create_runpod_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls(
+    #[tokio::test]
+    async fn create_runpod_workspace_rejects_missing_workflow_preset_without_persisting_or_provider_calls(
     ) {
         let state = Arc::new(Mutex::new(RunpodClientState::default()));
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
         request.workflow_preset_id = "missing-preset".to_string();
 
-        let error =
-            block_on(service.create_runpod_workspace(request)).expect_err("request should fail");
+        let error = service
+            .create_runpod_workspace(request)
+            .await
+            .expect_err("request should fail");
 
         assert!(matches!(
             error,
             crate::runpod_runtime::errors::RunpodRuntimeError::InvalidRuntimeState { .. }
         ));
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
-        let persisted = block_on(
-            service
-                .workspace_catalog
-                .find_workspace_by_id("workspace-1"),
-        )
-        .expect("repository read should succeed");
+        let persisted = service
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed");
         assert_eq!(persisted, None);
     }
 
-    #[test]
-    fn create_runpod_workspace_rejects_volume_smaller_than_workflow_requires_without_persisting() {
+    #[tokio::test]
+    async fn create_runpod_workspace_rejects_volume_smaller_than_workflow_requires_without_persisting(
+    ) {
         let state = Arc::new(Mutex::new(RunpodClientState::default()));
         let service = service_with_state(state.clone());
         let mut request = draft_create_request("workspace-1");
         request.placement.volume_size_gb = 1;
 
-        let error =
-            block_on(service.create_runpod_workspace(request)).expect_err("request should fail");
+        let error = service
+            .create_runpod_workspace(request)
+            .await
+            .expect_err("request should fail");
 
         assert!(matches!(
             error,
             crate::runpod_runtime::errors::RunpodRuntimeError::InvalidRuntimeState { .. }
         ));
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
-        let persisted = block_on(
-            service
-                .workspace_catalog
-                .find_workspace_by_id("workspace-1"),
-        )
-        .expect("repository read should succeed");
+        let persisted = service
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("repository read should succeed");
         assert_eq!(persisted, None);
     }
 
-    #[test]
-    fn get_runpod_placement_options_returns_runpod_options() {
+    #[tokio::test]
+    async fn get_runpod_placement_options_returns_runpod_options() {
         let state = Arc::new(Mutex::new(RunpodClientState::default()));
         let service = service_with_state(state.clone());
 
-        let options = block_on(service.get_runpod_placement_options())
+        let options = service
+            .get_runpod_placement_options()
+            .await
             .expect("placement options should resolve");
 
         assert_eq!(options, placement_options());

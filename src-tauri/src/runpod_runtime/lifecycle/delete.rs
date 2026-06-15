@@ -6,20 +6,23 @@ use crate::{
         runpod::RunpodDeleteStep,
     },
     lifecycle_journal::LifecycleJournalRepository,
+    shared::EventSink,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::{
     super::{
         errors::{invalid_runtime_state_error, RunpodRuntimeError},
-        events::{RunpodRuntimeEvent, RunpodRuntimeEventSink},
+        events::RunpodRuntimeEvent,
         provider::RunpodRuntimeClient,
     },
     helpers::{
         load_running_operation, mark_operation_failed, mark_operation_state, mark_running_step,
-        mark_workspace_failed, RunpodWorkspaceFailure,
+        mark_workspace_failed,
     },
-    resource_cleanup::delete_remote_resources,
+    resource_cleanup::{
+        delete_remote_resources, RemoteResourceCleanupContext, RemoteResourceCleanupSteps,
+    },
 };
 
 #[tracing::instrument(
@@ -36,7 +39,7 @@ pub async fn run_once<W, L>(
     workspace_catalog: &W,
     lifecycle_journal: &L,
     runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
 ) -> Result<Option<LifecycleOperation>, RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
@@ -85,11 +88,19 @@ where
     let result = async {
         delete_remote_resources(
             &mut workspace,
-            workspace_catalog,
-            lifecycle_journal,
-            &operation,
-            runpod_client,
-            event_sink,
+            RemoteResourceCleanupContext {
+                workspace_catalog,
+                lifecycle_journal,
+                operation: &operation,
+                runpod_client,
+                event_sink,
+            },
+            RemoteResourceCleanupSteps {
+                delete_endpoint: RunpodDeleteStep::DeleteEndpoint,
+                delete_template: RunpodDeleteStep::DeleteTemplate,
+                terminate_provisioner_pod: RunpodDeleteStep::TerminateProvisionerPod,
+                delete_network_volume: RunpodDeleteStep::DeleteNetworkVolume,
+            },
             &mut failed_step,
         )
         .await?;
@@ -113,13 +124,7 @@ where
                 .await
                 .map_err(RunpodRuntimeError::from)
             {
-                mark_workspace_failed(
-                    &mut workspace,
-                    workspace_catalog,
-                    event_sink,
-                    RunpodWorkspaceFailure::Delete,
-                )
-                .await?;
+                mark_workspace_failed(&mut workspace, workspace_catalog, event_sink).await?;
                 mark_operation_state(
                     lifecycle_journal,
                     event_sink,
@@ -148,13 +153,7 @@ where
             Ok(Some(completed_operation))
         }
         Err(error) => {
-            mark_workspace_failed(
-                &mut workspace,
-                workspace_catalog,
-                event_sink,
-                RunpodWorkspaceFailure::Delete,
-            )
-            .await?;
+            mark_workspace_failed(&mut workspace, workspace_catalog, event_sink).await?;
             mark_operation_failed(
                 lifecycle_journal,
                 event_sink,

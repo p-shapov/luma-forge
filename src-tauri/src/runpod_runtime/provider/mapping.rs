@@ -6,19 +6,14 @@ use crate::{
     domain::runpod::{
         RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
     },
+    domain::workflow_preset::ModelAsset,
     shared::{map_api_status_error, map_api_transport_error, ApiError},
 };
 
-use super::{
-    api::{
-        CreateNetworkVolumeRequest, CreateProvisionerPodRequest, CreateServerlessEndpointRequest,
-        CreateServerlessTemplateRequest,
-    },
-    config::{
-        ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_HUGGING_FACE_API_KEY,
-        ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_REQUIRED_MODEL_ASSETS,
-        PROVISIONER_COMPUTE_TYPE, PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
-    },
+use super::config::{
+    ENDPOINT_WORKERS_MAX, ENDPOINT_WORKERS_MIN, ENV_HUGGING_FACE_API_KEY,
+    ENV_PROVISIONER_BEARER_TOKEN, ENV_PROVISIONER_REQUIRED_MODEL_ASSETS, PROVISIONER_COMPUTE_TYPE,
+    PROVISIONER_PORT, WORKER_PORT_PROTOCOL,
 };
 
 const RUNPOD_PLACEMENT_QUERY: &str = r#"query LumaForgeRunpodPlacementOptions {
@@ -41,6 +36,39 @@ const NETWORK_VOLUME_SUFFIX: &str = "volume";
 const PROVISIONER_POD_SUFFIX: &str = "provisioner";
 const ENDPOINT_TEMPLATE_SUFFIX: &str = "endpoint-template";
 const ENDPOINT_SUFFIX: &str = "endpoint";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CreateNetworkVolumeRequest {
+    pub(super) datacenter_id: String,
+    pub(super) name: String,
+    pub(super) size_gb: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CreateProvisionerPodRequest {
+    pub(super) datacenter_id: String,
+    pub(super) name: String,
+    pub(super) image_ref: String,
+    pub(super) network_volume_id: String,
+    pub(super) bearer_token: String,
+    pub(super) required_model_assets: Vec<ModelAsset>,
+    pub(super) hugging_face_api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CreateServerlessTemplateRequest {
+    pub(super) name: String,
+    pub(super) image_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CreateServerlessEndpointRequest {
+    pub(super) datacenter_id: String,
+    pub(super) gpu_id: String,
+    pub(super) name: String,
+    pub(super) template_id: String,
+    pub(super) network_volume_id: String,
+}
 
 pub(super) fn network_volume_name(workspace_id: &str) -> String {
     workspace_resource_name(workspace_id, NETWORK_VOLUME_SUFFIX)
@@ -183,19 +211,6 @@ pub(super) struct EndpointResponse {
     pub(super) id: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) enum RunpodOperation {
-    PlacementOptions,
-    CreateNetworkVolume,
-    DeleteNetworkVolume,
-    CreateProvisionerPod,
-    DeleteProvisionerPod,
-    CreateTemplate,
-    DeleteTemplate,
-    CreateEndpoint,
-    DeleteEndpoint,
-}
-
 pub(super) fn placement_graphql_request() -> GraphqlRequest<serde_json::Value> {
     GraphqlRequest {
         query: RUNPOD_PLACEMENT_QUERY,
@@ -273,32 +288,26 @@ fn worker_port() -> String {
     format!("{PROVISIONER_PORT}/{WORKER_PORT_PROTOCOL}")
 }
 
-pub(super) async fn parse_json_response<T>(
-    response: reqwest::Response,
-    operation: RunpodOperation,
-) -> Result<T, ApiError>
+pub(super) async fn parse_json_response<T>(response: reqwest::Response) -> Result<T, ApiError>
 where
     T: for<'de> Deserialize<'de>,
 {
-    map_empty_response(response.status(), operation)?;
+    map_empty_response(response.status())?;
     response
         .json::<T>()
         .await
         .map_err(|_| provider_request_failed())
 }
 
-pub(super) fn map_empty_response(
-    status: StatusCode,
-    operation: RunpodOperation,
-) -> Result<(), ApiError> {
+pub(super) fn map_empty_response(status: StatusCode) -> Result<(), ApiError> {
     if status.is_success() {
         return Ok(());
     }
 
-    Err(map_status_error(status, operation))
+    Err(map_status_error(status))
 }
 
-fn map_status_error(status: StatusCode, _operation: RunpodOperation) -> ApiError {
+fn map_status_error(status: StatusCode) -> ApiError {
     map_api_status_error("RunPod", status, |error| error).unwrap_or_else(provider_request_failed)
 }
 

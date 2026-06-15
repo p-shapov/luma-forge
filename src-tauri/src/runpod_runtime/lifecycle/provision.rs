@@ -8,6 +8,7 @@ use crate::{
     },
     lifecycle_journal::LifecycleJournalRepository,
     runtime_catalog::RuntimeCatalogService,
+    shared::EventSink,
     workflow_catalog::WorkflowCatalogService,
     workspace_catalog::WorkspaceCatalogRepository,
 };
@@ -20,7 +21,7 @@ use super::{
             RunpodWorkflowResolver,
         },
         errors::{invalid_runtime_state_message, RunpodRuntimeError},
-        events::RunpodRuntimeEventSink,
+        events::RunpodRuntimeEvent,
         provider::{
             CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
             CreateRunpodServerlessTemplateParams, RunpodRuntimeClient,
@@ -29,7 +30,7 @@ use super::{
     },
     helpers::{
         load_running_operation, mark_operation_failed, mark_operation_state, mark_running_step,
-        mark_workspace_failed, persist_workspace, RunpodWorkspaceFailure,
+        mark_workspace_failed, persist_workspace,
     },
 };
 
@@ -47,7 +48,7 @@ struct ProvisioningStepContext<'a, W, L> {
     lifecycle_journal: &'a L,
     operation: &'a LifecycleOperation,
     runpod_client: &'a dyn RunpodRuntimeClient,
-    event_sink: &'a Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &'a Arc<dyn EventSink<RunpodRuntimeEvent>>,
 }
 
 pub(crate) struct RunpodProvisionLifecycleContext<'a, W, L>
@@ -60,7 +61,7 @@ where
     pub(crate) workflow_catalog: &'a WorkflowCatalogService,
     pub(crate) runtime_catalog: &'a RuntimeCatalogService,
     pub(crate) runpod_client: &'a dyn RunpodRuntimeClient,
-    pub(crate) event_sink: &'a Arc<dyn RunpodRuntimeEventSink>,
+    pub(crate) event_sink: &'a Arc<dyn EventSink<RunpodRuntimeEvent>>,
     pub(crate) provisioner_poll_interval: Duration,
 }
 
@@ -197,13 +198,7 @@ where
             .await?;
         }
         Err(error) => {
-            mark_workspace_failed(
-                &mut workspace,
-                workspace_catalog,
-                event_sink,
-                RunpodWorkspaceFailure::Provision,
-            )
-            .await?;
+            mark_workspace_failed(&mut workspace, workspace_catalog, event_sink).await?;
             mark_operation_failed(
                 lifecycle_journal,
                 event_sink,
@@ -514,7 +509,7 @@ async fn discard_template_after_endpoint_failure<W>(
     workspace: &mut Workspace,
     workspace_catalog: &W,
     runpod_client: &dyn RunpodRuntimeClient,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     template_id: &str,
 ) where
     W: WorkspaceCatalogRepository,
@@ -532,7 +527,7 @@ async fn discard_template_after_endpoint_failure<W>(
 async fn persist_runpod_runtime_update<W>(
     workspace: &mut Workspace,
     workspace_catalog: &W,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     update: impl FnOnce(&mut RunpodRuntime),
 ) -> Result<(), RunpodRuntimeError>
 where
@@ -568,7 +563,7 @@ fn runpod_runtime_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
 )]
 async fn wait_for_provisioner<L>(
     lifecycle_journal: &L,
-    event_sink: &Arc<dyn RunpodRuntimeEventSink>,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
     operation: &LifecycleOperation,
     provider: &dyn RunpodRuntimeClient,
     workspace_id: &WorkspaceId,

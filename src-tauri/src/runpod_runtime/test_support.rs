@@ -28,13 +28,7 @@ use crate::{
 
 use super::{
     errors::RunpodRuntimeError,
-    lifecycle::{
-        self,
-        runner::{
-            BackgroundRunpodRuntimeLifecycleRunner, RunpodRuntimeLifecycleRunner,
-            RunpodRuntimeLifecycleRunnerContext,
-        },
-    },
+    lifecycle,
     provider::{
         CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
         CreateRunpodServerlessTemplateParams, RunpodRuntimeClient, StartRunpodProvisionerPodParams,
@@ -54,51 +48,10 @@ impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ManualLifecycleRunner;
+struct NoopBackgroundTaskSpawner;
 
-impl<W, L> RunpodRuntimeLifecycleRunner<W, L> for ManualLifecycleRunner
-where
-    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
-    L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
-{
-    fn spawn_provision(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    ) {
-        if context
-            .lifecycle_operation_registry
-            .try_register(&operation_id)
-        {
-            context.lifecycle_operation_registry.complete(&operation_id);
-        }
-    }
-
-    fn spawn_cleanup(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    ) {
-        if context
-            .lifecycle_operation_registry
-            .try_register(&operation_id)
-        {
-            context.lifecycle_operation_registry.complete(&operation_id);
-        }
-    }
-
-    fn spawn_delete(
-        &self,
-        context: RunpodRuntimeLifecycleRunnerContext<W, L>,
-        operation_id: LifecycleOperationId,
-    ) {
-        if context
-            .lifecycle_operation_registry
-            .try_register(&operation_id)
-        {
-            context.lifecycle_operation_registry.complete(&operation_id);
-        }
-    }
+impl BackgroundTaskSpawner for NoopBackgroundTaskSpawner {
+    fn spawn(&self, _task: BackgroundTask) {}
 }
 
 pub(crate) trait ManualLifecycleRunnerExt {
@@ -682,7 +635,6 @@ pub(crate) fn service_with_state(
         runpod_client: Arc::new(FakeRunpodRuntimeClient::new(state)),
         event_sink: Arc::new(NoopEventSink::new()),
         task_spawner: Arc::new(TestBackgroundTaskSpawner),
-        lifecycle_runner: Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     })
 }
 
@@ -696,8 +648,7 @@ pub(crate) fn service_without_lifecycle_spawning(
         runtime_catalog: RuntimeCatalogService::new(),
         runpod_client: Arc::new(FakeRunpodRuntimeClient::new(state)),
         event_sink: Arc::new(NoopEventSink::new()),
-        task_spawner: Arc::new(TestBackgroundTaskSpawner),
-        lifecycle_runner: Arc::new(ManualLifecycleRunner),
+        task_spawner: Arc::new(NoopBackgroundTaskSpawner),
     })
 }
 
@@ -713,7 +664,6 @@ pub(crate) fn service_with_state_and_workspace_catalog(
         runpod_client: Arc::new(FakeRunpodRuntimeClient::new(client_state)),
         event_sink: Arc::new(NoopEventSink::new()),
         task_spawner: Arc::new(TestBackgroundTaskSpawner),
-        lifecycle_runner: Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     })
 }
 
@@ -722,39 +672,6 @@ fn placement_plan() -> RunpodPlacementPlan {
         data_center_id: "dc".to_string(),
         gpu_type_id: "gpu".to_string(),
         volume_size_gb: 19,
-    }
-}
-
-pub(crate) fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    use std::{
-        future::Future,
-        pin::Pin,
-        task::{Context, Poll, RawWaker, RawWakerVTable, Waker},
-    };
-
-    fn raw_waker() -> RawWaker {
-        fn clone(_: *const ()) -> RawWaker {
-            raw_waker()
-        }
-        fn wake(_: *const ()) {}
-        fn wake_by_ref(_: *const ()) {}
-        fn drop(_: *const ()) {}
-
-        RawWaker::new(
-            std::ptr::null(),
-            &RawWakerVTable::new(clone, wake, wake_by_ref, drop),
-        )
-    }
-
-    let waker = unsafe { Waker::from_raw(raw_waker()) };
-    let mut context = Context::from_waker(&waker);
-    let mut future = Box::pin(future);
-
-    loop {
-        match Pin::new(&mut future).poll(&mut context) {
-            Poll::Ready(output) => return output,
-            Poll::Pending => {}
-        }
     }
 }
 
@@ -767,8 +684,8 @@ mod tests {
         LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step: None })
     }
 
-    #[test]
-    fn update_operation_returns_not_found_for_missing_operation() {
+    #[tokio::test]
+    async fn update_operation_returns_not_found_for_missing_operation() {
         let repository = InMemoryLifecycleJournalRepository::default();
         let operation = LifecycleOperation {
             operation_id: "missing-operation".to_string(),
@@ -780,40 +697,50 @@ mod tests {
             finished_at: None,
         };
 
-        let error = block_on(repository.update_operation(&operation))
+        let error = repository
+            .update_operation(&operation)
+            .await
             .expect_err("missing operation should not be upserted");
 
         assert_eq!(error, LifecycleJournalError::OperationNotFound);
     }
 
-    #[test]
-    fn mark_state_returns_not_found_for_terminal_operation() {
+    #[tokio::test]
+    async fn mark_state_returns_not_found_for_terminal_operation() {
         let repository = InMemoryLifecycleJournalRepository::default();
         let payload = provision_payload();
-        let operation = block_on(repository.create_operation(&"workspace-1".to_string(), &payload))
+        let operation = repository
+            .create_operation(&"workspace-1".to_string(), &payload)
+            .await
             .expect("operation should be created");
-        block_on(repository.mark_state(
-            &operation.operation_id,
-            LifecycleOperationState::Completed,
-            &payload,
-        ))
-        .expect("operation should complete");
+        repository
+            .mark_state(
+                &operation.operation_id,
+                LifecycleOperationState::Completed,
+                &payload,
+            )
+            .await
+            .expect("operation should complete");
 
-        let error = block_on(repository.mark_state(
-            &operation.operation_id,
-            LifecycleOperationState::Stale,
-            &payload,
-        ))
-        .expect_err("terminal operation should not be marked again");
+        let error = repository
+            .mark_state(
+                &operation.operation_id,
+                LifecycleOperationState::Stale,
+                &payload,
+            )
+            .await
+            .expect_err("terminal operation should not be marked again");
 
         assert_eq!(error, LifecycleJournalError::OperationNotFound);
     }
 
-    #[test]
-    fn list_running_returns_created_at_then_operation_id_order() {
+    #[tokio::test]
+    async fn list_running_returns_created_at_then_operation_id_order() {
         let repository = InMemoryLifecycleJournalRepository::default();
         let payload = provision_payload();
-        let second = block_on(repository.create_operation(&"workspace-2".to_string(), &payload))
+        let second = repository
+            .create_operation(&"workspace-2".to_string(), &payload)
+            .await
             .expect("operation should be created");
         let first = LifecycleOperation {
             operation_id: "operation-0".to_string(),
@@ -824,14 +751,20 @@ mod tests {
             updated_at: second.updated_at,
             finished_at: None,
         };
-        block_on(repository.update_operation(&first)).expect_err("missing operation should fail");
+        repository
+            .update_operation(&first)
+            .await
+            .expect_err("missing operation should fail");
         repository
             .operations
             .lock()
             .expect("operation lock should succeed")
             .insert(first.operation_id.clone(), first.clone());
 
-        let operations = block_on(repository.list_running()).expect("operations should load");
+        let operations = repository
+            .list_running()
+            .await
+            .expect("operations should load");
 
         assert_eq!(
             operations
@@ -842,8 +775,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn latest_for_workspace_prefers_created_at_updated_at_then_operation_id_descending() {
+    #[tokio::test]
+    async fn latest_for_workspace_prefers_created_at_updated_at_then_operation_id_descending() {
         let repository = InMemoryLifecycleJournalRepository::default();
         let payload = provision_payload();
         let older = LifecycleOperation {
@@ -864,40 +797,53 @@ mod tests {
             updated_at: OffsetDateTime::UNIX_EPOCH,
             finished_at: Some(OffsetDateTime::UNIX_EPOCH),
         };
-        let mut operations = repository
-            .operations
-            .lock()
-            .expect("operation lock should succeed");
-        operations.insert(older.operation_id.clone(), older);
-        operations.insert(latest.operation_id.clone(), latest.clone());
-        drop(operations);
+        {
+            let mut operations = repository
+                .operations
+                .lock()
+                .expect("operation lock should succeed");
+            operations.insert(older.operation_id.clone(), older);
+            operations.insert(latest.operation_id.clone(), latest.clone());
+        }
 
-        let operation = block_on(repository.latest_for_workspace(&"workspace-1".to_string()))
+        let operation = repository
+            .latest_for_workspace(&"workspace-1".to_string())
+            .await
             .expect("operation should load")
             .expect("operation should exist");
 
         assert_eq!(operation.operation_id, latest.operation_id);
     }
 
-    #[test]
-    fn delete_for_workspace_removes_only_matching_operations() {
+    #[tokio::test]
+    async fn delete_for_workspace_removes_only_matching_operations() {
         let repository = InMemoryLifecycleJournalRepository::default();
         let payload = provision_payload();
-        block_on(repository.create_operation(&"workspace-1".to_string(), &payload))
+        repository
+            .create_operation(&"workspace-1".to_string(), &payload)
+            .await
             .expect("first operation should be created");
-        let remaining = block_on(repository.create_operation(&"workspace-2".to_string(), &payload))
+        let remaining = repository
+            .create_operation(&"workspace-2".to_string(), &payload)
+            .await
             .expect("second operation should be created");
 
-        block_on(repository.delete_for_workspace(&"workspace-1".to_string()))
+        repository
+            .delete_for_workspace(&"workspace-1".to_string())
+            .await
             .expect("workspace operations should delete");
 
         assert_eq!(
-            block_on(repository.latest_for_workspace(&"workspace-1".to_string()))
+            repository
+                .latest_for_workspace(&"workspace-1".to_string())
+                .await
                 .expect("latest should load"),
             None
         );
         assert_eq!(
-            block_on(repository.latest_for_workspace(&"workspace-2".to_string()))
+            repository
+                .latest_for_workspace(&"workspace-2".to_string())
+                .await
                 .expect("latest should load")
                 .expect("remaining operation should exist")
                 .operation_id,

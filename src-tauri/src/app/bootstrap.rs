@@ -7,7 +7,6 @@ use crate::{
     commands::errors::{NativeCommandError, NativeInitializationCommandError},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::{
-        lifecycle::runner::BackgroundRunpodRuntimeLifecycleRunner,
         provider::RunpodRuntimeProvider,
         service::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
     },
@@ -76,7 +75,6 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         runpod_client: Arc::new(runpod_provider),
         event_sink: Arc::new(TauriRunpodRuntimeEventSink::new(app_handle.clone())),
         task_spawner: Arc::new(TauriBackgroundTaskSpawner),
-        lifecycle_runner: Arc::new(BackgroundRunpodRuntimeLifecycleRunner),
     });
 
     runpod_runtime
