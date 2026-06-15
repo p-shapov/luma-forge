@@ -7,7 +7,7 @@ use crate::domain::workflow_preset::{
 };
 
 use super::errors::WorkflowCatalogError;
-use super::execution_schemas::{input_ids, required_input_ids, ExecutionSchemaRegistry};
+use super::execution_schemas::ExecutionSchemaRegistry;
 
 const EMPTY_WORKFLOWS: &str = "workflows are empty";
 const INVALID_WORKFLOW_ID: &str = "workflow ID is empty, duplicate, or name is empty";
@@ -96,24 +96,27 @@ fn validate_execution_contract(
         return validation_error("execution contract input bindings are empty");
     }
 
-    let valid_inputs = input_ids(schema_revision);
     let mut bound_inputs = HashSet::new();
     for binding in &revision.execution_contract.input_bindings {
         if binding.node_id.trim().is_empty() || binding.path.is_empty() {
             return validation_error("execution contract input binding target is invalid");
         }
         if let Some(input_id) = template_input_id(&binding.value)? {
-            if !valid_inputs.contains(input_id) {
+            if !schema_revision
+                .inputs
+                .iter()
+                .any(|input| input.id == input_id)
+            {
                 return validation_error(
                     "execution contract input binding references unknown input",
                 );
             }
-            bound_inputs.insert(input_id.to_string());
+            bound_inputs.insert(input_id);
         }
     }
 
-    for required in required_input_ids(schema_revision) {
-        if !bound_inputs.contains(required) {
+    for required in schema_revision.inputs.iter().filter(|input| input.required) {
+        if !bound_inputs.contains(required.id.as_str()) {
             return validation_error("execution contract missing required input binding");
         }
     }

@@ -5,25 +5,23 @@ use super::{
     execution_schemas::{
         read_bundled_execution_schema_registry, validate_execution_schema_registry,
     },
-    reader::BundledWorkflowCatalogReader,
+    reader::read_bundled_workflow_catalog,
     validation::validate_workflows,
 };
 
 #[derive(Debug, Clone, Default)]
-pub struct WorkflowCatalogService {
-    workflow_reader: BundledWorkflowCatalogReader,
-}
+pub struct WorkflowCatalogService;
 
 impl WorkflowCatalogService {
     pub fn new() -> Self {
-        Self::default()
+        Self
     }
 
     pub fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
         let execution_schemas = read_bundled_execution_schema_registry()?;
         validate_execution_schema_registry(&execution_schemas)?;
 
-        let catalog = self.workflow_reader.read_workflow_catalog()?;
+        let catalog = read_bundled_workflow_catalog()?;
         validate_workflows(&catalog.workflow_presets, &execution_schemas)?;
 
         Ok(catalog)
