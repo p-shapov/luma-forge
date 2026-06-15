@@ -9,12 +9,10 @@ use crate::{
         SecretsStorageService,
     },
     workflow_catalog::WorkflowCatalogService,
-    workspace_catalog::{
-        service::WorkspaceCatalogService, sqlite::SqliteWorkspaceCatalogRepository,
-    },
+    workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
-pub type WorkspaceCatalogAppService = WorkspaceCatalogService<SqliteWorkspaceCatalogRepository>;
+pub type WorkspaceCatalogAppService = SqliteWorkspaceCatalogRepository;
 pub type RunpodRuntimeAppService =
     RunpodRuntimeService<SqliteWorkspaceCatalogRepository, SqliteLifecycleJournalRepository>;
 pub type RunpodSecretsService = SecretsStorageService<KeyringSecretStore, RunpodIdentityProvider>;

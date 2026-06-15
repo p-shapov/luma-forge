@@ -27,7 +27,7 @@ where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
 {
-    pub(crate) workspace_repository: W,
+    pub(crate) workspace_catalog: W,
     pub(crate) lifecycle_journal: L,
     pub(crate) workflow_catalog: WorkflowCatalogService,
     pub(crate) runtime_catalog: RuntimeCatalogService,
@@ -82,7 +82,7 @@ where
         }
 
         let registry = context.lifecycle_operation_registry.clone();
-        let workspace_repository = context.workspace_repository;
+        let workspace_catalog = context.workspace_catalog;
         let lifecycle_journal = context.lifecycle_journal;
         let workflow_catalog = context.workflow_catalog;
         let runtime_catalog = context.runtime_catalog;
@@ -98,7 +98,7 @@ where
                 provision::run_once(
                     &operation_id,
                     RunpodProvisionLifecycleContext {
-                        workspace_repository: &workspace_repository,
+                        workspace_catalog: &workspace_catalog,
                         lifecycle_journal: &lifecycle_journal,
                         workflow_catalog: &workflow_catalog,
                         runtime_catalog: &runtime_catalog,
@@ -125,7 +125,7 @@ where
         }
 
         let registry = context.lifecycle_operation_registry.clone();
-        let workspace_repository = context.workspace_repository;
+        let workspace_catalog = context.workspace_catalog;
         let lifecycle_journal = context.lifecycle_journal;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
@@ -138,7 +138,7 @@ where
             async move {
                 cleanup::run_once(
                     &operation_id,
-                    &workspace_repository,
+                    &workspace_catalog,
                     &lifecycle_journal,
                     runpod_client.as_ref(),
                     &event_sink,
@@ -161,7 +161,7 @@ where
         }
 
         let registry = context.lifecycle_operation_registry.clone();
-        let workspace_repository = context.workspace_repository;
+        let workspace_catalog = context.workspace_catalog;
         let lifecycle_journal = context.lifecycle_journal;
         let runpod_client = context.runpod_client;
         let event_sink = context.event_sink;
@@ -174,7 +174,7 @@ where
             async move {
                 delete::run_once(
                     &operation_id,
-                    &workspace_repository,
+                    &workspace_catalog,
                     &lifecycle_journal,
                     runpod_client.as_ref(),
                     &event_sink,

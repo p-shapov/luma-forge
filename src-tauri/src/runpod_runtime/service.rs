@@ -69,7 +69,7 @@ where
     W: WorkspaceCatalogRepository,
     L: crate::lifecycle_journal::LifecycleJournalRepository,
 {
-    workspace_repository: W,
+    workspace_catalog: W,
     lifecycle_journal: L,
     workflow_catalog: WorkflowCatalogService,
     runtime_catalog: RuntimeCatalogService,
@@ -85,7 +85,7 @@ where
     W: WorkspaceCatalogRepository,
     L: crate::lifecycle_journal::LifecycleJournalRepository,
 {
-    pub(crate) workspace_repository: W,
+    pub(crate) workspace_catalog: W,
     pub(crate) lifecycle_journal: L,
     pub(crate) workflow_catalog: WorkflowCatalogService,
     pub(crate) runtime_catalog: RuntimeCatalogService,
@@ -102,7 +102,7 @@ where
 {
     pub(crate) fn new(dependencies: RunpodRuntimeServiceDependencies<W, L>) -> Self {
         Self {
-            workspace_repository: dependencies.workspace_repository,
+            workspace_catalog: dependencies.workspace_catalog,
             lifecycle_journal: dependencies.lifecycle_journal,
             workflow_catalog: dependencies.workflow_catalog,
             runtime_catalog: dependencies.runtime_catalog,
@@ -167,7 +167,7 @@ where
         };
 
         let workspace = self
-            .workspace_repository
+            .workspace_catalog
             .insert_workspace(&workspace)
             .await
             .map_err(RunpodRuntimeError::from)?;
@@ -277,7 +277,7 @@ where
         if runpod_resources_are_empty(&runtime.resources) {
             let completed_operation = super::lifecycle::delete::run_once(
                 &operation.operation_id,
-                &self.workspace_repository,
+                &self.workspace_catalog,
                 &self.lifecycle_journal,
                 self.runpod_client.as_ref(),
                 &self.event_sink,
@@ -343,7 +343,7 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<Option<Workspace>, RunpodRuntimeError> {
-        self.workspace_repository
+        self.workspace_catalog
             .find_workspace_by_id(workspace_id)
             .await
             .map_err(RunpodRuntimeError::from)
@@ -365,7 +365,7 @@ where
                     let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
                     workspace.state = interrupted_state_for_resources(&runtime.resources);
                     Some(
-                        self.workspace_repository
+                        self.workspace_catalog
                             .update_workspace(&workspace)
                             .await
                             .map_err(RunpodRuntimeError::from)?,
@@ -474,7 +474,7 @@ where
 
     pub(crate) fn lifecycle_runner_context(&self) -> RunpodRuntimeLifecycleRunnerContext<W, L> {
         RunpodRuntimeLifecycleRunnerContext {
-            workspace_repository: self.workspace_repository.clone(),
+            workspace_catalog: self.workspace_catalog.clone(),
             lifecycle_journal: self.lifecycle_journal.clone(),
             workflow_catalog: self.workflow_catalog.clone(),
             runtime_catalog: self.runtime_catalog.clone(),
@@ -518,7 +518,7 @@ mod tests {
             provider::RunpodProvisionerStatus,
             test_support::{
                 block_on, draft_create_request, placement_options, service_with_state,
-                service_with_state_and_workspace_repository, service_without_lifecycle_spawning,
+                service_with_state_and_workspace_catalog, service_without_lifecycle_spawning,
                 InMemoryWorkspaceRepository, ManualLifecycleRunnerExt, RunpodClientState,
                 WorkspaceRepositoryState,
             },
@@ -577,7 +577,7 @@ mod tests {
 
         let persisted = block_on(
             service
-                .workspace_repository
+                .workspace_catalog
                 .find_workspace_by_id("workspace-1"),
         )
         .expect("repository read should succeed")
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
         let persisted = block_on(
             service
-                .workspace_repository
+                .workspace_catalog
                 .find_workspace_by_id("workspace-1"),
         )
         .expect("repository read should succeed");
@@ -627,7 +627,7 @@ mod tests {
         assert_eq!(state.lock().expect("state lock").calls, Vec::<&str>::new());
         let persisted = block_on(
             service
-                .workspace_repository
+                .workspace_catalog
                 .find_workspace_by_id("workspace-1"),
         )
         .expect("repository read should succeed");
@@ -673,7 +673,7 @@ mod tests {
             })
         );
         let persisted = service
-            .workspace_repository
+            .workspace_catalog
             .find_workspace_by_id("workspace-1")
             .await
             .expect("repository read should succeed")
@@ -715,7 +715,7 @@ mod tests {
             .expect("workspace should be created");
         workspace.state = WorkspaceState::Ready;
         service
-            .workspace_repository
+            .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace update should succeed");
@@ -750,7 +750,7 @@ mod tests {
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.network_volume_id = Some("existing-volume".to_string());
         service
-            .workspace_repository
+            .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace update should succeed");
@@ -1200,7 +1200,7 @@ mod tests {
             .operation
             .operation_id;
         service
-            .workspace_repository
+            .workspace_catalog
             .delete_workspace("workspace-1")
             .await
             .expect("workspace should be deleted");
@@ -1244,14 +1244,14 @@ mod tests {
             .operation
             .operation_id;
         let mut workspace = service
-            .workspace_repository
+            .workspace_catalog
             .find_workspace_by_id("workspace-1")
             .await
             .expect("workspace should load")
             .expect("workspace should exist");
         workspace.workflow.version = "missing-revision".to_string();
         service
-            .workspace_repository
+            .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
@@ -1280,7 +1280,7 @@ mod tests {
             })
         );
         let workspace = service
-            .workspace_repository
+            .workspace_catalog
             .find_workspace_by_id("workspace-1")
             .await
             .expect("workspace should load")
@@ -1310,7 +1310,7 @@ mod tests {
             })
         );
         let persisted = service
-            .workspace_repository
+            .workspace_catalog
             .find_workspace_by_id("workspace-1")
             .await
             .expect("repository read should succeed")
@@ -1333,7 +1333,7 @@ mod tests {
             .operation
             .operation_id;
         service
-            .workspace_repository
+            .workspace_catalog
             .delete_workspace("workspace-1")
             .await
             .expect("workspace should be deleted");
@@ -1488,7 +1488,7 @@ mod tests {
             })
         );
         assert!(service
-            .workspace_repository
+            .workspace_catalog
             .find_workspace_by_id("workspace-1")
             .await
             .expect("repository read should succeed")
@@ -1506,7 +1506,7 @@ mod tests {
     async fn delete_workspace_without_resources_preserves_lifecycle_row_when_workspace_delete_fails(
     ) {
         let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
-        let service = service_with_state_and_workspace_repository(
+        let service = service_with_state_and_workspace_catalog(
             Arc::new(Mutex::new(RunpodClientState::default())),
             InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
         );
@@ -1568,7 +1568,7 @@ mod tests {
             .expect("delete operation should be created")
             .operation_id;
         service
-            .workspace_repository
+            .workspace_catalog
             .delete_workspace("workspace-1")
             .await
             .expect("workspace should be deleted");
@@ -1603,7 +1603,7 @@ mod tests {
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.network_volume_id = Some("volume".to_string());
         service
-            .workspace_repository
+            .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
@@ -1701,7 +1701,7 @@ mod tests {
     async fn delete_runner_preserves_lifecycle_row_when_workspace_delete_fails() {
         let state = Arc::new(Mutex::new(RunpodClientState::default()));
         let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
-        let service = service_with_state_and_workspace_repository(
+        let service = service_with_state_and_workspace_catalog(
             state,
             InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
         );
@@ -1712,7 +1712,7 @@ mod tests {
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.network_volume_id = Some("volume".to_string());
         service
-            .workspace_repository
+            .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
@@ -1872,7 +1872,7 @@ mod tests {
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
         runtime.resources.network_volume_id = Some("volume-1".to_string());
         service
-            .workspace_repository
+            .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace update should persist");
@@ -1910,7 +1910,7 @@ mod tests {
             .await
             .expect("delete operation should be created");
         service
-            .workspace_repository
+            .workspace_catalog
             .delete_workspace("workspace-1")
             .await
             .expect("workspace should be removed");
@@ -1949,7 +1949,7 @@ mod tests {
             .expect("provision should start")
             .operation;
         service
-            .workspace_repository
+            .workspace_catalog
             .delete_workspace("workspace-1")
             .await
             .expect("workspace should be removed");

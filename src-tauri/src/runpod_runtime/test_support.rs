@@ -133,7 +133,7 @@ where
             let result = lifecycle::provision::run_once(
                 &operation_id,
                 lifecycle::provision::RunpodProvisionLifecycleContext {
-                    workspace_repository: &context.workspace_repository,
+                    workspace_catalog: &context.workspace_catalog,
                     lifecycle_journal: &context.lifecycle_journal,
                     workflow_catalog: &context.workflow_catalog,
                     runtime_catalog: &context.runtime_catalog,
@@ -157,7 +157,7 @@ where
             let context = self.lifecycle_runner_context();
             let result = lifecycle::cleanup::run_once(
                 &operation_id,
-                &context.workspace_repository,
+                &context.workspace_catalog,
                 &context.lifecycle_journal,
                 context.runpod_client.as_ref(),
                 &context.event_sink,
@@ -177,7 +177,7 @@ where
             let context = self.lifecycle_runner_context();
             let result = lifecycle::delete::run_once(
                 &operation_id,
-                &context.workspace_repository,
+                &context.workspace_catalog,
                 &context.lifecycle_journal,
                 context.runpod_client.as_ref(),
                 &context.event_sink,
@@ -675,7 +675,7 @@ pub(crate) fn service_with_state(
     state: Arc<Mutex<RunpodClientState>>,
 ) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
     RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
-        workspace_repository: InMemoryWorkspaceRepository::default(),
+        workspace_catalog: InMemoryWorkspaceRepository::default(),
         lifecycle_journal: InMemoryLifecycleJournalRepository::default(),
         workflow_catalog: WorkflowCatalogService::new(),
         runtime_catalog: RuntimeCatalogService::new(),
@@ -690,7 +690,7 @@ pub(crate) fn service_without_lifecycle_spawning(
     state: Arc<Mutex<RunpodClientState>>,
 ) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
     RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
-        workspace_repository: InMemoryWorkspaceRepository::default(),
+        workspace_catalog: InMemoryWorkspaceRepository::default(),
         lifecycle_journal: InMemoryLifecycleJournalRepository::default(),
         workflow_catalog: WorkflowCatalogService::new(),
         runtime_catalog: RuntimeCatalogService::new(),
@@ -701,12 +701,12 @@ pub(crate) fn service_without_lifecycle_spawning(
     })
 }
 
-pub(crate) fn service_with_state_and_workspace_repository(
+pub(crate) fn service_with_state_and_workspace_catalog(
     client_state: Arc<Mutex<RunpodClientState>>,
-    workspace_repository: InMemoryWorkspaceRepository,
+    workspace_catalog: InMemoryWorkspaceRepository,
 ) -> RunpodRuntimeService<InMemoryWorkspaceRepository, InMemoryLifecycleJournalRepository> {
     RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
-        workspace_repository,
+        workspace_catalog,
         lifecycle_journal: InMemoryLifecycleJournalRepository::default(),
         workflow_catalog: WorkflowCatalogService::new(),
         runtime_catalog: RuntimeCatalogService::new(),

@@ -43,7 +43,7 @@ struct ProvisioningInputs {
 }
 
 struct ProvisioningStepContext<'a, W, L> {
-    workspace_repository: &'a W,
+    workspace_catalog: &'a W,
     lifecycle_journal: &'a L,
     operation: &'a LifecycleOperation,
     runpod_client: &'a dyn RunpodRuntimeClient,
@@ -55,7 +55,7 @@ where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
 {
-    pub(crate) workspace_repository: &'a W,
+    pub(crate) workspace_catalog: &'a W,
     pub(crate) lifecycle_journal: &'a L,
     pub(crate) workflow_catalog: &'a WorkflowCatalogService,
     pub(crate) runtime_catalog: &'a RuntimeCatalogService,
@@ -81,7 +81,7 @@ where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
 {
-    let workspace_repository = context.workspace_repository;
+    let workspace_catalog = context.workspace_catalog;
     let lifecycle_journal = context.lifecycle_journal;
     let event_sink = context.event_sink;
     let operation = load_running_operation(lifecycle_journal, operation_id).await?;
@@ -89,7 +89,7 @@ where
         "workspace_id",
         tracing::field::display(&operation.workspace_id),
     );
-    let mut workspace = match workspace_repository
+    let mut workspace = match workspace_catalog
         .find_workspace_by_id(&operation.workspace_id)
         .await
     {
@@ -128,7 +128,7 @@ where
             context.runtime_catalog,
         )?;
         let step_context = ProvisioningStepContext {
-            workspace_repository,
+            workspace_catalog,
             lifecycle_journal,
             operation: &operation,
             runpod_client: context.runpod_client,
@@ -179,7 +179,7 @@ where
         .await?;
 
         workspace.state = WorkspaceState::Ready;
-        persist_workspace(workspace_repository, event_sink, &workspace).await?;
+        persist_workspace(workspace_catalog, event_sink, &workspace).await?;
 
         Ok::<(), RunpodRuntimeError>(())
     }
@@ -199,7 +199,7 @@ where
         Err(error) => {
             mark_workspace_failed(
                 &mut workspace,
-                workspace_repository,
+                workspace_catalog,
                 event_sink,
                 RunpodWorkspaceFailure::Provision,
             )
@@ -276,7 +276,7 @@ where
         .await?;
     persist_runpod_runtime_update(
         workspace,
-        context.workspace_repository,
+        context.workspace_catalog,
         context.event_sink,
         |runtime| {
             runtime.resources.network_volume_id = Some(volume_id.clone());
@@ -330,7 +330,7 @@ where
         .await?;
     persist_runpod_runtime_update(
         workspace,
-        context.workspace_repository,
+        context.workspace_catalog,
         context.event_sink,
         |runtime| {
             runtime.resources.provisioner_pod_id = Some(provisioner_id.clone());
@@ -375,7 +375,7 @@ where
         .await?;
     persist_runpod_runtime_update(
         workspace,
-        context.workspace_repository,
+        context.workspace_catalog,
         context.event_sink,
         |runtime| {
             runtime.resources.provisioner_pod_id = None;
@@ -420,7 +420,7 @@ where
         .await?;
     persist_runpod_runtime_update(
         workspace,
-        context.workspace_repository,
+        context.workspace_catalog,
         context.event_sink,
         |runtime| {
             runtime.resources.template_id = Some(template_id.clone());
@@ -479,7 +479,7 @@ where
         Err(error) => {
             discard_template_after_endpoint_failure(
                 workspace,
-                context.workspace_repository,
+                context.workspace_catalog,
                 context.runpod_client,
                 context.event_sink,
                 template_id,
@@ -491,7 +491,7 @@ where
 
     persist_runpod_runtime_update(
         workspace,
-        context.workspace_repository,
+        context.workspace_catalog,
         context.event_sink,
         |runtime| {
             runtime.resources.endpoint_id = Some(endpoint_id);
@@ -512,7 +512,7 @@ where
 )]
 async fn discard_template_after_endpoint_failure<W>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     template_id: &str,
@@ -523,7 +523,7 @@ async fn discard_template_after_endpoint_failure<W>(
         return;
     }
 
-    let _ = persist_runpod_runtime_update(workspace, workspace_repository, event_sink, |runtime| {
+    let _ = persist_runpod_runtime_update(workspace, workspace_catalog, event_sink, |runtime| {
         runtime.resources.template_id = None;
     })
     .await;
@@ -531,7 +531,7 @@ async fn discard_template_after_endpoint_failure<W>(
 
 async fn persist_runpod_runtime_update<W>(
     workspace: &mut Workspace,
-    workspace_repository: &W,
+    workspace_catalog: &W,
     event_sink: &Arc<dyn RunpodRuntimeEventSink>,
     update: impl FnOnce(&mut RunpodRuntime),
 ) -> Result<(), RunpodRuntimeError>
@@ -539,7 +539,7 @@ where
     W: WorkspaceCatalogRepository,
 {
     update(runpod_runtime_mut(workspace));
-    *workspace = persist_workspace(workspace_repository, event_sink, workspace).await?;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
     Ok(())
 }
 

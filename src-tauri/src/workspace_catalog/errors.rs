@@ -15,18 +15,6 @@ pub enum WorkspaceCatalogError {
     WorkspaceNotFound,
 }
 
-pub fn storage_unavailable_message(message: impl Into<String>) -> WorkspaceCatalogError {
-    WorkspaceCatalogError::StorageUnavailable {
-        message: message.into(),
-    }
-}
-
-pub fn schema_invalid_message(message: impl Into<String>) -> WorkspaceCatalogError {
-    WorkspaceCatalogError::SchemaInvalid {
-        message: message.into(),
-    }
-}
-
 pub fn data_invalid_message(message: impl Into<String>) -> WorkspaceCatalogError {
     WorkspaceCatalogError::DataInvalid {
         message: message.into(),
@@ -34,13 +22,19 @@ pub fn data_invalid_message(message: impl Into<String>) -> WorkspaceCatalogError
 }
 
 pub fn storage_unavailable_error(error: impl std::fmt::Display) -> WorkspaceCatalogError {
-    storage_unavailable_message(error.to_string())
+    WorkspaceCatalogError::StorageUnavailable {
+        message: error.to_string(),
+    }
 }
 
 pub fn schema_invalid_error(error: impl std::fmt::Display) -> WorkspaceCatalogError {
-    schema_invalid_message(error.to_string())
+    WorkspaceCatalogError::SchemaInvalid {
+        message: error.to_string(),
+    }
 }
 
 pub fn data_invalid_error(error: impl std::fmt::Display) -> WorkspaceCatalogError {
-    data_invalid_message(error.to_string())
+    WorkspaceCatalogError::DataInvalid {
+        message: error.to_string(),
+    }
 }
