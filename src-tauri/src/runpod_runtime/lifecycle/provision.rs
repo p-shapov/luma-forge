@@ -575,6 +575,7 @@ where
 {
     let mut has_seen_initial_status = false;
     let mut startup_probe_attempts = 0u32;
+    let mut unavailable_probe_attempts = 0u32;
 
     loop {
         mark_running_step(
@@ -598,6 +599,7 @@ where
             ) => {
                 has_seen_initial_status = true;
                 startup_probe_attempts = 0;
+                unavailable_probe_attempts = 0;
                 sleep_between_provisioner_polls(provisioner_poll_interval).await;
             }
             Err(RunpodRuntimeError::ProvisionerWorkerUnavailable { .. })
@@ -608,6 +610,16 @@ where
                 ) =>
             {
                 startup_probe_attempts += 1;
+                sleep_between_provisioner_polls(provisioner_poll_interval).await;
+            }
+            Err(RunpodRuntimeError::ProvisionerWorkerUnavailable { .. })
+                if should_retry_provisioner_probe(
+                    has_seen_initial_status,
+                    unavailable_probe_attempts,
+                    provisioner_poll_interval,
+                ) =>
+            {
+                unavailable_probe_attempts += 1;
                 sleep_between_provisioner_polls(provisioner_poll_interval).await;
             }
             Err(error) => return Err(error),
@@ -623,6 +635,16 @@ fn should_retry_initial_provisioner_probe(
     !has_seen_initial_status
         && !provisioner_poll_interval.is_zero()
         && startup_probe_attempts < MAX_PROVISIONER_STARTUP_PROBE_ATTEMPTS
+}
+
+fn should_retry_provisioner_probe(
+    has_seen_initial_status: bool,
+    unavailable_probe_attempts: u32,
+    provisioner_poll_interval: Duration,
+) -> bool {
+    has_seen_initial_status
+        && !provisioner_poll_interval.is_zero()
+        && unavailable_probe_attempts < MAX_PROVISIONER_STARTUP_PROBE_ATTEMPTS
 }
 
 async fn sleep_between_provisioner_polls(provisioner_poll_interval: Duration) {
