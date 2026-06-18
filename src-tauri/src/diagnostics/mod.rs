@@ -107,7 +107,7 @@ fn error_code_for_source(error: &(dyn Error + 'static)) -> NativeCommandErrorCod
     if let Some(error) = error.downcast_ref::<crate::runpod_runtime::errors::RunpodRuntimeError>() {
         return NativeCommandErrorCode::from(error);
     }
-    if let Some(error) = error.downcast_ref::<crate::secrets_storage::SecretsStorageError>() {
+    if let Some(error) = error.downcast_ref::<crate::secrets::SecretsStorageError>() {
         return NativeCommandErrorCode::from(error);
     }
     if let Some(error) = error.downcast_ref::<crate::shared::ApiError>() {
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn source_chain_includes_nested_error_codes() {
         let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
-            crate::secrets_storage::SecretsStorageError::StoreUnavailable,
+            crate::secrets::SecretsStorageError::StoreUnavailable,
         );
 
         let chain = error_source_chain(&error);
@@ -376,7 +376,7 @@ mod tests {
     #[test]
     fn leaf_error_message_returns_deepest_source_message() {
         let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
-            crate::secrets_storage::SecretsStorageError::StoreUnavailable,
+            crate::secrets::SecretsStorageError::StoreUnavailable,
         );
 
         assert_eq!(leaf_error_message(&error), "secure storage is unavailable");

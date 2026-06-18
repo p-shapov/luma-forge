@@ -11,7 +11,7 @@ use tracing::Instrument;
 use super::super::errors::{
     hugging_face_api_key_unavailable, runpod_api_key_unavailable, RunpodRuntimeError,
 };
-use crate::secrets_storage::{ApiKeyIdentityProvider, SecretStore, SecretsStorageService};
+use crate::secrets::{ApiKeyIdentityProvider, SecretStore, SecretsService};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunpodProvisionerStatus {
@@ -126,8 +126,8 @@ pub struct RunpodRuntimeProvider<RS, RI, HS, HI> {
     http: reqwest::Client,
     rest_base_url: String,
     graphql_url: String,
-    runpod_secrets: Arc<SecretsStorageService<RS, RI>>,
-    hugging_face_secrets: SecretsStorageService<HS, HI>,
+    runpod_secrets: Arc<SecretsService<RS, RI>>,
+    hugging_face_secrets: SecretsService<HS, HI>,
 }
 
 impl<RS, RI, HS, HI> RunpodRuntimeProvider<RS, RI, HS, HI>
@@ -138,8 +138,8 @@ where
     HI: ApiKeyIdentityProvider + 'static,
 {
     pub fn new(
-        runpod_secrets: SecretsStorageService<RS, RI>,
-        hugging_face_secrets: SecretsStorageService<HS, HI>,
+        runpod_secrets: SecretsService<RS, RI>,
+        hugging_face_secrets: SecretsService<HS, HI>,
     ) -> Self {
         let http = reqwest::Client::new();
         let runpod_secrets = Arc::new(runpod_secrets);

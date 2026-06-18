@@ -3,10 +3,10 @@ use crate::{
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::service::RunpodRuntimeService,
     runtime_catalog::BundledRuntimeCatalogRepository,
-    secrets_storage::{
+    secrets::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,
-        SecretsStorageService,
+        SecretsService,
     },
     workflow_catalog::BundledWorkflowCatalogRepository,
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
@@ -19,9 +19,9 @@ pub type RunpodRuntimeAppService = RunpodRuntimeService<
     BundledWorkflowCatalogRepository,
     BundledRuntimeCatalogRepository,
 >;
-pub type RunpodSecretsService = SecretsStorageService<KeyringSecretStore, RunpodIdentityProvider>;
+pub type RunpodSecretsService = SecretsService<KeyringSecretStore, RunpodIdentityProvider>;
 pub type HuggingFaceSecretsService =
-    SecretsStorageService<KeyringSecretStore, HuggingFaceIdentityProvider>;
+    SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>;
 
 pub struct AppState {
     pub workflow_catalog: BundledWorkflowCatalogRepository,

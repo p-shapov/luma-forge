@@ -10,7 +10,7 @@ use crate::{
         command_error, command_request_metadata, empty_command_request_metadata,
         native_command_error,
     },
-    secrets_storage::stores::ApiSecret,
+    secrets::stores::ApiSecret,
 };
 
 #[tauri::command]

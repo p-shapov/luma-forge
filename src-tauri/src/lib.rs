@@ -10,7 +10,7 @@ pub mod domain;
 pub mod lifecycle_journal;
 pub mod runpod_runtime;
 pub mod runtime_catalog;
-pub mod secrets_storage;
+pub mod secrets;
 pub mod shared;
 pub mod sqlite;
 pub mod workflow_catalog;

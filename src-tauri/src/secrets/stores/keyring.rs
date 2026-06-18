@@ -1,8 +1,9 @@
 use keyring::{Entry, Error as KeyringError};
 
-use crate::secrets_storage::{
+use crate::secrets::{
     errors::SecretsStorageError,
-    stores::{ApiSecret, SecretKey, SecretStore},
+    stores::{ApiSecret, SecretKey},
+    SecretStore,
 };
 
 const KEYRING_SCOPE: &str = "secrets-storage";

@@ -3,7 +3,7 @@ use specta::Type;
 
 use crate::{
     runpod_runtime::errors::RunpodRuntimeError, runtime_catalog::RuntimeCatalogError,
-    secrets_storage::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
+    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 

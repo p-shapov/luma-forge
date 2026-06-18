@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    runtime_catalog::RuntimeCatalogError, secrets_storage::SecretsStorageError, shared::ApiError,
+    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError, shared::ApiError,
     workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
 };
 

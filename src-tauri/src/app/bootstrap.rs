@@ -11,10 +11,10 @@ use crate::{
         service::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
     },
     runtime_catalog::BundledRuntimeCatalogRepository,
-    secrets_storage::{
+    secrets::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::{keyring::KeyringSecretStore, SecretKey},
-        SecretsStorageService,
+        SecretsService,
     },
     sqlite::database::SqliteNativeDatabase,
     workflow_catalog::BundledWorkflowCatalogRepository,
@@ -104,8 +104,8 @@ fn display_path(path: &Path) -> String {
 
 fn build_runpod_secrets(
     app_identifier: &str,
-) -> Result<SecretsStorageService<KeyringSecretStore, RunpodIdentityProvider>, NativeCommandError> {
-    Ok(SecretsStorageService::new(
+) -> Result<SecretsService<KeyringSecretStore, RunpodIdentityProvider>, NativeCommandError> {
+    Ok(SecretsService::new(
         KeyringSecretStore::new(app_identifier),
         RunpodIdentityProvider::try_new_default()?,
         SecretKey::RunpodApiKey,
@@ -114,11 +114,8 @@ fn build_runpod_secrets(
 
 fn build_hugging_face_secrets(
     app_identifier: &str,
-) -> Result<
-    SecretsStorageService<KeyringSecretStore, HuggingFaceIdentityProvider>,
-    NativeCommandError,
-> {
-    Ok(SecretsStorageService::new(
+) -> Result<SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>, NativeCommandError> {
+    Ok(SecretsService::new(
         KeyringSecretStore::new(app_identifier),
         HuggingFaceIdentityProvider::try_new_default()?,
         SecretKey::HuggingFaceApiKey,

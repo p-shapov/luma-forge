@@ -7,14 +7,14 @@ use crate::{
     shared::{ApiError, AppFuture},
 };
 
-use crate::secrets_storage::{
+use crate::secrets::{
     errors::{
         identity_request_error, identity_response_invalid_error, identity_response_invalid_message,
         identity_status_error, SecretsStorageError,
     },
     identities::identity_http_client,
-    identity::ApiKeyIdentityProvider,
     stores::ApiSecret,
+    ApiKeyIdentityProvider,
 };
 
 const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";

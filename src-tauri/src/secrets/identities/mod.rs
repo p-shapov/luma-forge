@@ -3,7 +3,7 @@ pub mod runpod;
 
 use std::time::Duration;
 
-use crate::secrets_storage::errors::{identity_request_error, SecretsStorageError};
+use crate::secrets::errors::{identity_request_error, SecretsStorageError};
 
 pub(super) fn identity_http_client(
     connect_timeout: Duration,

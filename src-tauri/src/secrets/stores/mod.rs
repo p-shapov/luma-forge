@@ -3,8 +3,6 @@ pub mod keyring;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 
-use crate::shared::AppFuture;
-
 use super::errors::SecretsStorageError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -47,23 +45,6 @@ impl ApiSecret {
     pub(crate) fn expose_secret(&self) -> &str {
         self.0.expose_secret()
     }
-}
-
-pub trait SecretStore: Send + Sync {
-    fn has<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<bool, SecretsStorageError>>;
-
-    fn write<'a>(
-        &'a self,
-        key: SecretKey,
-        secret: ApiSecret,
-    ) -> AppFuture<'a, Result<(), SecretsStorageError>>;
-
-    fn delete<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<(), SecretsStorageError>>;
-
-    fn read<'a>(
-        &'a self,
-        key: SecretKey,
-    ) -> AppFuture<'a, Result<Option<ApiSecret>, SecretsStorageError>>;
 }
 
 #[cfg(test)]
