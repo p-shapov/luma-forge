@@ -1,4 +1,4 @@
-use sqlx::{Row, SqlitePool};
+use sqlx::{Executor, Row, SqlitePool};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
@@ -18,6 +18,46 @@ use super::{
     repository::LifecycleJournalRepository,
     LifecycleJournalError,
 };
+
+pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
+    pool.execute(
+        "CREATE TABLE IF NOT EXISTS lifecycle_operations (
+            id TEXT PRIMARY KEY NOT NULL,
+            workspace_id TEXT NOT NULL,
+            state TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            finished_at TEXT NULL
+        )",
+    )
+    .await
+    .map_err(storage_unavailable_error)?;
+
+    pool.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lifecycle_operations_workspace_id
+         ON lifecycle_operations(workspace_id)",
+    )
+    .await
+    .map_err(storage_unavailable_error)?;
+
+    pool.execute(
+        "CREATE INDEX IF NOT EXISTS idx_lifecycle_operations_state
+         ON lifecycle_operations(state)",
+    )
+    .await
+    .map_err(storage_unavailable_error)?;
+
+    pool.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_lifecycle_operations_running_workspace_unique
+         ON lifecycle_operations(workspace_id)
+         WHERE state = 'running'",
+    )
+    .await
+    .map_err(storage_unavailable_error)?;
+
+    Ok(())
+}
 
 fn encode_payload(payload: &LifecycleOperationPayload) -> Result<String, LifecycleJournalError> {
     serde_json::to_string(payload).map_err(data_invalid_error)
@@ -438,12 +478,9 @@ mod tests {
 
     use sqlx::sqlite::SqliteConnectOptions;
 
-    use crate::{
-        domain::{
-            lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
-            runpod::{RunpodLifecycleOperationPayload, RunpodProvisionStep},
-        },
-        lifecycle_journal::schema,
+    use crate::domain::{
+        lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
+        runpod::{RunpodLifecycleOperationPayload, RunpodProvisionStep},
     };
 
     use super::*;
@@ -463,7 +500,7 @@ mod tests {
         let pool = SqlitePool::connect_with(options)
             .await
             .expect("journal db connection should succeed");
-        schema::bootstrap(&pool)
+        bootstrap(&pool)
             .await
             .expect("journal schema should bootstrap");
 

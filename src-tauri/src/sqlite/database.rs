@@ -45,8 +45,8 @@ impl SqliteNativeDatabase {
             .foreign_keys(true);
         let pool = SqlitePool::connect_with(options).await?;
 
-        workspace_catalog::schema::bootstrap(&pool).await?;
-        lifecycle_journal::schema::bootstrap(&pool).await?;
+        workspace_catalog::sqlite::bootstrap(&pool).await?;
+        lifecycle_journal::sqlite::bootstrap(&pool).await?;
 
         Ok(Self { pool })
     }

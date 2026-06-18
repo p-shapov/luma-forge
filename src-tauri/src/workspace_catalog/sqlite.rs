@@ -1,4 +1,4 @@
-use sqlx::{Row, SqlitePool};
+use sqlx::{Executor, Row, SqlitePool};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::{
@@ -16,6 +16,28 @@ use super::{
     },
     repository::WorkspaceCatalogRepository,
 };
+
+pub async fn bootstrap(pool: &SqlitePool) -> Result<(), WorkspaceCatalogError> {
+    pool.execute(
+        "CREATE TABLE IF NOT EXISTS workspaces (
+            id TEXT NOT NULL PRIMARY KEY,
+            state TEXT NOT NULL,
+            workflow_id TEXT NOT NULL,
+            workflow_version TEXT NOT NULL,
+            runtime_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+    )
+    .await
+    .map_err(storage_unavailable_error)?;
+
+    pool.execute("CREATE INDEX IF NOT EXISTS idx_workspaces_state ON workspaces (state)")
+        .await
+        .map_err(storage_unavailable_error)?;
+
+    Ok(())
+}
 
 const LIST_WORKSPACES_SQL: &str =
     "SELECT id, state, workflow_id, workflow_version, runtime_json FROM workspaces ORDER BY created_at ASC";
@@ -318,7 +340,7 @@ mod tests {
             .await
             .expect("repository connection should succeed");
 
-        crate::workspace_catalog::schema::bootstrap(&pool)
+        bootstrap(&pool)
             .await
             .expect("workspace schema bootstrap should succeed");
 
