@@ -1,9 +1,7 @@
+pub mod bundled;
 pub mod errors;
-pub mod reader;
-pub mod service;
+pub mod repository;
 
-mod execution_schemas;
-mod validation;
-
+pub use bundled::BundledWorkflowCatalogRepository;
 pub use errors::WorkflowCatalogError;
-pub use service::WorkflowCatalogService;
+pub use repository::WorkflowCatalogRepository;

@@ -8,7 +8,7 @@ use crate::domain::{
 };
 
 use super::errors::{invalid_runtime_state_message, RunpodRuntimeError};
-use crate::runtime_catalog::RuntimeCatalogService;
+use crate::runtime_catalog::RuntimeCatalogRepository;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunpodRuntimeContract {
@@ -71,7 +71,7 @@ pub struct RunpodContractResolver;
 impl RunpodContractResolver {
     pub fn resolve(
         workflow: &RunpodWorkflowResolved,
-        runtime_catalog: &RuntimeCatalogService,
+        runtime_catalog: &impl RuntimeCatalogRepository,
     ) -> Result<RunpodRuntimeContracts, RunpodRuntimeError> {
         let runtime_catalog = runtime_catalog
             .get_runtime_contract_catalog()

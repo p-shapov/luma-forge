@@ -10,14 +10,14 @@ use crate::{
         provider::RunpodRuntimeProvider,
         service::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
     },
-    runtime_catalog::RuntimeCatalogService,
+    runtime_catalog::BundledRuntimeCatalogRepository,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::{keyring::KeyringSecretStore, SecretKey},
         SecretsStorageService,
     },
     sqlite::database::SqliteNativeDatabase,
-    workflow_catalog::WorkflowCatalogService,
+    workflow_catalog::BundledWorkflowCatalogRepository,
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
@@ -57,8 +57,8 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let pool = database.pool();
     let workspace_catalog = SqliteWorkspaceCatalogRepository::new(pool.clone());
     let lifecycle_journal = SqliteLifecycleJournalRepository::new(pool);
-    let workflow_catalog = WorkflowCatalogService::new();
-    let runtime_catalog = RuntimeCatalogService::new();
+    let workflow_catalog = BundledWorkflowCatalogRepository::new();
+    let runtime_catalog = BundledRuntimeCatalogRepository::new();
 
     let runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;

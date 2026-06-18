@@ -1,14 +1,16 @@
 use std::collections::HashSet;
 
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::domain::workflow_preset::{
-    ModelAsset, ModelAssetSource, WorkflowPreset, WorkflowRevision,
+    ModelAsset, ModelAssetSource, WorkflowCatalog, WorkflowPreset, WorkflowRevision,
 };
 
-use super::errors::WorkflowCatalogError;
-use super::execution_schemas::ExecutionSchemaRegistry;
+use super::{errors::WorkflowCatalogError, repository::WorkflowCatalogRepository};
 
+const WORKFLOW_CATALOG_JSON: &str = include_str!("../../../bundled/workflow-catalog.json");
+const EXECUTION_SCHEMAS_JSON: &str = include_str!("../../../bundled/execution-schemas.json");
 const EMPTY_WORKFLOWS: &str = "workflows are empty";
 const INVALID_WORKFLOW_ID: &str = "workflow ID is empty, duplicate, or name is empty";
 const EMPTY_WORKFLOW_REVISIONS: &str = "workflow has no revisions";
@@ -19,7 +21,67 @@ const EMPTY_CONTRACT_REQUIREMENTS: &str = "contract requirements are empty";
 const INVALID_MODEL_ASSET: &str =
     "model asset ID, name, install path, or download source is invalid";
 
-pub(super) fn validate_workflows(
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(super) struct ExecutionSchemaRegistry {
+    pub(super) execution_schemas: Vec<ExecutionSchema>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(super) struct ExecutionSchema {
+    pub(super) id: String,
+    pub(super) revisions: Vec<ExecutionSchemaRevision>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(super) struct ExecutionSchemaRevision {
+    pub(super) version: String,
+    pub(super) inputs: Vec<ExecutionSchemaInput>,
+    pub(super) outputs: ExecutionSchemaOutputs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(super) struct ExecutionSchemaInput {
+    pub(super) id: String,
+    #[serde(rename = "type")]
+    pub(super) input_type: String,
+    pub(super) required: bool,
+    pub(super) max_length: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub(super) struct ExecutionSchemaOutputs {
+    #[serde(rename = "type")]
+    pub(super) output_type: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BundledWorkflowCatalogRepository;
+
+impl BundledWorkflowCatalogRepository {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl WorkflowCatalogRepository for BundledWorkflowCatalogRepository {
+    fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
+        let execution_schemas = read_bundled_execution_schema_registry()?;
+        validate_execution_schema_registry(&execution_schemas)?;
+
+        let catalog = read_bundled_workflow_catalog()?;
+        validate_workflows(&catalog.workflow_presets, &execution_schemas)?;
+
+        Ok(catalog)
+    }
+}
+
+fn read_bundled_workflow_catalog() -> Result<WorkflowCatalog, WorkflowCatalogError> {
+    serde_json::from_str(WORKFLOW_CATALOG_JSON).map_err(|error| WorkflowCatalogError::ParseFailed {
+        message: error.to_string(),
+    })
+}
+
+fn validate_workflows(
     workflows: &[WorkflowPreset],
     execution_schemas: &ExecutionSchemaRegistry,
 ) -> Result<(), WorkflowCatalogError> {
@@ -209,6 +271,88 @@ fn is_safe_relative_path(path: &str) -> bool {
             .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+fn read_bundled_execution_schema_registry() -> Result<ExecutionSchemaRegistry, WorkflowCatalogError>
+{
+    serde_json::from_str(EXECUTION_SCHEMAS_JSON).map_err(|error| {
+        WorkflowCatalogError::ParseFailed {
+            message: error.to_string(),
+        }
+    })
+}
+
+impl ExecutionSchemaRegistry {
+    pub(super) fn find_revision(
+        &self,
+        id: &str,
+        version: &str,
+    ) -> Option<&ExecutionSchemaRevision> {
+        self.execution_schemas
+            .iter()
+            .find(|schema| schema.id == id)
+            .and_then(|schema| {
+                schema
+                    .revisions
+                    .iter()
+                    .find(|revision| revision.version == version)
+            })
+    }
+}
+
+fn validate_execution_schema_registry(
+    registry: &ExecutionSchemaRegistry,
+) -> Result<(), WorkflowCatalogError> {
+    let mut schema_ids = HashSet::new();
+    for schema in &registry.execution_schemas {
+        if schema.id.trim().is_empty()
+            || !schema_ids.insert(schema.id.as_str())
+            || schema.revisions.is_empty()
+        {
+            return validation_error(
+                "execution schema id is empty, duplicate, or revisions are empty",
+            );
+        }
+        let mut revision_versions = HashSet::new();
+        for revision in &schema.revisions {
+            validate_schema_revision(revision, &mut revision_versions)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_schema_revision<'a>(
+    revision: &'a ExecutionSchemaRevision,
+    revision_versions: &mut HashSet<&'a str>,
+) -> Result<(), WorkflowCatalogError> {
+    if revision.version.trim().is_empty() || !revision_versions.insert(revision.version.as_str()) {
+        return validation_error("execution schema revision version is empty or duplicate");
+    }
+    if revision.inputs.is_empty() || revision.outputs.output_type.trim().is_empty() {
+        return validation_error("execution schema inputs or outputs are empty");
+    }
+    let mut input_ids = HashSet::new();
+    for input in &revision.inputs {
+        if input.id.trim().is_empty()
+            || !input_ids.insert(input.id.as_str())
+            || is_secret_like(&input.id)
+            || input.input_type != "string"
+            || input.max_length == Some(0)
+        {
+            return validation_error("execution schema input is invalid");
+        }
+    }
+    Ok(())
+}
+
+fn is_secret_like(value: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    value.contains("secret")
+        || value.contains("token")
+        || value.contains("password")
+        || value.contains("api_key")
+        || value.contains("apikey")
+        || value.contains("credential")
+}
+
 fn validation_error<T>(message: &'static str) -> Result<T, WorkflowCatalogError> {
     Err(WorkflowCatalogError::ValidationFailed {
         message: message.to_string(),
@@ -222,10 +366,91 @@ mod tests {
         runpod::RunpodContractRequirements,
         runtime_contract::RuntimeContractReference,
         workflow_preset::{
-            ExecutionContract, ExecutionSchemaReference, InputBinding, ModelAsset,
-            ModelAssetSource, WorkflowContractRequirements, WorkflowRevision,
+            ExecutionContract, ExecutionSchemaReference, InputBinding, WorkflowContractRequirements,
         },
     };
+
+    fn repository() -> BundledWorkflowCatalogRepository {
+        BundledWorkflowCatalogRepository::new()
+    }
+
+    #[test]
+    fn get_workflow_catalog_returns_valid_workflows() {
+        let workflows = repository()
+            .get_workflow_catalog()
+            .expect("workflows should be valid");
+
+        assert!(
+            workflows
+                .workflow_presets
+                .iter()
+                .any(|workflow| workflow.id == "comfyui-hidream-o1-dev"),
+            "expected bundled HiDream workflow"
+        );
+    }
+
+    #[test]
+    fn bundled_workflow_reader_deserializes_workflows() {
+        let workflows =
+            read_bundled_workflow_catalog().expect("bundled workflows should deserialize");
+
+        let revision = workflows
+            .workflow_presets
+            .iter()
+            .find(|workflow| workflow.id == "comfyui-hidream-o1-dev")
+            .and_then(|workflow| {
+                workflow
+                    .revisions
+                    .iter()
+                    .find(|revision| revision.version == "1.0.0")
+            })
+            .expect("expected HiDream revision");
+
+        assert_eq!(revision.execution_contract.schema_ref.id, "text-to-image");
+        assert_eq!(revision.execution_contract.schema_ref.version, "1.0.0");
+        assert_eq!(revision.execution_contract.input_bindings.len(), 3);
+    }
+
+    fn valid_registry() -> ExecutionSchemaRegistry {
+        ExecutionSchemaRegistry {
+            execution_schemas: vec![ExecutionSchema {
+                id: "text-to-image".to_string(),
+                revisions: vec![ExecutionSchemaRevision {
+                    version: "1.0.0".to_string(),
+                    inputs: vec![ExecutionSchemaInput {
+                        id: "prompt".to_string(),
+                        input_type: "string".to_string(),
+                        required: true,
+                        max_length: Some(4000),
+                    }],
+                    outputs: ExecutionSchemaOutputs {
+                        output_type: "image_set".to_string(),
+                    },
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn bundled_execution_schema_registry_is_valid() {
+        let registry = read_bundled_execution_schema_registry().expect("registry should parse");
+
+        assert_eq!(validate_execution_schema_registry(&registry), Ok(()));
+        assert!(registry.find_revision("text-to-image", "1.0.0").is_some());
+    }
+
+    #[test]
+    fn validation_rejects_secret_like_input_ids() {
+        let mut registry = valid_registry();
+        registry.execution_schemas[0].revisions[0].inputs[0].id = "api_key".to_string();
+
+        assert_eq!(
+            validate_execution_schema_registry(&registry),
+            Err(WorkflowCatalogError::ValidationFailed {
+                message: "execution schema input is invalid".to_string(),
+            })
+        );
+    }
 
     fn valid_asset() -> ModelAsset {
         ModelAsset {
@@ -298,35 +523,8 @@ mod tests {
         }
     }
 
-    fn execution_schemas() -> crate::workflow_catalog::execution_schemas::ExecutionSchemaRegistry {
-        crate::workflow_catalog::execution_schemas::ExecutionSchemaRegistry {
-            execution_schemas: vec![
-                crate::workflow_catalog::execution_schemas::ExecutionSchema {
-                    id: "text-to-image".to_string(),
-                    revisions: vec![
-                        crate::workflow_catalog::execution_schemas::ExecutionSchemaRevision {
-                            version: "1.0.0".to_string(),
-                            inputs: vec![
-                                crate::workflow_catalog::execution_schemas::ExecutionSchemaInput {
-                                    id: "prompt".to_string(),
-                                    input_type: "string".to_string(),
-                                    required: true,
-                                    max_length: Some(4000),
-                                },
-                            ],
-                            outputs:
-                                crate::workflow_catalog::execution_schemas::ExecutionSchemaOutputs {
-                                    output_type: "image_set".to_string(),
-                                },
-                        },
-                    ],
-                },
-            ],
-        }
-    }
-
     fn validate_test_workflows(workflows: &[WorkflowPreset]) -> Result<(), WorkflowCatalogError> {
-        validate_workflows(workflows, &execution_schemas())
+        validate_workflows(workflows, &valid_registry())
     }
 
     #[test]

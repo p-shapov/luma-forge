@@ -1,8 +1,7 @@
+pub mod bundled;
 pub mod errors;
-pub mod reader;
-pub mod service;
+pub mod repository;
 
-mod validation;
-
+pub use bundled::BundledRuntimeCatalogRepository;
 pub use errors::RuntimeCatalogError;
-pub use service::RuntimeCatalogService;
+pub use repository::RuntimeCatalogRepository;

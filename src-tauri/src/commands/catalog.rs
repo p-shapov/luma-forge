@@ -11,6 +11,8 @@ use crate::{
         CommandResult,
     },
     diagnostics::{command_error, empty_command_request_metadata, native_command_error},
+    runtime_catalog::RuntimeCatalogRepository,
+    workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 

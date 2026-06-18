@@ -2,17 +2,41 @@ use std::collections::HashSet;
 
 use crate::domain::runtime_contract::{RuntimeCatalog, RuntimeContract, RuntimeContractRevision};
 
-use super::RuntimeCatalogError;
+use super::{repository::RuntimeCatalogRepository, RuntimeCatalogError};
 
+const RUNTIME_CONTRACTS_JSON: &str = include_str!("../../../bundled/runtime-contracts.json");
 const EMPTY_RUNTIME_CATALOG: &str = "catalog is empty";
 const INVALID_CONTRACT_ID: &str = "contract ID is empty or duplicate";
 const EMPTY_CONTRACT_REVISIONS: &str = "contract has no revisions";
 const INVALID_CONTRACT_REVISION: &str =
     "revision version is empty, duplicate, or image reference is empty";
 
-pub(super) fn validate_runtime_catalog(
-    catalog: &RuntimeCatalog,
-) -> Result<(), RuntimeCatalogError> {
+#[derive(Debug, Clone, Default)]
+pub struct BundledRuntimeCatalogRepository;
+
+impl BundledRuntimeCatalogRepository {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl RuntimeCatalogRepository for BundledRuntimeCatalogRepository {
+    fn get_runtime_contract_catalog(&self) -> Result<RuntimeCatalog, RuntimeCatalogError> {
+        let catalog = read_bundled_runtime_contract_catalog()?;
+
+        validate_runtime_catalog(&catalog)?;
+
+        Ok(catalog)
+    }
+}
+
+fn read_bundled_runtime_contract_catalog() -> Result<RuntimeCatalog, RuntimeCatalogError> {
+    serde_json::from_str(RUNTIME_CONTRACTS_JSON).map_err(|error| RuntimeCatalogError::ParseFailed {
+        message: error.to_string(),
+    })
+}
+
+fn validate_runtime_catalog(catalog: &RuntimeCatalog) -> Result<(), RuntimeCatalogError> {
     if catalog.contracts.is_empty() {
         return validation_error(EMPTY_RUNTIME_CATALOG);
     }
@@ -79,6 +103,43 @@ mod tests {
                 }],
             }],
         }
+    }
+
+    #[test]
+    fn get_runtime_contract_catalog_returns_valid_catalog() {
+        let catalog = BundledRuntimeCatalogRepository::new()
+            .get_runtime_contract_catalog()
+            .expect("runtime contract catalog should be valid");
+
+        assert!(catalog
+            .contracts
+            .iter()
+            .any(|contract| contract.id == "runpod-endpoint-comfyui-hidream-o1-dev"));
+        assert!(catalog
+            .contracts
+            .iter()
+            .any(|contract| contract.id == "provisioner"));
+    }
+
+    #[test]
+    fn bundled_runtime_contract_reader_deserializes_contracts() {
+        let catalog = read_bundled_runtime_contract_catalog()
+            .expect("bundled runtime contracts should deserialize");
+
+        assert!(
+            catalog
+                .contracts
+                .iter()
+                .any(|contract| contract.id == "runpod-endpoint-comfyui-hidream-o1-dev"),
+            "expected bundled ComfyUI endpoint contract"
+        );
+        assert!(
+            catalog
+                .contracts
+                .iter()
+                .any(|contract| contract.id == "provisioner"),
+            "expected bundled provisioner contract"
+        );
     }
 
     #[test]

@@ -6,9 +6,9 @@ use crate::{
     runpod_runtime::{
         errors::RunpodRuntimeError, events::RunpodRuntimeEvent, provider::RunpodRuntimeClient,
     },
-    runtime_catalog::RuntimeCatalogService,
+    runtime_catalog::RuntimeCatalogRepository,
     shared::{spawn_background_task, BackgroundTaskSpawner, EventSink, InFlightRegistry},
-    workflow_catalog::WorkflowCatalogService,
+    workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -20,27 +20,31 @@ use super::{
 pub(crate) type LifecycleOperationRegistry = InFlightRegistry<LifecycleOperationId>;
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
-pub(crate) struct RunpodRuntimeLifecycleRunnerContext<W, L>
+pub(crate) struct RunpodRuntimeLifecycleRunnerContext<W, L, WC, RC>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
+    WC: WorkflowCatalogRepository,
+    RC: RuntimeCatalogRepository,
 {
     pub(crate) workspace_catalog: W,
     pub(crate) lifecycle_journal: L,
-    pub(crate) workflow_catalog: WorkflowCatalogService,
-    pub(crate) runtime_catalog: RuntimeCatalogService,
+    pub(crate) workflow_catalog: WC,
+    pub(crate) runtime_catalog: RC,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) lifecycle_operation_registry: LifecycleOperationRegistry,
     pub(crate) event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-pub(crate) fn spawn_provision<W, L>(
-    context: RunpodRuntimeLifecycleRunnerContext<W, L>,
+pub(crate) fn spawn_provision<W, L, WC, RC>(
+    context: RunpodRuntimeLifecycleRunnerContext<W, L, WC, RC>,
     operation_id: LifecycleOperationId,
 ) where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
+    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
 {
     if !context
         .lifecycle_operation_registry
@@ -80,12 +84,14 @@ pub(crate) fn spawn_provision<W, L>(
     );
 }
 
-pub(crate) fn spawn_cleanup<W, L>(
-    context: RunpodRuntimeLifecycleRunnerContext<W, L>,
+pub(crate) fn spawn_cleanup<W, L, WC, RC>(
+    context: RunpodRuntimeLifecycleRunnerContext<W, L, WC, RC>,
     operation_id: LifecycleOperationId,
 ) where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
+    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
 {
     if !context
         .lifecycle_operation_registry
@@ -118,12 +124,14 @@ pub(crate) fn spawn_cleanup<W, L>(
     );
 }
 
-pub(crate) fn spawn_delete<W, L>(
-    context: RunpodRuntimeLifecycleRunnerContext<W, L>,
+pub(crate) fn spawn_delete<W, L, WC, RC>(
+    context: RunpodRuntimeLifecycleRunnerContext<W, L, WC, RC>,
     operation_id: LifecycleOperationId,
 ) where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
+    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
+    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
 {
     if !context
         .lifecycle_operation_registry

@@ -10,9 +10,9 @@ use crate::{
         workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
-    runtime_catalog::RuntimeCatalogService,
+    runtime_catalog::RuntimeCatalogRepository,
     shared::{BackgroundTaskSpawner, EventSink},
-    workflow_catalog::WorkflowCatalogService,
+    workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -61,41 +61,47 @@ fn create_workspace_service_span_fields(
     }
 }
 
-pub struct RunpodRuntimeService<W, L>
+pub struct RunpodRuntimeService<W, L, WC, RC>
 where
     W: WorkspaceCatalogRepository,
     L: crate::lifecycle_journal::LifecycleJournalRepository,
+    WC: WorkflowCatalogRepository,
+    RC: RuntimeCatalogRepository,
 {
     workspace_catalog: W,
     lifecycle_journal: L,
-    workflow_catalog: WorkflowCatalogService,
-    runtime_catalog: RuntimeCatalogService,
+    workflow_catalog: WC,
+    runtime_catalog: RC,
     runpod_client: Arc<dyn RunpodRuntimeClient>,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-pub(crate) struct RunpodRuntimeServiceDependencies<W, L>
+pub(crate) struct RunpodRuntimeServiceDependencies<W, L, WC, RC>
 where
     W: WorkspaceCatalogRepository,
     L: crate::lifecycle_journal::LifecycleJournalRepository,
+    WC: WorkflowCatalogRepository,
+    RC: RuntimeCatalogRepository,
 {
     pub(crate) workspace_catalog: W,
     pub(crate) lifecycle_journal: L,
-    pub(crate) workflow_catalog: WorkflowCatalogService,
-    pub(crate) runtime_catalog: RuntimeCatalogService,
+    pub(crate) workflow_catalog: WC,
+    pub(crate) runtime_catalog: RC,
     pub(crate) runpod_client: Arc<dyn RunpodRuntimeClient>,
     pub(crate) event_sink: Arc<dyn EventSink<RunpodRuntimeEvent>>,
     pub(crate) task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-impl<W, L> RunpodRuntimeService<W, L>
+impl<W, L, WC, RC> RunpodRuntimeService<W, L, WC, RC>
 where
     W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
     L: crate::lifecycle_journal::LifecycleJournalRepository + Clone + Send + Sync + 'static,
+    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
+    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
 {
-    pub(crate) fn new(dependencies: RunpodRuntimeServiceDependencies<W, L>) -> Self {
+    pub(crate) fn new(dependencies: RunpodRuntimeServiceDependencies<W, L, WC, RC>) -> Self {
         Self {
             workspace_catalog: dependencies.workspace_catalog,
             lifecycle_journal: dependencies.lifecycle_journal,
@@ -466,7 +472,9 @@ where
             .ok_or_else(|| workspace_not_found(workspace_id))
     }
 
-    pub(crate) fn lifecycle_runner_context(&self) -> RunpodRuntimeLifecycleRunnerContext<W, L> {
+    pub(crate) fn lifecycle_runner_context(
+        &self,
+    ) -> RunpodRuntimeLifecycleRunnerContext<W, L, WC, RC> {
         RunpodRuntimeLifecycleRunnerContext {
             workspace_catalog: self.workspace_catalog.clone(),
             lifecycle_journal: self.lifecycle_journal.clone(),

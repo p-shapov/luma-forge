@@ -2,26 +2,30 @@ use crate::{
     commands::errors::NativeCommandError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     runpod_runtime::service::RunpodRuntimeService,
-    runtime_catalog::RuntimeCatalogService,
+    runtime_catalog::BundledRuntimeCatalogRepository,
     secrets_storage::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::keyring::KeyringSecretStore,
         SecretsStorageService,
     },
-    workflow_catalog::WorkflowCatalogService,
+    workflow_catalog::BundledWorkflowCatalogRepository,
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
 pub type WorkspaceCatalogAppService = SqliteWorkspaceCatalogRepository;
-pub type RunpodRuntimeAppService =
-    RunpodRuntimeService<SqliteWorkspaceCatalogRepository, SqliteLifecycleJournalRepository>;
+pub type RunpodRuntimeAppService = RunpodRuntimeService<
+    SqliteWorkspaceCatalogRepository,
+    SqliteLifecycleJournalRepository,
+    BundledWorkflowCatalogRepository,
+    BundledRuntimeCatalogRepository,
+>;
 pub type RunpodSecretsService = SecretsStorageService<KeyringSecretStore, RunpodIdentityProvider>;
 pub type HuggingFaceSecretsService =
     SecretsStorageService<KeyringSecretStore, HuggingFaceIdentityProvider>;
 
 pub struct AppState {
-    pub workflow_catalog: WorkflowCatalogService,
-    pub runtime_catalog: RuntimeCatalogService,
+    pub workflow_catalog: BundledWorkflowCatalogRepository,
+    pub runtime_catalog: BundledRuntimeCatalogRepository,
     pub workspace_catalog: WorkspaceCatalogAppService,
     pub runpod_runtime: RunpodRuntimeAppService,
     pub runpod_secrets: RunpodSecretsService,

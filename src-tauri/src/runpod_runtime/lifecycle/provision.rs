@@ -7,9 +7,9 @@ use crate::{
         workspace::{Workspace, WorkspaceId, WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::LifecycleJournalRepository,
-    runtime_catalog::RuntimeCatalogService,
+    runtime_catalog::RuntimeCatalogRepository,
     shared::EventSink,
-    workflow_catalog::WorkflowCatalogService,
+    workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
@@ -51,15 +51,17 @@ struct ProvisioningStepContext<'a, W, L> {
     event_sink: &'a Arc<dyn EventSink<RunpodRuntimeEvent>>,
 }
 
-pub(crate) struct RunpodProvisionLifecycleContext<'a, W, L>
+pub(crate) struct RunpodProvisionLifecycleContext<'a, W, L, WC, RC>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
+    WC: WorkflowCatalogRepository,
+    RC: RuntimeCatalogRepository,
 {
     pub(crate) workspace_catalog: &'a W,
     pub(crate) lifecycle_journal: &'a L,
-    pub(crate) workflow_catalog: &'a WorkflowCatalogService,
-    pub(crate) runtime_catalog: &'a RuntimeCatalogService,
+    pub(crate) workflow_catalog: &'a WC,
+    pub(crate) runtime_catalog: &'a RC,
     pub(crate) runpod_client: &'a dyn RunpodRuntimeClient,
     pub(crate) event_sink: &'a Arc<dyn EventSink<RunpodRuntimeEvent>>,
     pub(crate) provisioner_poll_interval: Duration,
@@ -74,13 +76,15 @@ where
         workspace_id = tracing::field::Empty
     )
 )]
-pub(crate) async fn run_once<W, L>(
+pub(crate) async fn run_once<W, L, WC, RC>(
     operation_id: &LifecycleOperationId,
-    context: RunpodProvisionLifecycleContext<'_, W, L>,
+    context: RunpodProvisionLifecycleContext<'_, W, L, WC, RC>,
 ) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
+    WC: WorkflowCatalogRepository,
+    RC: RuntimeCatalogRepository,
 {
     let workspace_catalog = context.workspace_catalog;
     let lifecycle_journal = context.lifecycle_journal;
@@ -215,8 +219,8 @@ where
 
 fn resolve_provisioning_inputs(
     workspace: &Workspace,
-    workflow_catalog: &WorkflowCatalogService,
-    runtime_catalog: &RuntimeCatalogService,
+    workflow_catalog: &impl WorkflowCatalogRepository,
+    runtime_catalog: &impl RuntimeCatalogRepository,
 ) -> Result<ProvisioningInputs, RunpodRuntimeError> {
     let workflows = workflow_catalog
         .get_workflow_catalog()
