@@ -83,17 +83,25 @@ impl<'a> WorkspaceRuntimeContext<'a> {
         &self,
         operation: LifecycleOperation,
     ) -> Result<LifecycleOperation, WorkspaceError> {
-        let operation = self
-            .lifecycle_journal
-            .update_operation(&operation)
-            .await
-            .map_err(super::errors::lifecycle_journal_error)?;
-        self.event_sink.emit(WorkspaceEvent::LifecycleOperationChanged {
-            workspace_id: operation.workspace_id.clone(),
-            operation_id: operation.operation_id.clone(),
-            diagnostic_id: None,
-            operation: operation.clone(),
-        });
+        let operation = match operation.state {
+            crate::domain::lifecycle_operation::LifecycleOperationState::Running => self
+                .lifecycle_journal
+                .update_operation(&operation)
+                .await
+                .map_err(super::errors::lifecycle_journal_error)?,
+            state => self
+                .lifecycle_journal
+                .mark_state(&operation.operation_id, state, operation.payload.as_ref())
+                .await
+                .map_err(super::errors::lifecycle_journal_error)?,
+        };
+        self.event_sink
+            .emit(WorkspaceEvent::LifecycleOperationChanged {
+                workspace_id: operation.workspace_id.clone(),
+                operation_id: operation.operation_id.clone(),
+                diagnostic_id: None,
+                operation: operation.clone(),
+            });
         Ok(operation)
     }
 
@@ -110,11 +118,13 @@ impl<'a> WorkspaceRuntimeContext<'a> {
     }
 
     pub async fn delete_workspace(&self, workspace_id: &str) -> Result<(), WorkspaceError> {
-        self.workspace_catalog.delete_workspace(workspace_id).await?;
         self.lifecycle_journal
             .delete_for_workspace(&workspace_id.to_string())
             .await
             .map_err(super::errors::lifecycle_journal_error)?;
+        self.workspace_catalog
+            .delete_workspace(workspace_id)
+            .await?;
         self.event_sink.emit(WorkspaceEvent::WorkspaceDeleted {
             workspace_id: workspace_id.to_string(),
         });
@@ -131,11 +141,17 @@ mod tests {
             lifecycle_operation::{
                 LifecycleCleanupPayload, LifecycleOperationPayload, LifecycleOperationState,
             },
-            runpod::{RunpodCleanupStep, RunpodLifecycleCleanupPayload},
+            runpod::{
+                RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodPlacementPlan,
+                RunpodResources, RunpodRuntime,
+            },
+            workflow_preset::WorkflowReference,
+            workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
         },
-        lifecycle_journal::LifecycleJournalRepository,
+        lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
         shared::EventSink,
-        workspace::events::WorkspaceEvent,
+        workspace::{events::WorkspaceEvent, WorkspaceError},
+        workspace_catalog::WorkspaceCatalogRepository,
     };
 
     use super::WorkspaceRuntimeContext;
@@ -176,5 +192,101 @@ mod tests {
 
         assert_eq!(persisted.state, LifecycleOperationState::Running);
         assert_eq!(events.0.lock().expect("events lock").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn persist_operation_marks_terminal_states_with_finished_at() {
+        let repositories = crate::workspace::test_support::repositories();
+        let events = Arc::new(Events::default());
+        let context = WorkspaceRuntimeContext::new(
+            repositories.workspace_catalog.clone(),
+            repositories.lifecycle_journal.clone(),
+            events,
+        );
+        let mut operation = repositories
+            .lifecycle_journal
+            .create_operation(&"workspace-1".to_string())
+            .await
+            .expect("operation");
+        operation.state = LifecycleOperationState::Completed;
+        operation.payload = Some(LifecycleOperationPayload::Cleanup(
+            LifecycleCleanupPayload::Runpod(RunpodLifecycleCleanupPayload {
+                step: Some(RunpodCleanupStep::DeleteEndpoint),
+            }),
+        ));
+        operation.finished_at = None;
+
+        let persisted = context
+            .persist_operation(operation)
+            .await
+            .expect("persist operation");
+
+        assert_eq!(persisted.state, LifecycleOperationState::Completed);
+        assert!(persisted.finished_at.is_some());
+        assert_eq!(persisted.finished_at, Some(persisted.updated_at));
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_keeps_workspace_when_lifecycle_delete_fails() {
+        let repositories = crate::workspace::test_support::repositories();
+        let events = Arc::new(Events::default());
+        let context = WorkspaceRuntimeContext::new(
+            repositories.workspace_catalog.clone(),
+            repositories.lifecycle_journal.clone(),
+            events.clone(),
+        );
+        let workspace = Workspace {
+            id: "workspace-1".to_string(),
+            workflow: WorkflowReference {
+                id: "workflow-1".to_string(),
+                version: "1".to_string(),
+            },
+            state: WorkspaceState::Ready,
+            runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
+                placement: RunpodPlacementPlan {
+                    data_center_id: "dc-1".to_string(),
+                    gpu_type_id: "gpu-1".to_string(),
+                    volume_size_gb: 100,
+                },
+                resources: RunpodResources {
+                    network_volume_id: None,
+                    provisioner_pod_id: None,
+                    endpoint_id: None,
+                    template_id: None,
+                },
+            }),
+        };
+        repositories
+            .workspace_catalog
+            .insert_workspace(&workspace)
+            .await
+            .expect("workspace");
+        repositories
+            .lifecycle_journal
+            .create_operation(&workspace.id)
+            .await
+            .expect("operation");
+        repositories
+            .lifecycle_journal
+            .fail_delete_for_workspace_once(LifecycleJournalError::StorageUnavailable {
+                message: "boom".to_string(),
+            });
+
+        let error = context
+            .delete_workspace(&workspace.id)
+            .await
+            .expect_err("delete should fail");
+
+        assert!(matches!(
+            error,
+            WorkspaceError::LifecycleJournalInvalid { .. }
+        ));
+        assert!(repositories
+            .workspace_catalog
+            .find_workspace_by_id(&workspace.id)
+            .await
+            .expect("find workspace")
+            .is_some());
+        assert_eq!(events.0.lock().expect("events lock").len(), 0);
     }
 }

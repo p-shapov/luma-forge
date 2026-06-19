@@ -1,11 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    lifecycle_journal::LifecycleJournalError,
-    runtime_catalog::RuntimeCatalogError,
-    secrets::SecretsStorageError,
-    shared::ApiError,
-    workflow_catalog::WorkflowCatalogError,
+    lifecycle_journal::LifecycleJournalError, runtime_catalog::RuntimeCatalogError,
+    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
@@ -36,7 +33,7 @@ pub enum WorkspaceError {
     WorkspaceNotFound { workspace_id: String },
     #[error("workspace already has a running lifecycle operation: {workspace_id}")]
     LifecycleOperationAlreadyRunning { workspace_id: String },
-    #[error("invalid workspace state: {message}")]
+    #[error("invalid runtime state: {message}")]
     InvalidState { message: String },
 }
 
