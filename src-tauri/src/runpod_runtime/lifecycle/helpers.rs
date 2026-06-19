@@ -4,11 +4,11 @@ use crate::{
     diagnostics::{lifecycle_error, lifecycle_log_fields, lifecycle_state_label},
     domain::{
         lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-            LifecycleOperationState,
+            LifecycleCleanupPayload, LifecycleOperation, LifecycleOperationId,
+            LifecycleOperationPayload, LifecycleOperationState, LifecycleProvisionPayload,
         },
         runpod::{
-            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload,
+            RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload,
             RunpodProvisionStep, RunpodResources,
         },
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
@@ -73,10 +73,10 @@ where
 {
     let payload = step.into_payload();
     let operation = lifecycle_journal
-        .mark_state(&operation.operation_id, state, &payload)
+        .mark_state(&operation.operation_id, state, Some(&payload))
         .await
         .map_err(invalid_runtime_state_error)?;
-    let fields = lifecycle_log_fields(&operation.payload);
+    let fields = lifecycle_log_fields(operation.payload.as_ref());
     tracing::info!(
         workspace_id = %operation.workspace_id,
         operation_id = %operation.operation_id,
@@ -116,7 +116,7 @@ where
         .mark_state(
             &operation.operation_id,
             LifecycleOperationState::Failed,
-            &payload,
+            Some(&payload),
         )
         .await
         .map_err(invalid_runtime_state_error)?;
@@ -154,25 +154,17 @@ pub trait RunpodStepPayload {
 
 impl RunpodStepPayload for RunpodProvisionStep {
     fn into_payload(self) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-            step: Some(self),
-        })
+        LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+            RunpodLifecycleProvisionPayload { step: Some(self) },
+        ))
     }
 }
 
 impl RunpodStepPayload for RunpodCleanupStep {
     fn into_payload(self) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-            step: Some(self),
-        })
-    }
-}
-
-impl RunpodStepPayload for RunpodDeleteStep {
-    fn into_payload(self) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: Some(self),
-        })
+        LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
+            RunpodLifecycleCleanupPayload { step: Some(self) },
+        ))
     }
 }
 
@@ -216,23 +208,20 @@ pub fn payload_with_app_interrupted_error(
     payload: &LifecycleOperationPayload,
 ) -> LifecycleOperationPayload {
     match payload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-            step,
-            ..
-        }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-            step: step.clone(),
-        }),
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-            step,
-            ..
-        }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-            step: step.clone(),
-        }),
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step, ..
-        }) => LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: step.clone(),
-        }),
+        LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(payload)) => {
+            LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+                RunpodLifecycleProvisionPayload {
+                    step: payload.step.clone(),
+                },
+            ))
+        }
+        LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(payload)) => {
+            LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
+                RunpodLifecycleCleanupPayload {
+                    step: payload.step.clone(),
+                },
+            ))
+        }
     }
 }
 
@@ -254,9 +243,9 @@ mod tests {
             operation_id: "operation-1".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Running,
-            payload: LifecycleOperationPayload::Runpod(
-                RunpodLifecycleOperationPayload::Provision { step: None },
-            ),
+            payload: Some(LifecycleOperationPayload::Provision(
+                LifecycleProvisionPayload::Runpod(RunpodLifecycleProvisionPayload { step: None }),
+            )),
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
             finished_at: None,
@@ -300,7 +289,6 @@ mod tests {
         fn create_operation<'a>(
             &'a self,
             _workspace_id: &'a String,
-            _payload: &'a LifecycleOperationPayload,
         ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
             Box::pin(async { Err(LifecycleJournalError::OperationNotFound) })
         }
@@ -343,12 +331,12 @@ mod tests {
             &'a self,
             _operation_id: &'a LifecycleOperationId,
             state: LifecycleOperationState,
-            payload: &'a LifecycleOperationPayload,
+            payload: Option<&'a LifecycleOperationPayload>,
         ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
             Box::pin(async move {
                 let mut operation = self.operation.lock().expect("operation state");
                 operation.state = state;
-                operation.payload = payload.clone();
+                operation.payload = payload.cloned();
                 Ok(operation.clone())
             })
         }

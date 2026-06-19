@@ -15,7 +15,6 @@ pub trait LifecycleJournalRepository: Send + Sync {
     fn create_operation<'a>(
         &'a self,
         workspace_id: &'a WorkspaceId,
-        payload: &'a LifecycleOperationPayload,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>>;
 
     fn find_running_by_workspace<'a>(
@@ -46,6 +45,6 @@ pub trait LifecycleJournalRepository: Send + Sync {
         &'a self,
         operation_id: &'a LifecycleOperationId,
         state: LifecycleOperationState,
-        payload: &'a LifecycleOperationPayload,
+        payload: Option<&'a LifecycleOperationPayload>,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>>;
 }

@@ -1,14 +1,30 @@
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-use super::{runpod::RunpodLifecycleOperationPayload, workspace::WorkspaceId};
+use super::{
+    runpod::{RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload},
+    workspace::WorkspaceId,
+};
 
 pub type LifecycleOperationId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "runtime_type", rename_all = "snake_case")]
+#[serde(tag = "operation", rename_all = "snake_case")]
 pub enum LifecycleOperationPayload {
-    Runpod(RunpodLifecycleOperationPayload),
+    Provision(LifecycleProvisionPayload),
+    Cleanup(LifecycleCleanupPayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "runtime_type", rename_all = "snake_case")]
+pub enum LifecycleProvisionPayload {
+    Runpod(RunpodLifecycleProvisionPayload),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "runtime_type", rename_all = "snake_case")]
+pub enum LifecycleCleanupPayload {
+    Runpod(RunpodLifecycleCleanupPayload),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,7 +32,7 @@ pub struct LifecycleOperation {
     pub operation_id: LifecycleOperationId,
     pub workspace_id: WorkspaceId,
     pub state: LifecycleOperationState,
-    pub payload: LifecycleOperationPayload,
+    pub payload: Option<LifecycleOperationPayload>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]

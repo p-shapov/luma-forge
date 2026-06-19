@@ -206,7 +206,7 @@ async fn record_lifecycle_runner_error<L>(
     let diagnostic_id = crate::diagnostics::lifecycle_error(
         operation_id,
         Some(&operation.workspace_id),
-        Some(&operation.payload),
+        operation.payload.as_ref(),
         error,
     );
 
@@ -214,7 +214,7 @@ async fn record_lifecycle_runner_error<L>(
         .mark_state(
             operation_id,
             LifecycleOperationState::Failed,
-            &operation.payload,
+            operation.payload.as_ref(),
         )
         .await
     {
@@ -241,9 +241,9 @@ mod tests {
         domain::{
             lifecycle_operation::{
                 LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-                LifecycleOperationState,
+                LifecycleOperationState, LifecycleProvisionPayload,
             },
-            runpod::RunpodLifecycleOperationPayload,
+            runpod::RunpodLifecycleProvisionPayload,
             workspace::WorkspaceId,
         },
         lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
@@ -313,9 +313,11 @@ mod tests {
                     operation_id,
                     workspace_id: "workspace-1".to_string(),
                     state: LifecycleOperationState::Running,
-                    payload: LifecycleOperationPayload::Runpod(
-                        RunpodLifecycleOperationPayload::Provision { step: None },
-                    ),
+                    payload: Some(LifecycleOperationPayload::Provision(
+                        LifecycleProvisionPayload::Runpod(RunpodLifecycleProvisionPayload {
+                            step: None,
+                        }),
+                    )),
                     created_at: OffsetDateTime::UNIX_EPOCH,
                     updated_at: OffsetDateTime::UNIX_EPOCH,
                     finished_at: None,
@@ -332,7 +334,6 @@ mod tests {
         fn create_operation<'a>(
             &'a self,
             _workspace_id: &'a WorkspaceId,
-            _payload: &'a LifecycleOperationPayload,
         ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
             Box::pin(async { Err(LifecycleJournalError::OperationNotFound) })
         }
@@ -381,12 +382,12 @@ mod tests {
             &'a self,
             _operation_id: &'a LifecycleOperationId,
             state: LifecycleOperationState,
-            payload: &'a LifecycleOperationPayload,
+            payload: Option<&'a LifecycleOperationPayload>,
         ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
             Box::pin(async move {
                 let mut operation = self.operation.lock().expect("operation state");
                 operation.state = state;
-                operation.payload = payload.clone();
+                operation.payload = payload.cloned();
                 Ok(operation.clone())
             })
         }

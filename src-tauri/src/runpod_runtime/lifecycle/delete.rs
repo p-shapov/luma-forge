@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
-        runpod::RunpodDeleteStep,
+        runpod::RunpodCleanupStep,
     },
     lifecycle_journal::LifecycleJournalRepository,
     shared::EventSink,
@@ -29,7 +29,7 @@ use super::{
     name = "runpod_lifecycle",
     skip_all,
     fields(
-        operation_kind = "delete",
+        operation_kind = "cleanup",
         operation_id = %operation_id,
         workspace_id = tracing::field::Empty
     )
@@ -61,7 +61,7 @@ where
                 event_sink,
                 &operation,
                 LifecycleOperationState::Completed,
-                RunpodDeleteStep::DeleteLocalWorkspace,
+                RunpodCleanupStep::DeleteNetworkVolume,
             )
             .await?;
             lifecycle_journal
@@ -76,14 +76,14 @@ where
                 lifecycle_journal,
                 event_sink,
                 &operation,
-                RunpodDeleteStep::DeleteEndpoint,
+                RunpodCleanupStep::DeleteEndpoint,
                 &error,
             )
             .await?;
             return Ok(None);
         }
     };
-    let mut failed_step = RunpodDeleteStep::DeleteEndpoint;
+    let mut failed_step = RunpodCleanupStep::DeleteEndpoint;
 
     let result = async {
         delete_remote_resources(
@@ -96,16 +96,15 @@ where
                 event_sink,
             },
             RemoteResourceCleanupSteps {
-                delete_endpoint: RunpodDeleteStep::DeleteEndpoint,
-                delete_template: RunpodDeleteStep::DeleteTemplate,
-                terminate_provisioner_pod: RunpodDeleteStep::TerminateProvisionerPod,
-                delete_network_volume: RunpodDeleteStep::DeleteNetworkVolume,
+                delete_endpoint: RunpodCleanupStep::DeleteEndpoint,
+                delete_template: RunpodCleanupStep::DeleteTemplate,
+                terminate_provisioner_pod: RunpodCleanupStep::TerminateProvisionerPod,
+                delete_network_volume: RunpodCleanupStep::DeleteNetworkVolume,
             },
             &mut failed_step,
         )
         .await?;
 
-        failed_step = RunpodDeleteStep::DeleteLocalWorkspace;
         mark_running_step(
             lifecycle_journal,
             event_sink,

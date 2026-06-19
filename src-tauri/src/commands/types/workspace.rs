@@ -3,10 +3,13 @@ use specta::Type;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 use crate::domain::{
-    lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload, LifecycleOperationState},
+    lifecycle_operation::{
+        LifecycleCleanupPayload, LifecycleOperation, LifecycleOperationPayload,
+        LifecycleOperationState, LifecycleProvisionPayload,
+    },
     runpod::{
-        RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload, RunpodProvisionStep,
-        RunpodResources, RunpodRuntime,
+        RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload,
+        RunpodProvisionStep, RunpodResources, RunpodRuntime,
     },
     workflow_preset::WorkflowReference,
     workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
@@ -119,7 +122,7 @@ pub struct LifecycleOperationResponse {
     pub operation_id: String,
     pub workspace_id: String,
     pub state: LifecycleOperationStateResponse,
-    pub payload: LifecycleOperationPayloadResponse,
+    pub payload: Option<LifecycleOperationPayloadResponse>,
     pub created_at: String,
     pub updated_at: String,
     pub finished_at: Option<String>,
@@ -135,23 +138,34 @@ pub enum LifecycleOperationStateResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "runtimeType", rename_all = "snake_case")]
+#[serde(tag = "operation", rename_all = "snake_case")]
 pub enum LifecycleOperationPayloadResponse {
-    Runpod(RunpodLifecycleOperationPayloadResponse),
+    Provision(LifecycleProvisionPayloadResponse),
+    Cleanup(LifecycleCleanupPayloadResponse),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-pub enum RunpodLifecycleOperationPayloadResponse {
-    Provision {
-        step: Option<RunpodProvisionStepResponse>,
-    },
-    Cleanup {
-        step: Option<RunpodCleanupStepResponse>,
-    },
-    Delete {
-        step: Option<RunpodDeleteStepResponse>,
-    },
+#[serde(tag = "runtimeType", rename_all = "snake_case")]
+pub enum LifecycleProvisionPayloadResponse {
+    Runpod(RunpodLifecycleProvisionPayloadResponse),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(tag = "runtimeType", rename_all = "snake_case")]
+pub enum LifecycleCleanupPayloadResponse {
+    Runpod(RunpodLifecycleCleanupPayloadResponse),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunpodLifecycleProvisionPayloadResponse {
+    pub step: Option<RunpodProvisionStepResponse>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RunpodLifecycleCleanupPayloadResponse {
+    pub step: Option<RunpodCleanupStepResponse>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -172,16 +186,6 @@ pub enum RunpodCleanupStepResponse {
     DeleteTemplate,
     TerminateProvisionerPod,
     DeleteNetworkVolume,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "snake_case")]
-pub enum RunpodDeleteStepResponse {
-    DeleteEndpoint,
-    DeleteTemplate,
-    TerminateProvisionerPod,
-    DeleteNetworkVolume,
-    DeleteLocalWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, tauri_specta::Event)]
@@ -308,7 +312,7 @@ impl From<LifecycleOperation> for LifecycleOperationResponse {
             operation_id: value.operation_id,
             workspace_id: value.workspace_id,
             state: value.state.into(),
-            payload: value.payload.into(),
+            payload: value.payload.map(Into::into),
             created_at: format_timestamp(value.created_at),
             updated_at: format_timestamp(value.updated_at),
             finished_at: value.finished_at.map(format_timestamp),
@@ -330,23 +334,40 @@ impl From<LifecycleOperationState> for LifecycleOperationStateResponse {
 impl From<LifecycleOperationPayload> for LifecycleOperationPayloadResponse {
     fn from(value: LifecycleOperationPayload) -> Self {
         match value {
-            LifecycleOperationPayload::Runpod(payload) => Self::Runpod(payload.into()),
+            LifecycleOperationPayload::Provision(payload) => Self::Provision(payload.into()),
+            LifecycleOperationPayload::Cleanup(payload) => Self::Cleanup(payload.into()),
         }
     }
 }
 
-impl From<RunpodLifecycleOperationPayload> for RunpodLifecycleOperationPayloadResponse {
-    fn from(value: RunpodLifecycleOperationPayload) -> Self {
+impl From<LifecycleProvisionPayload> for LifecycleProvisionPayloadResponse {
+    fn from(value: LifecycleProvisionPayload) -> Self {
         match value {
-            RunpodLifecycleOperationPayload::Provision { step } => Self::Provision {
-                step: step.map(Into::into),
-            },
-            RunpodLifecycleOperationPayload::Cleanup { step } => Self::Cleanup {
-                step: step.map(Into::into),
-            },
-            RunpodLifecycleOperationPayload::Delete { step } => Self::Delete {
-                step: step.map(Into::into),
-            },
+            LifecycleProvisionPayload::Runpod(payload) => Self::Runpod(payload.into()),
+        }
+    }
+}
+
+impl From<LifecycleCleanupPayload> for LifecycleCleanupPayloadResponse {
+    fn from(value: LifecycleCleanupPayload) -> Self {
+        match value {
+            LifecycleCleanupPayload::Runpod(payload) => Self::Runpod(payload.into()),
+        }
+    }
+}
+
+impl From<RunpodLifecycleProvisionPayload> for RunpodLifecycleProvisionPayloadResponse {
+    fn from(value: RunpodLifecycleProvisionPayload) -> Self {
+        Self {
+            step: value.step.map(Into::into),
+        }
+    }
+}
+
+impl From<RunpodLifecycleCleanupPayload> for RunpodLifecycleCleanupPayloadResponse {
+    fn from(value: RunpodLifecycleCleanupPayload) -> Self {
+        Self {
+            step: value.step.map(Into::into),
         }
     }
 }
@@ -375,18 +396,6 @@ impl From<RunpodCleanupStep> for RunpodCleanupStepResponse {
     }
 }
 
-impl From<RunpodDeleteStep> for RunpodDeleteStepResponse {
-    fn from(value: RunpodDeleteStep) -> Self {
-        match value {
-            RunpodDeleteStep::DeleteEndpoint => Self::DeleteEndpoint,
-            RunpodDeleteStep::DeleteTemplate => Self::DeleteTemplate,
-            RunpodDeleteStep::TerminateProvisionerPod => Self::TerminateProvisionerPod,
-            RunpodDeleteStep::DeleteNetworkVolume => Self::DeleteNetworkVolume,
-            RunpodDeleteStep::DeleteLocalWorkspace => Self::DeleteLocalWorkspace,
-        }
-    }
-}
-
 fn format_timestamp(timestamp: OffsetDateTime) -> String {
     timestamp
         .format(&Rfc3339)
@@ -396,11 +405,13 @@ fn format_timestamp(timestamp: OffsetDateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateRunpodWorkspaceRequest, LifecycleOperationChangedEvent,
-        LifecycleOperationPayloadResponse, LifecycleOperationResponse,
-        LifecycleOperationStateResponse, RunpodCleanupStepResponse, RunpodDeleteStepResponse,
-        RunpodLifecycleOperationPayloadResponse, RunpodProvisionStepResponse,
-        RunpodResourcesResponse, RunpodWorkspaceResponse, WorkspaceRuntimeResponse,
+        CreateRunpodWorkspaceRequest, LifecycleCleanupPayloadResponse,
+        LifecycleOperationChangedEvent, LifecycleOperationPayloadResponse,
+        LifecycleOperationResponse, LifecycleOperationStateResponse,
+        LifecycleProvisionPayloadResponse, RunpodCleanupStepResponse,
+        RunpodLifecycleCleanupPayloadResponse, RunpodLifecycleProvisionPayloadResponse,
+        RunpodProvisionStepResponse, RunpodResourcesResponse, RunpodWorkspaceResponse,
+        WorkspaceRuntimeResponse,
     };
 
     #[test]
@@ -460,10 +471,10 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_provision_payload_step() {
-        let response = LifecycleOperationPayloadResponse::Runpod(
-            RunpodLifecycleOperationPayloadResponse::Provision {
+        let response = LifecycleOperationPayloadResponse::Provision(
+            LifecycleProvisionPayloadResponse::Runpod(RunpodLifecycleProvisionPayloadResponse {
                 step: Some(RunpodProvisionStepResponse::CreateNetworkVolume),
-            },
+            }),
         );
 
         let json = serde_json::to_string(&response).expect("payload json");
@@ -475,10 +486,10 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_create_template_step() {
-        let response = LifecycleOperationPayloadResponse::Runpod(
-            RunpodLifecycleOperationPayloadResponse::Provision {
+        let response = LifecycleOperationPayloadResponse::Provision(
+            LifecycleProvisionPayloadResponse::Runpod(RunpodLifecycleProvisionPayloadResponse {
                 step: Some(RunpodProvisionStepResponse::CreateTemplate),
-            },
+            }),
         );
 
         let json = serde_json::to_string(&response).expect("payload json");
@@ -488,29 +499,15 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_cleanup_delete_template_step() {
-        let response = LifecycleOperationPayloadResponse::Runpod(
-            RunpodLifecycleOperationPayloadResponse::Cleanup {
+        let response = LifecycleOperationPayloadResponse::Cleanup(
+            LifecycleCleanupPayloadResponse::Runpod(RunpodLifecycleCleanupPayloadResponse {
                 step: Some(RunpodCleanupStepResponse::DeleteTemplate),
-            },
+            }),
         );
 
         let json = serde_json::to_string(&response).expect("payload json");
 
         assert!(json.contains(r#""operation":"cleanup""#));
-        assert!(json.contains(r#""step":"delete_template""#));
-    }
-
-    #[test]
-    fn lifecycle_operation_response_serializes_delete_delete_template_step() {
-        let response = LifecycleOperationPayloadResponse::Runpod(
-            RunpodLifecycleOperationPayloadResponse::Delete {
-                step: Some(RunpodDeleteStepResponse::DeleteTemplate),
-            },
-        );
-
-        let json = serde_json::to_string(&response).expect("payload json");
-
-        assert!(json.contains(r#""operation":"delete""#));
         assert!(json.contains(r#""step":"delete_template""#));
     }
 
@@ -551,9 +548,11 @@ mod tests {
             operation_id: "operation-1".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationStateResponse::Failed,
-            payload: LifecycleOperationPayloadResponse::Runpod(
-                RunpodLifecycleOperationPayloadResponse::Provision { step: None },
-            ),
+            payload: Some(LifecycleOperationPayloadResponse::Provision(
+                LifecycleProvisionPayloadResponse::Runpod(
+                    RunpodLifecycleProvisionPayloadResponse { step: None },
+                ),
+            )),
             created_at: "2026-06-13T00:00:00Z".to_string(),
             updated_at: "2026-06-13T00:00:01Z".to_string(),
             finished_at: Some("2026-06-13T00:00:01Z".to_string()),

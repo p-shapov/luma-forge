@@ -3,10 +3,15 @@ use std::sync::Arc;
 use crate::{
     diagnostics::{lifecycle_log_fields, lifecycle_state_label},
     domain::{
-        lifecycle_operation::{LifecycleOperation, LifecycleOperationPayload},
-        runpod::RunpodLifecycleOperationPayload,
+        lifecycle_operation::{
+            LifecycleCleanupPayload, LifecycleOperation, LifecycleOperationPayload,
+            LifecycleProvisionPayload,
+        },
+        runpod::{
+            RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload, RunpodResources,
+            RunpodRuntime,
+        },
         runpod::{RunpodPlacementOptions, RunpodPlacementPlan},
-        runpod::{RunpodResources, RunpodRuntime},
         workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
@@ -213,10 +218,9 @@ where
             ));
         }
 
-        let payload =
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: None,
-            });
+        let payload = LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+            RunpodLifecycleProvisionPayload { step: None },
+        ));
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
@@ -240,9 +244,9 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<CleanupWorkspaceResponse, RunpodRuntimeError> {
-        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-            step: None,
-        });
+        let payload = LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
+            RunpodLifecycleCleanupPayload { step: None },
+        ));
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
@@ -266,9 +270,9 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<DeleteWorkspaceResponse, RunpodRuntimeError> {
-        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: None,
-        });
+        let payload = LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
+            RunpodLifecycleCleanupPayload { step: None },
+        ));
         let (workspace, operation) = self
             .start_lifecycle_operation(workspace_id, &payload)
             .await?;
@@ -358,7 +362,10 @@ where
         let operations = self.get_running_lifecycle_operations().await?;
 
         for operation in operations {
-            let payload = payload_with_app_interrupted_error(&operation.payload);
+            let payload = operation
+                .payload
+                .as_ref()
+                .map(payload_with_app_interrupted_error);
 
             let workspace = match self.find_workspace(&operation.workspace_id).await? {
                 Some(mut workspace) => {
@@ -379,11 +386,11 @@ where
                 .mark_state(
                     &operation.operation_id,
                     crate::domain::lifecycle_operation::LifecycleOperationState::Stale,
-                    &payload,
+                    payload.as_ref(),
                 )
                 .await
                 .map_err(super::errors::invalid_runtime_state_error)?;
-            let fields = lifecycle_log_fields(&stale_operation.payload);
+            let fields = lifecycle_log_fields(stale_operation.payload.as_ref());
             tracing::info!(
                 workspace_id = %stale_operation.workspace_id,
                 operation_id = %stale_operation.operation_id,
@@ -421,7 +428,7 @@ where
         workspace_id: &str,
         payload: &LifecycleOperationPayload,
     ) -> Result<(Workspace, LifecycleOperation), RunpodRuntimeError> {
-        let fields = lifecycle_log_fields(payload);
+        let fields = lifecycle_log_fields(Some(payload));
         tracing::Span::current().record("operation_kind", fields.operation_kind);
 
         let workspace = self.load_workspace_required(workspace_id).await?;
@@ -439,10 +446,10 @@ where
 
         let operation = self
             .lifecycle_journal
-            .create_operation(&workspace_id, payload)
+            .create_operation(&workspace_id)
             .await
             .map_err(super::errors::invalid_runtime_state_error)?;
-        let fields = lifecycle_log_fields(&operation.payload);
+        let fields = lifecycle_log_fields(operation.payload.as_ref());
         tracing::info!(
             workspace_id = %operation.workspace_id,
             operation_id = %operation.operation_id,
@@ -510,8 +517,14 @@ pub struct DeleteWorkspaceResponse {
 mod tests {
     use crate::{
         domain::{
-            lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
-            runpod::{RunpodLifecycleOperationPayload, RunpodRuntime},
+            lifecycle_operation::{
+                LifecycleCleanupPayload, LifecycleOperationPayload, LifecycleOperationState,
+                LifecycleProvisionPayload,
+            },
+            runpod::{
+                RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload,
+                RunpodRuntime,
+            },
             workspace::{WorkspaceRuntime, WorkspaceState},
         },
         lifecycle_journal::LifecycleJournalRepository,
@@ -540,6 +553,20 @@ mod tests {
         crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiError(ApiError::RequestFailed {
             message: "RunPod API request failed".to_string(),
         })
+    }
+
+    fn provision_payload(
+        step: Option<crate::domain::runpod::RunpodProvisionStep>,
+    ) -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+            RunpodLifecycleProvisionPayload { step },
+        ))
+    }
+
+    fn cleanup_payload(step: Option<RunpodCleanupStep>) -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
+            RunpodLifecycleCleanupPayload { step },
+        ))
     }
 
     #[test]
@@ -673,12 +700,7 @@ mod tests {
         assert_eq!(response.workspace, workspace);
         assert_eq!(response.operation.workspace_id, "workspace-1");
         assert_eq!(response.operation.state, LifecycleOperationState::Running);
-        assert_eq!(
-            response.operation.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: None,
-            })
-        );
+        assert_eq!(response.operation.payload, None);
         let persisted = service
             .workspace_catalog
             .find_workspace_by_id("workspace-1")
@@ -905,9 +927,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod::RunpodProvisionStep::StartProvisionerPod),
-            })
+            Some(provision_payload(Some(
+                crate::domain::runpod::RunpodProvisionStep::StartProvisionerPod,
+            )))
         );
     }
 
@@ -999,9 +1021,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateTemplate),
-            })
+            Some(provision_payload(Some(
+                crate::domain::runpod::RunpodProvisionStep::CreateTemplate,
+            )))
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
@@ -1059,9 +1081,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateEndpoint),
-            })
+            Some(provision_payload(Some(
+                crate::domain::runpod::RunpodProvisionStep::CreateEndpoint,
+            )))
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
@@ -1122,9 +1144,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod::RunpodProvisionStep::TerminateProvisionerPod),
-            })
+            Some(provision_payload(Some(
+                crate::domain::runpod::RunpodProvisionStep::TerminateProvisionerPod,
+            )))
         );
         assert_eq!(
             state.lock().expect("state lock").calls,
@@ -1230,9 +1252,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume),
-            })
+            Some(provision_payload(Some(
+                crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume,
+            )))
         );
     }
 
@@ -1282,9 +1304,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: Some(crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume),
-            })
+            Some(provision_payload(Some(
+                crate::domain::runpod::RunpodProvisionStep::CreateNetworkVolume,
+            )))
         );
         let workspace = service
             .workspace_catalog
@@ -1310,12 +1332,7 @@ mod tests {
             .expect("cleanup should start");
 
         assert_eq!(response.workspace, workspace);
-        assert_eq!(
-            response.operation.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-                step: None,
-            })
-        );
+        assert_eq!(response.operation.payload, None);
         let persisted = service
             .workspace_catalog
             .find_workspace_by_id("workspace-1")
@@ -1363,9 +1380,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-                step: Some(crate::domain::runpod::RunpodCleanupStep::DeleteEndpoint),
-            })
+            Some(cleanup_payload(Some(
+                crate::domain::runpod::RunpodCleanupStep::DeleteEndpoint,
+            )))
         );
     }
 
@@ -1467,9 +1484,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup {
-                step: Some(crate::domain::runpod::RunpodCleanupStep::DeleteTemplate),
-            })
+            Some(cleanup_payload(Some(
+                crate::domain::runpod::RunpodCleanupStep::DeleteTemplate
+            )))
         );
     }
 
@@ -1490,9 +1507,9 @@ mod tests {
         assert_eq!(response.operation.state, LifecycleOperationState::Completed);
         assert_eq!(
             response.operation.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
-            })
+            Some(cleanup_payload(Some(
+                crate::domain::runpod::RunpodCleanupStep::DeleteNetworkVolume
+            )))
         );
         assert!(service
             .workspace_catalog
@@ -1552,9 +1569,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
-            })
+            Some(cleanup_payload(Some(
+                crate::domain::runpod::RunpodCleanupStep::DeleteNetworkVolume
+            )))
         );
     }
 
@@ -1565,12 +1582,9 @@ mod tests {
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: None,
-        });
         let operation_id = service
             .lifecycle_journal
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("delete operation should be created")
             .operation_id;
@@ -1614,12 +1628,9 @@ mod tests {
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
-        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: None,
-        });
         let operation_id = service
             .lifecycle_journal
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("delete operation should be created")
             .operation_id;
@@ -1698,9 +1709,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteTemplate),
-            })
+            Some(cleanup_payload(Some(
+                crate::domain::runpod::RunpodCleanupStep::DeleteTemplate
+            )))
         );
     }
 
@@ -1723,12 +1734,9 @@ mod tests {
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
-        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: None,
-        });
         let operation_id = service
             .lifecycle_journal
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("delete operation should be created")
             .operation_id;
@@ -1763,9 +1771,9 @@ mod tests {
         assert_eq!(latest.state, LifecycleOperationState::Failed);
         assert_eq!(
             latest.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: Some(crate::domain::runpod::RunpodDeleteStep::DeleteLocalWorkspace),
-            })
+            Some(cleanup_payload(Some(
+                crate::domain::runpod::RunpodCleanupStep::DeleteNetworkVolume
+            )))
         );
     }
 
@@ -1809,7 +1817,7 @@ mod tests {
             .mark_state(
                 &first.operation_id,
                 LifecycleOperationState::Completed,
-                &first.payload,
+                first.payload.as_ref(),
             )
             .await
             .expect("operation should complete");
@@ -1853,12 +1861,7 @@ mod tests {
             .expect("operation should load")
             .expect("operation should exist");
         assert_eq!(stale.state, LifecycleOperationState::Stale);
-        assert_eq!(
-            stale.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: None,
-            })
-        );
+        assert_eq!(stale.payload, None);
         assert_eq!(stale.operation_id, operation.operation_id);
         let workspace = service
             .find_workspace("workspace-1")
@@ -1908,12 +1911,9 @@ mod tests {
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
-        let payload = LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-            step: None,
-        });
         let operation = service
             .lifecycle_journal
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("delete operation should be created");
         service
@@ -1934,12 +1934,7 @@ mod tests {
             .expect("operation should exist");
         assert_eq!(stale.operation_id, operation.operation_id);
         assert_eq!(stale.state, LifecycleOperationState::Stale);
-        assert_eq!(
-            stale.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete {
-                step: None,
-            })
-        );
+        assert_eq!(stale.payload, None);
     }
 
     #[tokio::test]
@@ -1978,11 +1973,6 @@ mod tests {
             .expect("operation should exist");
         assert_eq!(stale.operation_id, operation.operation_id);
         assert_eq!(stale.state, LifecycleOperationState::Stale);
-        assert_eq!(
-            stale.payload,
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
-                step: None,
-            })
-        );
+        assert_eq!(stale.payload, None);
     }
 }
