@@ -66,8 +66,8 @@ pub async fn get_runpod_placement_options(
 ) -> CommandResult<RunpodPlacementOptionsResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let options = state
-        .runpod_runtime
-        .get_runpod_placement_options()
+        .runpod_provider
+        .placement_options()
         .await
         .map_err(|error| command_error("get_runpod_placement_options", error))?;
 

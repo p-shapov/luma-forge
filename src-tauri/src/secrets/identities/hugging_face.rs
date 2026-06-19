@@ -22,6 +22,7 @@ const HUGGING_FACE_PROVIDER_NAME: &str = "Hugging Face";
 const HUGGING_FACE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HUGGING_FACE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
+#[derive(Clone)]
 pub struct HuggingFaceIdentityProvider {
     http: reqwest::Client,
     whoami_endpoint: String,

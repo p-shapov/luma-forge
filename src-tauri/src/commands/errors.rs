@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    runpod_runtime::errors::RunpodRuntimeError, runtime_catalog::RuntimeCatalogError,
-    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace::WorkspaceError, workspace_catalog::WorkspaceCatalogError,
+    provider::runpod::RunpodProviderError, runpod_runtime::errors::RunpodRuntimeError,
+    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError, shared::ApiError,
+    workflow_catalog::WorkflowCatalogError, workspace::WorkspaceError,
+    workspace_catalog::WorkspaceCatalogError,
 };
 
 pub type CommandResult<T> = Result<T, NativeCommandError>;
@@ -101,24 +102,6 @@ pub enum NativeCommandErrorCode {
     ProviderTimeout,
     #[error("provider request failed")]
     ProviderRequestFailed,
-    #[error("runpod api key unavailable")]
-    RunpodApiKeyUnavailable,
-    #[error("hugging face api key unavailable")]
-    HuggingFaceApiKeyUnavailable,
-    #[error("runpod workflow catalog invalid")]
-    RunpodWorkflowCatalogInvalid,
-    #[error("runpod runtime catalog invalid")]
-    RunpodRuntimeCatalogInvalid,
-    #[error("runpod workspace catalog invalid")]
-    RunpodWorkspaceCatalogInvalid,
-    #[error("provisioner worker unavailable")]
-    ProvisionerWorkerUnavailable,
-    #[error("provisioner worker response invalid")]
-    ProvisionerWorkerResponseInvalid,
-    #[error("provisioner worker failed")]
-    ProvisionerWorkerFailed,
-    #[error("runpod workspace was not found")]
-    RunpodWorkspaceNotFound,
     #[error("workspace already has a running lifecycle operation")]
     LifecycleOperationAlreadyRunning,
     #[error("invalid runtime state")]
@@ -272,6 +255,19 @@ impl From<&ApiError> for NativeCommandErrorCode {
     }
 }
 
+impl From<&RunpodProviderError> for NativeCommandErrorCode {
+    fn from(error: &RunpodProviderError) -> Self {
+        match error {
+            RunpodProviderError::ProviderApiError(error) => provider_error(error),
+            RunpodProviderError::RuntimeProviderApiKeyUnavailable(error) => Self::from(error),
+            RunpodProviderError::WorkflowProviderApiKeyUnavailable(error) => Self::from(error),
+            RunpodProviderError::ProvisionerWorkerUnavailable { .. }
+            | RunpodProviderError::ProvisionerWorkerResponseInvalid { .. }
+            | RunpodProviderError::ProvisionerWorkerFailed { .. } => Self::ProviderRequestFailed,
+        }
+    }
+}
+
 impl From<RunpodRuntimeError> for NativeCommandError {
     fn from(error: RunpodRuntimeError) -> Self {
         NativeCommandError::from(workspace_error_from_runpod_runtime(&error))
@@ -309,22 +305,16 @@ impl From<&WorkspaceError> for NativeCommandErrorCode {
     fn from(error: &WorkspaceError) -> Self {
         match error {
             WorkspaceError::ProviderApiError(error) => provider_error(error),
-            WorkspaceError::RuntimeProviderApiKeyUnavailable(_) => Self::RunpodApiKeyUnavailable,
-            WorkspaceError::WorkflowProviderApiKeyUnavailable(_) => {
-                Self::HuggingFaceApiKeyUnavailable
-            }
-            WorkspaceError::WorkflowCatalogInvalid(_) => Self::RunpodWorkflowCatalogInvalid,
-            WorkspaceError::RuntimeCatalogInvalid(_) => Self::RunpodRuntimeCatalogInvalid,
-            WorkspaceError::WorkspaceCatalogInvalid(_) => Self::RunpodWorkspaceCatalogInvalid,
+            WorkspaceError::RuntimeProviderApiKeyUnavailable(error) => Self::from(error),
+            WorkspaceError::WorkflowProviderApiKeyUnavailable(error) => Self::from(error),
+            WorkspaceError::WorkflowCatalogInvalid(error) => Self::from(error),
+            WorkspaceError::RuntimeCatalogInvalid(error) => Self::from(error),
+            WorkspaceError::WorkspaceCatalogInvalid(error) => Self::from(error),
             WorkspaceError::LifecycleJournalInvalid { .. } => Self::InvalidRuntimeState,
-            WorkspaceError::ProvisionerWorkerUnavailable { .. } => {
-                Self::ProvisionerWorkerUnavailable
-            }
-            WorkspaceError::ProvisionerWorkerResponseInvalid { .. } => {
-                Self::ProvisionerWorkerResponseInvalid
-            }
-            WorkspaceError::ProvisionerWorkerFailed { .. } => Self::ProvisionerWorkerFailed,
-            WorkspaceError::WorkspaceNotFound { .. } => Self::RunpodWorkspaceNotFound,
+            WorkspaceError::ProvisionerWorkerUnavailable { .. }
+            | WorkspaceError::ProvisionerWorkerResponseInvalid { .. }
+            | WorkspaceError::ProvisionerWorkerFailed { .. } => Self::ProviderRequestFailed,
+            WorkspaceError::WorkspaceNotFound { .. } => Self::WorkspaceNotFound,
             WorkspaceError::LifecycleOperationAlreadyRunning { .. } => {
                 Self::LifecycleOperationAlreadyRunning
             }
@@ -512,7 +502,7 @@ mod tests {
         ));
 
         assert_eq!(error.message, "secure storage is unavailable");
-        assert_eq!(error.code, NativeCommandErrorCode::RunpodApiKeyUnavailable);
+        assert_eq!(error.code, NativeCommandErrorCode::StoreUnavailable);
     }
 
     #[test]

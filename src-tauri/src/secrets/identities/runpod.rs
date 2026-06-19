@@ -24,6 +24,7 @@ const RUNPOD_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const RUNPOD_IDENTITY_QUERY: &str =
     "query LumaForgeRunpodIdentity { myself { email apiKeys { id isActive } } }";
 
+#[derive(Clone)]
 pub struct RunpodIdentityProvider {
     http: reqwest::Client,
     endpoint: String,
