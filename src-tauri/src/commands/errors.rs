@@ -418,9 +418,8 @@ mod tests {
 
     #[test]
     fn runpod_unauthorized_preserves_service_message() {
-        let error = NativeCommandError::from(WorkspaceError::ProviderApiError(
-            ApiError::Unauthorized,
-        ));
+        let error =
+            NativeCommandError::from(WorkspaceError::ProviderApiError(ApiError::Unauthorized));
 
         assert_eq!(error.message, "api request was unauthorized");
         assert_eq!(error.code, NativeCommandErrorCode::ProviderUnauthorized);

@@ -202,7 +202,7 @@ pub fn operation_for_test(workspace_id: &str) -> LifecycleOperation {
 }
 
 pub fn runpod_client_with_state() -> Arc<dyn crate::provider::runpod::client::RunpodRuntimeClient> {
-    Arc::new(FakeRunpodRuntimeClient::default())
+    Arc::new(FakeRunpodRuntimeClient)
 }
 
 #[derive(Clone, Default)]
