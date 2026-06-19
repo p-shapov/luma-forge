@@ -270,41 +270,17 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<DeleteWorkspaceResponse, RunpodRuntimeError> {
-        let payload = LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
-            RunpodLifecycleCleanupPayload { step: None },
-        ));
-        let (workspace, operation) = self
-            .start_lifecycle_operation(workspace_id, &payload)
-            .await?;
-
-        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        if runpod_resources_are_empty(&runtime.resources) {
-            let completed_operation = super::lifecycle::delete::run_once(
-                &operation.operation_id,
-                &self.workspace_catalog,
-                &self.lifecycle_journal,
-                self.runpod_client.as_ref(),
-                &self.event_sink,
-            )
-            .await?
-            .ok_or_else(|| {
-                invalid_runtime_state_message("delete lifecycle operation was not found")
-            })?;
-
-            return Ok(DeleteWorkspaceResponse {
-                workspace_id: workspace_id.to_string(),
-                operation: completed_operation,
-            });
-        }
-
-        runner::spawn_delete(
-            self.lifecycle_runner_context(),
-            operation.operation_id.clone(),
-        );
+        let workspace = self.load_workspace_required(workspace_id).await?;
+        super::lifecycle::delete::delete_workspace(
+            workspace,
+            &self.workspace_catalog,
+            self.runpod_client.as_ref(),
+            &self.event_sink,
+        )
+        .await?;
 
         Ok(DeleteWorkspaceResponse {
             workspace_id: workspace_id.to_string(),
-            operation,
         })
     }
 
@@ -510,7 +486,6 @@ pub struct CleanupWorkspaceResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteWorkspaceResponse {
     pub workspace_id: String,
-    pub operation: LifecycleOperation,
 }
 
 #[cfg(test)]
@@ -1504,19 +1479,17 @@ mod tests {
             .expect("delete should start");
 
         assert_eq!(response.workspace_id, "workspace-1");
-        assert_eq!(response.operation.state, LifecycleOperationState::Completed);
-        assert_eq!(
-            response.operation.payload,
-            Some(cleanup_payload(Some(
-                crate::domain::runpod::RunpodCleanupStep::DeleteNetworkVolume
-            )))
-        );
         assert!(service
             .workspace_catalog
             .find_workspace_by_id("workspace-1")
             .await
             .expect("repository read should succeed")
             .is_none());
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
         assert_eq!(
             service
                 .get_latest_lifecycle_operation("workspace-1")
@@ -1527,8 +1500,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_workspace_without_resources_preserves_lifecycle_row_when_workspace_delete_fails(
-    ) {
+    async fn delete_workspace_with_resources_cleans_up_without_creating_lifecycle_operation() {
+        let state = Arc::new(Mutex::new(RunpodClientState::default()));
+        let service = service_without_lifecycle_spawning(state.clone());
+        let mut workspace = service
+            .create_runpod_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace should be created");
+        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+        runtime.resources.network_volume_id = Some("volume".to_string());
+        service
+            .workspace_catalog
+            .update_workspace(&workspace)
+            .await
+            .expect("workspace should update");
+
+        let response = service
+            .delete_workspace("workspace-1")
+            .await
+            .expect("delete should succeed");
+
+        assert_eq!(response.workspace_id, "workspace-1");
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_none());
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
+        assert_eq!(
+            service
+                .get_latest_lifecycle_operation("workspace-1")
+                .await
+                .expect("operation lookup should succeed"),
+            None
+        );
+        assert_eq!(
+            state.lock().expect("state lock").calls,
+            vec!["delete_network_volume"]
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_workspace_without_resources_fails_without_persisting_lifecycle_operation() {
         let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
         let service = service_with_state_and_workspace_catalog(
             Arc::new(Mutex::new(RunpodClientState::default())),
@@ -1561,44 +1578,6 @@ mod tests {
             .await
             .expect("workspace lookup should succeed")
             .is_some());
-        let latest = service
-            .get_latest_lifecycle_operation("workspace-1")
-            .await
-            .expect("operation lookup should succeed")
-            .expect("operation should remain for diagnosis");
-        assert_eq!(latest.state, LifecycleOperationState::Failed);
-        assert_eq!(
-            latest.payload,
-            Some(cleanup_payload(Some(
-                crate::domain::runpod::RunpodCleanupStep::DeleteNetworkVolume
-            )))
-        );
-    }
-
-    #[tokio::test]
-    async fn delete_runner_completes_when_workspace_missing_after_operation_created() {
-        let service = service_with_state(Arc::new(Mutex::new(RunpodClientState::default())));
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace should be created");
-        let operation_id = service
-            .lifecycle_journal
-            .create_operation(&"workspace-1".to_string())
-            .await
-            .expect("delete operation should be created")
-            .operation_id;
-        service
-            .workspace_catalog
-            .delete_workspace("workspace-1")
-            .await
-            .expect("workspace should be deleted");
-
-        service
-            .run_delete_once_for_test(&operation_id)
-            .await
-            .expect("runner should terminalize operation");
-
         assert!(service
             .get_running_lifecycle_operations()
             .await
@@ -1608,172 +1587,56 @@ mod tests {
             service
                 .get_latest_lifecycle_operation("workspace-1")
                 .await
-                .expect("operation should load"),
+                .expect("operation lookup should succeed"),
             None
         );
     }
 
     #[tokio::test]
-    async fn delete_runner_success_deletes_workspace_and_lifecycle_rows() {
-        let state = Arc::new(Mutex::new(RunpodClientState::default()));
-        let service = service_with_state(state.clone());
+    async fn delete_workspace_with_resources_fails_without_persisting_lifecycle_operation() {
+        let state = Arc::new(Mutex::new(RunpodClientState {
+            delete_template_error: Some(runpod_api_runtime_error()),
+            ..RunpodClientState::default()
+        }));
+        let service = service_with_state(state);
         let mut workspace = service
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
             .expect("workspace should be created");
         let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-        runtime.resources.network_volume_id = Some("volume".to_string());
+        runtime.resources.template_id = Some("template".to_string());
         service
             .workspace_catalog
             .update_workspace(&workspace)
             .await
             .expect("workspace should update");
-        let operation_id = service
-            .lifecycle_journal
-            .create_operation(&"workspace-1".to_string())
-            .await
-            .expect("delete operation should be created")
-            .operation_id;
 
-        service
-            .run_delete_once_for_test(&operation_id)
+        let error = service
+            .delete_workspace("workspace-1")
             .await
-            .expect("delete runner should complete");
+            .expect_err("delete should fail when template delete fails");
 
-        assert!(service
+        assert!(matches!(
+            error,
+            crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiError(_)
+        ));
+        let workspace = service
             .find_workspace("workspace-1")
             .await
             .expect("workspace lookup should succeed")
-            .is_none());
+            .expect("workspace should remain");
+        assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
+        assert!(service
+            .get_running_lifecycle_operations()
+            .await
+            .expect("operations should load")
+            .is_empty());
         assert_eq!(
             service
                 .get_latest_lifecycle_operation("workspace-1")
                 .await
                 .expect("operation lookup should succeed"),
             None
-        );
-        assert_eq!(
-            state.lock().expect("state lock").calls,
-            vec!["delete_network_volume"]
-        );
-    }
-
-    #[tokio::test]
-    async fn delete_runner_reports_delete_template_when_template_delete_fails() {
-        let state = Arc::new(Mutex::new(RunpodClientState {
-            provisioner_status_results: vec![RunpodProvisionerStatus::Succeeded],
-            ..RunpodClientState::default()
-        }));
-        let service = service_without_lifecycle_spawning(state.clone());
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace should be created");
-        let provision_operation_id = service
-            .provision_workspace("workspace-1")
-            .await
-            .expect("provision should start")
-            .operation
-            .operation_id;
-        service
-            .run_provision_once_for_test(&provision_operation_id)
-            .await
-            .expect("provision should complete");
-
-        state.lock().expect("state lock").delete_template_error = Some(runpod_api_runtime_error());
-        let delete_operation_id = service
-            .delete_workspace("workspace-1")
-            .await
-            .expect("delete should start")
-            .operation
-            .operation_id;
-        service
-            .run_delete_once_for_test(&delete_operation_id)
-            .await
-            .expect("delete runner should record failure");
-
-        let workspace = service
-            .find_workspace("workspace-1")
-            .await
-            .expect("workspace should load")
-            .expect("workspace should exist");
-        let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
-        assert_eq!(runtime.resources.endpoint_id, None);
-        assert_eq!(runtime.resources.template_id.as_deref(), Some("template"));
-
-        let latest = service
-            .get_latest_lifecycle_operation("workspace-1")
-            .await
-            .expect("operation should load")
-            .expect("operation should exist");
-        assert_eq!(latest.state, LifecycleOperationState::Failed);
-        assert_eq!(
-            latest.payload,
-            Some(cleanup_payload(Some(
-                crate::domain::runpod::RunpodCleanupStep::DeleteTemplate
-            )))
-        );
-    }
-
-    #[tokio::test]
-    async fn delete_runner_preserves_lifecycle_row_when_workspace_delete_fails() {
-        let state = Arc::new(Mutex::new(RunpodClientState::default()));
-        let workspace_state = Arc::new(Mutex::new(WorkspaceRepositoryState::default()));
-        let service = service_with_state_and_workspace_catalog(
-            state,
-            InMemoryWorkspaceRepository::with_state(workspace_state.clone()),
-        );
-        let mut workspace = service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace should be created");
-        let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
-        runtime.resources.network_volume_id = Some("volume".to_string());
-        service
-            .workspace_catalog
-            .update_workspace(&workspace)
-            .await
-            .expect("workspace should update");
-        let operation_id = service
-            .lifecycle_journal
-            .create_operation(&"workspace-1".to_string())
-            .await
-            .expect("delete operation should be created")
-            .operation_id;
-        workspace_state
-            .lock()
-            .expect("workspace state lock should succeed")
-            .delete_workspace_error = Some(
-            crate::workspace_catalog::WorkspaceCatalogError::StorageUnavailable {
-                message: "query failed".to_string(),
-            },
-        );
-
-        let error = service
-            .run_delete_once_for_test(&operation_id)
-            .await
-            .expect_err("delete runner should fail when workspace delete fails");
-
-        assert!(matches!(
-            error,
-            crate::runpod_runtime::errors::RunpodRuntimeError::WorkspaceCatalogInvalid(_)
-        ));
-        assert!(service
-            .find_workspace("workspace-1")
-            .await
-            .expect("workspace lookup should succeed")
-            .is_some());
-        let latest = service
-            .get_latest_lifecycle_operation("workspace-1")
-            .await
-            .expect("operation lookup should succeed")
-            .expect("operation should remain for diagnosis");
-        assert_eq!(latest.state, LifecycleOperationState::Failed);
-        assert_eq!(
-            latest.payload,
-            Some(cleanup_payload(Some(
-                crate::domain::runpod::RunpodCleanupStep::DeleteNetworkVolume
-            )))
         );
     }
 
@@ -1902,39 +1765,6 @@ mod tests {
             .expect("workspace should load")
             .expect("workspace should exist");
         assert_eq!(workspace.state, WorkspaceState::CleanupRequired);
-    }
-
-    #[tokio::test]
-    async fn mark_running_operations_stale_marks_delete_stale_when_workspace_is_missing() {
-        let service = service_with_state(Arc::new(Mutex::new(RunpodClientState::default())));
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace should be created");
-        let operation = service
-            .lifecycle_journal
-            .create_operation(&"workspace-1".to_string())
-            .await
-            .expect("delete operation should be created");
-        service
-            .workspace_catalog
-            .delete_workspace("workspace-1")
-            .await
-            .expect("workspace should be removed");
-
-        service
-            .mark_running_operations_stale()
-            .await
-            .expect("missing delete workspace should still mark operation stale");
-
-        let stale = service
-            .get_latest_lifecycle_operation("workspace-1")
-            .await
-            .expect("operation should load")
-            .expect("operation should exist");
-        assert_eq!(stale.operation_id, operation.operation_id);
-        assert_eq!(stale.state, LifecycleOperationState::Stale);
-        assert_eq!(stale.payload, None);
     }
 
     #[tokio::test]
