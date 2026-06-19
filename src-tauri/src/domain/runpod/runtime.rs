@@ -8,7 +8,7 @@ pub struct RunpodRuntime {
     pub resources: RunpodResources,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunpodResources {
     pub network_volume_id: Option<String>,
     pub provisioner_pod_id: Option<String>,

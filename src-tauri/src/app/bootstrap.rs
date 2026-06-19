@@ -17,7 +17,6 @@ use crate::{
     },
     sqlite::database::SqliteNativeDatabase,
     workflow_catalog::BundledWorkflowCatalogRepository,
-    workspace::registry::WorkspaceRuntimeRegistry,
     workspace::{WorkspaceService, WorkspaceServiceDependencies},
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
@@ -69,13 +68,11 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         hugging_face_secrets.clone(),
     ));
     let workspace_runtime = RunpodWorkspaceRuntime::new(runpod_provider.clone());
-    let runtime_registry = WorkspaceRuntimeRegistry::new(Arc::new(workspace_runtime));
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
         lifecycle_journal: Arc::new(lifecycle_journal.clone()),
         workflow_catalog: workflow_catalog.clone(),
-        runtime_catalog: runtime_catalog.clone(),
-        runtime_registry,
+        runtime: Arc::new(workspace_runtime),
         lifecycle_operation_registry: Default::default(),
         event_sink: Arc::new(TauriWorkspaceEventSink::new(app_handle.clone())),
         task_spawner: Arc::new(TauriBackgroundTaskSpawner),
@@ -96,6 +93,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         workflow_catalog,
         runtime_catalog,
         workspace_catalog,
+        lifecycle_journal,
         workspace,
         runpod_provider,
         runpod_secrets,

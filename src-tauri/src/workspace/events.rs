@@ -10,7 +10,7 @@ pub enum WorkspaceEvent {
     },
     WorkspaceChanged {
         workspace_id: String,
-        workspace: Box<Workspace>,
+        workspace: Workspace,
     },
     WorkspaceDeleted {
         workspace_id: String,

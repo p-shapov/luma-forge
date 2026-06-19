@@ -16,11 +16,11 @@ use crate::{
 };
 
 pub type WorkspaceCatalogAppService = SqliteWorkspaceCatalogRepository;
+pub type LifecycleJournalAppService = SqliteLifecycleJournalRepository;
 pub type WorkspaceAppService = WorkspaceService<
     SqliteWorkspaceCatalogRepository,
     SqliteLifecycleJournalRepository,
     BundledWorkflowCatalogRepository,
-    BundledRuntimeCatalogRepository,
 >;
 pub type RunpodProviderAppService = Arc<dyn RunpodRuntimeClient>;
 pub type RunpodSecretsService = SecretsService<KeyringSecretStore, RunpodIdentityProvider>;
@@ -31,6 +31,7 @@ pub struct AppState {
     pub workflow_catalog: BundledWorkflowCatalogRepository,
     pub runtime_catalog: BundledRuntimeCatalogRepository,
     pub workspace_catalog: WorkspaceCatalogAppService,
+    pub lifecycle_journal: LifecycleJournalAppService,
     pub workspace: WorkspaceAppService,
     pub runpod_provider: RunpodProviderAppService,
     pub runpod_secrets: RunpodSecretsService,

@@ -1,6 +1,5 @@
 pub mod errors;
 pub mod events;
-pub mod registry;
 pub mod runtime;
 pub mod service;
 

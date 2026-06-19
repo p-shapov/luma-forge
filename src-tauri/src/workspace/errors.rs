@@ -21,14 +21,8 @@ pub enum WorkspaceError {
     RuntimeCatalogInvalid(#[from] RuntimeCatalogError),
     #[error("workspace catalog invalid")]
     WorkspaceCatalogInvalid(#[from] WorkspaceCatalogError),
-    #[error("lifecycle journal invalid: {message}")]
-    LifecycleJournalInvalid { message: String },
-    #[error("provisioner worker unavailable: {message}")]
-    ProvisionerWorkerUnavailable { message: String },
-    #[error("provisioner worker response invalid: {message}")]
-    ProvisionerWorkerResponseInvalid { message: String },
-    #[error("provisioner worker failed: {message}")]
-    ProvisionerWorkerFailed { message: String },
+    #[error("lifecycle journal invalid")]
+    LifecycleJournalInvalid(#[from] LifecycleJournalError),
     #[error("workspace was not found: {workspace_id}")]
     WorkspaceNotFound { workspace_id: String },
     #[error("workspace already has a running lifecycle operation: {workspace_id}")]
@@ -46,11 +40,5 @@ pub fn invalid_state(message: impl Into<String>) -> WorkspaceError {
 pub fn workspace_not_found(workspace_id: impl Into<String>) -> WorkspaceError {
     WorkspaceError::WorkspaceNotFound {
         workspace_id: workspace_id.into(),
-    }
-}
-
-pub fn lifecycle_journal_error(error: LifecycleJournalError) -> WorkspaceError {
-    WorkspaceError::LifecycleJournalInvalid {
-        message: error.to_string(),
     }
 }
