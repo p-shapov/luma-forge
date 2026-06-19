@@ -6,7 +6,7 @@ use crate::{
     workspace::{WorkspaceError, WorkspaceRuntime, WorkspaceRuntimeContext},
 };
 
-use super::client::RunpodRuntimeClient;
+use super::{client::RunpodRuntimeClient, errors::RunpodProviderError};
 
 #[derive(Clone)]
 pub struct RunpodWorkspaceRuntime {
@@ -16,6 +16,27 @@ pub struct RunpodWorkspaceRuntime {
 impl RunpodWorkspaceRuntime {
     pub fn new(runpod_client: Arc<dyn RunpodRuntimeClient>) -> Self {
         Self { runpod_client }
+    }
+}
+
+pub(super) fn map_provider_error(error: RunpodProviderError) -> WorkspaceError {
+    match error {
+        RunpodProviderError::ProviderApiError(error) => WorkspaceError::ProviderApiError(error),
+        RunpodProviderError::RuntimeProviderApiKeyUnavailable(error) => {
+            WorkspaceError::RuntimeProviderApiKeyUnavailable(error)
+        }
+        RunpodProviderError::WorkflowProviderApiKeyUnavailable(error) => {
+            WorkspaceError::WorkflowProviderApiKeyUnavailable(error)
+        }
+        RunpodProviderError::ProvisionerWorkerUnavailable { message } => {
+            WorkspaceError::ProvisionerWorkerUnavailable { message }
+        }
+        RunpodProviderError::ProvisionerWorkerResponseInvalid { message } => {
+            WorkspaceError::ProvisionerWorkerResponseInvalid { message }
+        }
+        RunpodProviderError::ProvisionerWorkerFailed { message } => {
+            WorkspaceError::ProvisionerWorkerFailed { message }
+        }
     }
 }
 
