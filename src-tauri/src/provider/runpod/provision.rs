@@ -9,10 +9,6 @@ use crate::{
         runtime_contract::{RuntimeCatalog, RuntimeContractReference},
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
-    runpod_runtime::contracts::{
-        RunpodRuntimeContract, RunpodRuntimeContracts, RunpodWorkflowResolved,
-        RunpodWorkflowResolver,
-    },
     runtime_catalog::BundledRuntimeCatalogRepository,
     runtime_catalog::RuntimeCatalogRepository,
     workflow_catalog::{BundledWorkflowCatalogRepository, WorkflowCatalogRepository},
@@ -53,7 +49,7 @@ pub async fn provision_workspace(
         .ok_or_else(|| invalid_state("workflow reference was not found"))?;
     let runtime_catalog = BundledRuntimeCatalogRepository::new();
     let contracts = resolve_contracts(&workflow, &runtime_catalog)?;
-    let placement = runpod_runtime(&workspace).placement.clone();
+    let placement = runpod_workspace(&workspace).placement.clone();
 
     mark_step(
         &context,
@@ -69,7 +65,7 @@ pub async fn provision_workspace(
         })
         .await
         .map_err(super::runtime::map_provider_error)?;
-    runpod_runtime_mut(&mut workspace)
+    runpod_workspace_mut(&mut workspace)
         .resources
         .network_volume_id = Some(network_volume_id.clone());
     workspace = context.persist_workspace(workspace).await?;
@@ -91,7 +87,7 @@ pub async fn provision_workspace(
         })
         .await
         .map_err(super::runtime::map_provider_error)?;
-    runpod_runtime_mut(&mut workspace)
+    runpod_workspace_mut(&mut workspace)
         .resources
         .provisioner_pod_id = Some(provisioner_pod_id.clone());
     workspace = context.persist_workspace(workspace).await?;
@@ -134,7 +130,7 @@ pub async fn provision_workspace(
         .terminate_provisioner_pod(&provisioner_pod_id)
         .await
         .map_err(super::runtime::map_provider_error)?;
-    runpod_runtime_mut(&mut workspace)
+    runpod_workspace_mut(&mut workspace)
         .resources
         .provisioner_pod_id = None;
     workspace = context.persist_workspace(workspace).await?;
@@ -152,7 +148,7 @@ pub async fn provision_workspace(
         })
         .await
         .map_err(super::runtime::map_provider_error)?;
-    runpod_runtime_mut(&mut workspace).resources.template_id = Some(template_id.clone());
+    runpod_workspace_mut(&mut workspace).resources.template_id = Some(template_id.clone());
     workspace = context.persist_workspace(workspace).await?;
 
     mark_step(
@@ -171,17 +167,17 @@ pub async fn provision_workspace(
         })
         .await
         .map_err(super::runtime::map_provider_error)?;
-    runpod_runtime_mut(&mut workspace).resources.endpoint_id = Some(endpoint_id);
+    runpod_workspace_mut(&mut workspace).resources.endpoint_id = Some(endpoint_id);
     workspace.state = WorkspaceState::Ready;
     context.persist_workspace(workspace).await
 }
 
-fn runpod_runtime(workspace: &Workspace) -> &RunpodRuntime {
+fn runpod_workspace(workspace: &Workspace) -> &RunpodRuntime {
     let WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
     runtime
 }
 
-fn runpod_runtime_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
+fn runpod_workspace_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
     runtime
 }
@@ -227,4 +223,58 @@ fn resolve_runtime_contract(
         version: revision.version.clone(),
         image_ref: revision.image_ref.clone(),
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RunpodRuntimeContract {
+    id: String,
+    version: String,
+    image_ref: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RunpodRuntimeContracts {
+    endpoint_contract: RunpodRuntimeContract,
+    provisioner_contract: RunpodRuntimeContract,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RunpodWorkflowResolved {
+    requires_hugging_face_api_key: bool,
+    contract_requirements: crate::domain::runpod::RunpodContractRequirements,
+    required_model_assets: Vec<crate::domain::workflow_preset::ModelAsset>,
+}
+
+struct RunpodWorkflowResolver;
+
+impl RunpodWorkflowResolver {
+    fn resolve(
+        catalog: &crate::domain::workflow_preset::WorkflowCatalog,
+        reference: &crate::domain::workflow_preset::WorkflowReference,
+    ) -> Option<RunpodWorkflowResolved> {
+        let preset = catalog
+            .workflow_presets
+            .iter()
+            .find(|preset| preset.id == reference.id)?;
+        let revision = preset
+            .revisions
+            .iter()
+            .find(|revision| revision.version == reference.version)?;
+        let contract_requirements = revision
+            .contract_requirements
+            .iter()
+            .map(|requirements| match requirements {
+                crate::domain::workflow_preset::WorkflowContractRequirements::Runpod(
+                    requirements,
+                ) => requirements,
+            })
+            .next()?
+            .clone();
+
+        Some(RunpodWorkflowResolved {
+            requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
+            contract_requirements,
+            required_model_assets: revision.required_model_assets.clone(),
+        })
+    }
 }

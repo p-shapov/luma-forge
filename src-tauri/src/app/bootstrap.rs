@@ -68,8 +68,8 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         runpod_secrets.clone(),
         hugging_face_secrets.clone(),
     ));
-    let runpod_runtime = RunpodWorkspaceRuntime::new(runpod_provider.clone());
-    let runtime_registry = WorkspaceRuntimeRegistry::new(Arc::new(runpod_runtime));
+    let workspace_runtime = RunpodWorkspaceRuntime::new(runpod_provider.clone());
+    let runtime_registry = WorkspaceRuntimeRegistry::new(Arc::new(workspace_runtime));
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
         lifecycle_journal: Arc::new(lifecycle_journal.clone()),
