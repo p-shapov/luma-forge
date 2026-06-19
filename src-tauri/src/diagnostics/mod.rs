@@ -192,6 +192,10 @@ where
     let message = leaf_error_message(&error);
     let log_message = redact_for_log(&message);
     let source_chain = error_source_chain(&error);
+    let redacted_source_chain = source_chain
+        .iter()
+        .map(|source| redact_for_log(source))
+        .collect::<Vec<_>>();
 
     tracing::error!(
         diagnostic_id = %diagnostic_id,
@@ -200,7 +204,7 @@ where
         request_metadata = ?request_metadata,
         code = ?code,
         error = ?log_message,
-        source_chain = ?source_chain,
+        source_chain = ?redacted_source_chain,
         "native command failed"
     );
 
@@ -274,6 +278,10 @@ where
 {
     let diagnostic_id = new_diagnostic_id();
     let source_chain = error_source_chain(error);
+    let redacted_source_chain = source_chain
+        .iter()
+        .map(|source| redact_for_log(source))
+        .collect::<Vec<_>>();
     let message = leaf_error_message(error);
     let log_message = redact_for_log(&message);
     let fields = lifecycle_log_fields(payload);
@@ -286,7 +294,7 @@ where
         state = lifecycle_state_label(LifecycleOperationState::Failed),
         step = fields.step.unwrap_or("none"),
         error = ?log_message,
-        source_chain = ?source_chain,
+        source_chain = ?redacted_source_chain,
         "lifecycle operation failed"
     );
 
@@ -328,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn source_chain_includes_nested_error_codes() {
+    fn source_chain_includes_nested_error_messages() {
         let error = crate::workspace::WorkspaceError::RuntimeProviderApiKeyUnavailable(
             crate::secrets::SecretsStorageError::StoreUnavailable,
         );
