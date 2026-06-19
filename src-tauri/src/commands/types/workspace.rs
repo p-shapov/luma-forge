@@ -7,10 +7,7 @@ use crate::domain::{
         LifecycleCleanupPayload, LifecycleOperation, LifecycleOperationPayload,
         LifecycleOperationState, LifecycleProvisionPayload,
     },
-    runpod::{
-        RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload,
-        RunpodProvisionStep, RunpodResources, RunpodRuntime,
-    },
+    runpod::{RunpodCleanupStep, RunpodProvisionStep, RunpodResources, RunpodRuntime},
     workflow_preset::WorkflowReference,
     workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
 };
@@ -146,25 +143,17 @@ pub enum LifecycleOperationPayloadResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "runtimeType", rename_all = "snake_case")]
 pub enum LifecycleProvisionPayloadResponse {
-    Runpod(RunpodLifecycleProvisionPayloadResponse),
+    Runpod {
+        step: Option<RunpodProvisionStepResponse>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(tag = "runtimeType", rename_all = "snake_case")]
 pub enum LifecycleCleanupPayloadResponse {
-    Runpod(RunpodLifecycleCleanupPayloadResponse),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RunpodLifecycleProvisionPayloadResponse {
-    pub step: Option<RunpodProvisionStepResponse>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RunpodLifecycleCleanupPayloadResponse {
-    pub step: Option<RunpodCleanupStepResponse>,
+    Runpod {
+        step: Option<RunpodCleanupStepResponse>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -276,10 +265,8 @@ impl From<RunpodResources> for RunpodResourcesResponse {
     }
 }
 
-impl From<crate::runpod_runtime::service::ProvisionWorkspaceResponse>
-    for ProvisionWorkspaceResponse
-{
-    fn from(value: crate::runpod_runtime::service::ProvisionWorkspaceResponse) -> Self {
+impl From<crate::workspace::ProvisionWorkspaceResponse> for ProvisionWorkspaceResponse {
+    fn from(value: crate::workspace::ProvisionWorkspaceResponse) -> Self {
         Self {
             workspace: value.workspace.into(),
             operation: value.operation.into(),
@@ -287,8 +274,8 @@ impl From<crate::runpod_runtime::service::ProvisionWorkspaceResponse>
     }
 }
 
-impl From<crate::runpod_runtime::service::CleanupWorkspaceResponse> for CleanupWorkspaceResponse {
-    fn from(value: crate::runpod_runtime::service::CleanupWorkspaceResponse) -> Self {
+impl From<crate::workspace::CleanupWorkspaceResponse> for CleanupWorkspaceResponse {
+    fn from(value: crate::workspace::CleanupWorkspaceResponse) -> Self {
         Self {
             workspace: value.workspace.into(),
             operation: value.operation.into(),
@@ -296,8 +283,8 @@ impl From<crate::runpod_runtime::service::CleanupWorkspaceResponse> for CleanupW
     }
 }
 
-impl From<crate::runpod_runtime::service::DeleteWorkspaceResponse> for DeleteWorkspaceResponse {
-    fn from(value: crate::runpod_runtime::service::DeleteWorkspaceResponse) -> Self {
+impl From<crate::workspace::DeleteWorkspaceResponse> for DeleteWorkspaceResponse {
+    fn from(value: crate::workspace::DeleteWorkspaceResponse) -> Self {
         Self {
             workspace_id: value.workspace_id,
         }
@@ -341,7 +328,9 @@ impl From<LifecycleOperationPayload> for LifecycleOperationPayloadResponse {
 impl From<LifecycleProvisionPayload> for LifecycleProvisionPayloadResponse {
     fn from(value: LifecycleProvisionPayload) -> Self {
         match value {
-            LifecycleProvisionPayload::Runpod(payload) => Self::Runpod(payload.into()),
+            LifecycleProvisionPayload::Runpod(payload) => Self::Runpod {
+                step: payload.step.map(Into::into),
+            },
         }
     }
 }
@@ -349,23 +338,9 @@ impl From<LifecycleProvisionPayload> for LifecycleProvisionPayloadResponse {
 impl From<LifecycleCleanupPayload> for LifecycleCleanupPayloadResponse {
     fn from(value: LifecycleCleanupPayload) -> Self {
         match value {
-            LifecycleCleanupPayload::Runpod(payload) => Self::Runpod(payload.into()),
-        }
-    }
-}
-
-impl From<RunpodLifecycleProvisionPayload> for RunpodLifecycleProvisionPayloadResponse {
-    fn from(value: RunpodLifecycleProvisionPayload) -> Self {
-        Self {
-            step: value.step.map(Into::into),
-        }
-    }
-}
-
-impl From<RunpodLifecycleCleanupPayload> for RunpodLifecycleCleanupPayloadResponse {
-    fn from(value: RunpodLifecycleCleanupPayload) -> Self {
-        Self {
-            step: value.step.map(Into::into),
+            LifecycleCleanupPayload::Runpod(payload) => Self::Runpod {
+                step: payload.step.map(Into::into),
+            },
         }
     }
 }
@@ -406,10 +381,8 @@ mod tests {
         CreateRunpodWorkspaceRequest, LifecycleCleanupPayloadResponse,
         LifecycleOperationChangedEvent, LifecycleOperationPayloadResponse,
         LifecycleOperationResponse, LifecycleOperationStateResponse,
-        LifecycleProvisionPayloadResponse, RunpodCleanupStepResponse,
-        RunpodLifecycleCleanupPayloadResponse, RunpodLifecycleProvisionPayloadResponse,
-        RunpodProvisionStepResponse, RunpodResourcesResponse, RunpodWorkspaceResponse,
-        WorkspaceRuntimeResponse,
+        LifecycleProvisionPayloadResponse, RunpodCleanupStepResponse, RunpodProvisionStepResponse,
+        RunpodResourcesResponse, RunpodWorkspaceResponse, WorkspaceRuntimeResponse,
     };
 
     #[test]
@@ -470,9 +443,9 @@ mod tests {
     #[test]
     fn lifecycle_operation_response_serializes_provision_payload_step() {
         let response = LifecycleOperationPayloadResponse::Provision(
-            LifecycleProvisionPayloadResponse::Runpod(RunpodLifecycleProvisionPayloadResponse {
+            LifecycleProvisionPayloadResponse::Runpod {
                 step: Some(RunpodProvisionStepResponse::CreateNetworkVolume),
-            }),
+            },
         );
 
         let json = serde_json::to_string(&response).expect("payload json");
@@ -485,9 +458,9 @@ mod tests {
     #[test]
     fn lifecycle_operation_response_serializes_create_template_step() {
         let response = LifecycleOperationPayloadResponse::Provision(
-            LifecycleProvisionPayloadResponse::Runpod(RunpodLifecycleProvisionPayloadResponse {
+            LifecycleProvisionPayloadResponse::Runpod {
                 step: Some(RunpodProvisionStepResponse::CreateTemplate),
-            }),
+            },
         );
 
         let json = serde_json::to_string(&response).expect("payload json");
@@ -497,11 +470,10 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_response_serializes_cleanup_delete_template_step() {
-        let response = LifecycleOperationPayloadResponse::Cleanup(
-            LifecycleCleanupPayloadResponse::Runpod(RunpodLifecycleCleanupPayloadResponse {
+        let response =
+            LifecycleOperationPayloadResponse::Cleanup(LifecycleCleanupPayloadResponse::Runpod {
                 step: Some(RunpodCleanupStepResponse::DeleteTemplate),
-            }),
-        );
+            });
 
         let json = serde_json::to_string(&response).expect("payload json");
 
@@ -553,15 +525,51 @@ mod tests {
         assert!(json.get("operation").is_none());
     }
 
+    #[test]
+    fn lifecycle_operation_response_serializes_null_payload() {
+        let response = LifecycleOperationResponse {
+            operation_id: "operation-1".to_string(),
+            workspace_id: "workspace-1".to_string(),
+            state: LifecycleOperationStateResponse::Running,
+            payload: None,
+            created_at: "2026-06-18T00:00:00Z".to_string(),
+            updated_at: "2026-06-18T00:00:00Z".to_string(),
+            finished_at: None,
+        };
+
+        let json = serde_json::to_string(&response).expect("operation json");
+
+        assert!(json.contains(r#""payload":null"#));
+    }
+
+    #[test]
+    fn delete_workspace_response_has_no_operation() {
+        let response = super::DeleteWorkspaceResponse {
+            workspace_id: "workspace-1".to_string(),
+        };
+
+        let json = serde_json::to_string(&response).expect("delete json");
+
+        assert_eq!(json, r#"{"workspaceId":"workspace-1"}"#);
+    }
+
+    #[test]
+    fn delete_workspace_response_converts_from_workspace_service_response() {
+        let response =
+            super::DeleteWorkspaceResponse::from(crate::workspace::DeleteWorkspaceResponse {
+                workspace_id: "workspace-1".to_string(),
+            });
+
+        assert_eq!(response.workspace_id, "workspace-1");
+    }
+
     fn lifecycle_operation_response() -> LifecycleOperationResponse {
         LifecycleOperationResponse {
             operation_id: "operation-1".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationStateResponse::Failed,
             payload: Some(LifecycleOperationPayloadResponse::Provision(
-                LifecycleProvisionPayloadResponse::Runpod(
-                    RunpodLifecycleProvisionPayloadResponse { step: None },
-                ),
+                LifecycleProvisionPayloadResponse::Runpod { step: None },
             )),
             created_at: "2026-06-13T00:00:00Z".to_string(),
             updated_at: "2026-06-13T00:00:01Z".to_string(),

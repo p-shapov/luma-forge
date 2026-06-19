@@ -9,10 +9,17 @@ use crate::{
         SecretsService,
     },
     workflow_catalog::BundledWorkflowCatalogRepository,
+    workspace::WorkspaceService,
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
 pub type WorkspaceCatalogAppService = SqliteWorkspaceCatalogRepository;
+pub type WorkspaceAppService = WorkspaceService<
+    SqliteWorkspaceCatalogRepository,
+    SqliteLifecycleJournalRepository,
+    BundledWorkflowCatalogRepository,
+    BundledRuntimeCatalogRepository,
+>;
 pub type RunpodRuntimeAppService = RunpodRuntimeService<
     SqliteWorkspaceCatalogRepository,
     SqliteLifecycleJournalRepository,
@@ -27,6 +34,7 @@ pub struct AppState {
     pub workflow_catalog: BundledWorkflowCatalogRepository,
     pub runtime_catalog: BundledRuntimeCatalogRepository,
     pub workspace_catalog: WorkspaceCatalogAppService,
+    pub workspace: WorkspaceAppService,
     pub runpod_runtime: RunpodRuntimeAppService,
     pub runpod_secrets: RunpodSecretsService,
     pub hugging_face_secrets: HuggingFaceSecretsService,
