@@ -53,7 +53,7 @@ impl EventSink<WorkspaceEvent> for TauriWorkspaceEventSink {
             } => {
                 let _ = WorkspaceChangedEvent {
                     workspace_id: workspace_id.clone(),
-                    workspace: (*workspace).into(),
+                    workspace: workspace.into(),
                 }
                 .emit(&self.app_handle);
             }

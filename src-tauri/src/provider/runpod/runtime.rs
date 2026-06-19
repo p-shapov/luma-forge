@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     domain::{lifecycle_operation::LifecycleOperation, workspace::Workspace},
-    shared::AppFuture,
+    shared::{ApiError, AppFuture},
     workspace::{WorkspaceError, WorkspaceRuntime, WorkspaceRuntimeContext},
 };
 
@@ -28,14 +28,10 @@ pub(super) fn map_provider_error(error: RunpodProviderError) -> WorkspaceError {
         RunpodProviderError::WorkflowProviderApiKeyUnavailable(error) => {
             WorkspaceError::WorkflowProviderApiKeyUnavailable(error)
         }
-        RunpodProviderError::ProvisionerWorkerUnavailable { message } => {
-            WorkspaceError::ProvisionerWorkerUnavailable { message }
-        }
-        RunpodProviderError::ProvisionerWorkerResponseInvalid { message } => {
-            WorkspaceError::ProvisionerWorkerResponseInvalid { message }
-        }
-        RunpodProviderError::ProvisionerWorkerFailed { message } => {
-            WorkspaceError::ProvisionerWorkerFailed { message }
+        RunpodProviderError::ProvisionerWorkerUnavailable { message }
+        | RunpodProviderError::ProvisionerWorkerResponseInvalid { message }
+        | RunpodProviderError::ProvisionerWorkerFailed { message } => {
+            WorkspaceError::ProviderApiError(ApiError::RequestFailed { message })
         }
     }
 }

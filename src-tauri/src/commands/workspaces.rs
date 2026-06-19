@@ -16,7 +16,10 @@ use crate::{
         native_command_error,
     },
     domain::runpod::RunpodPlacementPlan,
-    workspace::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
+    lifecycle_journal::LifecycleJournalRepository,
+    workspace::{
+        CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest, WorkspaceError,
+    },
 };
 
 #[tauri::command]
@@ -119,9 +122,10 @@ pub async fn get_running_lifecycle_operations(
 ) -> CommandResult<RunningLifecycleOperationsResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let operations = state
-        .workspace
-        .get_running_lifecycle_operations()
+        .lifecycle_journal
+        .list_running()
         .await
+        .map_err(WorkspaceError::from)
         .map_err(|error| command_error("get_running_lifecycle_operations", error))?
         .into_iter()
         .map(Into::into)
@@ -143,9 +147,10 @@ pub async fn get_latest_lifecycle_operation(
 ) -> CommandResult<LatestLifecycleOperationResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let operation = state
-        .workspace
-        .get_latest_lifecycle_operation(&request.workspace_id)
+        .lifecycle_journal
+        .latest_for_workspace(&request.workspace_id)
         .await
+        .map_err(WorkspaceError::from)
         .map_err(|error| command_error("get_latest_lifecycle_operation", error))?
         .map(Into::into);
 

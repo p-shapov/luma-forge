@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    provider::runpod::RunpodProviderError, runtime_catalog::RuntimeCatalogError,
-    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace::WorkspaceError, workspace_catalog::WorkspaceCatalogError,
+    lifecycle_journal::LifecycleJournalError, provider::runpod::RunpodProviderError,
+    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError, shared::ApiError,
+    workflow_catalog::WorkflowCatalogError, workspace::WorkspaceError,
+    workspace_catalog::WorkspaceCatalogError,
 };
 
 pub type CommandResult<T> = Result<T, NativeCommandError>;
@@ -267,6 +268,12 @@ impl From<&RunpodProviderError> for NativeCommandErrorCode {
     }
 }
 
+impl From<&LifecycleJournalError> for NativeCommandErrorCode {
+    fn from(_error: &LifecycleJournalError) -> Self {
+        Self::InvalidRuntimeState
+    }
+}
+
 impl From<WorkspaceError> for NativeCommandError {
     fn from(error: WorkspaceError) -> Self {
         let message = crate::diagnostics::leaf_error_message(&error);
@@ -291,10 +298,7 @@ impl From<&WorkspaceError> for NativeCommandErrorCode {
             WorkspaceError::WorkflowCatalogInvalid(error) => Self::from(error),
             WorkspaceError::RuntimeCatalogInvalid(error) => Self::from(error),
             WorkspaceError::WorkspaceCatalogInvalid(error) => Self::from(error),
-            WorkspaceError::LifecycleJournalInvalid { .. } => Self::InvalidRuntimeState,
-            WorkspaceError::ProvisionerWorkerUnavailable { .. }
-            | WorkspaceError::ProvisionerWorkerResponseInvalid { .. }
-            | WorkspaceError::ProvisionerWorkerFailed { .. } => Self::ProviderRequestFailed,
+            WorkspaceError::LifecycleJournalInvalid(error) => Self::from(error),
             WorkspaceError::WorkspaceNotFound { .. } => Self::WorkspaceNotFound,
             WorkspaceError::LifecycleOperationAlreadyRunning { .. } => {
                 Self::LifecycleOperationAlreadyRunning

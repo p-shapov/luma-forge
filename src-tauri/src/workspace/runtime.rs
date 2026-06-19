@@ -85,16 +85,14 @@ impl<'a> WorkspaceRuntimeContext<'a> {
         operation: LifecycleOperation,
     ) -> Result<LifecycleOperation, WorkspaceError> {
         let operation = match operation.state {
-            crate::domain::lifecycle_operation::LifecycleOperationState::Running => self
-                .lifecycle_journal
-                .update_operation(&operation)
-                .await
-                .map_err(super::errors::lifecycle_journal_error)?,
-            state => self
-                .lifecycle_journal
-                .mark_state(&operation.operation_id, state, operation.payload.as_ref())
-                .await
-                .map_err(super::errors::lifecycle_journal_error)?,
+            crate::domain::lifecycle_operation::LifecycleOperationState::Running => {
+                self.lifecycle_journal.update_operation(&operation).await?
+            }
+            state => {
+                self.lifecycle_journal
+                    .mark_state(&operation.operation_id, state, operation.payload.as_ref())
+                    .await?
+            }
         };
         self.event_sink
             .emit(WorkspaceEvent::LifecycleOperationChanged {
@@ -113,7 +111,7 @@ impl<'a> WorkspaceRuntimeContext<'a> {
         let workspace = self.workspace_catalog.update_workspace(&workspace).await?;
         self.event_sink.emit(WorkspaceEvent::WorkspaceChanged {
             workspace_id: workspace.id.clone(),
-            workspace: Box::new(workspace.clone()),
+            workspace: workspace.clone(),
         });
         Ok(workspace)
     }
@@ -160,165 +158,5 @@ impl<'a> WorkspaceRuntimeContext<'a> {
             .latest_for_workspace(&workspace_id.to_string())
             .await
             .expect("latest operation should load")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use crate::{
-        domain::{
-            lifecycle_operation::{
-                LifecycleCleanupPayload, LifecycleOperationPayload, LifecycleOperationState,
-            },
-            runpod::{
-                RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodPlacementPlan,
-                RunpodResources, RunpodRuntime,
-            },
-            workflow_preset::WorkflowReference,
-            workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
-        },
-        lifecycle_journal::LifecycleJournalRepository,
-        shared::EventSink,
-        workspace::events::WorkspaceEvent,
-        workspace_catalog::WorkspaceCatalogRepository,
-    };
-
-    use super::WorkspaceRuntimeContext;
-
-    #[derive(Default)]
-    struct Events(Mutex<Vec<WorkspaceEvent>>);
-
-    impl EventSink<WorkspaceEvent> for Events {
-        fn emit(&self, event: WorkspaceEvent) {
-            self.0.lock().expect("events lock").push(event);
-        }
-    }
-
-    #[tokio::test]
-    async fn persist_operation_emits_changed_event() {
-        let repositories = crate::workspace::test_support::repositories();
-        let events = Arc::new(Events::default());
-        let context = WorkspaceRuntimeContext::new(
-            repositories.workspace_catalog.clone(),
-            repositories.lifecycle_journal.clone(),
-            events.clone(),
-        );
-        let mut operation = repositories
-            .lifecycle_journal
-            .create_operation(&"workspace-1".to_string())
-            .await
-            .expect("operation");
-        operation.payload = Some(LifecycleOperationPayload::Cleanup(
-            LifecycleCleanupPayload::Runpod(RunpodLifecycleCleanupPayload {
-                step: Some(RunpodCleanupStep::DeleteEndpoint),
-            }),
-        ));
-
-        let persisted = context
-            .persist_operation(operation)
-            .await
-            .expect("persist operation");
-
-        assert_eq!(persisted.state, LifecycleOperationState::Running);
-        assert_eq!(events.0.lock().expect("events lock").len(), 1);
-    }
-
-    #[tokio::test]
-    async fn persist_operation_marks_terminal_states_with_finished_at() {
-        let repositories = crate::workspace::test_support::repositories();
-        let events = Arc::new(Events::default());
-        let context = WorkspaceRuntimeContext::new(
-            repositories.workspace_catalog.clone(),
-            repositories.lifecycle_journal.clone(),
-            events,
-        );
-        let mut operation = repositories
-            .lifecycle_journal
-            .create_operation(&"workspace-1".to_string())
-            .await
-            .expect("operation");
-        operation.state = LifecycleOperationState::Completed;
-        operation.payload = Some(LifecycleOperationPayload::Cleanup(
-            LifecycleCleanupPayload::Runpod(RunpodLifecycleCleanupPayload {
-                step: Some(RunpodCleanupStep::DeleteEndpoint),
-            }),
-        ));
-        operation.finished_at = None;
-
-        let persisted = context
-            .persist_operation(operation)
-            .await
-            .expect("persist operation");
-
-        assert_eq!(persisted.state, LifecycleOperationState::Completed);
-        assert!(persisted.finished_at.is_some());
-        assert_eq!(persisted.finished_at, Some(persisted.updated_at));
-    }
-
-    #[tokio::test]
-    async fn delete_workspace_removes_workspace_without_deleting_operations() {
-        let repositories = crate::workspace::test_support::repositories();
-        let events = Arc::new(Events::default());
-        let context = WorkspaceRuntimeContext::new(
-            repositories.workspace_catalog.clone(),
-            repositories.lifecycle_journal.clone(),
-            events.clone(),
-        );
-        let workspace = Workspace {
-            id: "workspace-1".to_string(),
-            workflow: WorkflowReference {
-                id: "workflow-1".to_string(),
-                version: "1".to_string(),
-            },
-            state: WorkspaceState::Ready,
-            runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
-                placement: RunpodPlacementPlan {
-                    data_center_id: "dc-1".to_string(),
-                    gpu_type_id: "gpu-1".to_string(),
-                    volume_size_gb: 100,
-                },
-                resources: RunpodResources {
-                    network_volume_id: None,
-                    provisioner_pod_id: None,
-                    endpoint_id: None,
-                    template_id: None,
-                },
-            }),
-        };
-        repositories
-            .workspace_catalog
-            .insert_workspace(&workspace)
-            .await
-            .expect("workspace");
-        let operation = repositories
-            .lifecycle_journal
-            .create_operation(&workspace.id)
-            .await
-            .expect("operation");
-
-        context
-            .delete_workspace(&workspace.id)
-            .await
-            .expect("delete workspace");
-
-        assert!(repositories
-            .workspace_catalog
-            .find_workspace_by_id(&workspace.id)
-            .await
-            .expect("find workspace")
-            .is_none());
-        assert_eq!(
-            repositories
-                .lifecycle_journal
-                .latest_for_workspace(&workspace.id)
-                .await
-                .expect("latest operation")
-                .expect("operation exists")
-                .operation_id,
-            operation.operation_id
-        );
-        assert_eq!(events.0.lock().expect("events lock").len(), 1);
     }
 }

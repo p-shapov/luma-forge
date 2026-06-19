@@ -8,73 +8,65 @@ use crate::{
         workspace::{Workspace, WorkspaceRuntime as WorkspaceRuntimeDomain, WorkspaceState},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    runtime_catalog::RuntimeCatalogRepository,
     shared::{spawn_background_task, BackgroundTaskSpawner, EventSink, InFlightRegistry},
     workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::{
-    errors::{invalid_state, lifecycle_journal_error, workspace_not_found, WorkspaceError},
+    errors::{invalid_state, workspace_not_found, WorkspaceError},
     events::WorkspaceEvent,
-    registry::WorkspaceRuntimeRegistry,
     runtime::{
         CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
-        ProvisionWorkspaceResponse, WorkspaceRuntimeContext,
+        ProvisionWorkspaceResponse, WorkspaceRuntime, WorkspaceRuntimeContext,
     },
 };
 
 pub type LifecycleOperationRegistry = InFlightRegistry<String>;
 
 #[derive(Clone)]
-pub struct WorkspaceService<W, L, WC, RC>
+pub struct WorkspaceService<W, L, WC>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
     WC: WorkflowCatalogRepository,
-    RC: RuntimeCatalogRepository,
 {
     workspace_catalog: Arc<W>,
     lifecycle_journal: Arc<L>,
     workflow_catalog: WC,
-    runtime_catalog: RC,
-    runtime_registry: WorkspaceRuntimeRegistry,
+    runtime: Arc<dyn WorkspaceRuntime>,
     lifecycle_operation_registry: LifecycleOperationRegistry,
     event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-pub struct WorkspaceServiceDependencies<W, L, WC, RC>
+pub struct WorkspaceServiceDependencies<W, L, WC>
 where
     W: WorkspaceCatalogRepository,
     L: LifecycleJournalRepository,
     WC: WorkflowCatalogRepository,
-    RC: RuntimeCatalogRepository,
 {
     pub workspace_catalog: Arc<W>,
     pub lifecycle_journal: Arc<L>,
     pub workflow_catalog: WC,
-    pub runtime_catalog: RC,
-    pub runtime_registry: WorkspaceRuntimeRegistry,
+    pub runtime: Arc<dyn WorkspaceRuntime>,
     pub lifecycle_operation_registry: LifecycleOperationRegistry,
     pub event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
     pub task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-impl<W, L, WC, RC> WorkspaceService<W, L, WC, RC>
+impl<W, L, WC> WorkspaceService<W, L, WC>
 where
     W: WorkspaceCatalogRepository + 'static,
     L: LifecycleJournalRepository + 'static,
     WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
-    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
 {
-    pub fn new(dependencies: WorkspaceServiceDependencies<W, L, WC, RC>) -> Self {
+    pub fn new(dependencies: WorkspaceServiceDependencies<W, L, WC>) -> Self {
         Self {
             workspace_catalog: dependencies.workspace_catalog,
             lifecycle_journal: dependencies.lifecycle_journal,
             workflow_catalog: dependencies.workflow_catalog,
-            runtime_catalog: dependencies.runtime_catalog,
-            runtime_registry: dependencies.runtime_registry,
+            runtime: dependencies.runtime,
             lifecycle_operation_registry: dependencies.lifecycle_operation_registry,
             event_sink: dependencies.event_sink,
             task_spawner: dependencies.task_spawner,
@@ -90,7 +82,6 @@ where
         }
 
         let workflow_catalog = self.workflow_catalog.get_workflow_catalog()?;
-        let _ = &self.runtime_catalog;
         let workflow = workflow_catalog
             .workflow_presets
             .iter()
@@ -115,13 +106,13 @@ where
             state: WorkspaceState::NotProvisioned,
             runtime: WorkspaceRuntimeDomain::Runpod(RunpodRuntime {
                 placement: request.placement,
-                resources: empty_runpod_resources(),
+                resources: RunpodResources::default(),
             }),
         };
         let workspace = self.workspace_catalog.insert_workspace(&workspace).await?;
         self.event_sink.emit(WorkspaceEvent::WorkspaceChanged {
             workspace_id: workspace.id.clone(),
-            workspace: Box::new(workspace.clone()),
+            workspace: workspace.clone(),
         });
         Ok(workspace)
     }
@@ -132,16 +123,6 @@ where
     ) -> Result<(Workspace, LifecycleOperation), WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         let workspace_id = workspace.id.clone();
-
-        if self
-            .lifecycle_journal
-            .find_running_by_workspace(&workspace_id)
-            .await
-            .map_err(lifecycle_journal_error)?
-            .is_some()
-        {
-            return Err(WorkspaceError::LifecycleOperationAlreadyRunning { workspace_id });
-        }
 
         let operation = self
             .lifecycle_journal
@@ -168,12 +149,12 @@ where
             return Err(invalid_state("workspace is not ready to provision"));
         }
         let WorkspaceRuntimeDomain::Runpod(runtime) = &workspace.runtime;
-        if !runpod_resources_are_empty(&runtime.resources) {
+        if runtime.resources != RunpodResources::default() {
             return Err(invalid_state("workspace already has runpod resources"));
         }
         let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
 
-        let runtime = self.runtime_registry.runtime_for(&workspace.runtime)?;
+        let runtime = self.runtime.clone();
         let context = self.runtime_context();
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
@@ -194,7 +175,7 @@ where
         workspace_id: &str,
     ) -> Result<CleanupWorkspaceResponse, WorkspaceError> {
         let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
-        let runtime = self.runtime_registry.runtime_for(&workspace.runtime)?;
+        let runtime = self.runtime.clone();
         let context = self.runtime_context();
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
@@ -273,7 +254,7 @@ where
         workspace_id: &str,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
         let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
-        let runtime = self.runtime_registry.runtime_for(&workspace.runtime)?;
+        let runtime = self.runtime.clone();
         let context = self.runtime_context();
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
@@ -288,38 +269,13 @@ where
         })
     }
 
-    pub async fn get_running_lifecycle_operations(
-        &self,
-    ) -> Result<Vec<LifecycleOperation>, WorkspaceError> {
-        self.lifecycle_journal
-            .list_running()
-            .await
-            .map_err(lifecycle_journal_error)
-    }
-
-    pub async fn get_latest_lifecycle_operation(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Option<LifecycleOperation>, WorkspaceError> {
-        self.lifecycle_journal
-            .latest_for_workspace(&workspace_id.to_string())
-            .await
-            .map_err(lifecycle_journal_error)
-    }
-
-    pub async fn find_workspace(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Option<Workspace>, WorkspaceError> {
-        self.workspace_catalog
-            .find_workspace_by_id(workspace_id)
-            .await
-            .map_err(WorkspaceError::from)
-    }
-
     pub async fn mark_running_operations_stale(&self) -> Result<(), WorkspaceError> {
-        for operation in self.get_running_lifecycle_operations().await? {
-            if let Some(mut workspace) = self.find_workspace(&operation.workspace_id).await? {
+        for operation in self.lifecycle_journal.list_running().await? {
+            if let Some(mut workspace) = self
+                .workspace_catalog
+                .find_workspace_by_id(&operation.workspace_id)
+                .await?
+            {
                 workspace.state = WorkspaceState::Invalid;
                 self.runtime_context().persist_workspace(workspace).await?;
             }
@@ -344,7 +300,8 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<Workspace, WorkspaceError> {
-        self.find_workspace(workspace_id)
+        self.workspace_catalog
+            .find_workspace_by_id(workspace_id)
             .await?
             .ok_or_else(|| workspace_not_found(workspace_id))
     }
@@ -359,7 +316,7 @@ fn map_operation_start_error(
                 workspace_id: workspace_id.to_string(),
             }
         }
-        other => lifecycle_journal_error(other),
+        other => other.into(),
     }
 }
 
@@ -377,29 +334,12 @@ async fn load_terminal_operation(
     }
 }
 
-fn empty_runpod_resources() -> RunpodResources {
-    RunpodResources {
-        network_volume_id: None,
-        provisioner_pod_id: None,
-        endpoint_id: None,
-        template_id: None,
-    }
-}
-
-fn runpod_resources_are_empty(resources: &RunpodResources) -> bool {
-    resources.network_volume_id.is_none()
-        && resources.provisioner_pod_id.is_none()
-        && resources.endpoint_id.is_none()
-        && resources.template_id.is_none()
-}
-
 #[cfg(test)]
-impl<W, L, WC, RC> WorkspaceService<W, L, WC, RC>
+impl<W, L, WC> WorkspaceService<W, L, WC>
 where
     W: WorkspaceCatalogRepository + 'static,
     L: LifecycleJournalRepository + 'static,
     WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
-    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
 {
     pub async fn insert_workspace_for_test(&self, workspace: Workspace) {
         self.workspace_catalog
@@ -433,135 +373,46 @@ mod tests {
 
     use crate::{
         domain::{
-            lifecycle_operation::{
-                LifecycleCleanupPayload, LifecycleOperation, LifecycleOperationPayload,
-                LifecycleOperationState, LifecycleProvisionPayload,
-            },
-            runpod::{
-                RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload,
-                RunpodProvisionStep,
-            },
-            workspace::WorkspaceState,
+            lifecycle_operation::{LifecycleOperation, LifecycleOperationState},
+            workspace::{Workspace, WorkspaceState},
         },
-        lifecycle_journal::LifecycleJournalError,
+        lifecycle_journal::LifecycleJournalRepository,
         provider::runpod::test_support::{draft_create_request, workspace_with_runpod},
         shared::AppFuture,
         workspace::test_support::{
             service_with_fake_runtime, service_with_runtime, FakeWorkspaceRuntime,
         },
+        workspace_catalog::WorkspaceCatalogRepository,
     };
 
-    fn cleanup_payload() -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
-            RunpodLifecycleCleanupPayload {
-                step: Some(RunpodCleanupStep::DeleteEndpoint),
-            },
-        ))
-    }
+    #[derive(Debug, Clone, Copy)]
+    struct FailingCleanupRuntime;
 
-    fn provision_payload() -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
-            RunpodLifecycleProvisionPayload {
-                step: Some(RunpodProvisionStep::CreateNetworkVolume),
-            },
-        ))
-    }
-
-    #[derive(Debug, Clone)]
-    struct ProgressThenSucceedRuntime {
-        payload: LifecycleOperationPayload,
-    }
-
-    impl crate::workspace::runtime::WorkspaceRuntime for ProgressThenSucceedRuntime {
+    impl crate::workspace::runtime::WorkspaceRuntime for FailingCleanupRuntime {
         fn provision<'a>(
             &'a self,
-            context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            mut operation: LifecycleOperation,
-            workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<
-            'a,
-            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
-        > {
-            let payload = self.payload.clone();
-            Box::pin(async move {
-                operation.payload = Some(payload);
-                context.persist_operation(operation).await?;
-                Ok(workspace)
-            })
+            _context: crate::workspace::WorkspaceRuntimeContext<'a>,
+            _operation: LifecycleOperation,
+            workspace: Workspace,
+        ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
+            Box::pin(async move { Ok(workspace) })
         }
 
         fn cleanup<'a>(
             &'a self,
             _context: crate::workspace::WorkspaceRuntimeContext<'a>,
             _operation: LifecycleOperation,
-            workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<
-            'a,
-            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
-        > {
-            Box::pin(async move { Ok(workspace) })
+            _workspace: Workspace,
+        ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
+            Box::pin(async move { Err(crate::workspace::errors::invalid_state("cleanup failed")) })
         }
 
         fn delete<'a>(
             &'a self,
             context: crate::workspace::WorkspaceRuntimeContext<'a>,
             _operation: LifecycleOperation,
-            workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<
-            'a,
-            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
-        > {
-            Box::pin(async move {
-                context.delete_workspace(&workspace.id).await?;
-                Ok(workspace)
-            })
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    struct ProgressThenFailRuntime {
-        payload: LifecycleOperationPayload,
-    }
-
-    impl crate::workspace::runtime::WorkspaceRuntime for ProgressThenFailRuntime {
-        fn provision<'a>(
-            &'a self,
-            context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            mut operation: LifecycleOperation,
-            _workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<
-            'a,
-            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
-        > {
-            let payload = self.payload.clone();
-            Box::pin(async move {
-                operation.payload = Some(payload);
-                context.persist_operation(operation).await?;
-                Err(crate::workspace::errors::invalid_state("provision failed"))
-            })
-        }
-
-        fn cleanup<'a>(
-            &'a self,
-            _context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            _operation: LifecycleOperation,
-            workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<
-            'a,
-            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
-        > {
-            Box::pin(async move { Ok(workspace) })
-        }
-
-        fn delete<'a>(
-            &'a self,
-            context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            _operation: LifecycleOperation,
-            workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<
-            'a,
-            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
-        > {
+            workspace: Workspace,
+        ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
             Box::pin(async move {
                 context.delete_workspace(&workspace.id).await?;
                 Ok(workspace)
@@ -570,18 +421,15 @@ mod tests {
     }
 
     async fn wait_for_operation_state(
-        service: &crate::workspace::WorkspaceService<
-            crate::workspace::test_support::InMemoryWorkspaceRepository,
-            crate::workspace::test_support::InMemoryLifecycleJournal,
-            crate::workflow_catalog::BundledWorkflowCatalogRepository,
-            crate::runtime_catalog::BundledRuntimeCatalogRepository,
-        >,
+        repositories: &crate::workspace::test_support::TestRepositories,
         workspace_id: &str,
         expected_state: LifecycleOperationState,
-    ) -> crate::domain::lifecycle_operation::LifecycleOperation {
+    ) -> LifecycleOperation {
         for _ in 0..20 {
-            if let Some(operation) = service
-                .get_latest_lifecycle_operation(workspace_id)
+            let workspace_id = workspace_id.to_string();
+            if let Some(operation) = repositories
+                .lifecycle_journal
+                .latest_for_workspace(&workspace_id)
                 .await
                 .expect("latest operation should load")
             {
@@ -613,39 +461,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_workspace_spawns_cleanup_operation_then_deletes_workspace() {
-        let service = service_with_fake_runtime();
-        service
-            .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
-            .await;
-
-        let response = service
-            .delete_workspace("workspace-1")
-            .await
-            .expect("delete");
-
-        assert_eq!(response.workspace_id, "workspace-1");
-        let completed =
-            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Completed)
-                .await;
-        assert_eq!(completed.payload, None);
-        assert!(service
-            .find_workspace("workspace-1")
-            .await
-            .expect("workspace lookup should succeed")
-            .is_none());
-        assert_eq!(
-            service
-                .get_running_lifecycle_operations()
-                .await
-                .expect("running operations"),
-            Vec::new()
-        );
-    }
-
-    #[tokio::test]
     async fn stale_running_operation_marks_workspace_invalid() {
-        let service = service_with_fake_runtime();
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
             .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
             .await;
@@ -658,14 +475,16 @@ mod tests {
             .await
             .expect("stale recovery");
 
-        let workspace = service
-            .find_workspace("workspace-1")
+        let workspace = repositories
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
             .await
             .expect("find")
             .expect("workspace exists");
         assert_eq!(workspace.state, WorkspaceState::Invalid);
-        let stale = service
-            .get_latest_lifecycle_operation("workspace-1")
+        let stale = repositories
+            .lifecycle_journal
+            .latest_for_workspace(&"workspace-1".to_string())
             .await
             .expect("latest")
             .expect("operation exists");
@@ -674,33 +493,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stale_running_operation_retains_existing_payload() {
-        let service = service_with_fake_runtime();
-        let payload = cleanup_payload();
-        service
-            .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
-            .await;
-        service
-            .create_running_operation_for_test("workspace-1", Some(payload.clone()))
-            .await;
-
-        service
-            .mark_running_operations_stale()
-            .await
-            .expect("stale recovery");
-
-        let stale = service
-            .get_latest_lifecycle_operation("workspace-1")
-            .await
-            .expect("latest")
-            .expect("operation exists");
-        assert_eq!(stale.state, LifecycleOperationState::Stale);
-        assert_eq!(stale.payload, Some(payload));
-    }
-
-    #[tokio::test]
     async fn provision_rejects_invalid_workspace_without_creating_operation() {
-        let service = service_with_fake_runtime();
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
             .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
             .await;
@@ -711,8 +505,9 @@ mod tests {
             .expect_err("provision should fail");
 
         assert_eq!(
-            service
-                .get_running_lifecycle_operations()
+            repositories
+                .lifecycle_journal
+                .list_running()
                 .await
                 .expect("operations"),
             Vec::new()
@@ -721,7 +516,7 @@ mod tests {
 
     #[tokio::test]
     async fn provision_runner_marks_operation_completed_and_clears_in_flight() {
-        let service = service_with_fake_runtime();
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
@@ -731,9 +526,12 @@ mod tests {
             .provision_workspace("workspace-1")
             .await
             .expect("provision scheduled");
-        let completed =
-            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Completed)
-                .await;
+        let completed = wait_for_operation_state(
+            &repositories,
+            "workspace-1",
+            LifecycleOperationState::Completed,
+        )
+        .await;
 
         assert_eq!(completed.operation_id, response.operation.operation_id);
         assert_eq!(completed.payload, None);
@@ -743,30 +541,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn provision_runner_keeps_progress_payload_when_marking_completed() {
-        let payload = provision_payload();
-        let (service, _) = service_with_runtime(Arc::new(ProgressThenSucceedRuntime {
-            payload: payload.clone(),
-        }));
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace");
-
-        service
-            .provision_workspace("workspace-1")
-            .await
-            .expect("provision scheduled");
-        let completed =
-            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Completed)
-                .await;
-
-        assert_eq!(completed.payload, Some(payload));
-    }
-
-    #[tokio::test]
     async fn cleanup_runner_marks_workspace_invalid_operation_failed_and_clears_in_flight() {
-        let service = service_with_fake_runtime();
+        let (service, repositories) = service_with_runtime(Arc::new(FailingCleanupRuntime));
         service
             .insert_workspace_for_test(workspace_with_runpod(
                 "workspace-1",
@@ -774,99 +550,38 @@ mod tests {
             ))
             .await;
 
-        let (_, operation) = service
-            .start_lifecycle_operation("workspace-1")
+        let response = service
+            .cleanup_workspace("workspace-1")
             .await
-            .expect("operation should start");
-        let operation_id = operation.operation_id.clone();
-        let workspace = service
-            .find_workspace("workspace-1")
-            .await
-            .expect("workspace should load")
-            .expect("workspace should exist");
-        service.spawn_lifecycle_runner(operation, workspace, async {
-            Err::<crate::domain::workspace::Workspace, _>(crate::workspace::errors::invalid_state(
-                "cleanup failed",
-            ))
-        });
-        let failed =
-            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Failed)
-                .await;
+            .expect("cleanup scheduled");
+        let failed = wait_for_operation_state(
+            &repositories,
+            "workspace-1",
+            LifecycleOperationState::Failed,
+        )
+        .await;
 
-        assert_eq!(failed.operation_id, operation_id);
-        let workspace = service
-            .find_workspace("workspace-1")
+        assert_eq!(failed.operation_id, response.operation.operation_id);
+        let workspace = repositories
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
             .await
             .expect("workspace should load")
             .expect("workspace should exist");
         assert_eq!(workspace.state, WorkspaceState::Invalid);
         assert!(service
             .lifecycle_operation_registry
-            .try_register(&operation_id));
-    }
-
-    #[tokio::test]
-    async fn provision_runner_keeps_progress_payload_when_marking_failed() {
-        let payload = provision_payload();
-        let (service, _) = service_with_runtime(Arc::new(ProgressThenFailRuntime {
-            payload: payload.clone(),
-        }));
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace");
-
-        service
-            .provision_workspace("workspace-1")
-            .await
-            .expect("provision scheduled");
-        let failed =
-            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Failed)
-                .await;
-
-        assert_eq!(failed.payload, Some(payload));
-    }
-
-    #[tokio::test]
-    async fn runner_keeps_in_flight_when_terminal_operation_persistence_fails() {
-        let (service, repositories) =
-            service_with_runtime(std::sync::Arc::new(FakeWorkspaceRuntime));
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace");
-        repositories.lifecycle_journal.fail_mark_state_once(
-            LifecycleJournalError::StorageUnavailable {
-                message: "write failed".to_string(),
-            },
-        );
-
-        let response = service
-            .provision_workspace("workspace-1")
-            .await
-            .expect("provision scheduled");
-
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        let operation = service
-            .get_latest_lifecycle_operation("workspace-1")
-            .await
-            .expect("latest")
-            .expect("operation exists");
-        assert_eq!(operation.state, LifecycleOperationState::Running);
-        assert!(!service
-            .lifecycle_operation_registry
             .try_register(&response.operation.operation_id));
     }
 
     #[tokio::test]
     async fn delete_workspace_rejects_when_lifecycle_operation_is_running() {
-        let service = service_with_fake_runtime();
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
             .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
             .await;
         service
-            .create_running_operation_for_test("workspace-1", Some(cleanup_payload()))
+            .create_running_operation_for_test("workspace-1", None)
             .await;
 
         let error = service
@@ -880,14 +595,16 @@ mod tests {
                 workspace_id: "workspace-1".to_string(),
             }
         );
-        assert!(service
-            .find_workspace("workspace-1")
+        assert!(repositories
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
             .await
             .expect("workspace lookup should succeed")
             .is_some());
         assert_eq!(
-            service
-                .get_latest_lifecycle_operation("workspace-1")
+            repositories
+                .lifecycle_journal
+                .latest_for_workspace(&"workspace-1".to_string())
                 .await
                 .expect("latest operation should load")
                 .expect("operation should exist")

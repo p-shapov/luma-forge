@@ -368,9 +368,9 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceError::ProvisionerWorkerFailed {
+            WorkspaceError::ProviderApiError(ApiError::RequestFailed {
                 message: "asset_download_failed: download failed".to_string(),
-            }
+            })
         );
         let persisted = context
             .find_workspace_for_test("workspace-1")
