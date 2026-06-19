@@ -12,7 +12,7 @@ In scope:
 
 - Replace the ordinary command result contract with a generic command error envelope whose `code` is command-specific.
 - Add a distinct public Specta error code enum for each Tauri command.
-- Move domain-to-command error mapping from global `NativeCommandErrorCode` conversions to per-command mappers.
+- Move domain-to-command error mapping from global `NativeCommandErrorCode` conversions to command-submodule-local `errors.rs` files.
 - Regenerate TypeScript command bindings after native contract changes.
 - Keep diagnostics, redaction, diagnostic IDs, and structured logging behavior.
 
@@ -59,6 +59,21 @@ Startup/native initialization failure remains separate from ordinary command err
 
 Remove the global ordinary-command requirement that any domain error can map into one aggregated `NativeCommandErrorCode`.
 
+The root `commands/errors.rs` must not become the new aggregate of all command failures. It should only own shared command error infrastructure:
+
+- `CommandError<Code>`
+- `CommandResult<T, Code>`
+- startup/native initialization error contract
+- shared constructor behavior needed by diagnostics
+
+Each command submodule owns its public command error code enums and mapper functions in its local `errors.rs`:
+
+- `commands/catalog/errors.rs`
+- `commands/secrets/errors.rs`
+- `commands/workspaces/errors.rs`
+
+The command handler files import their own submodule mappers, not a root command error mapper registry.
+
 Each command maps only the errors it can actually return:
 
 - Secret setup commands map secret parsing, secret storage, and identity validation failures.
@@ -81,7 +96,7 @@ Diagnostics remain responsible for:
 - Extracting leaf error messages.
 - Logging command name, request metadata, duration when available, code, error message, and source-chain context.
 
-`command_error` should become generic over the command-specific code enum and accept an explicit mapper. It should not know the full set of all command error codes.
+`command_error` should become generic over the command-specific code enum and accept an explicit mapper. It should not know the full set of all command error codes, and neither should root `commands/errors.rs`.
 
 The logged `code` value should be the concrete command-specific enum variant.
 
@@ -91,11 +106,14 @@ If `source_chain` cannot preserve typed global code information without reintrod
 
 Expected touched areas:
 
-- `src-tauri/src/commands/errors.rs`
+- `src-tauri/src/commands/errors.rs` for shared envelope/startup-only errors
 - `src-tauri/src/diagnostics/mod.rs`
-- `src-tauri/src/commands/catalog.rs`
-- `src-tauri/src/commands/secrets.rs`
-- `src-tauri/src/commands/workspaces.rs`
+- `src-tauri/src/commands/catalog/mod.rs`
+- `src-tauri/src/commands/catalog/errors.rs`
+- `src-tauri/src/commands/secrets/mod.rs`
+- `src-tauri/src/commands/secrets/errors.rs`
+- `src-tauri/src/commands/workspaces/mod.rs`
+- `src-tauri/src/commands/workspaces/errors.rs`
 - `src-tauri/src/commands/native.rs` and startup status types only if required by the type split
 - generated command bindings via `bun run codegen:commands`
 - frontend compile fixes only where generated types require them
