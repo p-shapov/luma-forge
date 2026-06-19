@@ -14,6 +14,7 @@ pub mod secrets;
 pub mod shared;
 pub mod sqlite;
 pub mod workflow_catalog;
+pub mod workspace;
 pub mod workspace_catalog;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
