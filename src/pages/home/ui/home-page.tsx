@@ -1,8 +1,9 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import type {
+  CommandError,
   CreateRunpodWorkspaceRequest,
-  NativeCommandError,
+  NativeInitializationCommandErrorCode,
   NativeStartupStatusResponse,
   WorkspaceIdRequest,
 } from "@/generated/commands";
@@ -523,7 +524,11 @@ function StartupLoadingPage() {
   );
 }
 
-function StartupErrorPage({ error }: { error: NativeCommandError }) {
+function StartupErrorPage({
+  error,
+}: {
+  error: CommandError<NativeInitializationCommandErrorCode>;
+}) {
   const storagePath = extractStoragePath(error.message);
 
   return (
