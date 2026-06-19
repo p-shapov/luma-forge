@@ -2,7 +2,7 @@ use std::{error::Error, path::PathBuf};
 
 use crate::{
     commands::{
-        errors::{NativeCommandError, NativeCommandErrorCode},
+        errors::{CommandError, NativeCommandError},
         types::{
             secrets::SetupApiKeyRequest,
             workspace::{CreateRunpodWorkspaceRequest, WorkspaceIdRequest},
@@ -92,38 +92,15 @@ pub fn leaf_error_message(error: &(dyn Error + 'static)) -> String {
 }
 
 pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
-    let mut codes = Vec::new();
+    let mut sources = Vec::new();
     let mut source = error.source();
 
     while let Some(error) = source {
-        codes.push(format!("{:?}", error_code_for_source(error)));
+        sources.push(error.to_string());
         source = error.source();
     }
 
-    codes
-}
-
-fn error_code_for_source(error: &(dyn Error + 'static)) -> NativeCommandErrorCode {
-    if let Some(error) = error.downcast_ref::<crate::secrets::SecretsStorageError>() {
-        return NativeCommandErrorCode::from(error);
-    }
-    if let Some(error) = error.downcast_ref::<crate::provider::runpod::RunpodProviderError>() {
-        return NativeCommandErrorCode::from(error);
-    }
-    if let Some(error) = error.downcast_ref::<crate::workspace::WorkspaceError>() {
-        return NativeCommandErrorCode::from(error);
-    }
-    if let Some(error) = error.downcast_ref::<crate::shared::ApiError>() {
-        return NativeCommandErrorCode::from(error);
-    }
-    if let Some(error) = error.downcast_ref::<crate::workflow_catalog::WorkflowCatalogError>() {
-        return NativeCommandErrorCode::from(error);
-    }
-    if let Some(error) = error.downcast_ref::<crate::workspace_catalog::WorkspaceCatalogError>() {
-        return NativeCommandErrorCode::from(error);
-    }
-
-    NativeCommandErrorCode::InvalidRuntimeState
+    sources
 }
 
 pub type CommandRequestMetadata = Vec<(&'static str, String)>;
@@ -166,37 +143,52 @@ pub fn empty_command_request_metadata() -> CommandRequestMetadata {
     Vec::new()
 }
 
-pub fn native_command_error(error: NativeCommandError) -> NativeCommandError {
+pub fn native_command_error<Code>(
+    command: &'static str,
+    error: NativeCommandError,
+    code: Code,
+) -> CommandError<Code>
+where
+    Code: std::fmt::Debug,
+{
     let message = redact_for_log(&error.message);
     tracing::error!(
         diagnostic_id = %error.diagnostic_id,
-        code = ?error.code,
+        command = command,
+        startup_code = ?error.code,
+        code = ?code,
         error = ?message,
         "native command failed"
     );
-    error
+
+    CommandError::new(code, error.message, error.diagnostic_id)
 }
 
-pub fn command_error<E>(command: &'static str, error: E) -> NativeCommandError
-where
-    E: Error + 'static,
-    for<'a> NativeCommandErrorCode: From<&'a E>,
-{
-    command_error_with_duration(command, error, None, None)
-}
-
-fn command_error_with_duration<E>(
+pub fn command_error<E, Code>(
     command: &'static str,
     error: E,
-    duration_ms: Option<u128>,
-    request_metadata: Option<&CommandRequestMetadata>,
-) -> NativeCommandError
+    map_code: impl FnOnce(&E) -> Code,
+) -> CommandError<Code>
 where
     E: Error + 'static,
-    for<'a> NativeCommandErrorCode: From<&'a E>,
+    Code: std::fmt::Debug,
+{
+    command_error_with_duration(command, error, map_code, None, None)
+}
+
+fn command_error_with_duration<E, Code>(
+    command: &'static str,
+    error: E,
+    map_code: impl FnOnce(&E) -> Code,
+    duration_ms: Option<u128>,
+    request_metadata: Option<&CommandRequestMetadata>,
+) -> CommandError<Code>
+where
+    E: Error + 'static,
+    Code: std::fmt::Debug,
 {
     let diagnostic_id = new_diagnostic_id();
-    let code = NativeCommandErrorCode::from(&error);
+    let code = map_code(&error);
     let message = leaf_error_message(&error);
     let log_message = redact_for_log(&message);
     let source_chain = error_source_chain(&error);
@@ -212,7 +204,7 @@ where
         "native command failed"
     );
 
-    NativeCommandError::new(code, message, diagnostic_id)
+    CommandError::new(code, message, diagnostic_id)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -279,13 +271,11 @@ pub fn lifecycle_error<E>(
 ) -> String
 where
     E: Error + 'static,
-    for<'a> NativeCommandErrorCode: From<&'a E>,
 {
     let diagnostic_id = new_diagnostic_id();
     let source_chain = error_source_chain(error);
     let message = leaf_error_message(error);
     let log_message = redact_for_log(&message);
-    let code = NativeCommandErrorCode::from(error);
     let fields = lifecycle_log_fields(payload);
 
     tracing::error!(
@@ -295,7 +285,6 @@ where
         operation_kind = fields.operation_kind,
         state = lifecycle_state_label(LifecycleOperationState::Failed),
         step = fields.step.unwrap_or("none"),
-        error_code = ?code,
         error = ?log_message,
         source_chain = ?source_chain,
         "lifecycle operation failed"
@@ -346,22 +335,22 @@ mod tests {
 
         let chain = error_source_chain(&error);
 
-        assert_eq!(chain, vec!["StoreUnavailable".to_string()]);
+        assert_eq!(chain, vec!["secure storage is unavailable".to_string()]);
     }
 
     #[test]
     fn native_command_error_keeps_existing_diagnostic_id() {
         let error = NativeCommandError::new(
-            NativeCommandErrorCode::InvalidRuntimeState,
+            crate::commands::errors::NativeInitializationCommandErrorCode::LifecycleStateRestoreFailed,
             "startup failed",
             "diag-existing",
         );
 
-        let converted = native_command_error(error);
+        let converted = native_command_error("test_command", error, "test_code");
 
         assert_eq!(converted.diagnostic_id, "diag-existing");
         assert_eq!(converted.message, "startup failed");
-        assert_eq!(converted.code, NativeCommandErrorCode::InvalidRuntimeState);
+        assert_eq!(converted.code, "test_code");
     }
 
     #[test]
