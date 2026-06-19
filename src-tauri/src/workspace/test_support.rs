@@ -11,12 +11,63 @@ use crate::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
             LifecycleOperationState,
         },
+        runpod::{RunpodPlacementPlan, RunpodResources, RunpodRuntime},
+        workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceCatalog, WorkspaceId},
+        workspace::{WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    shared::AppFuture,
+    runtime_catalog::BundledRuntimeCatalogRepository,
+    shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, NoopEventSink},
+    workflow_catalog::BundledWorkflowCatalogRepository,
+    workspace::{
+        events::WorkspaceEvent,
+        runtime::{CreateRunpodWorkspaceRequest, WorkspaceRuntime as WorkspaceRuntimeTrait},
+        service::{WorkspaceService, WorkspaceServiceDependencies},
+        WorkspaceRuntimeContext,
+    },
     workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TestBackgroundTaskSpawner;
+
+impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
+    fn spawn(&self, task: BackgroundTask) {
+        tokio::spawn(task);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FakeWorkspaceRuntime;
+
+impl WorkspaceRuntimeTrait for FakeWorkspaceRuntime {
+    fn provision<'a>(
+        &'a self,
+        _context: WorkspaceRuntimeContext<'a>,
+        _operation: LifecycleOperation,
+        workspace: Workspace,
+    ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
+        Box::pin(async move { Ok(workspace) })
+    }
+
+    fn cleanup<'a>(
+        &'a self,
+        _context: WorkspaceRuntimeContext<'a>,
+        _operation: LifecycleOperation,
+        workspace: Workspace,
+    ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
+        Box::pin(async move { Ok(workspace) })
+    }
+
+    fn delete<'a>(
+        &'a self,
+        context: WorkspaceRuntimeContext<'a>,
+        workspace: Workspace,
+    ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
+        Box::pin(async move { context.delete_workspace(&workspace.id).await })
+    }
+}
 
 pub struct TestRepositories {
     pub workspace_catalog: Arc<InMemoryWorkspaceRepository>,
@@ -28,6 +79,64 @@ pub fn repositories() -> TestRepositories {
         workspace_catalog: Arc::new(InMemoryWorkspaceRepository::default()),
         lifecycle_journal: Arc::new(InMemoryLifecycleJournal::default()),
     }
+}
+
+pub fn draft_create_request(workspace_id: &str) -> CreateRunpodWorkspaceRequest {
+    CreateRunpodWorkspaceRequest {
+        workspace_id: workspace_id.to_string(),
+        workflow_preset_id: "comfyui-hidream-o1-dev".to_string(),
+        placement: RunpodPlacementPlan {
+            data_center_id: "dc".to_string(),
+            gpu_type_id: "gpu".to_string(),
+            volume_size_gb: 100,
+        },
+    }
+}
+
+pub fn workspace_with_runpod(workspace_id: &str, state: WorkspaceState) -> Workspace {
+    Workspace {
+        id: workspace_id.to_string(),
+        workflow: WorkflowReference {
+            id: "comfyui-hidream-o1-dev".to_string(),
+            version: "1.0.0".to_string(),
+        },
+        state,
+        runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
+            placement: RunpodPlacementPlan {
+                data_center_id: "dc".to_string(),
+                gpu_type_id: "gpu".to_string(),
+                volume_size_gb: 100,
+            },
+            resources: RunpodResources {
+                network_volume_id: None,
+                provisioner_pod_id: None,
+                endpoint_id: None,
+                template_id: None,
+            },
+        }),
+    }
+}
+
+pub fn service_with_fake_runtime() -> WorkspaceService<
+    InMemoryWorkspaceRepository,
+    InMemoryLifecycleJournal,
+    BundledWorkflowCatalogRepository,
+    BundledRuntimeCatalogRepository,
+> {
+    let repositories = repositories();
+    WorkspaceService::new(WorkspaceServiceDependencies {
+        workspace_catalog: repositories.workspace_catalog,
+        lifecycle_journal: repositories.lifecycle_journal,
+        workflow_catalog: BundledWorkflowCatalogRepository::new(),
+        runtime_catalog: BundledRuntimeCatalogRepository::new(),
+        runtime_registry: crate::workspace::registry::WorkspaceRuntimeRegistry::new(Arc::new(
+            FakeWorkspaceRuntime,
+        )),
+        lifecycle_operation_registry:
+            crate::workspace::service::LifecycleOperationRegistry::default(),
+        event_sink: Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
+        task_spawner: Arc::new(TestBackgroundTaskSpawner),
+    })
 }
 
 #[derive(Clone, Default)]
