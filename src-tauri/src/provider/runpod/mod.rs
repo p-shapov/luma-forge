@@ -1,5 +1,6 @@
 pub mod cleanup;
 pub mod client;
+mod contracts;
 pub mod delete;
 pub mod errors;
 pub mod mapping;
