@@ -65,9 +65,13 @@ impl WorkspaceRuntimeTrait for FakeWorkspaceRuntime {
     fn delete<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
+        _operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
-        Box::pin(async move { context.delete_workspace(&workspace.id).await })
+    ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
+        Box::pin(async move {
+            context.delete_workspace(&workspace.id).await?;
+            Ok(workspace)
+        })
     }
 }
 

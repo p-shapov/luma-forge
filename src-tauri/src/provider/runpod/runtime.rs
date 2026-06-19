@@ -78,10 +78,17 @@ impl WorkspaceRuntime for RunpodWorkspaceRuntime {
     fn delete<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
+        operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<(), WorkspaceError>> {
+    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>> {
         Box::pin(async move {
-            super::delete::delete_workspace(context, self.runpod_client.as_ref(), workspace).await
+            super::delete::delete_workspace(
+                context,
+                self.runpod_client.as_ref(),
+                operation,
+                workspace,
+            )
+            .await
         })
     }
 }
@@ -127,9 +134,10 @@ mod tests {
         let context = runtime_context_for_test();
         let workspace = workspace_with_runpod_resources("workspace-1");
         context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
 
         runtime
-            .delete(context.clone(), workspace)
+            .delete(context.clone(), operation, workspace)
             .await
             .expect("delete");
 
@@ -137,9 +145,13 @@ mod tests {
             .find_workspace_for_test("workspace-1")
             .await
             .is_none());
-        assert!(context
-            .latest_operation_for_test("workspace-1")
-            .await
-            .is_none());
+        assert!(matches!(
+            context
+                .latest_operation_for_test("workspace-1")
+                .await
+                .expect("latest operation")
+                .payload,
+            Some(LifecycleOperationPayload::Cleanup(_))
+        ));
     }
 }
