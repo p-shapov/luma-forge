@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    cleanup, delete,
+    cleanup,
     provision::{self, RunpodProvisionLifecycleContext},
 };
 
@@ -113,46 +113,6 @@ pub(crate) fn spawn_cleanup<W, L, WC, RC>(
         operation_id.clone(),
         async move {
             cleanup::run_once(
-                &operation_id,
-                &workspace_catalog,
-                &lifecycle_journal,
-                runpod_client.as_ref(),
-                &event_sink,
-            )
-            .await
-        },
-    );
-}
-
-pub(crate) fn spawn_delete<W, L, WC, RC>(
-    context: RunpodRuntimeLifecycleRunnerContext<W, L, WC, RC>,
-    operation_id: LifecycleOperationId,
-) where
-    W: WorkspaceCatalogRepository + Clone + Send + Sync + 'static,
-    L: LifecycleJournalRepository + Clone + Send + Sync + 'static,
-    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
-    RC: RuntimeCatalogRepository + Clone + Send + Sync + 'static,
-{
-    if !context
-        .lifecycle_operation_registry
-        .try_register(&operation_id)
-    {
-        return;
-    }
-
-    let registry = context.lifecycle_operation_registry.clone();
-    let workspace_catalog = context.workspace_catalog;
-    let lifecycle_journal = context.lifecycle_journal;
-    let runpod_client = context.runpod_client;
-    let event_sink = context.event_sink;
-    spawn_lifecycle_runner(
-        context.task_spawner.as_ref(),
-        registry,
-        lifecycle_journal.clone(),
-        event_sink.clone(),
-        operation_id.clone(),
-        async move {
-            delete::run_once(
                 &operation_id,
                 &workspace_catalog,
                 &lifecycle_journal,

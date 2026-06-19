@@ -50,12 +50,13 @@ export type CreateRunpodWorkspaceRequest = {
 
 export type DeleteWorkspaceResponse = {
 	workspaceId: string,
-	operation: LifecycleOperationResponse,
 };
 
 export type LatestLifecycleOperationResponse = {
 	operation: LifecycleOperationResponse | null,
 };
+
+export type LifecycleCleanupPayloadResponse = { runtimeType: "runpod" } & (RunpodLifecycleCleanupPayloadResponse);
 
 export type LifecycleOperationChangedEvent = {
 	workspaceId: string,
@@ -64,19 +65,21 @@ export type LifecycleOperationChangedEvent = {
 	operation: LifecycleOperationResponse,
 };
 
-export type LifecycleOperationPayloadResponse = { runtimeType: "runpod" } & (RunpodLifecycleOperationPayloadResponse);
+export type LifecycleOperationPayloadResponse = { operation: "provision" } & (LifecycleProvisionPayloadResponse) | { operation: "cleanup" } & (LifecycleCleanupPayloadResponse);
 
 export type LifecycleOperationResponse = {
 	operationId: string,
 	workspaceId: string,
 	state: LifecycleOperationStateResponse,
-	payload: LifecycleOperationPayloadResponse,
+	payload: LifecycleOperationPayloadResponse | null,
 	createdAt: string,
 	updatedAt: string,
 	finishedAt: string | null,
 };
 
 export type LifecycleOperationStateResponse = "running" | "completed" | "failed" | "stale";
+
+export type LifecycleProvisionPayloadResponse = { runtimeType: "runpod" } & (RunpodLifecycleProvisionPayloadResponse);
 
 export type ModelAssetResponse = {
 	id: string,
@@ -119,15 +122,19 @@ export type RunpodDatacenterPlacementOptionResponse = {
 	gpuOptions: RunpodGpuPlacementOptionResponse[],
 };
 
-export type RunpodDeleteStepResponse = "delete_endpoint" | "delete_template" | "terminate_provisioner_pod" | "delete_network_volume" | "delete_local_workspace";
-
 export type RunpodGpuPlacementOptionResponse = {
 	id: string,
 	name: string,
 	vramGb: number,
 };
 
-export type RunpodLifecycleOperationPayloadResponse = { operation: "provision"; step: RunpodProvisionStepResponse | null } | { operation: "cleanup"; step: RunpodCleanupStepResponse | null } | { operation: "delete"; step: RunpodDeleteStepResponse | null };
+export type RunpodLifecycleCleanupPayloadResponse = {
+	step: RunpodCleanupStepResponse | null,
+};
+
+export type RunpodLifecycleProvisionPayloadResponse = {
+	step: RunpodProvisionStepResponse | null,
+};
 
 export type RunpodPlacementOptionsResponse = {
 	maxNetworkVolumeSizeGb: number | null,

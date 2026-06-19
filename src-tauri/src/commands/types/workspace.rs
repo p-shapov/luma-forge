@@ -101,7 +101,6 @@ pub struct CleanupWorkspaceResponse {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteWorkspaceResponse {
     pub workspace_id: String,
-    pub operation: LifecycleOperationResponse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -301,7 +300,6 @@ impl From<crate::runpod_runtime::service::DeleteWorkspaceResponse> for DeleteWor
     fn from(value: crate::runpod_runtime::service::DeleteWorkspaceResponse) -> Self {
         Self {
             workspace_id: value.workspace_id,
-            operation: value.operation.into(),
         }
     }
 }
@@ -541,6 +539,18 @@ mod tests {
 
         assert!(json["diagnosticId"].is_null());
         assert!(json["operation"].get("diagnosticId").is_none());
+    }
+
+    #[test]
+    fn delete_workspace_response_does_not_serialize_operation() {
+        let response = super::DeleteWorkspaceResponse {
+            workspace_id: "workspace-1".to_string(),
+        };
+
+        let json = serde_json::to_value(&response).expect("response json");
+
+        assert_eq!(json["workspaceId"], "workspace-1");
+        assert!(json.get("operation").is_none());
     }
 
     fn lifecycle_operation_response() -> LifecycleOperationResponse {

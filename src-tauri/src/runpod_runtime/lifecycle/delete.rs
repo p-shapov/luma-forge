@@ -1,167 +1,140 @@
 use std::sync::Arc;
 
-use crate::{
-    domain::{
-        lifecycle_operation::{LifecycleOperation, LifecycleOperationId, LifecycleOperationState},
-        runpod::RunpodCleanupStep,
-    },
-    lifecycle_journal::LifecycleJournalRepository,
-    shared::EventSink,
-    workspace_catalog::WorkspaceCatalogRepository,
-};
+use crate::{shared::EventSink, workspace_catalog::WorkspaceCatalogRepository};
 
 use super::{
     super::{
-        errors::{invalid_runtime_state_error, RunpodRuntimeError},
-        events::RunpodRuntimeEvent,
-        provider::RunpodRuntimeClient,
+        errors::RunpodRuntimeError, events::RunpodRuntimeEvent, provider::RunpodRuntimeClient,
     },
-    helpers::{
-        load_running_operation, mark_operation_failed, mark_operation_state, mark_running_step,
-        mark_workspace_failed,
-    },
-    resource_cleanup::{
-        delete_remote_resources, RemoteResourceCleanupContext, RemoteResourceCleanupSteps,
-    },
+    helpers::{mark_workspace_failed, persist_workspace},
 };
 
 #[tracing::instrument(
-    name = "runpod_lifecycle",
+    name = "runpod_delete_workspace",
     skip_all,
-    fields(
-        operation_kind = "cleanup",
-        operation_id = %operation_id,
-        workspace_id = tracing::field::Empty
-    )
+    fields(workspace_id = %workspace.id)
 )]
-pub async fn run_once<W, L>(
-    operation_id: &LifecycleOperationId,
+pub async fn delete_workspace<W>(
+    mut workspace: crate::domain::workspace::Workspace,
     workspace_catalog: &W,
-    lifecycle_journal: &L,
     runpod_client: &dyn RunpodRuntimeClient,
     event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
-) -> Result<Option<LifecycleOperation>, RunpodRuntimeError>
+) -> Result<(), RunpodRuntimeError>
 where
     W: WorkspaceCatalogRepository,
-    L: LifecycleJournalRepository,
 {
-    let operation = load_running_operation(lifecycle_journal, operation_id).await?;
-    tracing::Span::current().record(
-        "workspace_id",
-        tracing::field::display(&operation.workspace_id),
-    );
-    let mut workspace = match workspace_catalog
-        .find_workspace_by_id(&operation.workspace_id)
-        .await
-    {
-        Ok(Some(workspace)) => workspace,
-        Ok(None) => {
-            mark_operation_state(
-                lifecycle_journal,
-                event_sink,
-                &operation,
-                LifecycleOperationState::Completed,
-                RunpodCleanupStep::DeleteNetworkVolume,
-            )
-            .await?;
-            lifecycle_journal
-                .delete_for_workspace(&operation.workspace_id)
-                .await
-                .map_err(invalid_runtime_state_error)?;
-            return Ok(None);
-        }
-        Err(error) => {
-            let error = RunpodRuntimeError::from(error);
-            mark_operation_failed(
-                lifecycle_journal,
-                event_sink,
-                &operation,
-                RunpodCleanupStep::DeleteEndpoint,
-                &error,
-            )
-            .await?;
-            return Ok(None);
-        }
-    };
-    let mut failed_step = RunpodCleanupStep::DeleteEndpoint;
-
     let result = async {
-        delete_remote_resources(
-            &mut workspace,
-            RemoteResourceCleanupContext {
-                workspace_catalog,
-                lifecycle_journal,
-                operation: &operation,
-                runpod_client,
-                event_sink,
-            },
-            RemoteResourceCleanupSteps {
-                delete_endpoint: RunpodCleanupStep::DeleteEndpoint,
-                delete_template: RunpodCleanupStep::DeleteTemplate,
-                terminate_provisioner_pod: RunpodCleanupStep::TerminateProvisionerPod,
-                delete_network_volume: RunpodCleanupStep::DeleteNetworkVolume,
-            },
-            &mut failed_step,
-        )
-        .await?;
-
-        mark_running_step(
-            lifecycle_journal,
-            event_sink,
-            &operation,
-            failed_step.clone(),
-        )
-        .await?;
+        delete_endpoint(&mut workspace, workspace_catalog, runpod_client, event_sink).await?;
+        delete_template(&mut workspace, workspace_catalog, runpod_client, event_sink).await?;
+        terminate_provisioner_pod(&mut workspace, workspace_catalog, runpod_client, event_sink)
+            .await?;
+        delete_network_volume(&mut workspace, workspace_catalog, runpod_client, event_sink).await?;
+        workspace_catalog
+            .delete_workspace(&workspace.id)
+            .await
+            .map_err(RunpodRuntimeError::from)?;
+        event_sink.emit(RunpodRuntimeEvent::WorkspaceDeleted {
+            workspace_id: workspace.id.clone(),
+        });
         Ok::<(), RunpodRuntimeError>(())
     }
     .await;
 
     match result {
-        Ok(()) => {
-            if let Err(error) = workspace_catalog
-                .delete_workspace(&workspace.id)
-                .await
-                .map_err(RunpodRuntimeError::from)
-            {
-                mark_workspace_failed(&mut workspace, workspace_catalog, event_sink).await?;
-                mark_operation_state(
-                    lifecycle_journal,
-                    event_sink,
-                    &operation,
-                    LifecycleOperationState::Failed,
-                    failed_step.clone(),
-                )
-                .await?;
-                return Err(error);
-            }
-            let completed_operation = mark_operation_state(
-                lifecycle_journal,
-                event_sink,
-                &operation,
-                LifecycleOperationState::Completed,
-                failed_step.clone(),
-            )
-            .await?;
-            lifecycle_journal
-                .delete_for_workspace(&operation.workspace_id)
-                .await
-                .map_err(invalid_runtime_state_error)?;
-            event_sink.emit(RunpodRuntimeEvent::WorkspaceDeleted {
-                workspace_id: workspace.id.clone(),
-            });
-            Ok(Some(completed_operation))
-        }
+        Ok(()) => Ok(()),
         Err(error) => {
             mark_workspace_failed(&mut workspace, workspace_catalog, event_sink).await?;
-            mark_operation_failed(
-                lifecycle_journal,
-                event_sink,
-                &operation,
-                failed_step.clone(),
-                &error,
-            )
-            .await?;
-            Ok(None)
+            Err(error)
         }
     }
+}
+
+async fn delete_endpoint<W>(
+    workspace: &mut crate::domain::workspace::Workspace,
+    workspace_catalog: &W,
+    runpod_client: &dyn RunpodRuntimeClient,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
+) -> Result<(), RunpodRuntimeError>
+where
+    W: WorkspaceCatalogRepository,
+{
+    let Some(endpoint_id) = runpod_resources(workspace).endpoint_id.clone() else {
+        return Ok(());
+    };
+    runpod_client
+        .delete_serverless_endpoint(&endpoint_id)
+        .await?;
+    runpod_resources_mut(workspace).endpoint_id = None;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    Ok(())
+}
+
+async fn delete_template<W>(
+    workspace: &mut crate::domain::workspace::Workspace,
+    workspace_catalog: &W,
+    runpod_client: &dyn RunpodRuntimeClient,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
+) -> Result<(), RunpodRuntimeError>
+where
+    W: WorkspaceCatalogRepository,
+{
+    let Some(template_id) = runpod_resources(workspace).template_id.clone() else {
+        return Ok(());
+    };
+    runpod_client.delete_template(&template_id).await?;
+    runpod_resources_mut(workspace).template_id = None;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    Ok(())
+}
+
+async fn terminate_provisioner_pod<W>(
+    workspace: &mut crate::domain::workspace::Workspace,
+    workspace_catalog: &W,
+    runpod_client: &dyn RunpodRuntimeClient,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
+) -> Result<(), RunpodRuntimeError>
+where
+    W: WorkspaceCatalogRepository,
+{
+    let Some(provisioner_id) = runpod_resources(workspace).provisioner_pod_id.clone() else {
+        return Ok(());
+    };
+    runpod_client
+        .terminate_provisioner_pod(&provisioner_id)
+        .await?;
+    runpod_resources_mut(workspace).provisioner_pod_id = None;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    Ok(())
+}
+
+async fn delete_network_volume<W>(
+    workspace: &mut crate::domain::workspace::Workspace,
+    workspace_catalog: &W,
+    runpod_client: &dyn RunpodRuntimeClient,
+    event_sink: &Arc<dyn EventSink<RunpodRuntimeEvent>>,
+) -> Result<(), RunpodRuntimeError>
+where
+    W: WorkspaceCatalogRepository,
+{
+    let Some(volume_id) = runpod_resources(workspace).network_volume_id.clone() else {
+        return Ok(());
+    };
+    runpod_client.delete_network_volume(&volume_id).await?;
+    runpod_resources_mut(workspace).network_volume_id = None;
+    *workspace = persist_workspace(workspace_catalog, event_sink, workspace).await?;
+    Ok(())
+}
+
+fn runpod_resources(
+    workspace: &crate::domain::workspace::Workspace,
+) -> &crate::domain::runpod::RunpodResources {
+    let crate::domain::workspace::WorkspaceRuntime::Runpod(runtime) = &workspace.runtime;
+    &runtime.resources
+}
+
+fn runpod_resources_mut(
+    workspace: &mut crate::domain::workspace::Workspace,
+) -> &mut crate::domain::runpod::RunpodResources {
+    let crate::domain::workspace::WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
+    &mut runtime.resources
 }

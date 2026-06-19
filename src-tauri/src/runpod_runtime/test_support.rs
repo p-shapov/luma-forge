@@ -64,11 +64,6 @@ pub(crate) trait ManualLifecycleRunnerExt {
         &'a self,
         operation_id: &'a str,
     ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
-
-    fn run_delete_once_for_test<'a>(
-        &'a self,
-        operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>>;
 }
 
 impl<W, L, WC, RC> ManualLifecycleRunnerExt for RunpodRuntimeService<W, L, WC, RC>
@@ -118,27 +113,6 @@ where
                 &context.event_sink,
             )
             .await;
-            context.lifecycle_operation_registry.complete(&operation_id);
-            result
-        })
-    }
-
-    fn run_delete_once_for_test<'a>(
-        &'a self,
-        operation_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodRuntimeError>> {
-        Box::pin(async move {
-            let operation_id = operation_id.to_string();
-            let context = self.lifecycle_runner_context();
-            let result = lifecycle::delete::run_once(
-                &operation_id,
-                &context.workspace_catalog,
-                &context.lifecycle_journal,
-                context.runpod_client.as_ref(),
-                &context.event_sink,
-            )
-            .await
-            .map(|_| ());
             context.lifecycle_operation_registry.complete(&operation_id);
             result
         })
