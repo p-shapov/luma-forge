@@ -35,7 +35,7 @@ pub async fn cleanup_remote_resources(
 ) -> Result<(), WorkspaceError> {
     let resources = runpod_resources_mut(workspace);
     if let Some(endpoint_id) = resources.endpoint_id.clone() {
-        if let Some(operation) = operation.as_deref_mut() {
+        if let Some(operation) = operation.as_mut() {
             mark_step(context, operation, RunpodCleanupStep::DeleteEndpoint).await?;
         }
         runpod_client
@@ -47,7 +47,7 @@ pub async fn cleanup_remote_resources(
     }
 
     if let Some(template_id) = runpod_resources(workspace).template_id.clone() {
-        if let Some(operation) = operation.as_deref_mut() {
+        if let Some(operation) = operation.as_mut() {
             mark_step(context, operation, RunpodCleanupStep::DeleteTemplate).await?;
         }
         runpod_client
@@ -59,7 +59,7 @@ pub async fn cleanup_remote_resources(
     }
 
     if let Some(provisioner_pod_id) = runpod_resources(workspace).provisioner_pod_id.clone() {
-        if let Some(operation) = operation.as_deref_mut() {
+        if let Some(operation) = operation.as_mut() {
             mark_step(
                 context,
                 operation,
@@ -76,7 +76,7 @@ pub async fn cleanup_remote_resources(
     }
 
     if let Some(network_volume_id) = runpod_resources(workspace).network_volume_id.clone() {
-        if let Some(operation) = operation.as_deref_mut() {
+        if let Some(operation) = operation.as_mut() {
             mark_step(context, operation, RunpodCleanupStep::DeleteNetworkVolume).await?;
         }
         runpod_client
