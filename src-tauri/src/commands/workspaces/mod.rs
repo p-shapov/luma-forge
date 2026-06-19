@@ -1,5 +1,15 @@
+mod errors;
+
 use tauri::State;
 use uuid::Uuid;
+
+use errors::{
+    cleanup_workspace_error, create_runpod_workspace_error, delete_workspace_error,
+    get_latest_lifecycle_operation_error, get_running_lifecycle_operations_error,
+    provision_workspace_error, CleanupWorkspaceErrorCode, CreateRunpodWorkspaceErrorCode,
+    DeleteWorkspaceErrorCode, GetLatestLifecycleOperationErrorCode,
+    GetRunningLifecycleOperationsErrorCode, ProvisionWorkspaceErrorCode,
+};
 
 use crate::{
     app::state::NativeAppState,
@@ -32,8 +42,14 @@ use crate::{
 pub async fn create_runpod_workspace(
     state: State<'_, NativeAppState>,
     request: CreateRunpodWorkspaceRequest,
-) -> CommandResult<WorkspaceResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<WorkspaceResponse, CreateRunpodWorkspaceErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "create_runpod_workspace",
+            error,
+            CreateRunpodWorkspaceErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let placement: RunpodPlacementPlan = request.placement.into();
 
     let workspace = state
@@ -44,7 +60,13 @@ pub async fn create_runpod_workspace(
             placement,
         })
         .await
-        .map_err(|error| command_error("create_runpod_workspace", error))?;
+        .map_err(|error| {
+            command_error(
+                "create_runpod_workspace",
+                error,
+                create_runpod_workspace_error,
+            )
+        })?;
 
     Ok(workspace.into())
 }
@@ -59,13 +81,19 @@ pub async fn create_runpod_workspace(
 pub async fn provision_workspace(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
-) -> CommandResult<ProvisionWorkspaceResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<ProvisionWorkspaceResponse, ProvisionWorkspaceErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "provision_workspace",
+            error,
+            ProvisionWorkspaceErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let response = state
         .workspace
         .provision_workspace(&request.workspace_id)
         .await
-        .map_err(|error| command_error("provision_workspace", error))?;
+        .map_err(|error| command_error("provision_workspace", error, provision_workspace_error))?;
     Ok(response.into())
 }
 
@@ -79,13 +107,19 @@ pub async fn provision_workspace(
 pub async fn cleanup_workspace(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
-) -> CommandResult<CleanupWorkspaceResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<CleanupWorkspaceResponse, CleanupWorkspaceErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "cleanup_workspace",
+            error,
+            CleanupWorkspaceErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let response = state
         .workspace
         .cleanup_workspace(&request.workspace_id)
         .await
-        .map_err(|error| command_error("cleanup_workspace", error))?;
+        .map_err(|error| command_error("cleanup_workspace", error, cleanup_workspace_error))?;
     Ok(response.into())
 }
 
@@ -99,13 +133,19 @@ pub async fn cleanup_workspace(
 pub async fn delete_workspace(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
-) -> CommandResult<DeleteWorkspaceResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<DeleteWorkspaceResponse, DeleteWorkspaceErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "delete_workspace",
+            error,
+            DeleteWorkspaceErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let response = state
         .workspace
         .delete_workspace(&request.workspace_id)
         .await
-        .map_err(|error| command_error("delete_workspace", error))?;
+        .map_err(|error| command_error("delete_workspace", error, delete_workspace_error))?;
 
     Ok(response.into())
 }
@@ -119,14 +159,26 @@ pub async fn delete_workspace(
 )]
 pub async fn get_running_lifecycle_operations(
     state: State<'_, NativeAppState>,
-) -> CommandResult<RunningLifecycleOperationsResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<RunningLifecycleOperationsResponse, GetRunningLifecycleOperationsErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "get_running_lifecycle_operations",
+            error,
+            GetRunningLifecycleOperationsErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let operations = state
         .lifecycle_journal
         .list_running()
         .await
         .map_err(WorkspaceError::from)
-        .map_err(|error| command_error("get_running_lifecycle_operations", error))?
+        .map_err(|error| {
+            command_error(
+                "get_running_lifecycle_operations",
+                error,
+                get_running_lifecycle_operations_error,
+            )
+        })?
         .into_iter()
         .map(Into::into)
         .collect();
@@ -144,14 +196,26 @@ pub async fn get_running_lifecycle_operations(
 pub async fn get_latest_lifecycle_operation(
     state: State<'_, NativeAppState>,
     request: WorkspaceIdRequest,
-) -> CommandResult<LatestLifecycleOperationResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<LatestLifecycleOperationResponse, GetLatestLifecycleOperationErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "get_latest_lifecycle_operation",
+            error,
+            GetLatestLifecycleOperationErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let operation = state
         .lifecycle_journal
         .latest_for_workspace(&request.workspace_id)
         .await
         .map_err(WorkspaceError::from)
-        .map_err(|error| command_error("get_latest_lifecycle_operation", error))?
+        .map_err(|error| {
+            command_error(
+                "get_latest_lifecycle_operation",
+                error,
+                get_latest_lifecycle_operation_error,
+            )
+        })?
         .map(Into::into);
 
     Ok(LatestLifecycleOperationResponse { operation })
