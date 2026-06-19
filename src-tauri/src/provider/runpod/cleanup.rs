@@ -40,7 +40,8 @@ pub async fn cleanup_remote_resources(
         }
         runpod_client
             .delete_serverless_endpoint(&endpoint_id)
-            .await?;
+            .await
+            .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).endpoint_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
     }
@@ -49,7 +50,10 @@ pub async fn cleanup_remote_resources(
         if let Some(operation) = operation.as_deref_mut() {
             mark_step(context, operation, RunpodCleanupStep::DeleteTemplate).await?;
         }
-        runpod_client.delete_template(&template_id).await?;
+        runpod_client
+            .delete_template(&template_id)
+            .await
+            .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).template_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
     }
@@ -65,7 +69,8 @@ pub async fn cleanup_remote_resources(
         }
         runpod_client
             .terminate_provisioner_pod(&provisioner_pod_id)
-            .await?;
+            .await
+            .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).provisioner_pod_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
     }
@@ -76,7 +81,8 @@ pub async fn cleanup_remote_resources(
         }
         runpod_client
             .delete_network_volume(&network_volume_id)
-            .await?;
+            .await
+            .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).network_volume_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
     }

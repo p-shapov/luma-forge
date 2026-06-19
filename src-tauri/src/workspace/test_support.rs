@@ -319,7 +319,10 @@ impl crate::provider::runpod::client::RunpodRuntimeClient for FakeRunpodRuntimeC
         &'a self,
     ) -> AppFuture<
         'a,
-        Result<crate::domain::runpod::RunpodPlacementOptions, crate::workspace::WorkspaceError>,
+        Result<
+            crate::domain::runpod::RunpodPlacementOptions,
+            crate::provider::runpod::errors::RunpodProviderError,
+        >,
     > {
         Box::pin(async move {
             Ok(crate::domain::runpod::RunpodPlacementOptions {
@@ -332,28 +335,28 @@ impl crate::provider::runpod::client::RunpodRuntimeClient for FakeRunpodRuntimeC
     fn create_network_volume<'a>(
         &'a self,
         _params: crate::provider::runpod::client::CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok("volume".to_string()) })
     }
 
     fn delete_network_volume<'a>(
         &'a self,
         _network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok(()) })
     }
 
     fn start_provisioner_pod<'a>(
         &'a self,
         _params: crate::provider::runpod::client::StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok("provisioner".to_string()) })
     }
 
     fn terminate_provisioner_pod<'a>(
         &'a self,
         _provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok(()) })
     }
 
@@ -365,7 +368,7 @@ impl crate::provider::runpod::client::RunpodRuntimeClient for FakeRunpodRuntimeC
         'a,
         Result<
             crate::provider::runpod::client::RunpodProvisionerStatus,
-            crate::workspace::WorkspaceError,
+            crate::provider::runpod::errors::RunpodProviderError,
         >,
     > {
         Box::pin(
@@ -376,28 +379,28 @@ impl crate::provider::runpod::client::RunpodRuntimeClient for FakeRunpodRuntimeC
     fn create_serverless_template<'a>(
         &'a self,
         _params: crate::provider::runpod::client::CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok("template".to_string()) })
     }
 
     fn create_serverless_endpoint<'a>(
         &'a self,
         _params: crate::provider::runpod::client::CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok("endpoint".to_string()) })
     }
 
     fn delete_serverless_endpoint<'a>(
         &'a self,
         _endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok(()) })
     }
 
     fn delete_template<'a>(
         &'a self,
         _template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
+    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
         Box::pin(async move { Ok(()) })
     }
 }
