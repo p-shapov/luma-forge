@@ -9,7 +9,6 @@ pub mod diagnostics;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod provider;
-pub mod runpod_runtime;
 pub mod runtime_catalog;
 pub mod secrets;
 pub mod shared;

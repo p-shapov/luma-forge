@@ -104,10 +104,13 @@ pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
 }
 
 fn error_code_for_source(error: &(dyn Error + 'static)) -> NativeCommandErrorCode {
-    if let Some(error) = error.downcast_ref::<crate::runpod_runtime::errors::RunpodRuntimeError>() {
+    if let Some(error) = error.downcast_ref::<crate::secrets::SecretsStorageError>() {
         return NativeCommandErrorCode::from(error);
     }
-    if let Some(error) = error.downcast_ref::<crate::secrets::SecretsStorageError>() {
+    if let Some(error) = error.downcast_ref::<crate::provider::runpod::RunpodProviderError>() {
+        return NativeCommandErrorCode::from(error);
+    }
+    if let Some(error) = error.downcast_ref::<crate::workspace::WorkspaceError>() {
         return NativeCommandErrorCode::from(error);
     }
     if let Some(error) = error.downcast_ref::<crate::shared::ApiError>() {
@@ -337,7 +340,7 @@ mod tests {
 
     #[test]
     fn source_chain_includes_nested_error_codes() {
-        let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
+        let error = crate::workspace::WorkspaceError::RuntimeProviderApiKeyUnavailable(
             crate::secrets::SecretsStorageError::StoreUnavailable,
         );
 
@@ -363,7 +366,7 @@ mod tests {
 
     #[test]
     fn leaf_error_message_returns_deepest_source_message() {
-        let error = crate::runpod_runtime::errors::RunpodRuntimeError::RunpodApiKeyUnavailable(
+        let error = crate::workspace::WorkspaceError::RuntimeProviderApiKeyUnavailable(
             crate::secrets::SecretsStorageError::StoreUnavailable,
         );
 

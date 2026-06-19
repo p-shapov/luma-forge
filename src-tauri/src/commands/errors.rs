@@ -2,10 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    provider::runpod::RunpodProviderError, runpod_runtime::errors::RunpodRuntimeError,
-    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError, shared::ApiError,
-    workflow_catalog::WorkflowCatalogError, workspace::WorkspaceError,
-    workspace_catalog::WorkspaceCatalogError,
+    provider::runpod::RunpodProviderError, runtime_catalog::RuntimeCatalogError,
+    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
+    workspace::WorkspaceError, workspace_catalog::WorkspaceCatalogError,
 };
 
 pub type CommandResult<T> = Result<T, NativeCommandError>;
@@ -268,24 +267,6 @@ impl From<&RunpodProviderError> for NativeCommandErrorCode {
     }
 }
 
-impl From<RunpodRuntimeError> for NativeCommandError {
-    fn from(error: RunpodRuntimeError) -> Self {
-        NativeCommandError::from(workspace_error_from_runpod_runtime(&error))
-    }
-}
-
-impl From<RunpodRuntimeError> for NativeCommandErrorCode {
-    fn from(error: RunpodRuntimeError) -> Self {
-        NativeCommandErrorCode::from(workspace_error_from_runpod_runtime(&error))
-    }
-}
-
-impl From<&RunpodRuntimeError> for NativeCommandErrorCode {
-    fn from(error: &RunpodRuntimeError) -> Self {
-        NativeCommandErrorCode::from(workspace_error_from_runpod_runtime(error))
-    }
-}
-
 impl From<WorkspaceError> for NativeCommandError {
     fn from(error: WorkspaceError) -> Self {
         let message = crate::diagnostics::leaf_error_message(&error);
@@ -366,57 +347,6 @@ fn provider_error(error: &ApiError) -> NativeCommandErrorCode {
     }
 }
 
-fn workspace_error_from_runpod_runtime(error: &RunpodRuntimeError) -> WorkspaceError {
-    match error {
-        RunpodRuntimeError::RunpodApiError(error) => {
-            WorkspaceError::ProviderApiError(error.clone())
-        }
-        RunpodRuntimeError::RunpodApiKeyUnavailable(error) => {
-            WorkspaceError::RuntimeProviderApiKeyUnavailable(error.clone())
-        }
-        RunpodRuntimeError::HuggingFaceApiKeyUnavailable(error) => {
-            WorkspaceError::WorkflowProviderApiKeyUnavailable(error.clone())
-        }
-        RunpodRuntimeError::WorkflowCatalogInvalid(error) => {
-            WorkspaceError::WorkflowCatalogInvalid(error.clone())
-        }
-        RunpodRuntimeError::RuntimeCatalogInvalid(error) => {
-            WorkspaceError::RuntimeCatalogInvalid(error.clone())
-        }
-        RunpodRuntimeError::WorkspaceCatalogInvalid(error) => {
-            WorkspaceError::WorkspaceCatalogInvalid(error.clone())
-        }
-        RunpodRuntimeError::ProvisionerWorkerUnavailable { message } => {
-            WorkspaceError::ProvisionerWorkerUnavailable {
-                message: message.clone(),
-            }
-        }
-        RunpodRuntimeError::ProvisionerWorkerResponseInvalid { message } => {
-            WorkspaceError::ProvisionerWorkerResponseInvalid {
-                message: message.clone(),
-            }
-        }
-        RunpodRuntimeError::ProvisionerWorkerFailed { message } => {
-            WorkspaceError::ProvisionerWorkerFailed {
-                message: message.clone(),
-            }
-        }
-        RunpodRuntimeError::WorkspaceNotFound { workspace_id } => {
-            WorkspaceError::WorkspaceNotFound {
-                workspace_id: workspace_id.clone(),
-            }
-        }
-        RunpodRuntimeError::LifecycleOperationAlreadyRunning { workspace_id } => {
-            WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: workspace_id.clone(),
-            }
-        }
-        RunpodRuntimeError::InvalidRuntimeState { message } => WorkspaceError::InvalidState {
-            message: message.clone(),
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,8 +418,9 @@ mod tests {
 
     #[test]
     fn runpod_unauthorized_preserves_service_message() {
-        let error =
-            NativeCommandError::from(RunpodRuntimeError::RunpodApiError(ApiError::Unauthorized));
+        let error = NativeCommandError::from(WorkspaceError::ProviderApiError(
+            ApiError::Unauthorized,
+        ));
 
         assert_eq!(error.message, "api request was unauthorized");
         assert_eq!(error.code, NativeCommandErrorCode::ProviderUnauthorized);
@@ -497,7 +428,7 @@ mod tests {
 
     #[test]
     fn wrapped_runtime_error_uses_leaf_source_message() {
-        let error = NativeCommandError::from(RunpodRuntimeError::RunpodApiKeyUnavailable(
+        let error = NativeCommandError::from(WorkspaceError::RuntimeProviderApiKeyUnavailable(
             SecretsStorageError::StoreUnavailable,
         ));
 
@@ -507,10 +438,9 @@ mod tests {
 
     #[test]
     fn lifecycle_operation_already_running_preserves_workspace_id_in_message() {
-        let error =
-            NativeCommandError::from(RunpodRuntimeError::LifecycleOperationAlreadyRunning {
-                workspace_id: "workspace-1".to_string(),
-            });
+        let error = NativeCommandError::from(WorkspaceError::LifecycleOperationAlreadyRunning {
+            workspace_id: "workspace-1".to_string(),
+        });
 
         assert_eq!(
             error.message,
@@ -524,7 +454,7 @@ mod tests {
 
     #[test]
     fn invalid_runtime_state_preserves_service_message() {
-        let error = NativeCommandError::from(RunpodRuntimeError::InvalidRuntimeState {
+        let error = NativeCommandError::from(WorkspaceError::InvalidState {
             message: "runtime state contains provider details".to_string(),
         });
 
