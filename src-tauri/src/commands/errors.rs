@@ -4,6 +4,7 @@ use specta::Type;
 use crate::{
     runpod_runtime::errors::RunpodRuntimeError, runtime_catalog::RuntimeCatalogError,
     secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
+    workspace::WorkspaceError,
     workspace_catalog::WorkspaceCatalogError,
 };
 
@@ -274,6 +275,24 @@ impl From<&ApiError> for NativeCommandErrorCode {
 
 impl From<RunpodRuntimeError> for NativeCommandError {
     fn from(error: RunpodRuntimeError) -> Self {
+        NativeCommandError::from(workspace_error_from_runpod_runtime(&error))
+    }
+}
+
+impl From<RunpodRuntimeError> for NativeCommandErrorCode {
+    fn from(error: RunpodRuntimeError) -> Self {
+        NativeCommandErrorCode::from(workspace_error_from_runpod_runtime(&error))
+    }
+}
+
+impl From<&RunpodRuntimeError> for NativeCommandErrorCode {
+    fn from(error: &RunpodRuntimeError) -> Self {
+        NativeCommandErrorCode::from(workspace_error_from_runpod_runtime(error))
+    }
+}
+
+impl From<WorkspaceError> for NativeCommandError {
+    fn from(error: WorkspaceError) -> Self {
         let message = crate::diagnostics::leaf_error_message(&error);
         let code = NativeCommandErrorCode::from(&error);
 
@@ -281,35 +300,36 @@ impl From<RunpodRuntimeError> for NativeCommandError {
     }
 }
 
-impl From<RunpodRuntimeError> for NativeCommandErrorCode {
-    fn from(error: RunpodRuntimeError) -> Self {
+impl From<WorkspaceError> for NativeCommandErrorCode {
+    fn from(error: WorkspaceError) -> Self {
         Self::from(&error)
     }
 }
 
-impl From<&RunpodRuntimeError> for NativeCommandErrorCode {
-    fn from(error: &RunpodRuntimeError) -> Self {
+impl From<&WorkspaceError> for NativeCommandErrorCode {
+    fn from(error: &WorkspaceError) -> Self {
         match error {
-            RunpodRuntimeError::RunpodApiError(error) => provider_error(error),
-            RunpodRuntimeError::RunpodApiKeyUnavailable(_) => Self::RunpodApiKeyUnavailable,
-            RunpodRuntimeError::HuggingFaceApiKeyUnavailable(_) => {
+            WorkspaceError::ProviderApiError(error) => provider_error(error),
+            WorkspaceError::RuntimeProviderApiKeyUnavailable(_) => Self::RunpodApiKeyUnavailable,
+            WorkspaceError::WorkflowProviderApiKeyUnavailable(_) => {
                 Self::HuggingFaceApiKeyUnavailable
             }
-            RunpodRuntimeError::WorkflowCatalogInvalid(_) => Self::RunpodWorkflowCatalogInvalid,
-            RunpodRuntimeError::RuntimeCatalogInvalid(_) => Self::RunpodRuntimeCatalogInvalid,
-            RunpodRuntimeError::WorkspaceCatalogInvalid(_) => Self::RunpodWorkspaceCatalogInvalid,
-            RunpodRuntimeError::ProvisionerWorkerUnavailable { .. } => {
+            WorkspaceError::WorkflowCatalogInvalid(_) => Self::RunpodWorkflowCatalogInvalid,
+            WorkspaceError::RuntimeCatalogInvalid(_) => Self::RunpodRuntimeCatalogInvalid,
+            WorkspaceError::WorkspaceCatalogInvalid(_) => Self::RunpodWorkspaceCatalogInvalid,
+            WorkspaceError::LifecycleJournalInvalid { .. } => Self::InvalidRuntimeState,
+            WorkspaceError::ProvisionerWorkerUnavailable { .. } => {
                 Self::ProvisionerWorkerUnavailable
             }
-            RunpodRuntimeError::ProvisionerWorkerResponseInvalid { .. } => {
+            WorkspaceError::ProvisionerWorkerResponseInvalid { .. } => {
                 Self::ProvisionerWorkerResponseInvalid
             }
-            RunpodRuntimeError::ProvisionerWorkerFailed { .. } => Self::ProvisionerWorkerFailed,
-            RunpodRuntimeError::WorkspaceNotFound { .. } => Self::RunpodWorkspaceNotFound,
-            RunpodRuntimeError::LifecycleOperationAlreadyRunning { .. } => {
+            WorkspaceError::ProvisionerWorkerFailed { .. } => Self::ProvisionerWorkerFailed,
+            WorkspaceError::WorkspaceNotFound { .. } => Self::RunpodWorkspaceNotFound,
+            WorkspaceError::LifecycleOperationAlreadyRunning { .. } => {
                 Self::LifecycleOperationAlreadyRunning
             }
-            RunpodRuntimeError::InvalidRuntimeState { .. } => Self::InvalidRuntimeState,
+            WorkspaceError::InvalidState { .. } => Self::InvalidRuntimeState,
         }
     }
 }
@@ -354,6 +374,53 @@ fn provider_error(error: &ApiError) -> NativeCommandErrorCode {
         ApiError::RateLimited => NativeCommandErrorCode::ProviderRateLimited,
         ApiError::Timeout => NativeCommandErrorCode::ProviderTimeout,
         ApiError::RequestFailed { .. } => NativeCommandErrorCode::ProviderRequestFailed,
+    }
+}
+
+fn workspace_error_from_runpod_runtime(error: &RunpodRuntimeError) -> WorkspaceError {
+    match error {
+        RunpodRuntimeError::RunpodApiError(error) => WorkspaceError::ProviderApiError(error.clone()),
+        RunpodRuntimeError::RunpodApiKeyUnavailable(error) => {
+            WorkspaceError::RuntimeProviderApiKeyUnavailable(error.clone())
+        }
+        RunpodRuntimeError::HuggingFaceApiKeyUnavailable(error) => {
+            WorkspaceError::WorkflowProviderApiKeyUnavailable(error.clone())
+        }
+        RunpodRuntimeError::WorkflowCatalogInvalid(error) => {
+            WorkspaceError::WorkflowCatalogInvalid(error.clone())
+        }
+        RunpodRuntimeError::RuntimeCatalogInvalid(error) => {
+            WorkspaceError::RuntimeCatalogInvalid(error.clone())
+        }
+        RunpodRuntimeError::WorkspaceCatalogInvalid(error) => {
+            WorkspaceError::WorkspaceCatalogInvalid(error.clone())
+        }
+        RunpodRuntimeError::ProvisionerWorkerUnavailable { message } => {
+            WorkspaceError::ProvisionerWorkerUnavailable {
+                message: message.clone(),
+            }
+        }
+        RunpodRuntimeError::ProvisionerWorkerResponseInvalid { message } => {
+            WorkspaceError::ProvisionerWorkerResponseInvalid {
+                message: message.clone(),
+            }
+        }
+        RunpodRuntimeError::ProvisionerWorkerFailed { message } => {
+            WorkspaceError::ProvisionerWorkerFailed {
+                message: message.clone(),
+            }
+        }
+        RunpodRuntimeError::WorkspaceNotFound { workspace_id } => WorkspaceError::WorkspaceNotFound {
+            workspace_id: workspace_id.clone(),
+        },
+        RunpodRuntimeError::LifecycleOperationAlreadyRunning { workspace_id } => {
+            WorkspaceError::LifecycleOperationAlreadyRunning {
+                workspace_id: workspace_id.clone(),
+            }
+        }
+        RunpodRuntimeError::InvalidRuntimeState { message } => WorkspaceError::InvalidState {
+            message: message.clone(),
+        },
     }
 }
 
