@@ -25,7 +25,7 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
             id TEXT PRIMARY KEY NOT NULL,
             workspace_id TEXT NOT NULL,
             state TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
+            payload_json TEXT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             finished_at TEXT NULL
@@ -59,8 +59,13 @@ pub async fn bootstrap(pool: &SqlitePool) -> Result<(), LifecycleJournalError> {
     Ok(())
 }
 
-fn encode_payload(payload: &LifecycleOperationPayload) -> Result<String, LifecycleJournalError> {
-    serde_json::to_string(payload).map_err(data_invalid_error)
+fn encode_payload(
+    payload: Option<&LifecycleOperationPayload>,
+) -> Result<Option<String>, LifecycleJournalError> {
+    payload
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(data_invalid_error)
 }
 
 #[derive(Debug, Clone)]
@@ -78,13 +83,12 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
     fn create_operation<'a>(
         &'a self,
         workspace_id: &'a WorkspaceId,
-        payload: &'a LifecycleOperationPayload,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
         Box::pin(async move {
             validate_workspace_id(workspace_id)?;
 
             let operation_id = Uuid::new_v4().to_string();
-            let payload_json = encode_payload(payload)?;
+            let payload_json = encode_payload(None)?;
             let now = timestamp()?;
 
             sqlx::query(
@@ -208,7 +212,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             let existing = self.find_by_id(&operation.operation_id).await?;
             validate_operation_identity_matches(&existing, operation)?;
 
-            let payload_json = encode_payload(&operation.payload)?;
+            let payload_json = encode_payload(operation.payload.as_ref())?;
             let finished_at = finished_at_for_update(
                 operation.state,
                 operation.updated_at,
@@ -251,7 +255,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
         &'a self,
         operation_id: &'a LifecycleOperationId,
         state: LifecycleOperationState,
-        payload: &'a LifecycleOperationPayload,
+        payload: Option<&'a LifecycleOperationPayload>,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
         Box::pin(async move {
             validate_operation_id(operation_id)?;
@@ -337,7 +341,9 @@ fn operation_from_row(
     let operation_id = required_text(row, "id", "operation ID is missing")?;
     let workspace_id = required_text(row, "workspace_id", "workspace ID is missing")?;
     let state = required_text(row, "state", "state is missing")?;
-    let payload_json = required_text(row, "payload_json", "payload JSON is missing")?;
+    let payload_json = row
+        .try_get::<Option<String>, _>("payload_json")
+        .map_err(data_invalid_error)?;
     let created_at = required_text(row, "created_at", "created_at is missing")?;
     let updated_at = required_text(row, "updated_at", "updated_at is missing")?;
     let finished_at = row
@@ -355,7 +361,9 @@ fn operation_from_row(
         operation_id,
         workspace_id,
         state: state_from_storage(&state)?,
-        payload: serde_json::from_str::<LifecycleOperationPayload>(&payload_json)
+        payload: payload_json
+            .map(|payload_json| serde_json::from_str::<LifecycleOperationPayload>(&payload_json))
+            .transpose()
             .map_err(data_invalid_error)?,
         created_at: parse_timestamp(&created_at)?,
         updated_at: parse_timestamp(&updated_at)?,
@@ -479,8 +487,13 @@ mod tests {
     use sqlx::sqlite::SqliteConnectOptions;
 
     use crate::domain::{
-        lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
-        runpod::{RunpodLifecycleOperationPayload, RunpodProvisionStep},
+        lifecycle_operation::{
+            LifecycleCleanupPayload, LifecycleOperationPayload, LifecycleOperationState,
+            LifecycleProvisionPayload,
+        },
+        runpod::{
+            RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload, RunpodProvisionStep,
+        },
     };
 
     use super::*;
@@ -508,20 +521,21 @@ mod tests {
     }
 
     fn provision_payload(step: Option<RunpodProvisionStep>) -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step })
+        LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+            RunpodLifecycleProvisionPayload { step },
+        ))
     }
 
     #[tokio::test]
     async fn creating_second_running_operation_for_workspace_returns_running_operation_exists() {
         let repository = repository("duplicate-running").await;
-        let payload = provision_payload(None);
 
         repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("first operation should be created");
         let error = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect_err("second running operation should fail");
 
@@ -531,9 +545,8 @@ mod tests {
     #[tokio::test]
     async fn completed_operation_allows_new_running_operation_for_same_workspace() {
         let repository = repository("completed-allows-new").await;
-        let payload = provision_payload(None);
         let operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
 
@@ -541,12 +554,13 @@ mod tests {
             .mark_state(
                 &operation.operation_id,
                 LifecycleOperationState::Completed,
-                &payload,
+                None,
             )
             .await
             .expect("operation should complete");
+        assert_eq!(operation.payload, None);
         let next_operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("new running operation should be created");
 
@@ -557,15 +571,14 @@ mod tests {
     #[tokio::test]
     async fn delete_for_workspace_removes_only_matching_rows() {
         let repository = repository("delete-for-workspace").await;
-        let payload = provision_payload(None);
         let workspace_1 = "workspace-1".to_string();
         let workspace_2 = "workspace-2".to_string();
         repository
-            .create_operation(&workspace_1, &payload)
+            .create_operation(&workspace_1)
             .await
             .expect("first operation should be created");
         let remaining = repository
-            .create_operation(&workspace_2, &payload)
+            .create_operation(&workspace_2)
             .await
             .expect("second operation should be created");
 
@@ -595,10 +608,9 @@ mod tests {
     #[tokio::test]
     async fn mark_state_sets_state_payload_and_finished_at_for_terminal_states() {
         let repository = repository("mark-state").await;
-        let initial_payload = provision_payload(None);
         let finished_payload = provision_payload(Some(RunpodProvisionStep::CreateNetworkVolume));
         let operation = repository
-            .create_operation(&"workspace-1".to_string(), &initial_payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
 
@@ -606,22 +618,21 @@ mod tests {
             .mark_state(
                 &operation.operation_id,
                 LifecycleOperationState::Failed,
-                &finished_payload,
+                Some(&finished_payload),
             )
             .await
             .expect("operation should be marked failed");
 
         assert_eq!(marked.state, LifecycleOperationState::Failed);
-        assert_eq!(marked.payload, finished_payload);
+        assert_eq!(marked.payload, Some(finished_payload));
         assert!(marked.finished_at.is_some());
     }
 
     #[tokio::test]
     async fn update_operation_cannot_change_workspace_id_or_created_at() {
         let repository = repository("update-operation-immutable-fields").await;
-        let payload = provision_payload(None);
         let operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
 
@@ -653,9 +664,8 @@ mod tests {
     #[tokio::test]
     async fn terminal_update_with_no_finished_at_uses_operation_updated_at() {
         let repository = repository("terminal-update-finished-at").await;
-        let payload = provision_payload(None);
         let mut operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
         let updated_at = OffsetDateTime::from_unix_timestamp(42).expect("valid timestamp");
@@ -675,9 +685,8 @@ mod tests {
     #[tokio::test]
     async fn terminal_update_rejects_finished_at_before_updated_at() {
         let repository = repository("terminal-update-invalid-finished-at").await;
-        let payload = provision_payload(None);
         let mut operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
         operation.state = LifecycleOperationState::Failed;
@@ -696,16 +705,15 @@ mod tests {
     #[tokio::test]
     async fn mark_state_cannot_reopen_terminal_operation() {
         let repository = repository("mark-state-terminal").await;
-        let payload = provision_payload(None);
         let operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
         repository
             .mark_state(
                 &operation.operation_id,
                 LifecycleOperationState::Completed,
-                &payload,
+                None,
             )
             .await
             .expect("operation should complete");
@@ -714,7 +722,9 @@ mod tests {
             .mark_state(
                 &operation.operation_id,
                 LifecycleOperationState::Running,
-                &payload,
+                Some(&LifecycleOperationPayload::Cleanup(
+                    LifecycleCleanupPayload::Runpod(RunpodLifecycleCleanupPayload { step: None }),
+                )),
             )
             .await
             .expect_err("terminal operation should not be reopened");
@@ -725,13 +735,12 @@ mod tests {
     #[tokio::test]
     async fn list_running_orders_by_created_at_then_id() {
         let repository = repository("list-running-order").await;
-        let payload = provision_payload(None);
         let first = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("first operation should be created");
         let second = repository
-            .create_operation(&"workspace-2".to_string(), &payload)
+            .create_operation(&"workspace-2".to_string())
             .await
             .expect("second operation should be created");
 
@@ -761,7 +770,7 @@ mod tests {
     async fn decoded_persisted_row_with_blank_operation_id_is_corrupt() {
         let repository = repository("blank-operation-id").await;
         let payload = provision_payload(None);
-        let payload_json = encode_payload(&payload).expect("payload should encode");
+        let payload_json = encode_payload(Some(&payload)).expect("payload should encode");
         let now = timestamp().expect("timestamp should format");
 
         sqlx::query(

@@ -469,7 +469,6 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
     fn create_operation<'a>(
         &'a self,
         workspace_id: &'a WorkspaceId,
-        payload: &'a LifecycleOperationPayload,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
         Box::pin(async move {
             let now = OffsetDateTime::now_utc();
@@ -488,7 +487,7 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
                 operation_id: format!("operation-{}", operations.len() + 1),
                 workspace_id: workspace_id.clone(),
                 state: LifecycleOperationState::Running,
-                payload: payload.clone(),
+                payload: None,
                 created_at: now,
                 updated_at: now,
                 finished_at: None,
@@ -593,7 +592,7 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
         &'a self,
         operation_id: &'a LifecycleOperationId,
         state: LifecycleOperationState,
-        payload: &'a LifecycleOperationPayload,
+        payload: Option<&'a LifecycleOperationPayload>,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
         Box::pin(async move {
             let mut operations = self
@@ -608,7 +607,7 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournalRepository {
             }
 
             operation.state = state;
-            operation.payload = payload.clone();
+            operation.payload = payload.cloned();
             operation.updated_at = OffsetDateTime::now_utc();
             if state != LifecycleOperationState::Running {
                 operation.finished_at = Some(operation.updated_at);
@@ -695,10 +694,15 @@ fn placement_plan() -> RunpodPlacementPlan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::runpod::RunpodLifecycleOperationPayload;
+    use crate::domain::{
+        lifecycle_operation::{LifecycleOperationPayload, LifecycleProvisionPayload},
+        runpod::RunpodLifecycleProvisionPayload,
+    };
 
     fn provision_payload() -> LifecycleOperationPayload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step: None })
+        LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+            RunpodLifecycleProvisionPayload { step: None },
+        ))
     }
 
     #[tokio::test]
@@ -708,7 +712,7 @@ mod tests {
             operation_id: "missing-operation".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Running,
-            payload: provision_payload(),
+            payload: Some(provision_payload()),
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
             finished_at: None,
@@ -727,14 +731,14 @@ mod tests {
         let repository = InMemoryLifecycleJournalRepository::default();
         let payload = provision_payload();
         let operation = repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("operation should be created");
         repository
             .mark_state(
                 &operation.operation_id,
                 LifecycleOperationState::Completed,
-                &payload,
+                Some(&payload),
             )
             .await
             .expect("operation should complete");
@@ -743,7 +747,7 @@ mod tests {
             .mark_state(
                 &operation.operation_id,
                 LifecycleOperationState::Stale,
-                &payload,
+                Some(&payload),
             )
             .await
             .expect_err("terminal operation should not be marked again");
@@ -756,14 +760,14 @@ mod tests {
         let repository = InMemoryLifecycleJournalRepository::default();
         let payload = provision_payload();
         let second = repository
-            .create_operation(&"workspace-2".to_string(), &payload)
+            .create_operation(&"workspace-2".to_string())
             .await
             .expect("operation should be created");
         let first = LifecycleOperation {
             operation_id: "operation-0".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Running,
-            payload: payload.clone(),
+            payload: Some(payload.clone()),
             created_at: second.created_at,
             updated_at: second.updated_at,
             finished_at: None,
@@ -800,7 +804,7 @@ mod tests {
             operation_id: "operation-1".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Completed,
-            payload: payload.clone(),
+            payload: Some(payload.clone()),
             created_at: OffsetDateTime::UNIX_EPOCH,
             updated_at: OffsetDateTime::UNIX_EPOCH,
             finished_at: Some(OffsetDateTime::UNIX_EPOCH),
@@ -809,7 +813,7 @@ mod tests {
             operation_id: "operation-2".to_string(),
             workspace_id: "workspace-1".to_string(),
             state: LifecycleOperationState::Failed,
-            payload,
+            payload: Some(payload),
             created_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1),
             updated_at: OffsetDateTime::UNIX_EPOCH,
             finished_at: Some(OffsetDateTime::UNIX_EPOCH),
@@ -835,13 +839,12 @@ mod tests {
     #[tokio::test]
     async fn delete_for_workspace_removes_only_matching_operations() {
         let repository = InMemoryLifecycleJournalRepository::default();
-        let payload = provision_payload();
         repository
-            .create_operation(&"workspace-1".to_string(), &payload)
+            .create_operation(&"workspace-1".to_string())
             .await
             .expect("first operation should be created");
         let remaining = repository
-            .create_operation(&"workspace-2".to_string(), &payload)
+            .create_operation(&"workspace-2".to_string())
             .await
             .expect("second operation should be created");
 

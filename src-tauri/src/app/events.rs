@@ -29,7 +29,7 @@ impl EventSink<RunpodRuntimeEvent> for TauriRunpodRuntimeEventSink {
                 diagnostic_id,
                 operation,
             } => {
-                let fields = lifecycle_log_fields(&operation.payload);
+                let fields = lifecycle_log_fields(operation.payload.as_ref());
                 let state = lifecycle_state_label(operation.state);
                 let _ = LifecycleOperationChangedEvent {
                     workspace_id: workspace_id.clone(),

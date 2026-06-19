@@ -5,7 +5,8 @@ pub mod runtime;
 
 pub use contract_requirements::RunpodContractRequirements;
 pub use lifecycle::{
-    RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload, RunpodProvisionStep,
+    RunpodCleanupStep, RunpodLifecycleCleanupPayload, RunpodLifecycleProvisionPayload,
+    RunpodProvisionStep,
 };
 pub use placement::{
     RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,

@@ -9,11 +9,11 @@ use crate::{
         },
     },
     domain::{
-        lifecycle_operation::{LifecycleOperationPayload, LifecycleOperationState},
-        runpod::{
-            RunpodCleanupStep, RunpodDeleteStep, RunpodLifecycleOperationPayload,
-            RunpodProvisionStep,
+        lifecycle_operation::{
+            LifecycleCleanupPayload, LifecycleOperationPayload, LifecycleOperationState,
+            LifecycleProvisionPayload,
         },
+        runpod::{RunpodCleanupStep, RunpodProvisionStep},
     },
 };
 use tracing_subscriber::{fmt, fmt::format::FmtSpan, EnvFilter};
@@ -218,26 +218,24 @@ pub struct LifecycleLogFields {
     pub step: Option<&'static str>,
 }
 
-pub fn lifecycle_log_fields(payload: &LifecycleOperationPayload) -> LifecycleLogFields {
+pub fn lifecycle_log_fields(payload: Option<&LifecycleOperationPayload>) -> LifecycleLogFields {
     match payload {
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision { step }) => {
+        Some(LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(payload))) => {
             LifecycleLogFields {
                 operation_kind: "provision",
-                step: step.as_ref().map(provision_step_label),
+                step: payload.step.as_ref().map(provision_step_label),
             }
         }
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Cleanup { step }) => {
+        Some(LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(payload))) => {
             LifecycleLogFields {
                 operation_kind: "cleanup",
-                step: step.as_ref().map(cleanup_step_label),
+                step: payload.step.as_ref().map(cleanup_step_label),
             }
         }
-        LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Delete { step }) => {
-            LifecycleLogFields {
-                operation_kind: "delete",
-                step: step.as_ref().map(delete_step_label),
-            }
-        }
+        None => LifecycleLogFields {
+            operation_kind: "unknown",
+            step: None,
+        },
     }
 }
 
@@ -270,16 +268,6 @@ fn cleanup_step_label(step: &RunpodCleanupStep) -> &'static str {
     }
 }
 
-fn delete_step_label(step: &RunpodDeleteStep) -> &'static str {
-    match step {
-        RunpodDeleteStep::DeleteEndpoint => "delete_endpoint",
-        RunpodDeleteStep::DeleteTemplate => "delete_template",
-        RunpodDeleteStep::TerminateProvisionerPod => "terminate_provisioner_pod",
-        RunpodDeleteStep::DeleteNetworkVolume => "delete_network_volume",
-        RunpodDeleteStep::DeleteLocalWorkspace => "delete_local_workspace",
-    }
-}
-
 pub fn lifecycle_error<E>(
     operation_id: &str,
     workspace_id: Option<&str>,
@@ -295,15 +283,15 @@ where
     let message = leaf_error_message(error);
     let log_message = redact_for_log(&message);
     let code = NativeCommandErrorCode::from(error);
-    let fields = payload.map(lifecycle_log_fields);
+    let fields = lifecycle_log_fields(payload);
 
     tracing::error!(
         diagnostic_id = %diagnostic_id,
         operation_id = operation_id,
         workspace_id = workspace_id.unwrap_or("unknown"),
-        operation_kind = fields.map_or("unknown", |fields| fields.operation_kind),
+        operation_kind = fields.operation_kind,
         state = lifecycle_state_label(LifecycleOperationState::Failed),
-        step = fields.and_then(|fields| fields.step).unwrap_or("none"),
+        step = fields.step.unwrap_or("none"),
         error_code = ?code,
         error = ?log_message,
         source_chain = ?source_chain,
@@ -322,8 +310,8 @@ mod tests {
             workspace::{CreateRunpodWorkspaceRequest, WorkspaceIdRequest},
         },
         domain::{
-            lifecycle_operation::LifecycleOperationPayload,
-            runpod::{RunpodLifecycleOperationPayload, RunpodProvisionStep},
+            lifecycle_operation::{LifecycleOperationPayload, LifecycleProvisionPayload},
+            runpod::{RunpodLifecycleProvisionPayload, RunpodProvisionStep},
         },
     };
 
@@ -384,15 +372,24 @@ mod tests {
 
     #[test]
     fn lifecycle_log_fields_describe_payload_without_serializing_it() {
-        let payload =
-            LifecycleOperationPayload::Runpod(RunpodLifecycleOperationPayload::Provision {
+        let payload = LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
+            RunpodLifecycleProvisionPayload {
                 step: Some(RunpodProvisionStep::CreateEndpoint),
-            });
+            },
+        ));
 
-        let fields = lifecycle_log_fields(&payload);
+        let fields = lifecycle_log_fields(Some(&payload));
 
         assert_eq!(fields.operation_kind, "provision");
         assert_eq!(fields.step, Some("create_endpoint"));
+    }
+
+    #[test]
+    fn lifecycle_log_fields_return_unknown_for_missing_payload() {
+        let fields = lifecycle_log_fields(None);
+
+        assert_eq!(fields.operation_kind, "unknown");
+        assert_eq!(fields.step, None);
     }
 
     #[test]
