@@ -133,6 +133,40 @@ impl<'a> WorkspaceRuntimeContext<'a> {
 }
 
 #[cfg(test)]
+impl<'a> WorkspaceRuntimeContext<'a> {
+    pub async fn insert_workspace_for_test(&self, workspace: Workspace) {
+        self.workspace_catalog
+            .insert_workspace(&workspace)
+            .await
+            .expect("workspace insert should succeed");
+    }
+
+    pub async fn find_workspace_for_test(&self, workspace_id: &str) -> Option<Workspace> {
+        self.workspace_catalog
+            .find_workspace_by_id(workspace_id)
+            .await
+            .expect("workspace lookup should succeed")
+    }
+
+    pub async fn create_operation_for_test(&self, workspace_id: &str) -> LifecycleOperation {
+        self.lifecycle_journal
+            .create_operation(&workspace_id.to_string())
+            .await
+            .expect("operation create should succeed")
+    }
+
+    pub async fn latest_operation_for_test(
+        &self,
+        workspace_id: &str,
+    ) -> Option<LifecycleOperation> {
+        self.lifecycle_journal
+            .latest_for_workspace(&workspace_id.to_string())
+            .await
+            .expect("latest operation should load")
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
