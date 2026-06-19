@@ -55,8 +55,9 @@ pub trait WorkspaceRuntime: Send + Sync {
     fn delete<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
+        operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<(), WorkspaceError>>;
+    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>>;
 }
 
 #[derive(Clone)]
@@ -118,10 +119,6 @@ impl<'a> WorkspaceRuntimeContext<'a> {
     }
 
     pub async fn delete_workspace(&self, workspace_id: &str) -> Result<(), WorkspaceError> {
-        self.lifecycle_journal
-            .delete_for_workspace(&workspace_id.to_string())
-            .await
-            .map_err(super::errors::lifecycle_journal_error)?;
         self.workspace_catalog
             .delete_workspace(workspace_id)
             .await?;
@@ -182,9 +179,9 @@ mod tests {
             workflow_preset::WorkflowReference,
             workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
         },
-        lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
+        lifecycle_journal::LifecycleJournalRepository,
         shared::EventSink,
-        workspace::{events::WorkspaceEvent, WorkspaceError},
+        workspace::events::WorkspaceEvent,
         workspace_catalog::WorkspaceCatalogRepository,
     };
 
@@ -261,7 +258,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_workspace_keeps_workspace_when_lifecycle_delete_fails() {
+    async fn delete_workspace_removes_workspace_without_deleting_operations() {
         let repositories = crate::workspace::test_support::repositories();
         let events = Arc::new(Events::default());
         let context = WorkspaceRuntimeContext::new(
@@ -295,32 +292,33 @@ mod tests {
             .insert_workspace(&workspace)
             .await
             .expect("workspace");
-        repositories
+        let operation = repositories
             .lifecycle_journal
             .create_operation(&workspace.id)
             .await
             .expect("operation");
-        repositories
-            .lifecycle_journal
-            .fail_delete_for_workspace_once(LifecycleJournalError::StorageUnavailable {
-                message: "boom".to_string(),
-            });
 
-        let error = context
+        context
             .delete_workspace(&workspace.id)
             .await
-            .expect_err("delete should fail");
+            .expect("delete workspace");
 
-        assert!(matches!(
-            error,
-            WorkspaceError::LifecycleJournalInvalid { .. }
-        ));
         assert!(repositories
             .workspace_catalog
             .find_workspace_by_id(&workspace.id)
             .await
             .expect("find workspace")
-            .is_some());
-        assert_eq!(events.0.lock().expect("events lock").len(), 0);
+            .is_none());
+        assert_eq!(
+            repositories
+                .lifecycle_journal
+                .latest_for_workspace(&workspace.id)
+                .await
+                .expect("latest operation")
+                .expect("operation exists")
+                .operation_id,
+            operation.operation_id
+        );
+        assert_eq!(events.0.lock().expect("events lock").len(), 1);
     }
 }

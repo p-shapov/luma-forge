@@ -272,33 +272,16 @@ where
         &self,
         workspace_id: &str,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
-        if self
-            .lifecycle_journal
-            .find_running_by_workspace(&workspace_id.to_string())
-            .await
-            .map_err(lifecycle_journal_error)?
-            .is_some()
-        {
-            return Err(WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: workspace_id.to_string(),
-            });
-        }
-
-        match self.find_workspace(workspace_id).await? {
-            Some(workspace) => {
-                let runtime = self.runtime_registry.runtime_for(&workspace.runtime)?;
-                runtime.delete(self.runtime_context(), workspace).await?;
-            }
-            None => {
-                self.lifecycle_journal
-                    .delete_for_workspace(&workspace_id.to_string())
-                    .await
-                    .map_err(lifecycle_journal_error)?;
-                self.event_sink.emit(WorkspaceEvent::WorkspaceDeleted {
-                    workspace_id: workspace_id.to_string(),
-                });
-            }
-        }
+        let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
+        let runtime = self.runtime_registry.runtime_for(&workspace.runtime)?;
+        let context = self.runtime_context();
+        let runner_operation = operation.clone();
+        let runner_workspace = workspace.clone();
+        self.spawn_lifecycle_runner(operation, workspace, async move {
+            runtime
+                .delete(context, runner_operation, runner_workspace)
+                .await
+        });
 
         Ok(DeleteWorkspaceResponse {
             workspace_id: workspace_id.to_string(),
@@ -522,9 +505,16 @@ mod tests {
         fn delete<'a>(
             &'a self,
             context: crate::workspace::WorkspaceRuntimeContext<'a>,
+            _operation: LifecycleOperation,
             workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
-            Box::pin(async move { context.delete_workspace(&workspace.id).await })
+        ) -> AppFuture<
+            'a,
+            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
+        > {
+            Box::pin(async move {
+                context.delete_workspace(&workspace.id).await?;
+                Ok(workspace)
+            })
         }
     }
 
@@ -566,9 +556,16 @@ mod tests {
         fn delete<'a>(
             &'a self,
             context: crate::workspace::WorkspaceRuntimeContext<'a>,
+            _operation: LifecycleOperation,
             workspace: crate::domain::workspace::Workspace,
-        ) -> AppFuture<'a, Result<(), crate::workspace::WorkspaceError>> {
-            Box::pin(async move { context.delete_workspace(&workspace.id).await })
+        ) -> AppFuture<
+            'a,
+            Result<crate::domain::workspace::Workspace, crate::workspace::WorkspaceError>,
+        > {
+            Box::pin(async move {
+                context.delete_workspace(&workspace.id).await?;
+                Ok(workspace)
+            })
         }
     }
 
@@ -616,7 +613,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_workspace_does_not_create_lifecycle_operation() {
+    async fn delete_workspace_spawns_cleanup_operation_then_deletes_workspace() {
         let service = service_with_fake_runtime();
         service
             .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
@@ -628,12 +625,21 @@ mod tests {
             .expect("delete");
 
         assert_eq!(response.workspace_id, "workspace-1");
+        let completed =
+            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Completed)
+                .await;
+        assert_eq!(completed.payload, None);
+        assert!(service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace lookup should succeed")
+            .is_none());
         assert_eq!(
             service
-                .get_latest_lifecycle_operation("workspace-1")
+                .get_running_lifecycle_operations()
                 .await
-                .expect("latest"),
-            None
+                .expect("running operations"),
+            Vec::new()
         );
     }
 
