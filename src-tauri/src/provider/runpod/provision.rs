@@ -6,15 +6,14 @@ use crate::{
             LifecycleOperation, LifecycleOperationPayload, LifecycleProvisionPayload,
         },
         runpod::{RunpodLifecycleProvisionPayload, RunpodProvisionStep, RunpodRuntime},
-        runtime_contract::{RuntimeCatalog, RuntimeContractReference},
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
     runtime_catalog::BundledRuntimeCatalogRepository,
-    runtime_catalog::RuntimeCatalogRepository,
     workflow_catalog::{BundledWorkflowCatalogRepository, WorkflowCatalogRepository},
     workspace::{errors::invalid_state, WorkspaceError, WorkspaceRuntimeContext},
 };
 
+use super::contracts::{resolve_contracts, RunpodWorkflowResolver};
 use super::client::{
     CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
     CreateRunpodServerlessTemplateParams, RunpodProvisionerStatus, RunpodRuntimeClient,
@@ -180,101 +179,4 @@ fn runpod_workspace(workspace: &Workspace) -> &RunpodRuntime {
 fn runpod_workspace_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
     runtime
-}
-
-fn resolve_contracts(
-    workflow: &RunpodWorkflowResolved,
-    runtime_catalog: &impl RuntimeCatalogRepository,
-) -> Result<RunpodRuntimeContracts, WorkspaceError> {
-    let runtime_catalog = runtime_catalog.get_runtime_contract_catalog()?;
-
-    let endpoint_contract = resolve_runtime_contract(
-        &runtime_catalog,
-        &workflow.contract_requirements.endpoint_contract,
-    )
-    .ok_or_else(|| invalid_state("endpoint runtime contract was not found"))?;
-    let provisioner_contract = resolve_runtime_contract(
-        &runtime_catalog,
-        &workflow.contract_requirements.provisioner_contract,
-    )
-    .ok_or_else(|| invalid_state("provisioner runtime contract was not found"))?;
-
-    Ok(RunpodRuntimeContracts {
-        endpoint_contract,
-        provisioner_contract,
-    })
-}
-
-fn resolve_runtime_contract(
-    runtime_catalog: &RuntimeCatalog,
-    reference: &RuntimeContractReference,
-) -> Option<RunpodRuntimeContract> {
-    let contract = runtime_catalog
-        .contracts
-        .iter()
-        .find(|contract| contract.id == reference.id)?;
-    let revision = contract
-        .revisions
-        .iter()
-        .find(|revision| revision.version == reference.version)?;
-
-    Some(RunpodRuntimeContract {
-        id: contract.id.clone(),
-        version: revision.version.clone(),
-        image_ref: revision.image_ref.clone(),
-    })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RunpodRuntimeContract {
-    id: String,
-    version: String,
-    image_ref: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RunpodRuntimeContracts {
-    endpoint_contract: RunpodRuntimeContract,
-    provisioner_contract: RunpodRuntimeContract,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct RunpodWorkflowResolved {
-    requires_hugging_face_api_key: bool,
-    contract_requirements: crate::domain::runpod::RunpodContractRequirements,
-    required_model_assets: Vec<crate::domain::workflow_preset::ModelAsset>,
-}
-
-struct RunpodWorkflowResolver;
-
-impl RunpodWorkflowResolver {
-    fn resolve(
-        catalog: &crate::domain::workflow_preset::WorkflowCatalog,
-        reference: &crate::domain::workflow_preset::WorkflowReference,
-    ) -> Option<RunpodWorkflowResolved> {
-        let preset = catalog
-            .workflow_presets
-            .iter()
-            .find(|preset| preset.id == reference.id)?;
-        let revision = preset
-            .revisions
-            .iter()
-            .find(|revision| revision.version == reference.version)?;
-        let contract_requirements = revision
-            .contract_requirements
-            .iter()
-            .map(|requirements| match requirements {
-                crate::domain::workflow_preset::WorkflowContractRequirements::Runpod(
-                    requirements,
-                ) => requirements,
-            })
-            .next()?
-            .clone();
-
-        Some(RunpodWorkflowResolved {
-            requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
-            contract_requirements,
-            required_model_assets: revision.required_model_assets.clone(),
-        })
-    }
 }
