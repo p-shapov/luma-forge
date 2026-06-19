@@ -5,23 +5,23 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	getNativeStartupStatus: () => typedError<NativeStartupStatusResponse, NativeCommandError>(__TAURI_INVOKE("get_native_startup_status")),
-	getWorkflowCatalog: () => typedError<WorkflowCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workflow_catalog")),
-	getRuntimeContractCatalog: () => typedError<RuntimeCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_runtime_contract_catalog")),
-	getRunpodPlacementOptions: () => typedError<RunpodPlacementOptionsResponse, NativeCommandError>(__TAURI_INVOKE("get_runpod_placement_options")),
-	getWorkspaceCatalog: () => typedError<WorkspaceCatalogResponse, NativeCommandError>(__TAURI_INVOKE("get_workspace_catalog")),
-	setupRunpodApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_runpod_api_key", { request })),
-	getRunpodApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("get_runpod_api_key_identity")),
-	deleteRunpodApiKey: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_runpod_api_key")),
-	setupHuggingFaceApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("setup_hugging_face_api_key", { request })),
-	getHuggingFaceApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, NativeCommandError>(__TAURI_INVOKE("get_hugging_face_api_key_identity")),
-	deleteHuggingFaceApiKey: () => typedError<null, NativeCommandError>(__TAURI_INVOKE("delete_hugging_face_api_key")),
-	createRunpodWorkspace: (request: CreateRunpodWorkspaceRequest) => typedError<WorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("create_runpod_workspace", { request })),
-	provisionWorkspace: (request: WorkspaceIdRequest) => typedError<ProvisionWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("provision_workspace", { request })),
-	cleanupWorkspace: (request: WorkspaceIdRequest) => typedError<CleanupWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("cleanup_workspace", { request })),
-	deleteWorkspace: (request: WorkspaceIdRequest) => typedError<DeleteWorkspaceResponse, NativeCommandError>(__TAURI_INVOKE("delete_workspace", { request })),
-	getRunningLifecycleOperations: () => typedError<RunningLifecycleOperationsResponse, NativeCommandError>(__TAURI_INVOKE("get_running_lifecycle_operations")),
-	getLatestLifecycleOperation: (request: WorkspaceIdRequest) => typedError<LatestLifecycleOperationResponse, NativeCommandError>(__TAURI_INVOKE("get_latest_lifecycle_operation", { request })),
+	getNativeStartupStatus: () => typedError<NativeStartupStatusResponse, CommandError<NativeInitializationCommandErrorCode>>(__TAURI_INVOKE("get_native_startup_status")),
+	getWorkflowCatalog: () => typedError<WorkflowCatalogResponse, CommandError<GetWorkflowCatalogErrorCode>>(__TAURI_INVOKE("get_workflow_catalog")),
+	getRuntimeContractCatalog: () => typedError<RuntimeCatalogResponse, CommandError<GetRuntimeContractCatalogErrorCode>>(__TAURI_INVOKE("get_runtime_contract_catalog")),
+	getRunpodPlacementOptions: () => typedError<RunpodPlacementOptionsResponse, CommandError<GetRunpodPlacementOptionsErrorCode>>(__TAURI_INVOKE("get_runpod_placement_options")),
+	getWorkspaceCatalog: () => typedError<WorkspaceCatalogResponse, CommandError<GetWorkspaceCatalogErrorCode>>(__TAURI_INVOKE("get_workspace_catalog")),
+	setupRunpodApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, CommandError<SetupRunpodApiKeyErrorCode>>(__TAURI_INVOKE("setup_runpod_api_key", { request })),
+	getRunpodApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, CommandError<GetRunpodApiKeyIdentityErrorCode>>(__TAURI_INVOKE("get_runpod_api_key_identity")),
+	deleteRunpodApiKey: () => typedError<null, CommandError<DeleteRunpodApiKeyErrorCode>>(__TAURI_INVOKE("delete_runpod_api_key")),
+	setupHuggingFaceApiKey: (request: SetupApiKeyRequest) => typedError<ApiKeyIdentityResponse, CommandError<SetupHuggingFaceApiKeyErrorCode>>(__TAURI_INVOKE("setup_hugging_face_api_key", { request })),
+	getHuggingFaceApiKeyIdentity: () => typedError<ApiKeyIdentityResponse, CommandError<GetHuggingFaceApiKeyIdentityErrorCode>>(__TAURI_INVOKE("get_hugging_face_api_key_identity")),
+	deleteHuggingFaceApiKey: () => typedError<null, CommandError<DeleteHuggingFaceApiKeyErrorCode>>(__TAURI_INVOKE("delete_hugging_face_api_key")),
+	createRunpodWorkspace: (request: CreateRunpodWorkspaceRequest) => typedError<WorkspaceResponse, CommandError<CreateRunpodWorkspaceErrorCode>>(__TAURI_INVOKE("create_runpod_workspace", { request })),
+	provisionWorkspace: (request: WorkspaceIdRequest) => typedError<ProvisionWorkspaceResponse, CommandError<ProvisionWorkspaceErrorCode>>(__TAURI_INVOKE("provision_workspace", { request })),
+	cleanupWorkspace: (request: WorkspaceIdRequest) => typedError<CleanupWorkspaceResponse, CommandError<CleanupWorkspaceErrorCode>>(__TAURI_INVOKE("cleanup_workspace", { request })),
+	deleteWorkspace: (request: WorkspaceIdRequest) => typedError<DeleteWorkspaceResponse, CommandError<DeleteWorkspaceErrorCode>>(__TAURI_INVOKE("delete_workspace", { request })),
+	getRunningLifecycleOperations: () => typedError<RunningLifecycleOperationsResponse, CommandError<GetRunningLifecycleOperationsErrorCode>>(__TAURI_INVOKE("get_running_lifecycle_operations")),
+	getLatestLifecycleOperation: (request: WorkspaceIdRequest) => typedError<LatestLifecycleOperationResponse, CommandError<GetLatestLifecycleOperationErrorCode>>(__TAURI_INVOKE("get_latest_lifecycle_operation", { request })),
 };
 
 /** Events */
@@ -38,19 +38,51 @@ export type ApiKeyIdentityResponse = {
 	keyDisplayName: string | null,
 };
 
+export type CleanupWorkspaceErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
+
 export type CleanupWorkspaceResponse = {
 	workspace: WorkspaceResponse,
 	operation: LifecycleOperationResponse,
 };
+
+export type CommandError<Code> = {
+	message: string,
+	code: Code,
+	diagnosticId: string,
+};
+
+export type CreateRunpodWorkspaceErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
 
 export type CreateRunpodWorkspaceRequest = {
 	workflowPresetId: string,
 	placement: RunpodPlacementPlanInput,
 };
 
+export type DeleteHuggingFaceApiKeyErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable";
+
+export type DeleteRunpodApiKeyErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable";
+
+export type DeleteWorkspaceErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
+
 export type DeleteWorkspaceResponse = {
 	workspaceId: string,
 };
+
+export type GetHuggingFaceApiKeyIdentityErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid";
+
+export type GetLatestLifecycleOperationErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
+
+export type GetRunningLifecycleOperationsErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
+
+export type GetRunpodApiKeyIdentityErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid";
+
+export type GetRunpodPlacementOptionsErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "store_unavailable" | "key_not_found";
+
+export type GetRuntimeContractCatalogErrorCode = "native_initialization_failed" | "parse_failed" | "validation_failed";
+
+export type GetWorkflowCatalogErrorCode = "native_initialization_failed" | "parse_failed" | "validation_failed";
+
+export type GetWorkspaceCatalogErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid";
 
 export type LatestLifecycleOperationResponse = {
 	operation: LifecycleOperationResponse | null,
@@ -90,15 +122,11 @@ export type ModelAssetResponse = {
 
 export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
 
-export type NativeCommandError = {
-	message: string,
-	code: NativeCommandErrorCode,
-	diagnosticId: string,
-};
+export type NativeInitializationCommandErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed";
 
-export type NativeCommandErrorCode = "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "lifecycle_operation_already_running" | "invalid_runtime_state" | "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "lifecycle_state_restore_failed";
+export type NativeStartupStatusResponse = { status: "ready" } | { status: "failed"; error: CommandError<NativeInitializationCommandErrorCode> };
 
-export type NativeStartupStatusResponse = { status: "ready" } | { status: "failed"; error: NativeCommandError };
+export type ProvisionWorkspaceErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
 
 export type ProvisionWorkspaceResponse = {
 	workspace: WorkspaceResponse,
@@ -175,6 +203,10 @@ export type RuntimeContractRevisionResponse = {
 export type SetupApiKeyRequest = {
 	apiKey: string,
 };
+
+export type SetupHuggingFaceApiKeyErrorCode = "native_initialization_failed" | "secret_required" | "key_already_exists" | "store_unavailable" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid";
+
+export type SetupRunpodApiKeyErrorCode = "native_initialization_failed" | "secret_required" | "key_already_exists" | "store_unavailable" | "identity_unauthorized" | "identity_insufficient_permissions" | "identity_rate_limited" | "identity_timeout" | "identity_request_failed" | "identity_response_invalid";
 
 export type WorkflowCatalogResponse = {
 	workflowPresets: WorkflowPresetResponse[],
