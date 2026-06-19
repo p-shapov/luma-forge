@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use crate::{
     commands::errors::NativeCommandError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    runpod_runtime::service::RunpodRuntimeService,
+    provider::runpod::RunpodRuntimeClient,
     runtime_catalog::BundledRuntimeCatalogRepository,
     secrets::{
         identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
@@ -20,12 +22,7 @@ pub type WorkspaceAppService = WorkspaceService<
     BundledWorkflowCatalogRepository,
     BundledRuntimeCatalogRepository,
 >;
-pub type RunpodRuntimeAppService = RunpodRuntimeService<
-    SqliteWorkspaceCatalogRepository,
-    SqliteLifecycleJournalRepository,
-    BundledWorkflowCatalogRepository,
-    BundledRuntimeCatalogRepository,
->;
+pub type RunpodProviderAppService = Arc<dyn RunpodRuntimeClient>;
 pub type RunpodSecretsService = SecretsService<KeyringSecretStore, RunpodIdentityProvider>;
 pub type HuggingFaceSecretsService =
     SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>;
@@ -35,7 +32,7 @@ pub struct AppState {
     pub runtime_catalog: BundledRuntimeCatalogRepository,
     pub workspace_catalog: WorkspaceCatalogAppService,
     pub workspace: WorkspaceAppService,
-    pub runpod_runtime: RunpodRuntimeAppService,
+    pub runpod_provider: RunpodProviderAppService,
     pub runpod_secrets: RunpodSecretsService,
     pub hugging_face_secrets: HuggingFaceSecretsService,
 }

@@ -28,6 +28,7 @@ pub trait SecretStore: Send + Sync {
     ) -> AppFuture<'a, Result<Option<ApiSecret>, SecretsStorageError>>;
 }
 
+#[derive(Clone)]
 pub struct SecretsService<S, I> {
     store: S,
     identity: I,
