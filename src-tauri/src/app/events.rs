@@ -5,32 +5,31 @@ use crate::{
     commands::types::workspace::{
         LifecycleOperationChangedEvent, WorkspaceChangedEvent, WorkspaceDeletedEvent,
     },
-    diagnostics::{lifecycle_log_fields, lifecycle_state_label},
-    runpod_runtime::events::RunpodRuntimeEvent,
+    diagnostics::lifecycle_log_fields,
     shared::EventSink,
+    workspace::events::WorkspaceEvent,
 };
 
-pub struct TauriRunpodRuntimeEventSink {
+pub struct TauriWorkspaceEventSink {
     app_handle: AppHandle,
 }
 
-impl TauriRunpodRuntimeEventSink {
+impl TauriWorkspaceEventSink {
     pub fn new(app_handle: AppHandle) -> Self {
         Self { app_handle }
     }
 }
 
-impl EventSink<RunpodRuntimeEvent> for TauriRunpodRuntimeEventSink {
-    fn emit(&self, event: RunpodRuntimeEvent) {
+impl EventSink<WorkspaceEvent> for TauriWorkspaceEventSink {
+    fn emit(&self, event: WorkspaceEvent) {
         match event {
-            RunpodRuntimeEvent::LifecycleOperationChanged {
+            WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id,
                 operation_id,
                 diagnostic_id,
                 operation,
             } => {
                 let fields = lifecycle_log_fields(operation.payload.as_ref());
-                let state = lifecycle_state_label(operation.state);
                 let _ = LifecycleOperationChangedEvent {
                     workspace_id: workspace_id.clone(),
                     operation_id: operation_id.clone(),
@@ -43,13 +42,12 @@ impl EventSink<RunpodRuntimeEvent> for TauriRunpodRuntimeEventSink {
                     workspace_id = %workspace_id,
                     operation_id = %operation_id,
                     operation_kind = fields.operation_kind,
-                    state = state,
                     step = fields.step.unwrap_or("none"),
                     diagnostic_id = diagnostic_id.as_deref().unwrap_or("none"),
-                    "runtime event emitted"
+                    "workspace event emitted"
                 );
             }
-            RunpodRuntimeEvent::WorkspaceChanged {
+            WorkspaceEvent::WorkspaceChanged {
                 workspace_id,
                 workspace,
             } => {
@@ -58,22 +56,12 @@ impl EventSink<RunpodRuntimeEvent> for TauriRunpodRuntimeEventSink {
                     workspace: (*workspace).into(),
                 }
                 .emit(&self.app_handle);
-                tracing::info!(
-                    event = "workspace_changed",
-                    workspace_id = %workspace_id,
-                    "runtime event emitted"
-                );
             }
-            RunpodRuntimeEvent::WorkspaceDeleted { workspace_id } => {
+            WorkspaceEvent::WorkspaceDeleted { workspace_id } => {
                 let _ = WorkspaceDeletedEvent {
                     workspace_id: workspace_id.clone(),
                 }
                 .emit(&self.app_handle);
-                tracing::info!(
-                    event = "workspace_deleted",
-                    workspace_id = %workspace_id,
-                    "runtime event emitted"
-                );
             }
         }
     }

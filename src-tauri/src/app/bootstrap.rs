@@ -3,9 +3,12 @@ use std::{fs, path::Path, sync::Arc};
 use tauri::{AppHandle, Manager};
 
 use crate::{
-    app::{background::TauriBackgroundTaskSpawner, events::TauriRunpodRuntimeEventSink},
+    app::{background::TauriBackgroundTaskSpawner, events::TauriWorkspaceEventSink},
     commands::errors::{NativeCommandError, NativeInitializationCommandError},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
+    provider::runpod::{
+        RunpodRuntimeProvider as WorkspaceRunpodRuntimeProvider, RunpodWorkspaceRuntime,
+    },
     runpod_runtime::{
         provider::RunpodRuntimeProvider,
         service::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
@@ -16,8 +19,11 @@ use crate::{
         stores::{keyring::KeyringSecretStore, SecretKey},
         SecretsService,
     },
+    shared::NoopEventSink,
     sqlite::database::SqliteNativeDatabase,
     workflow_catalog::BundledWorkflowCatalogRepository,
+    workspace::registry::WorkspaceRuntimeRegistry,
+    workspace::{WorkspaceService, WorkspaceServiceDependencies},
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
@@ -64,20 +70,36 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
     let runtime_runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let runtime_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
+    let placement_runpod_secrets = build_runpod_secrets(&app_identifier)?;
+    let placement_hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
 
     let runpod_provider =
-        RunpodRuntimeProvider::new(runtime_runpod_secrets, runtime_hugging_face_secrets);
+        WorkspaceRunpodRuntimeProvider::new(runtime_runpod_secrets, runtime_hugging_face_secrets);
+    let runpod_runtime = RunpodWorkspaceRuntime::new(Arc::new(runpod_provider));
+    let runtime_registry = WorkspaceRuntimeRegistry::new(Arc::new(runpod_runtime));
+    let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
+        workspace_catalog: Arc::new(workspace_catalog.clone()),
+        lifecycle_journal: Arc::new(lifecycle_journal.clone()),
+        workflow_catalog: workflow_catalog.clone(),
+        runtime_catalog: runtime_catalog.clone(),
+        runtime_registry,
+        lifecycle_operation_registry: Default::default(),
+        event_sink: Arc::new(TauriWorkspaceEventSink::new(app_handle.clone())),
+        task_spawner: Arc::new(TauriBackgroundTaskSpawner),
+    });
+    let placement_provider =
+        RunpodRuntimeProvider::new(placement_runpod_secrets, placement_hugging_face_secrets);
     let runpod_runtime = RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
         workspace_catalog: workspace_catalog.clone(),
         lifecycle_journal,
         workflow_catalog: workflow_catalog.clone(),
         runtime_catalog: runtime_catalog.clone(),
-        runpod_client: Arc::new(runpod_provider),
-        event_sink: Arc::new(TauriRunpodRuntimeEventSink::new(app_handle.clone())),
+        runpod_client: Arc::new(placement_provider),
+        event_sink: Arc::new(NoopEventSink::new()),
         task_spawner: Arc::new(TauriBackgroundTaskSpawner),
     });
 
-    runpod_runtime
+    workspace
         .mark_running_operations_stale()
         .await
         .map_err(|error| {
@@ -92,6 +114,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         workflow_catalog,
         runtime_catalog,
         workspace_catalog,
+        workspace,
         runpod_runtime,
         runpod_secrets,
         hugging_face_secrets,

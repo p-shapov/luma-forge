@@ -56,7 +56,7 @@ export type LatestLifecycleOperationResponse = {
 	operation: LifecycleOperationResponse | null,
 };
 
-export type LifecycleCleanupPayloadResponse = { runtimeType: "runpod" } & (RunpodLifecycleCleanupPayloadResponse);
+export type LifecycleCleanupPayloadResponse = { runtimeType: "runpod"; step: RunpodCleanupStepResponse | null };
 
 export type LifecycleOperationChangedEvent = {
 	workspaceId: string,
@@ -79,7 +79,7 @@ export type LifecycleOperationResponse = {
 
 export type LifecycleOperationStateResponse = "running" | "completed" | "failed" | "stale";
 
-export type LifecycleProvisionPayloadResponse = { runtimeType: "runpod" } & (RunpodLifecycleProvisionPayloadResponse);
+export type LifecycleProvisionPayloadResponse = { runtimeType: "runpod"; step: RunpodProvisionStepResponse | null };
 
 export type ModelAssetResponse = {
 	id: string,
@@ -126,14 +126,6 @@ export type RunpodGpuPlacementOptionResponse = {
 	id: string,
 	name: string,
 	vramGb: number,
-};
-
-export type RunpodLifecycleCleanupPayloadResponse = {
-	step: RunpodCleanupStepResponse | null,
-};
-
-export type RunpodLifecycleProvisionPayloadResponse = {
-	step: RunpodProvisionStepResponse | null,
 };
 
 export type RunpodPlacementOptionsResponse = {

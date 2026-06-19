@@ -16,7 +16,7 @@ use crate::{
         native_command_error,
     },
     domain::runpod::RunpodPlacementPlan,
-    runpod_runtime::service::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
+    workspace::CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest,
 };
 
 #[tauri::command]
@@ -34,7 +34,7 @@ pub async fn create_runpod_workspace(
     let placement: RunpodPlacementPlan = request.placement.into();
 
     let workspace = state
-        .runpod_runtime
+        .workspace
         .create_runpod_workspace(CreateRunpodWorkspaceServiceRequest {
             workspace_id: Uuid::new_v4().to_string(),
             workflow_preset_id: request.workflow_preset_id,
@@ -59,7 +59,7 @@ pub async fn provision_workspace(
 ) -> CommandResult<ProvisionWorkspaceResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let response = state
-        .runpod_runtime
+        .workspace
         .provision_workspace(&request.workspace_id)
         .await
         .map_err(|error| command_error("provision_workspace", error))?;
@@ -79,7 +79,7 @@ pub async fn cleanup_workspace(
 ) -> CommandResult<CleanupWorkspaceResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let response = state
-        .runpod_runtime
+        .workspace
         .cleanup_workspace(&request.workspace_id)
         .await
         .map_err(|error| command_error("cleanup_workspace", error))?;
@@ -99,7 +99,7 @@ pub async fn delete_workspace(
 ) -> CommandResult<DeleteWorkspaceResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let response = state
-        .runpod_runtime
+        .workspace
         .delete_workspace(&request.workspace_id)
         .await
         .map_err(|error| command_error("delete_workspace", error))?;
@@ -119,7 +119,7 @@ pub async fn get_running_lifecycle_operations(
 ) -> CommandResult<RunningLifecycleOperationsResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let operations = state
-        .runpod_runtime
+        .workspace
         .get_running_lifecycle_operations()
         .await
         .map_err(|error| command_error("get_running_lifecycle_operations", error))?
@@ -143,7 +143,7 @@ pub async fn get_latest_lifecycle_operation(
 ) -> CommandResult<LatestLifecycleOperationResponse> {
     let state = state.ready().map_err(native_command_error)?;
     let operation = state
-        .runpod_runtime
+        .workspace
         .get_latest_lifecycle_operation(&request.workspace_id)
         .await
         .map_err(|error| command_error("get_latest_lifecycle_operation", error))?
