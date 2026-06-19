@@ -1,4 +1,12 @@
+mod errors;
+
 use tauri::State;
+
+use errors::{
+    get_runpod_placement_options_error, get_runtime_contract_catalog_error,
+    get_workflow_catalog_error, get_workspace_catalog_error, GetRunpodPlacementOptionsErrorCode,
+    GetRuntimeContractCatalogErrorCode, GetWorkflowCatalogErrorCode, GetWorkspaceCatalogErrorCode,
+};
 
 use crate::{
     app::state::NativeAppState,
@@ -25,12 +33,20 @@ use crate::{
 )]
 pub fn get_workflow_catalog(
     state: State<'_, NativeAppState>,
-) -> CommandResult<WorkflowCatalogResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<WorkflowCatalogResponse, GetWorkflowCatalogErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "get_workflow_catalog",
+            error,
+            GetWorkflowCatalogErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let catalog = state
         .workflow_catalog
         .get_workflow_catalog()
-        .map_err(|error| command_error("get_workflow_catalog", error))?;
+        .map_err(|error| {
+            command_error("get_workflow_catalog", error, get_workflow_catalog_error)
+        })?;
 
     Ok(catalog.into())
 }
@@ -44,12 +60,24 @@ pub fn get_workflow_catalog(
 )]
 pub fn get_runtime_contract_catalog(
     state: State<'_, NativeAppState>,
-) -> CommandResult<RuntimeCatalogResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<RuntimeCatalogResponse, GetRuntimeContractCatalogErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "get_runtime_contract_catalog",
+            error,
+            GetRuntimeContractCatalogErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let catalog = state
         .runtime_catalog
         .get_runtime_contract_catalog()
-        .map_err(|error| command_error("get_runtime_contract_catalog", error))?;
+        .map_err(|error| {
+            command_error(
+                "get_runtime_contract_catalog",
+                error,
+                get_runtime_contract_catalog_error,
+            )
+        })?;
 
     Ok(catalog.into())
 }
@@ -63,13 +91,25 @@ pub fn get_runtime_contract_catalog(
 )]
 pub async fn get_runpod_placement_options(
     state: State<'_, NativeAppState>,
-) -> CommandResult<RunpodPlacementOptionsResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<RunpodPlacementOptionsResponse, GetRunpodPlacementOptionsErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "get_runpod_placement_options",
+            error,
+            GetRunpodPlacementOptionsErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let options = state
         .runpod_provider
         .placement_options()
         .await
-        .map_err(|error| command_error("get_runpod_placement_options", error))?;
+        .map_err(|error| {
+            command_error(
+                "get_runpod_placement_options",
+                error,
+                get_runpod_placement_options_error,
+            )
+        })?;
 
     Ok(options.into())
 }
@@ -83,13 +123,21 @@ pub async fn get_runpod_placement_options(
 )]
 pub async fn get_workspace_catalog(
     state: State<'_, NativeAppState>,
-) -> CommandResult<WorkspaceCatalogResponse> {
-    let state = state.ready().map_err(native_command_error)?;
+) -> CommandResult<WorkspaceCatalogResponse, GetWorkspaceCatalogErrorCode> {
+    let state = state.ready().map_err(|error| {
+        native_command_error(
+            "get_workspace_catalog",
+            error,
+            GetWorkspaceCatalogErrorCode::NativeInitializationFailed,
+        )
+    })?;
     let catalog = state
         .workspace_catalog
         .list_workspaces()
         .await
-        .map_err(|error| command_error("get_workspace_catalog", error))?;
+        .map_err(|error| {
+            command_error("get_workspace_catalog", error, get_workspace_catalog_error)
+        })?;
 
     Ok(catalog.into())
 }
