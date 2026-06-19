@@ -58,6 +58,8 @@ pub enum NativeInitializationCommandErrorCode {
     AppDataDirectoryCreateFailed,
     #[error("workspace storage could not be initialized")]
     WorkspaceStorageInitializationFailed,
+    #[error("provider services could not be initialized")]
+    ProviderServicesInitializationFailed,
     #[error("workspace lifecycle state could not be restored")]
     LifecycleStateRestoreFailed,
 }
@@ -70,6 +72,8 @@ pub enum NativeInitializationCommandError {
     AppDataDirectoryCreateFailed { path: String, message: String },
     #[error("workspace storage could not be initialized at {path}: {message}")]
     WorkspaceStorageInitializationFailed { path: String, message: String },
+    #[error("provider services could not be initialized: {message}")]
+    ProviderServicesInitializationFailed { message: String },
     #[error("workspace lifecycle state could not be restored: {message}")]
     LifecycleStateRestoreFailed { message: String },
 }
@@ -85,6 +89,9 @@ impl From<NativeInitializationCommandError> for NativeInitializationCommandError
             }
             NativeInitializationCommandError::WorkspaceStorageInitializationFailed { .. } => {
                 Self::WorkspaceStorageInitializationFailed
+            }
+            NativeInitializationCommandError::ProviderServicesInitializationFailed { .. } => {
+                Self::ProviderServicesInitializationFailed
             }
             NativeInitializationCommandError::LifecycleStateRestoreFailed { .. } => {
                 Self::LifecycleStateRestoreFailed

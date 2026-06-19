@@ -14,6 +14,7 @@ use crate::{
         },
     },
     runtime_catalog::BundledRuntimeCatalogRepository,
+    secrets::SecretsStorageError,
     secrets::{
         stores::{keyring::KeyringSecretStore, SecretKey},
         SecretsService,
@@ -66,10 +67,10 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let runpod_secrets = build_runpod_secrets(&app_identifier)?;
     let hugging_face_secrets = build_hugging_face_secrets(&app_identifier)?;
 
-    let runpod_provider = Arc::new(WorkspaceRunpodRuntimeProvider::new(
-        runpod_secrets.clone(),
-        hugging_face_secrets.clone(),
-    )?);
+    let runpod_provider = Arc::new(
+        WorkspaceRunpodRuntimeProvider::new(runpod_secrets.clone(), hugging_face_secrets.clone())
+            .map_err(native_provider_initialization_error)?,
+    );
     let workspace_runtime = RunpodWorkspaceRuntime::new(runpod_provider.clone());
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
@@ -113,7 +114,7 @@ fn build_runpod_secrets(
 ) -> Result<SecretsService<KeyringSecretStore, RunpodIdentityProvider>, NativeCommandError> {
     Ok(SecretsService::new(
         KeyringSecretStore::new(app_identifier),
-        RunpodIdentityProvider::new()?,
+        RunpodIdentityProvider::new().map_err(native_provider_initialization_error)?,
         SecretKey::RunpodApiKey,
     ))
 }
@@ -123,7 +124,15 @@ fn build_hugging_face_secrets(
 ) -> Result<SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>, NativeCommandError> {
     Ok(SecretsService::new(
         KeyringSecretStore::new(app_identifier),
-        HuggingFaceIdentityProvider::new()?,
+        HuggingFaceIdentityProvider::new().map_err(native_provider_initialization_error)?,
         SecretKey::HuggingFaceApiKey,
     ))
+}
+
+fn native_provider_initialization_error(error: SecretsStorageError) -> NativeCommandError {
+    NativeCommandError::native_initialization(
+        NativeInitializationCommandError::ProviderServicesInitializationFailed {
+            message: error.to_string(),
+        },
+    )
 }
