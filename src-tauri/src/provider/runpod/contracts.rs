@@ -30,36 +30,32 @@ pub(crate) struct RunpodWorkflowResolved {
     pub(crate) required_model_assets: Vec<ModelAsset>,
 }
 
-pub(crate) struct RunpodWorkflowResolver;
-
-impl RunpodWorkflowResolver {
-    pub(crate) fn resolve(
-        catalog: &WorkflowCatalog,
-        reference: &WorkflowReference,
-    ) -> Option<RunpodWorkflowResolved> {
-        let preset = catalog
-            .workflow_presets
-            .iter()
-            .find(|preset| preset.id == reference.id)?;
-        let revision = preset
-            .revisions
-            .iter()
-            .find(|revision| revision.version == reference.version)?;
-        let contract_requirements = revision
-            .contract_requirements
-            .iter()
-            .map(|requirements| match requirements {
-                WorkflowContractRequirements::Runpod(requirements) => requirements,
-            })
-            .next()?
-            .clone();
-
-        Some(RunpodWorkflowResolved {
-            requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
-            contract_requirements,
-            required_model_assets: revision.required_model_assets.clone(),
+pub(crate) fn resolve_workflow(
+    catalog: &WorkflowCatalog,
+    reference: &WorkflowReference,
+) -> Option<RunpodWorkflowResolved> {
+    let preset = catalog
+        .workflow_presets
+        .iter()
+        .find(|preset| preset.id == reference.id)?;
+    let revision = preset
+        .revisions
+        .iter()
+        .find(|revision| revision.version == reference.version)?;
+    let contract_requirements = revision
+        .contract_requirements
+        .iter()
+        .map(|requirements| match requirements {
+            WorkflowContractRequirements::Runpod(requirements) => requirements,
         })
-    }
+        .next()?
+        .clone();
+
+    Some(RunpodWorkflowResolved {
+        requires_hugging_face_api_key: revision.requires_hugging_face_api_key,
+        contract_requirements,
+        required_model_assets: revision.required_model_assets.clone(),
+    })
 }
 
 pub(crate) fn resolve_contracts(

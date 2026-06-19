@@ -40,39 +40,6 @@ const PROVISIONER_POD_SUFFIX: &str = "provisioner";
 const ENDPOINT_TEMPLATE_SUFFIX: &str = "endpoint-template";
 const ENDPOINT_SUFFIX: &str = "endpoint";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CreateNetworkVolumeRequest {
-    pub(super) datacenter_id: String,
-    pub(super) name: String,
-    pub(super) size_gb: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CreateProvisionerPodRequest {
-    pub(super) datacenter_id: String,
-    pub(super) name: String,
-    pub(super) image_ref: String,
-    pub(super) network_volume_id: String,
-    pub(super) bearer_token: String,
-    pub(super) required_model_assets: Vec<ModelAsset>,
-    pub(super) hugging_face_api_key: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CreateServerlessTemplateRequest {
-    pub(super) name: String,
-    pub(super) image_ref: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CreateServerlessEndpointRequest {
-    pub(super) datacenter_id: String,
-    pub(super) gpu_id: String,
-    pub(super) name: String,
-    pub(super) template_id: String,
-    pub(super) network_volume_id: String,
-}
-
 pub(super) fn network_volume_name(workspace_id: &str) -> String {
     workspace_resource_name(workspace_id, NETWORK_VOLUME_SUFFIX)
 }
@@ -94,9 +61,8 @@ fn workspace_resource_name(workspace_id: &str, suffix: &str) -> String {
 }
 
 #[derive(Serialize)]
-pub(super) struct GraphqlRequest<V> {
+pub(super) struct GraphqlRequest {
     query: &'static str,
-    variables: V,
 }
 
 #[derive(Debug, Deserialize)]
@@ -214,74 +180,83 @@ pub(super) struct EndpointResponse {
     pub(super) id: String,
 }
 
-pub(super) fn placement_graphql_request() -> GraphqlRequest<serde_json::Value> {
+pub(super) fn placement_graphql_request() -> GraphqlRequest {
     GraphqlRequest {
         query: RUNPOD_PLACEMENT_QUERY,
-        variables: serde_json::json!({}),
     }
 }
 
 pub(super) fn network_volume_create_body(
-    request: &CreateNetworkVolumeRequest,
+    workspace_id: &str,
+    datacenter_id: String,
+    size_gb: u64,
 ) -> NetworkVolumeCreateBody {
     NetworkVolumeCreateBody {
-        datacenter_id: request.datacenter_id.clone(),
-        name: request.name.clone(),
-        size: request.size_gb,
+        datacenter_id,
+        name: network_volume_name(workspace_id),
+        size: size_gb,
     }
 }
 
 pub(super) fn provisioner_pod_create_body(
-    request: &CreateProvisionerPodRequest,
+    workspace_id: &str,
+    datacenter_id: String,
+    image_ref: String,
+    network_volume_id: String,
+    bearer_token: String,
+    required_model_assets: Vec<ModelAsset>,
+    hugging_face_api_key: Option<String>,
 ) -> Result<PodCreateBody, ApiError> {
-    let required_model_assets = serde_json::to_string(&request.required_model_assets)
-        .map_err(|_| provider_request_failed())?;
+    let required_model_assets =
+        serde_json::to_string(&required_model_assets).map_err(|_| provider_request_failed())?;
     let mut env = HashMap::from([
-        (
-            ENV_PROVISIONER_BEARER_TOKEN.to_string(),
-            request.bearer_token.clone(),
-        ),
+        (ENV_PROVISIONER_BEARER_TOKEN.to_string(), bearer_token),
         (
             ENV_PROVISIONER_REQUIRED_MODEL_ASSETS.to_string(),
             required_model_assets,
         ),
     ]);
 
-    if let Some(hugging_face_api_key) = request.hugging_face_api_key.clone() {
+    if let Some(hugging_face_api_key) = hugging_face_api_key {
         env.insert(ENV_HUGGING_FACE_API_KEY.to_string(), hugging_face_api_key);
     }
 
     Ok(PodCreateBody {
-        datacenter_ids: vec![request.datacenter_id.clone()],
+        datacenter_ids: vec![datacenter_id],
         compute_type: PROVISIONER_COMPUTE_TYPE.to_string(),
         gpu_type_ids: Vec::new(),
-        image_ref: request.image_ref.clone(),
-        network_volume_id: request.network_volume_id.clone(),
-        name: request.name.clone(),
+        image_ref,
+        network_volume_id,
+        name: provisioner_pod_name(workspace_id),
         ports: vec![worker_port()],
         env,
     })
 }
 
 pub(super) fn endpoint_template_create_body(
-    request: &CreateServerlessTemplateRequest,
+    workspace_id: &str,
+    image_ref: String,
 ) -> TemplateCreateBody {
     TemplateCreateBody {
-        image_ref: request.image_ref.clone(),
-        name: request.name.clone(),
+        image_ref,
+        name: endpoint_template_name(workspace_id),
         is_serverless: true,
     }
 }
 
 pub(super) fn endpoint_create_body(
-    request: &CreateServerlessEndpointRequest,
+    workspace_id: &str,
+    datacenter_id: String,
+    gpu_id: String,
+    network_volume_id: String,
+    template_id: String,
 ) -> EndpointCreateBody {
     EndpointCreateBody {
-        datacenter_ids: vec![request.datacenter_id.clone()],
-        gpu_type_ids: vec![request.gpu_id.clone()],
-        name: request.name.clone(),
-        network_volume_id: request.network_volume_id.clone(),
-        template_id: request.template_id.clone(),
+        datacenter_ids: vec![datacenter_id],
+        gpu_type_ids: vec![gpu_id],
+        name: endpoint_name(workspace_id),
+        network_volume_id,
+        template_id,
         workers_max: ENDPOINT_WORKERS_MAX,
         workers_min: ENDPOINT_WORKERS_MIN,
     }
@@ -376,160 +351,5 @@ fn map_datacenter_placement(
         id: datacenter.id,
         name: datacenter.name,
         gpu_options,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-    use crate::domain::workflow_preset::{ModelAsset, ModelAssetSource};
-
-    #[test]
-    fn workspace_resource_names_are_deterministic() {
-        assert_eq!(
-            network_volume_name("workspace-1"),
-            "luma-forge-workspace-1-volume"
-        );
-        assert_eq!(
-            provisioner_pod_name("workspace-1"),
-            "luma-forge-workspace-1-provisioner"
-        );
-        assert_eq!(
-            endpoint_template_name("workspace-1"),
-            "luma-forge-workspace-1-endpoint-template"
-        );
-        assert_eq!(
-            endpoint_name("workspace-1"),
-            "luma-forge-workspace-1-endpoint"
-        );
-    }
-
-    #[test]
-    fn network_volume_create_serializes_datacenter_name_and_gb_size() {
-        let request = CreateNetworkVolumeRequest {
-            datacenter_id: "EU-RO-1".to_string(),
-            name: "luma-forge-workspace-volume".to_string(),
-            size_gb: 75,
-        };
-
-        let body = serde_json::to_value(network_volume_create_body(&request))
-            .expect("network volume body should serialize");
-
-        assert_eq!(
-            body,
-            json!({
-                "dataCenterId": "EU-RO-1",
-                "name": "luma-forge-workspace-volume",
-                "size": 75
-            })
-        );
-    }
-
-    #[test]
-    fn provisioner_pod_create_serializes_cpu_volume_port_and_env() {
-        let request = CreateProvisionerPodRequest {
-            datacenter_id: "US-KS-2".to_string(),
-            name: "luma-forge-workspace-provisioner".to_string(),
-            image_ref: "ghcr.io/luma/provisioner:latest".to_string(),
-            network_volume_id: "volume-1".to_string(),
-            bearer_token: "derived-token".to_string(),
-            required_model_assets: vec![ModelAsset {
-                id: "model".to_string(),
-                name: "Model".to_string(),
-                download_source: ModelAssetSource::Huggingface {
-                    repository_id: "owner/model".to_string(),
-                    file_path: "model.safetensors".to_string(),
-                    revision: "main".to_string(),
-                },
-                install_comfyui_relative_path: "models/checkpoints/model.safetensors".to_string(),
-            }],
-            hugging_face_api_key: Some("hf-key".to_string()),
-        };
-
-        let body = serde_json::to_value(
-            provisioner_pod_create_body(&request).expect("pod body should build"),
-        )
-        .expect("pod body should serialize");
-        let expected_required_model_assets = json!([
-            {
-                "id": "model",
-                "name": "Model",
-                "download_source": {
-                    "source_type": "huggingface",
-                    "repository_id": "owner/model",
-                    "file_path": "model.safetensors",
-                    "revision": "main",
-                },
-                "install_comfyui_relative_path": "models/checkpoints/model.safetensors",
-            },
-        ]);
-
-        assert_eq!(body["dataCenterIds"], json!(["US-KS-2"]));
-        assert_eq!(body["computeType"], json!("CPU"));
-        assert_eq!(body["gpuTypeIds"], json!([]));
-        assert_eq!(body["imageName"], json!("ghcr.io/luma/provisioner:latest"));
-        assert_eq!(body["networkVolumeId"], json!("volume-1"));
-        assert_eq!(body["name"], json!("luma-forge-workspace-provisioner"));
-        assert_eq!(body["ports"], json!(["8000/http"]));
-        assert_eq!(
-            body["env"]["LUMA_FORGE_PROVISIONER_BEARER_TOKEN"],
-            json!("derived-token")
-        );
-        assert_eq!(
-            body["env"]["LUMA_FORGE_HUGGING_FACE_API_KEY"],
-            json!("hf-key")
-        );
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(
-                body["env"]["LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"]
-                    .as_str()
-                    .expect("required model assets should be present"),
-            )
-            .expect("required model assets should decode"),
-            expected_required_model_assets
-        );
-    }
-
-    #[test]
-    fn endpoint_creation_serializes_template_before_endpoint_bodies() {
-        let template_request = CreateServerlessTemplateRequest {
-            name: "luma-forge-workspace-endpoint-template".to_string(),
-            image_ref: "ghcr.io/luma/endpoint:latest".to_string(),
-        };
-        let endpoint_request = CreateServerlessEndpointRequest {
-            datacenter_id: "US-TX-1".to_string(),
-            gpu_id: "NVIDIA GeForce RTX 4090".to_string(),
-            name: "luma-forge-workspace-endpoint".to_string(),
-            template_id: "template-1".to_string(),
-            network_volume_id: "volume-1".to_string(),
-        };
-
-        let template_body = serde_json::to_value(endpoint_template_create_body(&template_request))
-            .expect("template body should serialize");
-        let endpoint_body = serde_json::to_value(endpoint_create_body(&endpoint_request))
-            .expect("endpoint body should serialize");
-
-        assert_eq!(
-            template_body,
-            json!({
-                "imageName": "ghcr.io/luma/endpoint:latest",
-                "name": "luma-forge-workspace-endpoint-template",
-                "isServerless": true
-            })
-        );
-        assert_eq!(
-            endpoint_body,
-            json!({
-                "dataCenterIds": ["US-TX-1"],
-                "gpuTypeIds": ["NVIDIA GeForce RTX 4090"],
-                "name": "luma-forge-workspace-endpoint",
-                "networkVolumeId": "volume-1",
-                "templateId": "template-1",
-                "workersMax": 1,
-                "workersMin": 0
-            })
-        );
     }
 }

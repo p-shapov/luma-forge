@@ -18,7 +18,7 @@ use super::client::{
     CreateRunpodServerlessTemplateParams, RunpodProvisionerStatus, RunpodRuntimeClient,
     StartRunpodProvisionerPodParams,
 };
-use super::contracts::{resolve_contracts, RunpodWorkflowResolver};
+use super::contracts::{resolve_contracts, resolve_workflow};
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 fn provision_payload(step: RunpodProvisionStep) -> LifecycleOperationPayload {
@@ -44,7 +44,7 @@ pub async fn provision_workspace(
     mut workspace: Workspace,
 ) -> Result<Workspace, WorkspaceError> {
     let workflow_catalog = BundledWorkflowCatalogRepository::new().get_workflow_catalog()?;
-    let workflow = RunpodWorkflowResolver::resolve(&workflow_catalog, &workspace.workflow)
+    let workflow = resolve_workflow(&workflow_catalog, &workspace.workflow)
         .ok_or_else(|| invalid_state("workflow reference was not found"))?;
     let runtime_catalog = BundledRuntimeCatalogRepository::new();
     let contracts = resolve_contracts(&workflow, &runtime_catalog)?;
@@ -104,16 +104,12 @@ pub async fn provision_workspace(
             .map_err(super::runtime::map_provider_error)?
         {
             RunpodProvisionerStatus::Succeeded => break,
-            RunpodProvisionerStatus::Failed => {
+            RunpodProvisionerStatus::Failed { message } => {
                 return Err(super::runtime::map_provider_error(
-                    super::errors::RunpodProviderError::ProvisionerWorkerFailed {
-                        message: "provisioner worker failed".to_string(),
-                    },
+                    super::errors::RunpodProviderError::ProvisionerWorkerFailed { message },
                 ));
             }
-            RunpodProvisionerStatus::Pending
-            | RunpodProvisionerStatus::Starting
-            | RunpodProvisionerStatus::Running => {
+            RunpodProvisionerStatus::Pending | RunpodProvisionerStatus::Running => {
                 tokio::time::sleep(PROVISIONER_POLL_INTERVAL).await;
             }
         }
@@ -179,4 +175,218 @@ fn runpod_workspace(workspace: &Workspace) -> &RunpodRuntime {
 fn runpod_workspace_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
     runtime
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        domain::{
+            lifecycle_operation::{LifecycleOperationPayload, LifecycleProvisionPayload},
+            runpod::RunpodProvisionStep,
+            workspace::{WorkspaceRuntime, WorkspaceState},
+        },
+        provider::runpod::test_support::{
+            runpod_client_with_failed_provisioner, runpod_client_with_failure,
+            runpod_client_with_state, workspace_with_runpod, RunpodClientFailure,
+        },
+        shared::ApiError,
+        workspace::test_support::runtime_context_for_test,
+        workspace::WorkspaceError,
+    };
+
+    #[tokio::test]
+    async fn provision_creates_all_runpod_resources_and_marks_workspace_ready() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_state();
+
+        let provisioned = super::provision_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect("provision");
+
+        assert_eq!(provisioned.state, WorkspaceState::Ready);
+        let WorkspaceRuntime::Runpod(runtime) = provisioned.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id,
+            Some("volume".to_string())
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
+        assert_eq!(runtime.resources.template_id, Some("template".to_string()));
+        assert_eq!(runtime.resources.endpoint_id, Some("endpoint".to_string()));
+
+        let persisted = context
+            .find_workspace_for_test("workspace-1")
+            .await
+            .expect("persisted workspace");
+        assert_eq!(persisted.state, WorkspaceState::Ready);
+        let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id,
+            Some("volume".to_string())
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
+        assert_eq!(runtime.resources.template_id, Some("template".to_string()));
+        assert_eq!(runtime.resources.endpoint_id, Some("endpoint".to_string()));
+
+        let latest = context
+            .latest_operation_for_test("workspace-1")
+            .await
+            .expect("latest operation");
+        assert!(matches!(
+            latest.payload,
+            Some(LifecycleOperationPayload::Provision(
+                LifecycleProvisionPayload::Runpod(payload)
+            )) if payload.step == Some(RunpodProvisionStep::CreateEndpoint)
+        ));
+    }
+
+    #[tokio::test]
+    async fn provision_stops_at_failed_remote_step() {
+        let cases = [
+            (
+                RunpodClientFailure::CreateNetworkVolume,
+                None,
+                None,
+                None,
+                None,
+            ),
+            (
+                RunpodClientFailure::StartProvisionerPod,
+                Some("volume"),
+                None,
+                None,
+                None,
+            ),
+            (
+                RunpodClientFailure::GetProvisionerStatus,
+                Some("volume"),
+                Some("provisioner"),
+                None,
+                None,
+            ),
+            (
+                RunpodClientFailure::TerminateProvisionerPod,
+                Some("volume"),
+                Some("provisioner"),
+                None,
+                None,
+            ),
+            (
+                RunpodClientFailure::CreateServerlessTemplate,
+                Some("volume"),
+                None,
+                None,
+                None,
+            ),
+            (
+                RunpodClientFailure::CreateServerlessEndpoint,
+                Some("volume"),
+                None,
+                Some("template"),
+                None,
+            ),
+        ];
+
+        for (
+            failure,
+            expected_network_volume_id,
+            expected_provisioner_pod_id,
+            expected_template_id,
+            expected_endpoint_id,
+        ) in cases
+        {
+            let workspace_id = format!("workspace-{failure:?}");
+            let context = runtime_context_for_test();
+            let workspace = workspace_with_runpod(&workspace_id, WorkspaceState::NotProvisioned);
+            context.insert_workspace_for_test(workspace.clone()).await;
+            let operation = context.create_operation_for_test(&workspace_id).await;
+            let runpod_client = runpod_client_with_failure(failure);
+
+            let error = super::provision_workspace(
+                context.clone(),
+                runpod_client.as_ref(),
+                operation,
+                workspace,
+            )
+            .await
+            .expect_err("provision should fail");
+
+            assert_eq!(
+                error,
+                WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+                    message: failure.message().to_string(),
+                })
+            );
+            let persisted = context
+                .find_workspace_for_test(&workspace_id)
+                .await
+                .expect("persisted workspace");
+            assert_eq!(persisted.state, WorkspaceState::NotProvisioned);
+            let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+            assert_eq!(
+                runtime.resources.network_volume_id,
+                expected_network_volume_id.map(str::to_string)
+            );
+            assert_eq!(
+                runtime.resources.provisioner_pod_id,
+                expected_provisioner_pod_id.map(str::to_string)
+            );
+            assert_eq!(
+                runtime.resources.template_id,
+                expected_template_id.map(str::to_string)
+            );
+            assert_eq!(
+                runtime.resources.endpoint_id,
+                expected_endpoint_id.map(str::to_string)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn provision_returns_worker_failure_and_keeps_partial_resources() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_failed_provisioner();
+
+        let error = super::provision_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect_err("provision should fail");
+
+        assert_eq!(
+            error,
+            WorkspaceError::ProvisionerWorkerFailed {
+                message: "asset_download_failed: download failed".to_string(),
+            }
+        );
+        let persisted = context
+            .find_workspace_for_test("workspace-1")
+            .await
+            .expect("persisted workspace");
+        assert_eq!(persisted.state, WorkspaceState::NotProvisioned);
+        let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id,
+            Some("volume".to_string())
+        );
+        assert_eq!(
+            runtime.resources.provisioner_pod_id,
+            Some("provisioner".to_string())
+        );
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(runtime.resources.endpoint_id, None);
+    }
 }

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use reqwest::StatusCode;
 use serde::Deserialize;
 use tracing::Instrument;
@@ -13,9 +11,8 @@ use crate::{
 use super::{
     errors::RunpodProviderError,
     mapping::{
-        self, CreateNetworkVolumeRequest, CreateProvisionerPodRequest,
-        CreateServerlessEndpointRequest, CreateServerlessTemplateRequest, EndpointResponse,
-        GraphqlResponse, NetworkVolumeResponse, PlacementQueryData, PodResponse, TemplateResponse,
+        self, EndpointResponse, GraphqlResponse, NetworkVolumeResponse, PlacementQueryData,
+        PodResponse, TemplateResponse,
     },
 };
 
@@ -32,10 +29,9 @@ const STATUS_FAILED: &str = "failed";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunpodProvisionerStatus {
     Pending,
-    Starting,
     Running,
     Succeeded,
-    Failed,
+    Failed { message: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,9 +120,7 @@ pub trait RunpodRuntimeClient: Send + Sync {
 
 pub struct RunpodRuntimeProvider<RS, RI, HS, HI> {
     http: reqwest::Client,
-    rest_base_url: String,
-    graphql_url: String,
-    runpod_secrets: Arc<SecretsService<RS, RI>>,
+    runpod_secrets: SecretsService<RS, RI>,
     hugging_face_secrets: SecretsService<HS, HI>,
 }
 
@@ -143,9 +137,7 @@ where
     ) -> Self {
         Self {
             http: reqwest::Client::new(),
-            rest_base_url: RUNPOD_REST_BASE_URL.to_string(),
-            graphql_url: RUNPOD_GRAPHQL_URL.to_string(),
-            runpod_secrets: Arc::new(runpod_secrets),
+            runpod_secrets,
             hugging_face_secrets,
         }
     }
@@ -193,7 +185,11 @@ where
                 let response: NetworkVolumeResponse = self
                     .post_rest(
                         "/networkvolumes",
-                        &mapping::network_volume_create_body(&network_volume_request(params)),
+                        &mapping::network_volume_create_body(
+                            &params.workspace_id,
+                            params.data_center_id,
+                            params.size_gb,
+                        ),
                     )
                     .await?;
 
@@ -240,9 +236,16 @@ where
             async move {
                 let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
                 let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
-                let request = provisioner_pod_request(params, bearer_token, hugging_face_api_key);
-                let body = mapping::provisioner_pod_create_body(&request)
-                    .map_err(RunpodProviderError::from)?;
+                let body = mapping::provisioner_pod_create_body(
+                    &params.workspace_id,
+                    params.data_center_id,
+                    params.provisioner_image_ref,
+                    params.network_volume_id,
+                    bearer_token,
+                    params.required_model_assets,
+                    hugging_face_api_key,
+                )
+                .map_err(RunpodProviderError::from)?;
                 let pod: PodResponse = self.post_rest("/pods", &body).await?;
 
                 Ok(pod.id)
@@ -307,9 +310,10 @@ where
                 let response: TemplateResponse = self
                     .post_rest(
                         "/templates",
-                        &mapping::endpoint_template_create_body(&serverless_template_request(
-                            params,
-                        )),
+                        &mapping::endpoint_template_create_body(
+                            &params.workspace_id,
+                            params.endpoint_image_ref,
+                        ),
                     )
                     .await?;
 
@@ -342,7 +346,13 @@ where
                 let response: EndpointResponse = self
                     .post_rest(
                         "/endpoints",
-                        &mapping::endpoint_create_body(&serverless_endpoint_request(params)),
+                        &mapping::endpoint_create_body(
+                            &params.workspace_id,
+                            params.data_center_id,
+                            params.gpu_type_id,
+                            params.network_volume_id,
+                            params.template_id,
+                        ),
                     )
                     .await?;
 
@@ -429,7 +439,7 @@ where
         let api_key = self.runpod_api_key().await?;
         let response = self
             .http
-            .post(&self.graphql_url)
+            .post(RUNPOD_GRAPHQL_URL)
             .bearer_auth(&api_key)
             .json(&mapping::placement_graphql_request())
             .send()
@@ -452,7 +462,7 @@ where
         let api_key = self.runpod_api_key().await?;
         let response = self
             .http
-            .post(format!("{}{}", self.rest_base_url, path))
+            .post(format!("{RUNPOD_REST_BASE_URL}{path}"))
             .bearer_auth(&api_key)
             .json(body)
             .send()
@@ -469,7 +479,7 @@ where
         let api_key = self.runpod_api_key().await?;
         let response = self
             .http
-            .delete(format!("{}{}", self.rest_base_url, path))
+            .delete(format!("{RUNPOD_REST_BASE_URL}{path}"))
             .bearer_auth(&api_key)
             .send()
             .await
@@ -502,51 +512,6 @@ where
     }
 }
 
-fn network_volume_request(params: CreateRunpodNetworkVolumeParams) -> CreateNetworkVolumeRequest {
-    CreateNetworkVolumeRequest {
-        datacenter_id: params.data_center_id,
-        name: mapping::network_volume_name(&params.workspace_id),
-        size_gb: params.size_gb,
-    }
-}
-
-fn provisioner_pod_request(
-    params: StartRunpodProvisionerPodParams,
-    bearer_token: String,
-    hugging_face_api_key: Option<String>,
-) -> CreateProvisionerPodRequest {
-    CreateProvisionerPodRequest {
-        datacenter_id: params.data_center_id,
-        name: mapping::provisioner_pod_name(&params.workspace_id),
-        image_ref: params.provisioner_image_ref,
-        network_volume_id: params.network_volume_id,
-        bearer_token,
-        required_model_assets: params.required_model_assets,
-        hugging_face_api_key,
-    }
-}
-
-fn serverless_template_request(
-    params: CreateRunpodServerlessTemplateParams,
-) -> CreateServerlessTemplateRequest {
-    CreateServerlessTemplateRequest {
-        name: mapping::endpoint_template_name(&params.workspace_id),
-        image_ref: params.endpoint_image_ref,
-    }
-}
-
-fn serverless_endpoint_request(
-    params: CreateRunpodServerlessEndpointParams,
-) -> CreateServerlessEndpointRequest {
-    CreateServerlessEndpointRequest {
-        datacenter_id: params.data_center_id,
-        gpu_id: params.gpu_type_id,
-        name: mapping::endpoint_name(&params.workspace_id),
-        template_id: params.template_id,
-        network_volume_id: params.network_volume_id,
-    }
-}
-
 fn provisioner_status_url(pod_id: &str) -> String {
     format!("https://{pod_id}-{PROVISIONER_PORT}.proxy.runpod.net/status")
 }
@@ -574,7 +539,7 @@ fn map_provisioner_status_response(
         STATUS_SUCCEEDED => Ok(RunpodProvisionerStatus::Succeeded),
         STATUS_FAILED => {
             let error = response.error.ok_or_else(provisioner_response_invalid)?;
-            Err(RunpodProviderError::ProvisionerWorkerFailed {
+            Ok(RunpodProvisionerStatus::Failed {
                 message: format!("{}: {}", error.code, error.message),
             })
         }
@@ -606,86 +571,5 @@ fn provisioner_response_invalid() -> RunpodProviderError {
 fn provisioner_failed() -> RunpodProviderError {
     RunpodProviderError::ProvisionerWorkerFailed {
         message: "provisioner worker failed".to_string(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn map_provisioner_status_response_maps_lifecycle_statuses() {
-        assert_eq!(
-            map_provisioner_status_response(ProvisionerStatusResponse {
-                status: "idle".to_string(),
-                error: None,
-            }),
-            Ok(RunpodProvisionerStatus::Pending)
-        );
-        assert_eq!(
-            map_provisioner_status_response(ProvisionerStatusResponse {
-                status: "running".to_string(),
-                error: None,
-            }),
-            Ok(RunpodProvisionerStatus::Running)
-        );
-        assert_eq!(
-            map_provisioner_status_response(ProvisionerStatusResponse {
-                status: "succeeded".to_string(),
-                error: None,
-            }),
-            Ok(RunpodProvisionerStatus::Succeeded)
-        );
-    }
-
-    #[test]
-    fn map_provisioner_status_response_maps_worker_failure_details() {
-        assert_eq!(
-            map_provisioner_status_response(ProvisionerStatusResponse {
-                status: "failed".to_string(),
-                error: Some(ProvisionerWorkerErrorResponse {
-                    code: "asset_download_failed".to_string(),
-                    message: "download failed".to_string(),
-                }),
-            }),
-            Err(RunpodProviderError::ProvisionerWorkerFailed {
-                message: "asset_download_failed: download failed".to_string(),
-            })
-        );
-    }
-
-    #[test]
-    fn map_provisioner_status_response_rejects_malformed_responses() {
-        assert_eq!(
-            map_provisioner_status_response(ProvisionerStatusResponse {
-                status: "failed".to_string(),
-                error: None,
-            }),
-            Err(provisioner_response_invalid())
-        );
-        assert_eq!(
-            map_provisioner_status_response(ProvisionerStatusResponse {
-                status: "other".to_string(),
-                error: None,
-            }),
-            Err(provisioner_response_invalid())
-        );
-    }
-
-    #[test]
-    fn map_provisioner_http_status_maps_worker_errors() {
-        assert_eq!(map_provisioner_http_status(StatusCode::OK), Ok(()));
-        assert_eq!(
-            map_provisioner_http_status(StatusCode::UNAUTHORIZED),
-            Err(provisioner_response_invalid())
-        );
-        assert_eq!(
-            map_provisioner_http_status(StatusCode::CONFLICT),
-            Err(provisioner_failed())
-        );
-        assert_eq!(
-            map_provisioner_http_status(StatusCode::INTERNAL_SERVER_ERROR),
-            Err(provisioner_unavailable())
-        );
     }
 }

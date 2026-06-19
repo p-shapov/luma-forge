@@ -11,10 +11,7 @@ use crate::{
             LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
             LifecycleOperationState,
         },
-        runpod::{RunpodPlacementPlan, RunpodResources, RunpodRuntime},
-        workflow_preset::WorkflowReference,
         workspace::{Workspace, WorkspaceCatalog, WorkspaceId},
-        workspace::{WorkspaceRuntime, WorkspaceState},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
     runtime_catalog::BundledRuntimeCatalogRepository,
@@ -22,7 +19,7 @@ use crate::{
     workflow_catalog::BundledWorkflowCatalogRepository,
     workspace::{
         events::WorkspaceEvent,
-        runtime::{CreateRunpodWorkspaceRequest, WorkspaceRuntime as WorkspaceRuntimeTrait},
+        runtime::WorkspaceRuntime as WorkspaceRuntimeTrait,
         service::{WorkspaceService, WorkspaceServiceDependencies},
         WorkspaceRuntimeContext,
     },
@@ -87,61 +84,6 @@ pub fn repositories() -> TestRepositories {
     }
 }
 
-pub fn draft_create_request(workspace_id: &str) -> CreateRunpodWorkspaceRequest {
-    CreateRunpodWorkspaceRequest {
-        workspace_id: workspace_id.to_string(),
-        workflow_preset_id: "comfyui-hidream-o1-dev".to_string(),
-        placement: RunpodPlacementPlan {
-            data_center_id: "dc".to_string(),
-            gpu_type_id: "gpu".to_string(),
-            volume_size_gb: 100,
-        },
-    }
-}
-
-pub fn workspace_with_runpod(workspace_id: &str, state: WorkspaceState) -> Workspace {
-    Workspace {
-        id: workspace_id.to_string(),
-        workflow: WorkflowReference {
-            id: "comfyui-hidream-o1-dev".to_string(),
-            version: "1.0.0".to_string(),
-        },
-        state,
-        runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
-            placement: RunpodPlacementPlan {
-                data_center_id: "dc".to_string(),
-                gpu_type_id: "gpu".to_string(),
-                volume_size_gb: 100,
-            },
-            resources: RunpodResources {
-                network_volume_id: None,
-                provisioner_pod_id: None,
-                endpoint_id: None,
-                template_id: None,
-            },
-        }),
-    }
-}
-
-pub fn workspace_with_runpod_resources(workspace_id: &str) -> Workspace {
-    Workspace {
-        runtime: WorkspaceRuntime::Runpod(RunpodRuntime {
-            placement: RunpodPlacementPlan {
-                data_center_id: "dc".to_string(),
-                gpu_type_id: "gpu".to_string(),
-                volume_size_gb: 100,
-            },
-            resources: RunpodResources {
-                network_volume_id: Some("volume".to_string()),
-                provisioner_pod_id: Some("provisioner".to_string()),
-                endpoint_id: Some("endpoint".to_string()),
-                template_id: Some("template".to_string()),
-            },
-        }),
-        ..workspace_with_runpod(workspace_id, WorkspaceState::Ready)
-    }
-}
-
 pub fn service_with_fake_runtime() -> WorkspaceService<
     InMemoryWorkspaceRepository,
     InMemoryLifecycleJournal,
@@ -203,10 +145,6 @@ pub fn operation_for_test(workspace_id: &str) -> LifecycleOperation {
         updated_at: now,
         finished_at: None,
     }
-}
-
-pub fn runpod_client_with_state() -> Arc<dyn crate::provider::runpod::client::RunpodRuntimeClient> {
-    Arc::new(FakeRunpodRuntimeClient)
 }
 
 #[derive(Clone, Default)]
@@ -312,100 +250,6 @@ impl InMemoryWorkspaceRepository {
             .lock()
             .expect("workspace update error lock should succeed") =
             Some(storage_unavailable_error(message));
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct FakeRunpodRuntimeClient;
-
-impl crate::provider::runpod::client::RunpodRuntimeClient for FakeRunpodRuntimeClient {
-    fn placement_options<'a>(
-        &'a self,
-    ) -> AppFuture<
-        'a,
-        Result<
-            crate::domain::runpod::RunpodPlacementOptions,
-            crate::provider::runpod::errors::RunpodProviderError,
-        >,
-    > {
-        Box::pin(async move {
-            Ok(crate::domain::runpod::RunpodPlacementOptions {
-                max_volume_size_gb: Some(10),
-                datacenters: vec![],
-            })
-        })
-    }
-
-    fn create_network_volume<'a>(
-        &'a self,
-        _params: crate::provider::runpod::client::CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok("volume".to_string()) })
-    }
-
-    fn delete_network_volume<'a>(
-        &'a self,
-        _network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok(()) })
-    }
-
-    fn start_provisioner_pod<'a>(
-        &'a self,
-        _params: crate::provider::runpod::client::StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok("provisioner".to_string()) })
-    }
-
-    fn terminate_provisioner_pod<'a>(
-        &'a self,
-        _provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok(()) })
-    }
-
-    fn get_provisioner_status<'a>(
-        &'a self,
-        _workspace_id: &'a str,
-        _provisioner_pod_id: &'a str,
-    ) -> AppFuture<
-        'a,
-        Result<
-            crate::provider::runpod::client::RunpodProvisionerStatus,
-            crate::provider::runpod::errors::RunpodProviderError,
-        >,
-    > {
-        Box::pin(
-            async move { Ok(crate::provider::runpod::client::RunpodProvisionerStatus::Succeeded) },
-        )
-    }
-
-    fn create_serverless_template<'a>(
-        &'a self,
-        _params: crate::provider::runpod::client::CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok("template".to_string()) })
-    }
-
-    fn create_serverless_endpoint<'a>(
-        &'a self,
-        _params: crate::provider::runpod::client::CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok("endpoint".to_string()) })
-    }
-
-    fn delete_serverless_endpoint<'a>(
-        &'a self,
-        _endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok(()) })
-    }
-
-    fn delete_template<'a>(
-        &'a self,
-        _template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), crate::provider::runpod::errors::RunpodProviderError>> {
-        Box::pin(async move { Ok(()) })
     }
 }
 
