@@ -4,8 +4,7 @@ use specta::Type;
 use crate::{
     runpod_runtime::errors::RunpodRuntimeError, runtime_catalog::RuntimeCatalogError,
     secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace::WorkspaceError,
-    workspace_catalog::WorkspaceCatalogError,
+    workspace::WorkspaceError, workspace_catalog::WorkspaceCatalogError,
 };
 
 pub type CommandResult<T> = Result<T, NativeCommandError>;
@@ -379,7 +378,9 @@ fn provider_error(error: &ApiError) -> NativeCommandErrorCode {
 
 fn workspace_error_from_runpod_runtime(error: &RunpodRuntimeError) -> WorkspaceError {
     match error {
-        RunpodRuntimeError::RunpodApiError(error) => WorkspaceError::ProviderApiError(error.clone()),
+        RunpodRuntimeError::RunpodApiError(error) => {
+            WorkspaceError::ProviderApiError(error.clone())
+        }
         RunpodRuntimeError::RunpodApiKeyUnavailable(error) => {
             WorkspaceError::RuntimeProviderApiKeyUnavailable(error.clone())
         }
@@ -410,9 +411,11 @@ fn workspace_error_from_runpod_runtime(error: &RunpodRuntimeError) -> WorkspaceE
                 message: message.clone(),
             }
         }
-        RunpodRuntimeError::WorkspaceNotFound { workspace_id } => WorkspaceError::WorkspaceNotFound {
-            workspace_id: workspace_id.clone(),
-        },
+        RunpodRuntimeError::WorkspaceNotFound { workspace_id } => {
+            WorkspaceError::WorkspaceNotFound {
+                workspace_id: workspace_id.clone(),
+            }
+        }
         RunpodRuntimeError::LifecycleOperationAlreadyRunning { workspace_id } => {
             WorkspaceError::LifecycleOperationAlreadyRunning {
                 workspace_id: workspace_id.clone(),

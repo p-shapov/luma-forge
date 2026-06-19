@@ -120,6 +120,16 @@ impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
 #[derive(Clone, Default)]
 pub struct InMemoryLifecycleJournal {
     operations: Arc<Mutex<HashMap<String, LifecycleOperation>>>,
+    delete_error: Arc<Mutex<Option<LifecycleJournalError>>>,
+}
+
+impl InMemoryLifecycleJournal {
+    pub fn fail_delete_for_workspace_once(&self, error: LifecycleJournalError) {
+        *self
+            .delete_error
+            .lock()
+            .expect("delete error lock should succeed") = Some(error);
+    }
 }
 
 impl LifecycleJournalRepository for InMemoryLifecycleJournal {
@@ -213,6 +223,14 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournal {
         workspace_id: &'a WorkspaceId,
     ) -> AppFuture<'a, Result<(), LifecycleJournalError>> {
         Box::pin(async move {
+            if let Some(error) = self
+                .delete_error
+                .lock()
+                .expect("delete error lock should succeed")
+                .take()
+            {
+                return Err(error);
+            }
             self.operations
                 .lock()
                 .expect("operation lock should succeed")
