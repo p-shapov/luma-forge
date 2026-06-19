@@ -4,7 +4,7 @@ use crate::{
     workspace::{WorkspaceError, WorkspaceRuntimeContext},
 };
 
-use super::client::RunpodRuntimeClient;
+use super::runtime::RunpodRuntimeClient;
 
 pub async fn delete_workspace(
     context: WorkspaceRuntimeContext<'_>,

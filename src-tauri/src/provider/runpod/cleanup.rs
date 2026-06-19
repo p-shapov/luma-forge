@@ -9,7 +9,7 @@ use crate::{
     workspace::{WorkspaceError, WorkspaceRuntimeContext},
 };
 
-use super::client::RunpodRuntimeClient;
+use super::runtime::RunpodRuntimeClient;
 
 fn cleanup_payload(step: RunpodCleanupStep) -> LifecycleOperationPayload {
     LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
