@@ -444,10 +444,10 @@ mod tests {
             workspace::WorkspaceState,
         },
         lifecycle_journal::LifecycleJournalError,
+        provider::runpod::test_support::{draft_create_request, workspace_with_runpod},
         shared::AppFuture,
         workspace::test_support::{
-            draft_create_request, service_with_fake_runtime, service_with_runtime,
-            workspace_with_runpod, FakeWorkspaceRuntime,
+            service_with_fake_runtime, service_with_runtime, FakeWorkspaceRuntime,
         },
     };
 

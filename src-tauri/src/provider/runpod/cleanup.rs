@@ -116,3 +116,151 @@ fn runpod_resources_mut(workspace: &mut Workspace) -> &mut crate::domain::runpod
     let WorkspaceRuntime::Runpod(runtime) = &mut workspace.runtime;
     &mut runtime.resources
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        domain::{
+            lifecycle_operation::LifecycleOperationPayload,
+            workspace::{WorkspaceRuntime, WorkspaceState},
+        },
+        provider::runpod::test_support::{
+            runpod_client_with_failure, runpod_client_with_state, workspace_with_runpod_resources,
+            RunpodClientFailure,
+        },
+        shared::ApiError,
+        workspace::test_support::runtime_context_for_test,
+        workspace::WorkspaceError,
+    };
+
+    #[tokio::test]
+    async fn cleanup_persists_cleanup_payload() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod_resources("workspace-1");
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_state();
+
+        let cleaned = super::cleanup_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect("cleanup");
+
+        assert_eq!(cleaned.state, WorkspaceState::NotProvisioned);
+        let WorkspaceRuntime::Runpod(runtime) = cleaned.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
+        assert_eq!(runtime.resources.network_volume_id, None);
+
+        let persisted = context
+            .find_workspace_for_test("workspace-1")
+            .await
+            .expect("persisted workspace");
+        let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+        assert_eq!(runtime.resources.endpoint_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
+        assert_eq!(runtime.resources.network_volume_id, None);
+
+        let latest = context
+            .latest_operation_for_test("workspace-1")
+            .await
+            .expect("latest operation");
+        assert!(matches!(
+            latest.payload,
+            Some(LifecycleOperationPayload::Cleanup(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn cleanup_stops_at_failed_remote_delete_step() {
+        let cases = [
+            (
+                RunpodClientFailure::DeleteEndpoint,
+                Some("endpoint"),
+                Some("template"),
+                Some("provisioner"),
+                Some("volume"),
+            ),
+            (
+                RunpodClientFailure::DeleteTemplate,
+                None,
+                Some("template"),
+                Some("provisioner"),
+                Some("volume"),
+            ),
+            (
+                RunpodClientFailure::TerminateProvisionerPod,
+                None,
+                None,
+                Some("provisioner"),
+                Some("volume"),
+            ),
+            (
+                RunpodClientFailure::DeleteNetworkVolume,
+                None,
+                None,
+                None,
+                Some("volume"),
+            ),
+        ];
+
+        for (
+            failure,
+            expected_endpoint_id,
+            expected_template_id,
+            expected_provisioner_pod_id,
+            expected_network_volume_id,
+        ) in cases
+        {
+            let workspace_id = format!("workspace-{failure:?}");
+            let context = runtime_context_for_test();
+            let workspace = workspace_with_runpod_resources(&workspace_id);
+            context.insert_workspace_for_test(workspace.clone()).await;
+            let operation = context.create_operation_for_test(&workspace_id).await;
+            let runpod_client = runpod_client_with_failure(failure);
+
+            let error = super::cleanup_workspace(
+                context.clone(),
+                runpod_client.as_ref(),
+                operation,
+                workspace,
+            )
+            .await
+            .expect_err("cleanup should fail");
+
+            assert_eq!(
+                error,
+                WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+                    message: failure.message().to_string(),
+                })
+            );
+            let persisted = context
+                .find_workspace_for_test(&workspace_id)
+                .await
+                .expect("persisted workspace");
+            let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+            assert_eq!(
+                runtime.resources.endpoint_id,
+                expected_endpoint_id.map(str::to_string)
+            );
+            assert_eq!(
+                runtime.resources.template_id,
+                expected_template_id.map(str::to_string)
+            );
+            assert_eq!(
+                runtime.resources.provisioner_pod_id,
+                expected_provisioner_pod_id.map(str::to_string)
+            );
+            assert_eq!(
+                runtime.resources.network_volume_id,
+                expected_network_volume_id.map(str::to_string)
+            );
+        }
+    }
+}
