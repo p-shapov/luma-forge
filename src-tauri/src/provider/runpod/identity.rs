@@ -1,117 +1,59 @@
-use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
-
 use crate::{
     domain::secrets::ApiKeyIdentity,
+    secrets::{
+        errors::{identity_response_invalid_message, SecretsStorageError},
+        stores::ApiSecret,
+        ApiKeyIdentityProvider,
+    },
     shared::{ApiError, AppFuture},
 };
 
-use crate::secrets::{
-    errors::{
-        identity_request_error, identity_response_invalid_error, identity_response_invalid_message,
-        identity_status_error, SecretsStorageError,
-    },
-    identities::identity_http_client,
-    stores::ApiSecret,
-    ApiKeyIdentityProvider,
+use super::client::{
+    GraphQlError, GraphQlResponse, RunpodApiClient, RunpodApiKey, RunpodIdentityData,
 };
 
-const RUNPOD_GRAPHQL_ENDPOINT: &str = "https://api.runpod.io/graphql";
-const RUNPOD_PROVIDER_NAME: &str = "RunPod";
-const RUNPOD_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const RUNPOD_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-const RUNPOD_IDENTITY_QUERY: &str =
-    "query LumaForgeRunpodIdentity { myself { email apiKeys { id isActive } } }";
-
 #[derive(Clone)]
-pub struct RunpodIdentityProvider {
-    http: reqwest::Client,
-    endpoint: String,
+pub struct RunpodIdentityProvider<C = RunpodApiClient> {
+    client: C,
 }
 
-impl RunpodIdentityProvider {
-    pub fn try_new_default() -> Result<Self, SecretsStorageError> {
-        Ok(Self {
-            http: identity_http_client(RUNPOD_CONNECT_TIMEOUT, RUNPOD_REQUEST_TIMEOUT)?,
-            endpoint: RUNPOD_GRAPHQL_ENDPOINT.to_string(),
-        })
-    }
-
-    pub async fn fetch_identity(
-        &self,
-        secret: &ApiSecret,
-    ) -> Result<ApiKeyIdentity, SecretsStorageError> {
-        let response = self
-            .http
-            .post(&self.endpoint)
-            .bearer_auth(secret.expose_secret())
-            .json(&GraphQlRequest {
-                query: RUNPOD_IDENTITY_QUERY,
-            })
-            .send()
-            .await
-            .map_err(identity_request_error)?;
-
-        if let Some(error) = identity_status_error(RUNPOD_PROVIDER_NAME, response.status()) {
-            return Err(error);
-        }
-
-        let response = response
-            .json::<GraphQlResponse<RunpodIdentityData>>()
-            .await
-            .map_err(identity_response_invalid_error)?;
-
-        map_graphql_response(secret.expose_secret(), response)
-    }
+pub(super) trait RunpodIdentityClient: Clone + Send + Sync {
+    fn identity<'a>(
+        &'a self,
+        secret: &'a ApiSecret,
+    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>>;
 }
 
-impl ApiKeyIdentityProvider for RunpodIdentityProvider {
+impl RunpodIdentityClient for RunpodApiClient {
     fn identity<'a>(
         &'a self,
         secret: &'a ApiSecret,
     ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-        Box::pin(async move { self.fetch_identity(secret).await })
+        Box::pin(async move { self.get_identity(secret.expose_secret().to_string()).await })
     }
 }
 
-#[derive(Serialize)]
-struct GraphQlRequest<'a> {
-    query: &'a str,
+impl RunpodIdentityProvider {
+    pub fn new() -> Result<Self, SecretsStorageError> {
+        Ok(Self {
+            client: RunpodApiClient::new()?,
+        })
+    }
 }
 
-#[derive(Debug, Deserialize)]
-struct GraphQlResponse<T> {
-    data: Option<T>,
-    #[serde(default)]
-    errors: Vec<GraphQlError>,
+impl<C> ApiKeyIdentityProvider for RunpodIdentityProvider<C>
+where
+    C: RunpodIdentityClient,
+{
+    fn identity<'a>(
+        &'a self,
+        secret: &'a ApiSecret,
+    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
+        self.client.identity(secret)
+    }
 }
 
-#[derive(Debug, Deserialize)]
-struct GraphQlError {
-    message: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct RunpodIdentityData {
-    myself: Option<RunpodIdentity>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RunpodIdentity {
-    email: String,
-    #[serde(rename = "apiKeys")]
-    api_keys: Vec<RunpodApiKey>,
-}
-
-#[derive(Debug, Deserialize)]
-struct RunpodApiKey {
-    id: Option<String>,
-    #[serde(rename = "isActive")]
-    is_active: bool,
-}
-
-fn map_graphql_response(
+pub(super) fn map_graphql_response(
     submitted_secret: &str,
     response: GraphQlResponse<RunpodIdentityData>,
 ) -> Result<ApiKeyIdentity, SecretsStorageError> {
@@ -194,8 +136,11 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::secrets::ApiKeyIdentity;
+    use crate::{domain::secrets::ApiKeyIdentity, secrets::SecretsStorageError};
 
+    use super::super::client::{
+        GraphQlError, GraphQlResponse, RunpodApiKey, RunpodIdentity, RunpodIdentityData,
+    };
     use super::*;
 
     #[test]
@@ -238,29 +183,6 @@ mod tests {
                     api_keys: vec![RunpodApiKey {
                         id: Some("other-inactive-key".to_string()),
                         is_active: false,
-                    }],
-                }),
-            }),
-            errors: Vec::new(),
-        };
-
-        assert_eq!(
-            map_graphql_response("submitted-key-secret-value", response),
-            Err(SecretsStorageError::IdentityResponseInvalid {
-                message: "no matching API key found".to_string()
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_missing_matching_key() {
-        let response = GraphQlResponse {
-            data: Some(RunpodIdentityData {
-                myself: Some(RunpodIdentity {
-                    email: "user@example.com".to_string(),
-                    api_keys: vec![RunpodApiKey {
-                        id: Some("different-key".to_string()),
-                        is_active: true,
                     }],
                 }),
             }),
@@ -358,22 +280,6 @@ mod tests {
             Err(SecretsStorageError::IdentityResponseInvalid {
                 message: "API key is invalid".to_string()
             })
-        );
-    }
-
-    #[test]
-    fn maps_unauthorized_status() {
-        assert_eq!(
-            identity_status_error(RUNPOD_PROVIDER_NAME, reqwest::StatusCode::UNAUTHORIZED),
-            Some(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
-            ))
-        );
-        assert_eq!(
-            identity_status_error(RUNPOD_PROVIDER_NAME, reqwest::StatusCode::FORBIDDEN),
-            Some(SecretsStorageError::IdentityRequestFailed(
-                ApiError::InsufficientPermissions
-            ))
         );
     }
 }

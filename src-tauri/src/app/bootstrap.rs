@@ -6,12 +6,15 @@ use crate::{
     app::{background::TauriBackgroundTaskSpawner, events::TauriWorkspaceEventSink},
     commands::errors::{NativeCommandError, NativeInitializationCommandError},
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    provider::runpod::{
-        RunpodRuntimeProvider as WorkspaceRunpodRuntimeProvider, RunpodWorkspaceRuntime,
+    provider::{
+        hugging_face::HuggingFaceIdentityProvider,
+        runpod::{
+            RunpodIdentityProvider, RunpodRuntimeProvider as WorkspaceRunpodRuntimeProvider,
+            RunpodWorkspaceRuntime,
+        },
     },
     runtime_catalog::BundledRuntimeCatalogRepository,
     secrets::{
-        identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
         stores::{keyring::KeyringSecretStore, SecretKey},
         SecretsService,
     },
@@ -66,7 +69,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     let runpod_provider = Arc::new(WorkspaceRunpodRuntimeProvider::new(
         runpod_secrets.clone(),
         hugging_face_secrets.clone(),
-    ));
+    )?);
     let workspace_runtime = RunpodWorkspaceRuntime::new(runpod_provider.clone());
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
@@ -110,7 +113,7 @@ fn build_runpod_secrets(
 ) -> Result<SecretsService<KeyringSecretStore, RunpodIdentityProvider>, NativeCommandError> {
     Ok(SecretsService::new(
         KeyringSecretStore::new(app_identifier),
-        RunpodIdentityProvider::try_new_default()?,
+        RunpodIdentityProvider::new()?,
         SecretKey::RunpodApiKey,
     ))
 }
@@ -120,7 +123,7 @@ fn build_hugging_face_secrets(
 ) -> Result<SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>, NativeCommandError> {
     Ok(SecretsService::new(
         KeyringSecretStore::new(app_identifier),
-        HuggingFaceIdentityProvider::try_new_default()?,
+        HuggingFaceIdentityProvider::new()?,
         SecretKey::HuggingFaceApiKey,
     ))
 }

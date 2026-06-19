@@ -13,12 +13,12 @@ use crate::{
     workspace::{errors::invalid_state, WorkspaceError, WorkspaceRuntimeContext},
 };
 
-use super::client::{
+use super::contracts::{resolve_contracts, resolve_workflow};
+use super::runtime::{
     CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
     CreateRunpodServerlessTemplateParams, RunpodProvisionerStatus, RunpodRuntimeClient,
     StartRunpodProvisionerPodParams,
 };
-use super::contracts::{resolve_contracts, resolve_workflow};
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 fn provision_payload(step: RunpodProvisionStep) -> LifecycleOperationPayload {

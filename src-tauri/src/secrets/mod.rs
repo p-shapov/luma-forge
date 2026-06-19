@@ -1,5 +1,4 @@
 pub mod errors;
-pub mod identities;
 pub mod service;
 pub mod stores;
 

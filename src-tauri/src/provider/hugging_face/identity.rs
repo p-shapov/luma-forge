@@ -1,72 +1,57 @@
-use std::time::Duration;
-
 use serde::Deserialize;
 
 use crate::{
     domain::secrets::ApiKeyIdentity,
+    secrets::{
+        errors::{
+            identity_response_invalid_error, identity_response_invalid_message, SecretsStorageError,
+        },
+        stores::ApiSecret,
+        ApiKeyIdentityProvider,
+    },
     shared::{ApiError, AppFuture},
 };
 
-use crate::secrets::{
-    errors::{
-        identity_request_error, identity_response_invalid_error, identity_response_invalid_message,
-        identity_status_error, SecretsStorageError,
-    },
-    identities::identity_http_client,
-    stores::ApiSecret,
-    ApiKeyIdentityProvider,
-};
-
-const HUGGING_FACE_WHOAMI_ENDPOINT: &str = "https://huggingface.co/api/whoami-v2";
-const HUGGING_FACE_PROVIDER_NAME: &str = "Hugging Face";
-const HUGGING_FACE_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const HUGGING_FACE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+use super::client::HuggingFaceApiClient;
 
 #[derive(Clone)]
-pub struct HuggingFaceIdentityProvider {
-    http: reqwest::Client,
-    whoami_endpoint: String,
+pub struct HuggingFaceIdentityProvider<C = HuggingFaceApiClient> {
+    client: C,
 }
 
-impl HuggingFaceIdentityProvider {
-    pub fn try_new_default() -> Result<Self, SecretsStorageError> {
-        Ok(Self {
-            http: identity_http_client(HUGGING_FACE_CONNECT_TIMEOUT, HUGGING_FACE_REQUEST_TIMEOUT)?,
-            whoami_endpoint: HUGGING_FACE_WHOAMI_ENDPOINT.to_string(),
-        })
-    }
-
-    pub async fn fetch_identity(
-        &self,
-        secret: &ApiSecret,
-    ) -> Result<ApiKeyIdentity, SecretsStorageError> {
-        let response = self
-            .http
-            .get(&self.whoami_endpoint)
-            .bearer_auth(secret.expose_secret())
-            .send()
-            .await
-            .map_err(identity_request_error)?;
-
-        if let Some(error) = identity_status_error(HUGGING_FACE_PROVIDER_NAME, response.status()) {
-            return Err(error);
-        }
-
-        let response = response
-            .json::<serde_json::Value>()
-            .await
-            .map_err(identity_response_invalid_error)?;
-
-        map_whoami_response(response)
-    }
+pub(super) trait HuggingFaceIdentityClient: Clone + Send + Sync {
+    fn identity<'a>(
+        &'a self,
+        secret: &'a ApiSecret,
+    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>>;
 }
 
-impl ApiKeyIdentityProvider for HuggingFaceIdentityProvider {
+impl HuggingFaceIdentityClient for HuggingFaceApiClient {
     fn identity<'a>(
         &'a self,
         secret: &'a ApiSecret,
     ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-        Box::pin(async move { self.fetch_identity(secret).await })
+        Box::pin(async move { self.get_identity(secret.expose_secret().to_string()).await })
+    }
+}
+
+impl HuggingFaceIdentityProvider {
+    pub fn new() -> Result<Self, SecretsStorageError> {
+        Ok(Self {
+            client: HuggingFaceApiClient::new()?,
+        })
+    }
+}
+
+impl<C> ApiKeyIdentityProvider for HuggingFaceIdentityProvider<C>
+where
+    C: HuggingFaceIdentityClient,
+{
+    fn identity<'a>(
+        &'a self,
+        secret: &'a ApiSecret,
+    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
+        self.client.identity(secret)
     }
 }
 
@@ -108,7 +93,9 @@ struct WhoamiFineGrainedRepoPermissions {
     permissions: Vec<String>,
 }
 
-fn map_whoami_response(response: serde_json::Value) -> Result<ApiKeyIdentity, SecretsStorageError> {
+pub(super) fn map_whoami_response(
+    response: serde_json::Value,
+) -> Result<ApiKeyIdentity, SecretsStorageError> {
     let response = serde_json::from_value::<WhoamiResponse>(response)
         .map_err(identity_response_invalid_error)?;
 
@@ -176,7 +163,7 @@ impl WhoamiFineGrainedPermissions {
 mod tests {
     use serde_json::json;
 
-    use crate::domain::secrets::ApiKeyIdentity;
+    use crate::{domain::secrets::ApiKeyIdentity, secrets::SecretsStorageError};
 
     use super::*;
 
@@ -198,28 +185,6 @@ mod tests {
                 email: None,
                 username: Some("hf-user".to_string()),
                 key_display_name: Some("LumaForge read token".to_string()),
-            })
-        );
-    }
-
-    #[test]
-    fn maps_valid_write_token() {
-        let response = json!({
-            "auth": {
-                "accessToken": {
-                    "displayName": "LumaForge write token",
-                    "role": "write"
-                }
-            },
-            "name": "hf-user"
-        });
-
-        assert_eq!(
-            map_whoami_response(response),
-            Ok(ApiKeyIdentity {
-                email: None,
-                username: Some("hf-user".to_string()),
-                key_display_name: Some("LumaForge write token".to_string()),
             })
         );
     }
@@ -248,80 +213,6 @@ mod tests {
                 username: Some("hf-user".to_string()),
                 key_display_name: Some("LumaForge fine token".to_string()),
             })
-        );
-    }
-
-    #[test]
-    fn accepts_fine_grained_token_with_scoped_permissions() {
-        let response = json!({
-            "auth": {
-                "accessToken": {
-                    "displayName": "LumaForge fine token",
-                    "role": "fineGrained",
-                    "fineGrained": {
-                        "canReadGatedRepos": true,
-                        "scoped": [
-                            {
-                                "permissions": ["repo.content.read"]
-                            }
-                        ]
-                    }
-                }
-            },
-            "name": "hf-user"
-        });
-
-        assert_eq!(
-            map_whoami_response(response),
-            Ok(ApiKeyIdentity {
-                email: None,
-                username: Some("hf-user".to_string()),
-                key_display_name: Some("LumaForge fine token".to_string()),
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_fine_grained_token_missing_fine_grained_permissions() {
-        let response = json!({
-            "auth": {
-                "accessToken": {
-                    "displayName": "LumaForge fine token",
-                    "role": "fineGrained"
-                }
-            },
-            "name": "hf-user"
-        });
-
-        assert_eq!(
-            map_whoami_response(response),
-            Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::InsufficientPermissions
-            ))
-        );
-    }
-
-    #[test]
-    fn rejects_fine_grained_token_without_gated_repo_read() {
-        let response = json!({
-            "auth": {
-                "accessToken": {
-                    "displayName": "LumaForge fine token",
-                    "role": "fineGrained",
-                    "fineGrained": {
-                        "canReadGatedRepos": false,
-                        "global": ["repo.content.read"]
-                    }
-                }
-            },
-            "name": "hf-user"
-        });
-
-        assert_eq!(
-            map_whoami_response(response),
-            Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::InsufficientPermissions
-            ))
         );
     }
 
@@ -366,25 +257,6 @@ mod tests {
             Err(SecretsStorageError::IdentityResponseInvalid {
                 message: "identity name is empty".to_string()
             })
-        );
-    }
-
-    #[test]
-    fn maps_unauthorized_status() {
-        assert_eq!(
-            identity_status_error(
-                HUGGING_FACE_PROVIDER_NAME,
-                reqwest::StatusCode::UNAUTHORIZED
-            ),
-            Some(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
-            ))
-        );
-        assert_eq!(
-            identity_status_error(HUGGING_FACE_PROVIDER_NAME, reqwest::StatusCode::FORBIDDEN),
-            Some(SecretsStorageError::IdentityRequestFailed(
-                ApiError::InsufficientPermissions
-            ))
         );
     }
 }

@@ -3,13 +3,12 @@ use std::sync::Arc;
 use crate::{
     commands::errors::NativeCommandError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
-    provider::runpod::RunpodRuntimeClient,
-    runtime_catalog::BundledRuntimeCatalogRepository,
-    secrets::{
-        identities::{hugging_face::HuggingFaceIdentityProvider, runpod::RunpodIdentityProvider},
-        stores::keyring::KeyringSecretStore,
-        SecretsService,
+    provider::{
+        hugging_face::HuggingFaceIdentityProvider,
+        runpod::{RunpodIdentityProvider, RunpodRuntimeClient},
     },
+    runtime_catalog::BundledRuntimeCatalogRepository,
+    secrets::{stores::keyring::KeyringSecretStore, SecretsService},
     workflow_catalog::BundledWorkflowCatalogRepository,
     workspace::WorkspaceService,
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,

@@ -7,12 +7,12 @@ use crate::{
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
     provider::runpod::{
-        client::{
+        errors::RunpodProviderError,
+        runtime::{
             CreateRunpodNetworkVolumeParams, CreateRunpodServerlessEndpointParams,
             CreateRunpodServerlessTemplateParams, RunpodProvisionerStatus, RunpodRuntimeClient,
             StartRunpodProvisionerPodParams,
         },
-        errors::RunpodProviderError,
     },
     shared::AppFuture,
     workspace::CreateRunpodWorkspaceRequest,
