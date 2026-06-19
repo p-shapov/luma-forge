@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 pub enum GetWorkflowCatalogErrorCode {
     #[error("native initialization failed")]
     NativeInitializationFailed,
@@ -20,6 +21,7 @@ pub enum GetWorkflowCatalogErrorCode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 pub enum GetRuntimeContractCatalogErrorCode {
     #[error("native initialization failed")]
     NativeInitializationFailed,
