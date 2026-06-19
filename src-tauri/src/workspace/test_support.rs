@@ -26,11 +26,13 @@ use crate::{
         service::{WorkspaceService, WorkspaceServiceDependencies},
         WorkspaceRuntimeContext,
     },
-    workspace_catalog::{WorkspaceCatalogError, WorkspaceCatalogRepository},
+    workspace_catalog::{
+        errors::storage_unavailable_error, WorkspaceCatalogError, WorkspaceCatalogRepository,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TestBackgroundTaskSpawner;
+pub(crate) struct TestBackgroundTaskSpawner;
 
 impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
     fn spawn(&self, task: BackgroundTask) {
@@ -39,7 +41,7 @@ impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct FakeWorkspaceRuntime;
+pub(crate) struct FakeWorkspaceRuntime;
 
 impl WorkspaceRuntimeTrait for FakeWorkspaceRuntime {
     fn provision<'a>(
@@ -123,25 +125,45 @@ pub fn service_with_fake_runtime() -> WorkspaceService<
     BundledWorkflowCatalogRepository,
     BundledRuntimeCatalogRepository,
 > {
+    service_with_runtime(Arc::new(FakeWorkspaceRuntime)).0
+}
+
+pub(crate) fn service_with_runtime(
+    runtime: Arc<dyn WorkspaceRuntimeTrait>,
+) -> (
+    WorkspaceService<
+        InMemoryWorkspaceRepository,
+        InMemoryLifecycleJournal,
+        BundledWorkflowCatalogRepository,
+        BundledRuntimeCatalogRepository,
+    >,
+    TestRepositories,
+) {
     let repositories = repositories();
-    WorkspaceService::new(WorkspaceServiceDependencies {
-        workspace_catalog: repositories.workspace_catalog,
-        lifecycle_journal: repositories.lifecycle_journal,
+    let service = WorkspaceService::new(WorkspaceServiceDependencies {
+        workspace_catalog: repositories.workspace_catalog.clone(),
+        lifecycle_journal: repositories.lifecycle_journal.clone(),
         workflow_catalog: BundledWorkflowCatalogRepository::new(),
         runtime_catalog: BundledRuntimeCatalogRepository::new(),
-        runtime_registry: crate::workspace::registry::WorkspaceRuntimeRegistry::new(Arc::new(
-            FakeWorkspaceRuntime,
-        )),
+        runtime_registry: crate::workspace::registry::WorkspaceRuntimeRegistry::new(runtime),
         lifecycle_operation_registry:
             crate::workspace::service::LifecycleOperationRegistry::default(),
         event_sink: Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
         task_spawner: Arc::new(TestBackgroundTaskSpawner),
-    })
+    });
+    (
+        service,
+        TestRepositories {
+            workspace_catalog: repositories.workspace_catalog,
+            lifecycle_journal: repositories.lifecycle_journal,
+        },
+    )
 }
 
 #[derive(Clone, Default)]
 pub struct InMemoryWorkspaceRepository {
     workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
+    update_error: Arc<Mutex<Option<WorkspaceCatalogError>>>,
 }
 
 impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
@@ -198,6 +220,14 @@ impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
         workspace: &'a Workspace,
     ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
         Box::pin(async move {
+            if let Some(error) = self
+                .update_error
+                .lock()
+                .expect("workspace update error lock should succeed")
+                .take()
+            {
+                return Err(error);
+            }
             let mut workspaces = self
                 .workspaces
                 .lock()
@@ -226,10 +256,21 @@ impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
     }
 }
 
+impl InMemoryWorkspaceRepository {
+    pub fn fail_update_workspace_once(&self, message: &str) {
+        *self
+            .update_error
+            .lock()
+            .expect("workspace update error lock should succeed") =
+            Some(storage_unavailable_error(message));
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct InMemoryLifecycleJournal {
     operations: Arc<Mutex<HashMap<String, LifecycleOperation>>>,
     delete_error: Arc<Mutex<Option<LifecycleJournalError>>>,
+    mark_state_error: Arc<Mutex<Option<LifecycleJournalError>>>,
 }
 
 impl InMemoryLifecycleJournal {
@@ -238,6 +279,13 @@ impl InMemoryLifecycleJournal {
             .delete_error
             .lock()
             .expect("delete error lock should succeed") = Some(error);
+    }
+
+    pub fn fail_mark_state_once(&self, error: LifecycleJournalError) {
+        *self
+            .mark_state_error
+            .lock()
+            .expect("mark state error lock should succeed") = Some(error);
     }
 }
 
@@ -373,6 +421,14 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournal {
         payload: Option<&'a LifecycleOperationPayload>,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
         Box::pin(async move {
+            if let Some(error) = self
+                .mark_state_error
+                .lock()
+                .expect("mark state error lock should succeed")
+                .take()
+            {
+                return Err(error);
+            }
             let mut operations = self
                 .operations
                 .lock()

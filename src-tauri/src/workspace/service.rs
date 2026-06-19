@@ -229,11 +229,11 @@ where
         let workspace_catalog = self.workspace_catalog.clone();
         let context = self.runtime_context();
         spawn_background_task(self.task_spawner.as_ref(), async move {
-            match lifecycle.await {
+            let persisted_terminal_state = match lifecycle.await {
                 Ok(_) => {
                     let mut completed = operation.clone();
                     completed.state = LifecycleOperationState::Completed;
-                    let _ = context.persist_operation(completed).await;
+                    context.persist_operation(completed).await.is_ok()
                 }
                 Err(_) => {
                     if let Ok(Some(mut persisted_workspace)) =
@@ -245,11 +245,13 @@ where
 
                     let mut failed = operation.clone();
                     failed.state = LifecycleOperationState::Failed;
-                    let _ = context.persist_operation(failed).await;
+                    context.persist_operation(failed).await.is_ok()
                 }
-            }
+            };
 
-            lifecycle_operation_registry.complete(&operation.operation_id);
+            if persisted_terminal_state {
+                lifecycle_operation_registry.complete(&operation.operation_id);
+            }
         });
     }
 
@@ -404,12 +406,56 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::{
-        domain::{lifecycle_operation::LifecycleOperationState, workspace::WorkspaceState},
+        domain::{
+            lifecycle_operation::{
+                LifecycleCleanupPayload, LifecycleOperationPayload, LifecycleOperationState,
+            },
+            runpod::{RunpodCleanupStep, RunpodLifecycleCleanupPayload},
+            workspace::WorkspaceState,
+        },
+        lifecycle_journal::LifecycleJournalError,
         workspace::test_support::{
-            draft_create_request, service_with_fake_runtime, workspace_with_runpod,
+            draft_create_request, service_with_fake_runtime, service_with_runtime,
+            workspace_with_runpod, FakeWorkspaceRuntime,
         },
     };
+
+    fn cleanup_payload() -> LifecycleOperationPayload {
+        LifecycleOperationPayload::Cleanup(LifecycleCleanupPayload::Runpod(
+            RunpodLifecycleCleanupPayload {
+                step: Some(RunpodCleanupStep::DeleteEndpoint),
+            },
+        ))
+    }
+
+    async fn wait_for_operation_state(
+        service: &crate::workspace::WorkspaceService<
+            crate::workspace::test_support::InMemoryWorkspaceRepository,
+            crate::workspace::test_support::InMemoryLifecycleJournal,
+            crate::workflow_catalog::BundledWorkflowCatalogRepository,
+            crate::runtime_catalog::BundledRuntimeCatalogRepository,
+        >,
+        workspace_id: &str,
+        expected_state: LifecycleOperationState,
+    ) -> crate::domain::lifecycle_operation::LifecycleOperation {
+        for _ in 0..20 {
+            if let Some(operation) = service
+                .get_latest_lifecycle_operation(workspace_id)
+                .await
+                .expect("latest operation should load")
+            {
+                if operation.state == expected_state {
+                    return operation;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        panic!("operation did not reach expected state");
+    }
 
     #[tokio::test]
     async fn provision_creates_running_operation_with_null_payload() {
@@ -471,6 +517,38 @@ mod tests {
             .expect("find")
             .expect("workspace exists");
         assert_eq!(workspace.state, WorkspaceState::Invalid);
+        let stale = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("latest")
+            .expect("operation exists");
+        assert_eq!(stale.state, LifecycleOperationState::Stale);
+        assert_eq!(stale.payload, None);
+    }
+
+    #[tokio::test]
+    async fn stale_running_operation_retains_existing_payload() {
+        let service = service_with_fake_runtime();
+        let payload = cleanup_payload();
+        service
+            .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
+            .await;
+        service
+            .create_running_operation_for_test("workspace-1", Some(payload.clone()))
+            .await;
+
+        service
+            .mark_running_operations_stale()
+            .await
+            .expect("stale recovery");
+
+        let stale = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("latest")
+            .expect("operation exists");
+        assert_eq!(stale.state, LifecycleOperationState::Stale);
+        assert_eq!(stale.payload, Some(payload));
     }
 
     #[tokio::test]
@@ -492,5 +570,101 @@ mod tests {
                 .expect("operations"),
             Vec::new()
         );
+    }
+
+    #[tokio::test]
+    async fn provision_runner_marks_operation_completed_and_clears_in_flight() {
+        let service = service_with_fake_runtime();
+        service
+            .create_runpod_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace");
+
+        let response = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision scheduled");
+        let completed =
+            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Completed)
+                .await;
+
+        assert_eq!(completed.operation_id, response.operation.operation_id);
+        assert_eq!(completed.payload, None);
+        assert!(service
+            .lifecycle_operation_registry
+            .try_register(&response.operation.operation_id));
+    }
+
+    #[tokio::test]
+    async fn cleanup_runner_marks_workspace_invalid_operation_failed_and_clears_in_flight() {
+        let service = service_with_fake_runtime();
+        service
+            .insert_workspace_for_test(workspace_with_runpod(
+                "workspace-1",
+                WorkspaceState::CleanupRequired,
+            ))
+            .await;
+
+        let (_, operation) = service
+            .start_lifecycle_operation("workspace-1")
+            .await
+            .expect("operation should start");
+        let operation_id = operation.operation_id.clone();
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        service.spawn_lifecycle_runner(operation, workspace, async {
+            Err::<crate::domain::workspace::Workspace, _>(crate::workspace::errors::invalid_state(
+                "cleanup failed",
+            ))
+        });
+        let failed =
+            wait_for_operation_state(&service, "workspace-1", LifecycleOperationState::Failed)
+                .await;
+
+        assert_eq!(failed.operation_id, operation_id);
+        let workspace = service
+            .find_workspace("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(workspace.state, WorkspaceState::Invalid);
+        assert!(service
+            .lifecycle_operation_registry
+            .try_register(&operation_id));
+    }
+
+    #[tokio::test]
+    async fn runner_keeps_in_flight_when_terminal_operation_persistence_fails() {
+        let (service, repositories) =
+            service_with_runtime(std::sync::Arc::new(FakeWorkspaceRuntime));
+        service
+            .create_runpod_workspace(draft_create_request("workspace-1"))
+            .await
+            .expect("workspace");
+        repositories.lifecycle_journal.fail_mark_state_once(
+            LifecycleJournalError::StorageUnavailable {
+                message: "write failed".to_string(),
+            },
+        );
+
+        let response = service
+            .provision_workspace("workspace-1")
+            .await
+            .expect("provision scheduled");
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let operation = service
+            .get_latest_lifecycle_operation("workspace-1")
+            .await
+            .expect("latest")
+            .expect("operation exists");
+        assert_eq!(operation.state, LifecycleOperationState::Running);
+        assert!(!service
+            .lifecycle_operation_registry
+            .try_register(&response.operation.operation_id));
     }
 }
