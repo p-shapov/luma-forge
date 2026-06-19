@@ -5,4 +5,6 @@ pub mod secrets;
 pub mod types;
 pub mod workspaces;
 
-pub use errors::{CommandResult, NativeCommandError};
+pub use errors::{
+    CommandError, CommandResult, NativeCommandError, NativeInitializationCommandErrorCode,
+};
