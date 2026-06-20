@@ -11,8 +11,8 @@ use crate::{
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
     shared::{
-        leaf_error_message, new_trace_id, spawn_background_task, AppFuture, BackgroundTaskSpawner,
-        EventSink, InFlightRegistry,
+        leaf_error_message, new_trace_id, serialized_error_code, spawn_background_task, AppFuture,
+        BackgroundTaskSpawner, EventSink, InFlightRegistry,
     },
     workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
@@ -238,9 +238,10 @@ impl WorkspaceService {
                     }
                     Err(error) => {
                         let error_message = leaf_error_message(&error);
+                        let error_code = serialized_error_code(&error, "workspace_error");
                         tracing::error!(
-                            error = ?error_message,
-                            "workspace lifecycle operation failed"
+                            code = %error_code,
+                            message = %error_message
                         );
 
                         if let Ok(Some(mut persisted_workspace)) =

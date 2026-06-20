@@ -46,6 +46,18 @@ pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
     sources
 }
 
+pub fn serialized_error_code(error: &impl Serialize, fallback: &'static str) -> String {
+    match serde_json::to_value(error) {
+        Ok(serde_json::Value::String(code)) => code,
+        Ok(serde_json::Value::Object(fields)) => fields
+            .keys()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| fallback.to_string()),
+        _ => fallback.to_string(),
+    }
+}
+
 pub fn spawn_background_task<F>(spawner: &dyn BackgroundTaskSpawner, future: F)
 where
     F: Future<Output = ()> + Send + 'static,
