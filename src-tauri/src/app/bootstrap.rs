@@ -60,9 +60,8 @@ pub async fn build_app_state(
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
         lifecycle_journal: Arc::new(lifecycle_journal.clone()),
-        workflow_catalog: workflow_catalog.clone(),
+        workflow_catalog: Arc::new(workflow_catalog.clone()),
         runtime: Arc::new(workspace_runtime),
-        lifecycle_operation_registry: Default::default(),
         event_sink: Arc::new(TauriWorkspaceEventSink::new(app_handle.clone())),
         task_spawner: Arc::new(TauriBackgroundTaskSpawner),
     });

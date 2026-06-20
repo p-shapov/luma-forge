@@ -11,4 +11,4 @@ pub use runtime::{
     CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
     ProvisionWorkspaceResponse, WorkspaceRuntime, WorkspaceRuntimeContext,
 };
-pub use service::{LifecycleOperationRegistry, WorkspaceService, WorkspaceServiceDependencies};
+pub use service::{WorkspaceService, WorkspaceServiceDependencies};

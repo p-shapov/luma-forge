@@ -81,42 +81,19 @@ pub fn repositories() -> TestRepositories {
     }
 }
 
-pub fn service_with_fake_runtime() -> WorkspaceService<
-    InMemoryWorkspaceRepository,
-    InMemoryLifecycleJournal,
-    BundledWorkflowCatalogRepository,
-> {
-    service_with_runtime(Arc::new(FakeWorkspaceRuntime)).0
-}
-
 pub(crate) fn service_with_runtime(
     runtime: Arc<dyn WorkspaceRuntimeTrait>,
-) -> (
-    WorkspaceService<
-        InMemoryWorkspaceRepository,
-        InMemoryLifecycleJournal,
-        BundledWorkflowCatalogRepository,
-    >,
-    TestRepositories,
-) {
+) -> (WorkspaceService, TestRepositories) {
     let repositories = repositories();
     let service = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: repositories.workspace_catalog.clone(),
         lifecycle_journal: repositories.lifecycle_journal.clone(),
-        workflow_catalog: BundledWorkflowCatalogRepository::new(),
+        workflow_catalog: Arc::new(BundledWorkflowCatalogRepository::new()),
         runtime,
-        lifecycle_operation_registry:
-            crate::workspace::service::LifecycleOperationRegistry::default(),
         event_sink: Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
         task_spawner: Arc::new(TestBackgroundTaskSpawner),
     });
-    (
-        service,
-        TestRepositories {
-            workspace_catalog: repositories.workspace_catalog,
-            lifecycle_journal: repositories.lifecycle_journal,
-        },
-    )
+    (service, repositories)
 }
 
 pub fn runtime_context_for_test<'a>() -> WorkspaceRuntimeContext<'a> {
@@ -219,16 +196,6 @@ impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
 #[derive(Clone, Default)]
 pub struct InMemoryLifecycleJournal {
     operations: Arc<Mutex<HashMap<String, LifecycleOperation>>>,
-    mark_state_error: Arc<Mutex<Option<LifecycleJournalError>>>,
-}
-
-impl InMemoryLifecycleJournal {
-    pub fn fail_mark_state_once(&self, error: LifecycleJournalError) {
-        *self
-            .mark_state_error
-            .lock()
-            .expect("mark state error lock should succeed") = Some(error);
-    }
 }
 
 impl LifecycleJournalRepository for InMemoryLifecycleJournal {
@@ -357,14 +324,6 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournal {
         payload: Option<&'a LifecycleOperationPayload>,
     ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
         Box::pin(async move {
-            if let Some(error) = self
-                .mark_state_error
-                .lock()
-                .expect("mark state error lock should succeed")
-                .take()
-            {
-                return Err(error);
-            }
             let mut operations = self
                 .operations
                 .lock()
