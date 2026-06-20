@@ -8,6 +8,19 @@ The main goal of the product is to turn a local workflow choice into a ready-to-
 
 Native backend architecture and extension notes live in [src-tauri/README.md](./src-tauri/README.md).
 
+## Support Files
+
+The native app keeps support files under the Tauri `app_data_dir()`. On macOS this is:
+
+```text
+~/Library/Application Support/<bundle identifier>/
+```
+
+Current native support files:
+
+- `native.sqlite`: native SQLite database.
+- `logs/`: native diagnostics logs, including `luma-forge.log.YYYY-MM-DD`.
+
 | Command                                                                                                | Purpose                                     |
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------- |
 | `bun install`                                                                                          | Install frontend dependencies.              |

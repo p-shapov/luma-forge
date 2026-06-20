@@ -65,7 +65,7 @@ When editing files under those directories, follow both this root file and the n
 
 - Do not load entire log files into context unless the file is clearly small and full-file review is necessary.
 - For large or unknown-size logs, first inspect file size and read recent lines with tools such as `wc`, `tail`, `rg`, `sed`, or `awk`.
-- Prefer targeted extraction: search for timestamps, diagnostic IDs, request IDs, error markers, stack traces, or relevant keywords, then read only nearby line ranges.
+- Prefer targeted extraction: search for timestamps, trace IDs, request IDs, error markers, stack traces, or relevant keywords, then read only nearby line ranges.
 - When reporting log findings, summarize the relevant excerpts instead of pasting large raw log blocks.
 - If a full log file is required, explain why before reading it.
 
