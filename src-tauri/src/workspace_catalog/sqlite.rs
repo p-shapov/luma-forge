@@ -272,9 +272,12 @@ fn workspace_state_columns(state: &WorkspaceState) -> WorkspaceStateColumns {
         WorkspaceState::NotProvisioned => WorkspaceStateColumns {
             state: "not_provisioned",
         },
+        WorkspaceState::Provisioning => WorkspaceStateColumns {
+            state: "provisioning",
+        },
         WorkspaceState::Ready => WorkspaceStateColumns { state: "ready" },
-        WorkspaceState::CleanupRequired => WorkspaceStateColumns {
-            state: "cleanup_required",
+        WorkspaceState::CleaningUp => WorkspaceStateColumns {
+            state: "cleaning_up",
         },
         WorkspaceState::Invalid => WorkspaceStateColumns { state: "invalid" },
     }
@@ -283,8 +286,9 @@ fn workspace_state_columns(state: &WorkspaceState) -> WorkspaceStateColumns {
 fn workspace_state_from_columns(state: &str) -> Result<WorkspaceState, WorkspaceCatalogError> {
     match state {
         "not_provisioned" => Ok(WorkspaceState::NotProvisioned),
+        "provisioning" => Ok(WorkspaceState::Provisioning),
         "ready" => Ok(WorkspaceState::Ready),
-        "cleanup_required" => Ok(WorkspaceState::CleanupRequired),
+        "cleaning_up" => Ok(WorkspaceState::CleaningUp),
         "invalid" => Ok(WorkspaceState::Invalid),
         state => Err(data_invalid_message(format!("unknown state: {state}"))),
     }
@@ -570,8 +574,10 @@ mod tests {
         let path = catalog_path("state-round-trip");
         let mut ready = workspace("ready");
         ready.state = WorkspaceState::Ready;
-        let mut cleanup_required = workspace("cleanup-required");
-        cleanup_required.state = WorkspaceState::CleanupRequired;
+        let mut provisioning = workspace("provisioning");
+        provisioning.state = WorkspaceState::Provisioning;
+        let mut cleaning_up = workspace("cleaning-up");
+        cleaning_up.state = WorkspaceState::CleaningUp;
         let mut invalid = workspace("invalid");
         invalid.state = WorkspaceState::Invalid;
 
@@ -581,9 +587,13 @@ mod tests {
             .await
             .expect("ready insert should succeed");
         repository
-            .insert_workspace(&cleanup_required)
+            .insert_workspace(&provisioning)
             .await
-            .expect("cleanup required insert should succeed");
+            .expect("provisioning insert should succeed");
+        repository
+            .insert_workspace(&cleaning_up)
+            .await
+            .expect("cleaning up insert should succeed");
         repository
             .insert_workspace(&invalid)
             .await
@@ -593,34 +603,42 @@ mod tests {
             .find_workspace_by_id("ready")
             .await
             .expect("ready find should succeed");
-        let found_cleanup_required = repository
-            .find_workspace_by_id("cleanup-required")
+        let found_provisioning = repository
+            .find_workspace_by_id("provisioning")
             .await
-            .expect("cleanup required find should succeed");
+            .expect("provisioning find should succeed");
+        let found_cleaning_up = repository
+            .find_workspace_by_id("cleaning-up")
+            .await
+            .expect("cleaning up find should succeed");
         let found_invalid = repository
             .find_workspace_by_id("invalid")
             .await
             .expect("invalid find should succeed");
 
         assert_eq!(found_ready, Some(ready));
-        assert_eq!(found_cleanup_required, Some(cleanup_required));
+        assert_eq!(found_provisioning, Some(provisioning));
+        assert_eq!(found_cleaning_up, Some(cleaning_up));
         assert_eq!(found_invalid, Some(invalid));
 
-        let cleanup_required_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
-            .bind("cleanup-required")
+        let provisioning_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
+            .bind("provisioning")
             .fetch_one(&repository.pool.clone())
             .await
-            .expect("cleanup required row should exist");
+            .expect("provisioning row should exist");
+        let cleaning_up_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
+            .bind("cleaning-up")
+            .fetch_one(&repository.pool.clone())
+            .await
+            .expect("cleaning up row should exist");
         let invalid_row = sqlx::query("SELECT state FROM workspaces WHERE id = ?1")
             .bind("invalid")
             .fetch_one(&repository.pool.clone())
             .await
             .expect("invalid row should exist");
 
-        assert_eq!(
-            cleanup_required_row.get::<String, _>("state"),
-            "cleanup_required"
-        );
+        assert_eq!(provisioning_row.get::<String, _>("state"), "provisioning");
+        assert_eq!(cleaning_up_row.get::<String, _>("state"), "cleaning_up");
         assert_eq!(invalid_row.get::<String, _>("state"), "invalid");
 
         drop(repository);

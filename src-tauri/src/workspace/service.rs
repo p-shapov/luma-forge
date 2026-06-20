@@ -126,8 +126,9 @@ where
         &self,
         workspace_id: &str,
         trace_id: String,
+        running_state: WorkspaceState,
     ) -> Result<(Workspace, LifecycleOperation, String), WorkspaceError> {
-        let workspace = self.load_workspace_required(workspace_id).await?;
+        let mut workspace = self.load_workspace_required(workspace_id).await?;
         let workspace_id = workspace.id.clone();
 
         let operation = self
@@ -142,6 +143,11 @@ where
                 trace_id: trace_id.clone(),
                 operation: operation.clone(),
             });
+        workspace.state = running_state;
+        workspace = self
+            .runtime_context(trace_id.clone())
+            .persist_workspace(workspace)
+            .await?;
 
         Ok((workspace, operation, trace_id))
     }
@@ -160,7 +166,7 @@ where
             return Err(invalid_state("workspace already has runpod resources"));
         }
         let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace_id, trace_id)
+            .start_lifecycle_operation(workspace_id, trace_id, WorkspaceState::Provisioning)
             .await?;
 
         let runtime = self.runtime.clone();
@@ -185,7 +191,7 @@ where
         trace_id: String,
     ) -> Result<CleanupWorkspaceResponse, WorkspaceError> {
         let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace_id, trace_id)
+            .start_lifecycle_operation(workspace_id, trace_id, WorkspaceState::CleaningUp)
             .await?;
         let runtime = self.runtime.clone();
         let context = self.runtime_context(trace_id.clone());
@@ -284,7 +290,7 @@ where
         trace_id: String,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
         let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace_id, trace_id)
+            .start_lifecycle_operation(workspace_id, trace_id, WorkspaceState::CleaningUp)
             .await?;
         let runtime = self.runtime.clone();
         let context = self.runtime_context(trace_id.clone());
@@ -416,9 +422,7 @@ mod tests {
         lifecycle_journal::LifecycleJournalRepository,
         provider::runpod::test_support::{draft_create_request, workspace_with_runpod},
         shared::AppFuture,
-        workspace::test_support::{
-            service_with_fake_runtime, service_with_runtime, FakeWorkspaceRuntime,
-        },
+        workspace::test_support::{service_with_runtime, FakeWorkspaceRuntime},
         workspace_catalog::WorkspaceCatalogRepository,
     };
 
@@ -482,7 +486,7 @@ mod tests {
 
     #[tokio::test]
     async fn provision_creates_running_operation_with_null_payload() {
-        let service = service_with_fake_runtime();
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
             .create_runpod_workspace(draft_create_request("workspace-1"))
             .await
@@ -495,6 +499,14 @@ mod tests {
 
         assert_eq!(response.operation.state, LifecycleOperationState::Running);
         assert_eq!(response.operation.payload, None);
+        assert_eq!(response.workspace.state, WorkspaceState::Provisioning);
+        let workspace = repositories
+            .workspace_catalog
+            .find_workspace_by_id("workspace-1")
+            .await
+            .expect("workspace should load")
+            .expect("workspace should exist");
+        assert_eq!(workspace.state, WorkspaceState::Provisioning);
     }
 
     #[tokio::test]
@@ -581,16 +593,14 @@ mod tests {
     async fn cleanup_runner_marks_workspace_invalid_operation_failed_and_clears_in_flight() {
         let (service, repositories) = service_with_runtime(Arc::new(FailingCleanupRuntime));
         service
-            .insert_workspace_for_test(workspace_with_runpod(
-                "workspace-1",
-                WorkspaceState::CleanupRequired,
-            ))
+            .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
             .await;
 
         let response = service
             .cleanup_workspace("workspace-1", "trace-test".to_string())
             .await
             .expect("cleanup scheduled");
+        assert_eq!(response.workspace.state, WorkspaceState::CleaningUp);
         let failed = wait_for_operation_state(
             &repositories,
             "workspace-1",
