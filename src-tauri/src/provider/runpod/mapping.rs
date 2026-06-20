@@ -309,9 +309,7 @@ pub(super) fn map_placement_response(
             .map(|error| error.message)
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(ApiError::RequestFailed {
-            message: crate::diagnostics::redact_for_log(&message),
-        });
+        return Err(ApiError::RequestFailed { message });
     }
 
     let data = response.data.ok_or_else(provider_request_failed)?;

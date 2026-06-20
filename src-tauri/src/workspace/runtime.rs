@@ -65,6 +65,7 @@ pub struct WorkspaceRuntimeContext<'a> {
     workspace_catalog: Arc<dyn WorkspaceCatalogRepository + 'a>,
     lifecycle_journal: Arc<dyn LifecycleJournalRepository + 'a>,
     event_sink: Arc<dyn EventSink<WorkspaceEvent> + 'a>,
+    trace_id: String,
 }
 
 impl<'a> WorkspaceRuntimeContext<'a> {
@@ -72,12 +73,18 @@ impl<'a> WorkspaceRuntimeContext<'a> {
         workspace_catalog: Arc<dyn WorkspaceCatalogRepository + 'a>,
         lifecycle_journal: Arc<dyn LifecycleJournalRepository + 'a>,
         event_sink: Arc<dyn EventSink<WorkspaceEvent> + 'a>,
+        trace_id: String,
     ) -> Self {
         Self {
             workspace_catalog,
             lifecycle_journal,
             event_sink,
+            trace_id,
         }
+    }
+
+    pub fn trace_id(&self) -> &str {
+        &self.trace_id
     }
 
     pub async fn persist_operation(
@@ -98,7 +105,7 @@ impl<'a> WorkspaceRuntimeContext<'a> {
             .emit(WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
                 operation_id: operation.operation_id.clone(),
-                diagnostic_id: None,
+                trace_id: self.trace_id.clone(),
                 operation: operation.clone(),
             });
         Ok(operation)

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use tracing::Instrument;
+
 use crate::{
     domain::{
         lifecycle_operation::{LifecycleOperation, LifecycleOperationState},
@@ -8,7 +10,10 @@ use crate::{
         workspace::{Workspace, WorkspaceRuntime as WorkspaceRuntimeDomain, WorkspaceState},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    shared::{spawn_background_task, BackgroundTaskSpawner, EventSink, InFlightRegistry},
+    shared::{
+        leaf_error_message, new_trace_id, spawn_background_task, BackgroundTaskSpawner, EventSink,
+        InFlightRegistry,
+    },
     workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
@@ -120,7 +125,8 @@ where
     async fn start_lifecycle_operation(
         &self,
         workspace_id: &str,
-    ) -> Result<(Workspace, LifecycleOperation), WorkspaceError> {
+        trace_id: String,
+    ) -> Result<(Workspace, LifecycleOperation, String), WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         let workspace_id = workspace.id.clone();
 
@@ -133,16 +139,17 @@ where
             .emit(WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
                 operation_id: operation.operation_id.clone(),
-                diagnostic_id: None,
+                trace_id: trace_id.clone(),
                 operation: operation.clone(),
             });
 
-        Ok((workspace, operation))
+        Ok((workspace, operation, trace_id))
     }
 
     pub async fn provision_workspace(
         &self,
         workspace_id: &str,
+        trace_id: String,
     ) -> Result<ProvisionWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         if workspace.state != WorkspaceState::NotProvisioned {
@@ -152,13 +159,15 @@ where
         if runtime.resources != RunpodResources::default() {
             return Err(invalid_state("workspace already has runpod resources"));
         }
-        let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
+        let (workspace, operation, trace_id) = self
+            .start_lifecycle_operation(workspace_id, trace_id)
+            .await?;
 
         let runtime = self.runtime.clone();
-        let context = self.runtime_context();
+        let context = self.runtime_context(trace_id.clone());
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(operation.clone(), workspace.clone(), async move {
+        self.spawn_lifecycle_runner(operation.clone(), workspace.clone(), trace_id, async move {
             runtime
                 .provision(context, runner_operation, runner_workspace)
                 .await
@@ -173,13 +182,16 @@ where
     pub async fn cleanup_workspace(
         &self,
         workspace_id: &str,
+        trace_id: String,
     ) -> Result<CleanupWorkspaceResponse, WorkspaceError> {
-        let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
+        let (workspace, operation, trace_id) = self
+            .start_lifecycle_operation(workspace_id, trace_id)
+            .await?;
         let runtime = self.runtime.clone();
-        let context = self.runtime_context();
+        let context = self.runtime_context(trace_id.clone());
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(operation.clone(), workspace.clone(), async move {
+        self.spawn_lifecycle_runner(operation.clone(), workspace.clone(), trace_id, async move {
             runtime
                 .cleanup(context, runner_operation, runner_workspace)
                 .await
@@ -195,6 +207,7 @@ where
         &self,
         operation: LifecycleOperation,
         workspace: Workspace,
+        trace_id: String,
         lifecycle: F,
     ) where
         F: std::future::Future<Output = Result<Workspace, WorkspaceError>> + Send + 'static,
@@ -209,56 +222,75 @@ where
         let lifecycle_operation_registry = self.lifecycle_operation_registry.clone();
         let lifecycle_journal = self.lifecycle_journal.clone();
         let workspace_catalog = self.workspace_catalog.clone();
-        let context = self.runtime_context();
-        spawn_background_task(self.task_spawner.as_ref(), async move {
-            let persisted_terminal_state = match lifecycle.await {
-                Ok(_) => {
-                    let mut completed = load_terminal_operation(
-                        lifecycle_journal.as_ref(),
-                        &operation,
-                        &workspace.id,
-                    )
-                    .await
-                    .unwrap_or_else(|_| operation.clone());
-                    completed.state = LifecycleOperationState::Completed;
-                    context.persist_operation(completed).await.is_ok()
-                }
-                Err(_) => {
-                    if let Ok(Some(mut persisted_workspace)) =
-                        workspace_catalog.find_workspace_by_id(&workspace.id).await
-                    {
-                        persisted_workspace.state = WorkspaceState::Invalid;
-                        let _ = context.persist_workspace(persisted_workspace).await;
+        let context = self.runtime_context(trace_id);
+        let lifecycle_span = tracing::info_span!(
+            "workspace_lifecycle",
+            trace_id = %context.trace_id(),
+            workspace_id = %workspace.id,
+            operation_id = %operation.operation_id
+        );
+        spawn_background_task(
+            self.task_spawner.as_ref(),
+            async move {
+                let persisted_terminal_state = match lifecycle.await {
+                    Ok(_) => {
+                        let mut completed = load_terminal_operation(
+                            lifecycle_journal.as_ref(),
+                            &operation,
+                            &workspace.id,
+                        )
+                        .await
+                        .unwrap_or_else(|_| operation.clone());
+                        completed.state = LifecycleOperationState::Completed;
+                        context.persist_operation(completed).await.is_ok()
                     }
+                    Err(error) => {
+                        let error_message = leaf_error_message(&error);
+                        tracing::error!(
+                            error = ?error_message,
+                            "workspace lifecycle operation failed"
+                        );
 
-                    let mut failed = load_terminal_operation(
-                        lifecycle_journal.as_ref(),
-                        &operation,
-                        &workspace.id,
-                    )
-                    .await
-                    .unwrap_or_else(|_| operation.clone());
-                    failed.state = LifecycleOperationState::Failed;
-                    context.persist_operation(failed).await.is_ok()
+                        if let Ok(Some(mut persisted_workspace)) =
+                            workspace_catalog.find_workspace_by_id(&workspace.id).await
+                        {
+                            persisted_workspace.state = WorkspaceState::Invalid;
+                            let _ = context.persist_workspace(persisted_workspace).await;
+                        }
+
+                        let mut failed = load_terminal_operation(
+                            lifecycle_journal.as_ref(),
+                            &operation,
+                            &workspace.id,
+                        )
+                        .await
+                        .unwrap_or_else(|_| operation.clone());
+                        failed.state = LifecycleOperationState::Failed;
+                        context.persist_operation(failed).await.is_ok()
+                    }
+                };
+
+                if persisted_terminal_state {
+                    lifecycle_operation_registry.complete(&operation.operation_id);
                 }
-            };
-
-            if persisted_terminal_state {
-                lifecycle_operation_registry.complete(&operation.operation_id);
             }
-        });
+            .instrument(lifecycle_span),
+        );
     }
 
     pub async fn delete_workspace(
         &self,
         workspace_id: &str,
+        trace_id: String,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
-        let (workspace, operation) = self.start_lifecycle_operation(workspace_id).await?;
+        let (workspace, operation, trace_id) = self
+            .start_lifecycle_operation(workspace_id, trace_id)
+            .await?;
         let runtime = self.runtime.clone();
-        let context = self.runtime_context();
+        let context = self.runtime_context(trace_id.clone());
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(operation, workspace, async move {
+        self.spawn_lifecycle_runner(operation, workspace, trace_id, async move {
             runtime
                 .delete(context, runner_operation, runner_workspace)
                 .await
@@ -277,22 +309,27 @@ where
                 .await?
             {
                 workspace.state = WorkspaceState::Invalid;
-                self.runtime_context().persist_workspace(workspace).await?;
+                self.runtime_context(new_trace_id())
+                    .persist_workspace(workspace)
+                    .await?;
             }
 
             let mut stale = operation;
             stale.state = LifecycleOperationState::Stale;
-            self.runtime_context().persist_operation(stale).await?;
+            self.runtime_context(new_trace_id())
+                .persist_operation(stale)
+                .await?;
         }
 
         Ok(())
     }
 
-    fn runtime_context(&self) -> WorkspaceRuntimeContext<'static> {
+    fn runtime_context(&self, trace_id: String) -> WorkspaceRuntimeContext<'static> {
         WorkspaceRuntimeContext::new(
             self.workspace_catalog.clone(),
             self.lifecycle_journal.clone(),
             self.event_sink.clone(),
+            trace_id,
         )
     }
 
@@ -452,7 +489,7 @@ mod tests {
             .expect("workspace");
 
         let response = service
-            .provision_workspace("workspace-1")
+            .provision_workspace("workspace-1", "trace-test".to_string())
             .await
             .expect("provision scheduled");
 
@@ -500,7 +537,7 @@ mod tests {
             .await;
 
         service
-            .provision_workspace("workspace-1")
+            .provision_workspace("workspace-1", "trace-test".to_string())
             .await
             .expect_err("provision should fail");
 
@@ -523,7 +560,7 @@ mod tests {
             .expect("workspace");
 
         let response = service
-            .provision_workspace("workspace-1")
+            .provision_workspace("workspace-1", "trace-test".to_string())
             .await
             .expect("provision scheduled");
         let completed = wait_for_operation_state(
@@ -551,7 +588,7 @@ mod tests {
             .await;
 
         let response = service
-            .cleanup_workspace("workspace-1")
+            .cleanup_workspace("workspace-1", "trace-test".to_string())
             .await
             .expect("cleanup scheduled");
         let failed = wait_for_operation_state(
@@ -585,7 +622,7 @@ mod tests {
             .await;
 
         let error = service
-            .delete_workspace("workspace-1")
+            .delete_workspace("workspace-1", "trace-test".to_string())
             .await
             .expect_err("delete should be rejected");
 

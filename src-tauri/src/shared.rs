@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    error::Error,
     future::Future,
     hash::Hash,
     marker::PhantomData,
@@ -15,6 +16,34 @@ pub type BackgroundTask = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 pub trait BackgroundTaskSpawner: Send + Sync {
     fn spawn(&self, task: BackgroundTask);
+}
+
+pub fn new_trace_id() -> String {
+    format!("trace-{}", uuid::Uuid::new_v4())
+}
+
+pub fn leaf_error_message(error: &(dyn Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+
+    while let Some(error) = source {
+        message = error.to_string();
+        source = error.source();
+    }
+
+    message
+}
+
+pub fn error_source_chain(error: &(dyn Error + 'static)) -> Vec<String> {
+    let mut sources = Vec::new();
+    let mut source = error.source();
+
+    while let Some(error) = source {
+        sources.push(error.to_string());
+        source = error.source();
+    }
+
+    sources
 }
 
 pub fn spawn_background_task<F>(spawner: &dyn BackgroundTaskSpawner, future: F)
