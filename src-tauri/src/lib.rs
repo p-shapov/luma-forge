@@ -5,7 +5,6 @@ use tauri_specta::{collect_commands, collect_events, Builder};
 
 pub mod app;
 pub mod commands;
-pub mod diagnostics;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod provider;
@@ -47,9 +46,9 @@ pub fn run() {
                             "failed to create native diagnostics log directory at {}: {error}",
                             log_dir.display()
                         );
-                        diagnostics::init(None)
+                        app::diagnostics::init(None)
                     } else {
-                        let guard = diagnostics::init(Some(log_dir.clone()));
+                        let guard = app::diagnostics::init(Some(log_dir.clone()));
                         tracing::info!(
                             log_dir = %log_dir.display(),
                             "native diagnostics file logging initialized"
@@ -59,7 +58,7 @@ pub fn run() {
                 }
                 Err(error) => {
                     eprintln!("native diagnostics log directory unavailable: {error}");
-                    diagnostics::init(None)
+                    app::diagnostics::init(None)
                 }
             };
             let app_state = match tauri::async_runtime::block_on(app::bootstrap::build_app_state(
