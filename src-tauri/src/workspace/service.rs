@@ -377,7 +377,12 @@ impl WorkspaceService {
             .lifecycle_journal
             .find_running_by_workspace(&workspace.id)
             .await?
-            .ok_or_else(|| invalid_state(format!("no running lifecycle operation for this lifecycle state: {}", workspace.state)))?;
+            .ok_or_else(|| {
+                invalid_state(format!(
+                    "no running lifecycle operation for this lifecycle state: {}",
+                    workspace.state
+                ))
+            })?;
 
         Err(WorkspaceError::LifecycleOperationAlreadyRunning {
             operation_id: operation.operation_id,

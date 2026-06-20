@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use super::{runpod::runtime::RunpodRuntime, workflow_preset::WorkflowReference};
 
@@ -12,6 +13,24 @@ pub enum WorkspaceState {
     Ready,
     CleaningUp,
     Invalid,
+}
+
+impl WorkspaceState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotProvisioned => "not_provisioned",
+            Self::Provisioning => "provisioning",
+            Self::Ready => "ready",
+            Self::CleaningUp => "cleaning_up",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+impl fmt::Display for WorkspaceState {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
