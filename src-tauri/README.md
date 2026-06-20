@@ -10,37 +10,29 @@ At the moment, only the RunPod runtime is available: `Runpod(RunpodRuntime)`. It
 
 When adding a new workspace runtime, keep runtime-specific orchestration behind its own service boundary and persist long-running work through the lifecycle journal.
 
-## Workspace Catalog Troubleshooting
+## Native Support Files
 
-During pre-production development, local Workspace Catalog schema bootstrap or compatibility checks may reject stale SQLite state from an earlier build. Stop the app before deleting the local catalog file.
+During pre-production development, local SQLite schema bootstrap or compatibility checks may reject stale state from an earlier build. Stop the app before deleting the local database file.
 
-The Workspace Catalog file is `workspace-catalog.sqlite` under the Tauri application data directory. On macOS, the path pattern is:
-
-```text
-~/Library/Application Support/<app identifier>/workspace-catalog.sqlite
-```
-
-Deleting this file removes local Workspace Catalog records only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
-
-## Diagnostic Logs
-
-Native diagnostics are structured `tracing` logs for command spans, RunPod
-runtime service spans, lifecycle operation spans, lifecycle step spans, provider
-boundary spans, command failures, and lifecycle operation failures. UI-facing
-errors stay safe and compact; native logs keep the diagnostic ID, operation
-context, redacted error message, source chain, and span close timing needed to
-debug the failure.
-
-Native diagnostics are saved to the Tauri app log directory. On macOS for this app identifier, the path is:
+Native support files are configured centrally in `src/app/support.rs` and live under the Tauri `app_data_dir()`. On macOS, the path pattern is:
 
 ```text
-~/Library/Logs/com.luma-forge/luma-forge.log.YYYY-MM-DD
+~/Library/Application Support/com.luma-forge/
 ```
+
+Current support files:
+
+- `native.sqlite`: native SQLite database for workspace catalog and lifecycle journal state.
+- `logs/`: native diagnostics logs, including `luma-forge.log.YYYY-MM-DD`.
+
+Deleting `native.sqlite` removes local native state only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
 
 ### Using Logs
 
-- For command failures, copy `diagnosticId` from `NativeCommandError` and search the log file for that exact value.
-- For lifecycle operation failures, copy `diagnosticId` from `LifecycleOperationChangedEvent` and search the log file for that exact value. Normal lifecycle events use `diagnosticId: null`.
+Native diagnostics are structured `tracing` logs. UI-facing errors stay safe and compact; native logs keep the trace ID, operation context, redacted error message, source chain, and span close timing needed to debug failures.
+
+- For command failures, copy `traceId` from `NativeCommandError` and search the log file for that exact value.
+- For lifecycle operation failures, copy `traceId` from `LifecycleOperationChangedEvent` and search the log file for that exact value.
 - Use the matching log entry to identify the command or lifecycle operation, native error code, operation ID, workspace ID, redacted error message, and source chain.
 - Trace backward from the logged boundary: command adapter to application service to provider/storage call, or lifecycle runner to lifecycle step to provider/worker call.
 
