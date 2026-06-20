@@ -531,7 +531,7 @@ fn workspace_catalog_error(error: &WorkspaceCatalogError) -> WorkspaceErrorKind 
 fn lifecycle_journal_error(error: &LifecycleJournalError) -> WorkspaceErrorKind {
     match error {
         LifecycleJournalError::OperationNotFound => WorkspaceErrorKind::InvalidRuntimeState,
-        LifecycleJournalError::RunningOperationExists => {
+        LifecycleJournalError::RunningOperationExists { .. } => {
             WorkspaceErrorKind::LifecycleOperationAlreadyRunning
         }
         LifecycleJournalError::StorageUnavailable { .. } => {

@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum LifecycleJournalError {
     #[error("operation not found")]
     OperationNotFound,
-    #[error("running operation exists")]
-    RunningOperationExists,
+    #[error("running operation exists: {operation_id}")]
+    RunningOperationExists { operation_id: String },
     #[error("storage unavailable: {message}")]
     StorageUnavailable { message: String },
     #[error("schema invalid: {message}")]

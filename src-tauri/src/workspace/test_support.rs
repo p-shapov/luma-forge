@@ -242,11 +242,13 @@ impl LifecycleJournalRepository for InMemoryLifecycleJournal {
                 .operations
                 .lock()
                 .expect("operation lock should succeed");
-            if operations.values().any(|operation| {
+            if let Some(operation) = operations.values().find(|operation| {
                 operation.workspace_id == *workspace_id
                     && operation.state == LifecycleOperationState::Running
             }) {
-                return Err(LifecycleJournalError::RunningOperationExists);
+                return Err(LifecycleJournalError::RunningOperationExists {
+                    operation_id: operation.operation_id.clone(),
+                });
             }
 
             let operation = LifecycleOperation {
