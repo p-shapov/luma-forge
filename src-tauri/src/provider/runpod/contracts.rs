@@ -60,7 +60,7 @@ pub(crate) fn resolve_workflow(
 
 pub(crate) fn resolve_contracts(
     workflow: &RunpodWorkflowResolved,
-    runtime_catalog: &impl RuntimeCatalogRepository,
+    runtime_catalog: &dyn RuntimeCatalogRepository,
 ) -> Result<RunpodRuntimeContracts, WorkspaceError> {
     let runtime_catalog = runtime_catalog.get_runtime_contract_catalog()?;
 

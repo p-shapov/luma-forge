@@ -7,9 +7,11 @@ use crate::{
         lifecycle_operation::LifecycleOperation, runpod::RunpodPlacementOptions,
         workflow_preset::ModelAsset, workspace::Workspace,
     },
+    runtime_catalog::RuntimeCatalogRepository,
     secrets::SecretsStorageError,
     secrets::{ApiKeyIdentityProvider, SecretStore, SecretsService},
     shared::{ApiError, AppFuture},
+    workflow_catalog::WorkflowCatalogRepository,
     workspace::{WorkspaceError, WorkspaceRuntime, WorkspaceRuntimeContext},
 };
 
@@ -461,11 +463,21 @@ where
 #[derive(Clone)]
 pub struct RunpodWorkspaceRuntime {
     runpod_client: Arc<dyn RunpodRuntimeClient>,
+    workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
+    runtime_catalog: Arc<dyn RuntimeCatalogRepository>,
 }
 
 impl RunpodWorkspaceRuntime {
-    pub fn new(runpod_client: Arc<dyn RunpodRuntimeClient>) -> Self {
-        Self { runpod_client }
+    pub fn new(
+        runpod_client: Arc<dyn RunpodRuntimeClient>,
+        workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
+        runtime_catalog: Arc<dyn RuntimeCatalogRepository>,
+    ) -> Self {
+        Self {
+            runpod_client,
+            workflow_catalog,
+            runtime_catalog,
+        }
     }
 }
 
@@ -497,6 +509,8 @@ impl WorkspaceRuntime for RunpodWorkspaceRuntime {
             super::provision::provision_workspace(
                 context,
                 self.runpod_client.as_ref(),
+                self.workflow_catalog.as_ref(),
+                self.runtime_catalog.as_ref(),
                 operation,
                 workspace,
             )

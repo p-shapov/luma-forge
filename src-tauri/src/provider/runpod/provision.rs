@@ -8,8 +8,8 @@ use crate::{
         runpod::{RunpodLifecycleProvisionPayload, RunpodProvisionStep, RunpodRuntime},
         workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
     },
-    runtime_catalog::BundledRuntimeCatalogRepository,
-    workflow_catalog::{BundledWorkflowCatalogRepository, WorkflowCatalogRepository},
+    runtime_catalog::RuntimeCatalogRepository,
+    workflow_catalog::WorkflowCatalogRepository,
     workspace::{errors::invalid_state, WorkspaceError, WorkspaceRuntimeContext},
 };
 
@@ -42,14 +42,15 @@ async fn mark_step(
 pub async fn provision_workspace(
     context: WorkspaceRuntimeContext<'_>,
     runpod_client: &dyn RunpodRuntimeClient,
+    workflow_catalog: &dyn WorkflowCatalogRepository,
+    runtime_catalog: &dyn RuntimeCatalogRepository,
     mut operation: LifecycleOperation,
     mut workspace: Workspace,
 ) -> Result<Workspace, WorkspaceError> {
-    let workflow_catalog = BundledWorkflowCatalogRepository::new().get_workflow_catalog()?;
+    let workflow_catalog = workflow_catalog.get_workflow_catalog()?;
     let workflow = resolve_workflow(&workflow_catalog, &workspace.workflow)
         .ok_or_else(|| invalid_state("workflow reference was not found"))?;
-    let runtime_catalog = BundledRuntimeCatalogRepository::new();
-    let contracts = resolve_contracts(&workflow, &runtime_catalog)?;
+    let contracts = resolve_contracts(&workflow, runtime_catalog)?;
     let placement = runpod_workspace(&workspace).placement.clone();
 
     mark_step(
@@ -275,20 +276,99 @@ fn provisioner_startup_probe_expired(started_at: Instant, now: Instant) -> bool 
 mod tests {
     use crate::{
         domain::{
-            lifecycle_operation::{LifecycleOperationPayload, LifecycleProvisionPayload},
+            lifecycle_operation::{
+                LifecycleOperation, LifecycleOperationPayload, LifecycleProvisionPayload,
+            },
             runpod::RunpodProvisionStep,
-            workspace::{WorkspaceRuntime, WorkspaceState},
+            runtime_contract::RuntimeCatalog,
+            workflow_preset::WorkflowCatalog,
+            workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
         },
+        provider::runpod::runtime::RunpodRuntimeClient,
         provider::runpod::test_support::{
             runpod_client_with_failed_provisioner, runpod_client_with_failure,
             runpod_client_with_provisioner_status_sequence, runpod_client_with_state,
             runpod_client_with_transient_unavailable_provisioner, workspace_with_runpod,
             RunpodClientFailure,
         },
+        runtime_catalog::{
+            BundledRuntimeCatalogRepository, RuntimeCatalogError, RuntimeCatalogRepository,
+        },
         shared::ApiError,
-        workspace::test_support::runtime_context_for_test,
-        workspace::WorkspaceError,
+        workflow_catalog::{
+            BundledWorkflowCatalogRepository, WorkflowCatalogError, WorkflowCatalogRepository,
+        },
+        workspace::{
+            test_support::runtime_context_for_test, WorkspaceError, WorkspaceRuntimeContext,
+        },
     };
+
+    #[derive(Debug, Clone, Copy)]
+    struct EmptyWorkflowCatalogRepository;
+
+    impl WorkflowCatalogRepository for EmptyWorkflowCatalogRepository {
+        fn get_workflow_catalog(&self) -> Result<WorkflowCatalog, WorkflowCatalogError> {
+            Ok(WorkflowCatalog {
+                workflow_presets: vec![],
+            })
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct EmptyRuntimeCatalogRepository;
+
+    impl RuntimeCatalogRepository for EmptyRuntimeCatalogRepository {
+        fn get_runtime_contract_catalog(&self) -> Result<RuntimeCatalog, RuntimeCatalogError> {
+            Ok(RuntimeCatalog { contracts: vec![] })
+        }
+    }
+
+    async fn provision_with_bundled_catalogs(
+        context: WorkspaceRuntimeContext<'_>,
+        runpod_client: &dyn RunpodRuntimeClient,
+        operation: LifecycleOperation,
+        workspace: Workspace,
+    ) -> Result<Workspace, WorkspaceError> {
+        let workflow_catalog = BundledWorkflowCatalogRepository::new();
+        let runtime_catalog = BundledRuntimeCatalogRepository::new();
+
+        super::provision_workspace(
+            context,
+            runpod_client,
+            &workflow_catalog,
+            &runtime_catalog,
+            operation,
+            workspace,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn provision_uses_injected_workflow_catalog() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_state();
+
+        let error = super::provision_workspace(
+            context,
+            runpod_client.as_ref(),
+            &EmptyWorkflowCatalogRepository,
+            &EmptyRuntimeCatalogRepository,
+            operation,
+            workspace,
+        )
+        .await
+        .expect_err("provision should use the injected empty workflow catalog");
+
+        assert_eq!(
+            error,
+            WorkspaceError::InvalidState {
+                message: "workflow reference was not found".to_string()
+            }
+        );
+    }
 
     #[tokio::test]
     async fn provision_creates_all_runpod_resources_and_marks_workspace_ready() {
@@ -298,7 +378,7 @@ mod tests {
         let operation = context.create_operation_for_test("workspace-1").await;
         let runpod_client = runpod_client_with_state();
 
-        let provisioned = super::provision_workspace(
+        let provisioned = provision_with_bundled_catalogs(
             context.clone(),
             runpod_client.as_ref(),
             operation,
@@ -405,7 +485,7 @@ mod tests {
             let operation = context.create_operation_for_test(&workspace_id).await;
             let runpod_client = runpod_client_with_failure(failure);
 
-            let error = super::provision_workspace(
+            let error = provision_with_bundled_catalogs(
                 context.clone(),
                 runpod_client.as_ref(),
                 operation,
@@ -453,7 +533,7 @@ mod tests {
         let operation = context.create_operation_for_test("workspace-1").await;
         let runpod_client = runpod_client_with_failed_provisioner();
 
-        let error = super::provision_workspace(
+        let error = provision_with_bundled_catalogs(
             context.clone(),
             runpod_client.as_ref(),
             operation,
@@ -491,7 +571,7 @@ mod tests {
         let operation = context.create_operation_for_test("workspace-1").await;
         let runpod_client = runpod_client_with_failure(RunpodClientFailure::GetProvisionerStatus);
 
-        let error = super::provision_workspace(
+        let error = provision_with_bundled_catalogs(
             context.clone(),
             runpod_client.as_ref(),
             operation,
@@ -540,7 +620,7 @@ mod tests {
             unavailable(),
         ]);
 
-        let error = super::provision_workspace(
+        let error = provision_with_bundled_catalogs(
             context.clone(),
             runpod_client.as_ref(),
             operation,
@@ -577,7 +657,7 @@ mod tests {
         let operation = context.create_operation_for_test("workspace-1").await;
         let runpod_client = runpod_client_with_transient_unavailable_provisioner();
 
-        let provisioned = super::provision_workspace(
+        let provisioned = provision_with_bundled_catalogs(
             context.clone(),
             runpod_client.as_ref(),
             operation,
@@ -605,7 +685,7 @@ mod tests {
             Ok(super::RunpodProvisionerStatus::Succeeded),
         ]);
 
-        let provisioned = super::provision_workspace(
+        let provisioned = provision_with_bundled_catalogs(
             context.clone(),
             runpod_client.as_ref(),
             operation,

@@ -56,7 +56,11 @@ pub async fn build_app_state(
         WorkspaceRunpodRuntimeProvider::new(runpod_secrets.clone(), hugging_face_secrets.clone())
             .map_err(native_provider_initialization_error)?,
     );
-    let workspace_runtime = RunpodWorkspaceRuntime::new(runpod_provider.clone());
+    let workspace_runtime = RunpodWorkspaceRuntime::new(
+        runpod_provider.clone(),
+        Arc::new(workflow_catalog.clone()),
+        Arc::new(runtime_catalog.clone()),
+    );
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
         lifecycle_journal: Arc::new(lifecycle_journal.clone()),
