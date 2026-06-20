@@ -1,6 +1,6 @@
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::{
     app::{background::TauriBackgroundTaskSpawner, events::TauriWorkspaceEventSink},
@@ -25,30 +25,15 @@ use crate::{
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
-use super::state::AppState;
+use super::{state::AppState, support::SupportPaths};
 
-const NATIVE_DB_FILE: &str = "native.sqlite";
-
-pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeCommandError> {
+pub async fn build_app_state(
+    app_handle: &AppHandle,
+    support_paths: &SupportPaths,
+) -> Result<AppState, NativeCommandError> {
     let app_identifier = app_handle.config().identifier.clone();
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|error| {
-        NativeCommandError::native_initialization(
-            NativeInitializationCommandError::AppDataDirectoryUnavailable {
-                message: error.to_string(),
-            },
-        )
-    })?;
-    fs::create_dir_all(&app_data_dir).map_err(|error| {
-        NativeCommandError::native_initialization(
-            NativeInitializationCommandError::AppDataDirectoryCreateFailed {
-                path: app_data_dir.display().to_string(),
-                message: error.to_string(),
-            },
-        )
-    })?;
-
-    let native_db_path = app_data_dir.join(NATIVE_DB_FILE);
-    let database = SqliteNativeDatabase::connect(&native_db_path)
+    let native_db_path = support_paths.native_db_path();
+    let database = SqliteNativeDatabase::connect(native_db_path)
         .await
         .map_err(|error| {
             NativeCommandError::native_initialization(

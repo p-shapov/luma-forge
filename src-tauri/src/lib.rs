@@ -1,5 +1,3 @@
-use std::fs;
-
 use tauri::Manager;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -39,31 +37,29 @@ pub fn run() {
         .setup(move |app| {
             let app_handle = app.handle().clone();
             builder.mount_events(app);
-            let diagnostics_guard = match app_handle.path().app_log_dir() {
-                Ok(log_dir) => {
-                    if let Err(error) = fs::create_dir_all(&log_dir) {
-                        eprintln!(
-                            "failed to create native diagnostics log directory at {}: {error}",
-                            log_dir.display()
-                        );
-                        app::diagnostics::init(None)
-                    } else {
-                        let guard = app::diagnostics::init(Some(log_dir.clone()));
-                        tracing::info!(
-                            log_dir = %log_dir.display(),
-                            "native diagnostics file logging initialized"
-                        );
-                        guard
-                    }
+            let support_paths = app::support::prepare_support_paths(&app_handle);
+            let diagnostics_guard = match support_paths.as_ref() {
+                Ok(support_paths) => {
+                    let guard =
+                        app::diagnostics::init(Some(support_paths.logs_dir().to_path_buf()));
+                    tracing::info!(
+                        support_dir = %support_paths.root_dir().display(),
+                        log_dir = %support_paths.logs_dir().display(),
+                        "native diagnostics file logging initialized"
+                    );
+                    guard
                 }
                 Err(error) => {
-                    eprintln!("native diagnostics log directory unavailable: {error}");
+                    eprintln!("native support directory unavailable: {}", error.message);
                     app::diagnostics::init(None)
                 }
             };
-            let app_state = match tauri::async_runtime::block_on(app::bootstrap::build_app_state(
-                &app_handle,
-            )) {
+            let app_state = match support_paths.and_then(|support_paths| {
+                tauri::async_runtime::block_on(app::bootstrap::build_app_state(
+                    &app_handle,
+                    &support_paths,
+                ))
+            }) {
                 Ok(state) => app::state::NativeAppState::Ready(Box::new(state)),
                 Err(error) => {
                     eprintln!("native app initialization failed: {}", error.message);

@@ -3,3 +3,4 @@ pub mod bootstrap;
 pub mod diagnostics;
 pub mod events;
 pub mod state;
+pub mod support;
