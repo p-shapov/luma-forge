@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::{
     domain::{
@@ -20,6 +20,7 @@ use super::runtime::{
     StartRunpodProvisionerPodParams,
 };
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
+const PROVISIONER_STARTUP_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 fn provision_payload(step: RunpodProvisionStep) -> LifecycleOperationPayload {
     LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
@@ -97,12 +98,29 @@ pub async fn provision_workspace(
         RunpodProvisionStep::PollProvisioner,
     )
     .await?;
+    let provisioner_startup_started_at = Instant::now();
     loop {
-        match runpod_client
+        let status = match runpod_client
             .get_provisioner_status(&workspace.id, &provisioner_pod_id)
             .await
-            .map_err(super::runtime::map_provider_error)?
         {
+            Ok(status) => status,
+            Err(super::errors::RunpodProviderError::ProvisionerWorkerUnavailable { .. }) => {
+                if provisioner_startup_probe_expired(provisioner_startup_started_at, Instant::now())
+                {
+                    return Err(super::runtime::map_provider_error(
+                        super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
+                            message: "provisioner worker startup timed out".to_string(),
+                        },
+                    ));
+                }
+                tokio::time::sleep(PROVISIONER_POLL_INTERVAL).await;
+                continue;
+            }
+            Err(error) => return Err(super::runtime::map_provider_error(error)),
+        };
+
+        match status {
             RunpodProvisionerStatus::Succeeded => break,
             RunpodProvisionerStatus::Failed { message } => {
                 return Err(super::runtime::map_provider_error(
@@ -177,6 +195,10 @@ fn runpod_workspace_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
     runtime
 }
 
+fn provisioner_startup_probe_expired(started_at: Instant, now: Instant) -> bool {
+    now.duration_since(started_at) >= PROVISIONER_STARTUP_TIMEOUT
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -187,7 +209,8 @@ mod tests {
         },
         provider::runpod::test_support::{
             runpod_client_with_failed_provisioner, runpod_client_with_failure,
-            runpod_client_with_state, workspace_with_runpod, RunpodClientFailure,
+            runpod_client_with_state, runpod_client_with_transient_unavailable_provisioner,
+            workspace_with_runpod, RunpodClientFailure,
         },
         shared::ApiError,
         workspace::test_support::runtime_context_for_test,
@@ -388,5 +411,39 @@ mod tests {
         );
         assert_eq!(runtime.resources.template_id, None);
         assert_eq!(runtime.resources.endpoint_id, None);
+    }
+
+    #[tokio::test]
+    async fn provision_keeps_polling_when_provisioner_is_temporarily_unavailable() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_transient_unavailable_provisioner();
+
+        let provisioned = super::provision_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect("provision should tolerate transient provisioner startup unavailability");
+
+        assert_eq!(provisioned.state, WorkspaceState::Ready);
+    }
+
+    #[test]
+    fn provisioner_startup_probe_expires_at_timeout() {
+        let started_at = std::time::Instant::now();
+
+        assert!(!super::provisioner_startup_probe_expired(
+            started_at,
+            started_at + super::PROVISIONER_STARTUP_TIMEOUT - std::time::Duration::from_secs(1),
+        ));
+        assert!(super::provisioner_startup_probe_expired(
+            started_at,
+            started_at + super::PROVISIONER_STARTUP_TIMEOUT,
+        ));
     }
 }
