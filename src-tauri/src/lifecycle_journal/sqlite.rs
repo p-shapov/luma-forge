@@ -91,7 +91,7 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             let payload_json = encode_payload(None)?;
             let now = timestamp()?;
 
-            sqlx::query(
+            let result = sqlx::query(
                 "INSERT INTO lifecycle_operations (
                     id,
                     workspace_id,
@@ -109,14 +109,14 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(&now)
             .bind(&now)
             .execute(&self.pool)
-            .await
-            .map_err(|error| {
+            .await;
+
+            if let Err(error) = result {
                 if is_unique_constraint(&error) {
-                    LifecycleJournalError::RunningOperationExists
-                } else {
-                    storage_unavailable_error(error)
+                    return Err(running_operation_exists_error(self, workspace_id).await?);
                 }
-            })?;
+                return Err(storage_unavailable_error(error));
+            }
 
             self.find_by_id(&operation_id).await
         })
@@ -234,14 +234,17 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(finished_at_storage)
             .bind(&operation.operation_id)
             .execute(&self.pool)
-            .await
-            .map_err(|error| {
-                if is_unique_constraint(&error) {
-                    LifecycleJournalError::RunningOperationExists
-                } else {
-                    storage_unavailable_error(error)
+            .await;
+
+            let result = match result {
+                Ok(result) => result,
+                Err(error) if is_unique_constraint(&error) => {
+                    return Err(
+                        running_operation_exists_error(self, &operation.workspace_id).await?,
+                    );
                 }
-            })?;
+                Err(error) => return Err(storage_unavailable_error(error)),
+            };
 
             if result.rows_affected() == 0 {
                 return Err(LifecycleJournalError::OperationNotFound);
@@ -287,14 +290,15 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
             .bind(finished_at)
             .bind(operation_id)
             .execute(&self.pool)
-            .await
-            .map_err(|error| {
-                if is_unique_constraint(&error) {
-                    LifecycleJournalError::RunningOperationExists
-                } else {
-                    storage_unavailable_error(error)
+            .await;
+
+            let result = match result {
+                Ok(result) => result,
+                Err(error) if is_unique_constraint(&error) => {
+                    return Err(running_operation_exists_error(self, &current.workspace_id).await?);
                 }
-            })?;
+                Err(error) => return Err(storage_unavailable_error(error)),
+            };
 
             if result.rows_affected() == 0 {
                 return Err(LifecycleJournalError::OperationNotFound);
@@ -468,6 +472,19 @@ fn finished_at_for_update(
     }
 }
 
+async fn running_operation_exists_error(
+    repository: &SqliteLifecycleJournalRepository,
+    workspace_id: &WorkspaceId,
+) -> Result<LifecycleJournalError, LifecycleJournalError> {
+    let operation = repository
+        .find_running_by_workspace(workspace_id)
+        .await?
+        .ok_or_else(|| data_invalid_message("running operation unique constraint had no row"))?;
+    Ok(LifecycleJournalError::RunningOperationExists {
+        operation_id: operation.operation_id,
+    })
+}
+
 fn is_unique_constraint(error: &sqlx::Error) -> bool {
     match error {
         sqlx::Error::Database(error) => error
@@ -530,7 +547,7 @@ mod tests {
     async fn creating_second_running_operation_for_workspace_returns_running_operation_exists() {
         let repository = repository("duplicate-running").await;
 
-        repository
+        let operation = repository
             .create_operation(&"workspace-1".to_string())
             .await
             .expect("first operation should be created");
@@ -539,7 +556,12 @@ mod tests {
             .await
             .expect_err("second running operation should fail");
 
-        assert_eq!(error, LifecycleJournalError::RunningOperationExists);
+        assert_eq!(
+            error,
+            LifecycleJournalError::RunningOperationExists {
+                operation_id: operation.operation_id,
+            }
+        );
     }
 
     #[tokio::test]

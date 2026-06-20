@@ -134,7 +134,7 @@ where
             .lifecycle_journal
             .create_operation(&workspace_id)
             .await
-            .map_err(map_operation_start_error(&workspace_id))?;
+            .map_err(map_operation_start_error())?;
         self.event_sink
             .emit(WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
@@ -157,7 +157,7 @@ where
         trace_id: String,
     ) -> Result<ProvisionWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
-        reject_running_lifecycle_state(&workspace)?;
+        self.reject_running_lifecycle_state(&workspace).await?;
         if workspace.state != WorkspaceState::NotProvisioned {
             return Err(invalid_state("workspace is not ready to provision"));
         }
@@ -191,7 +191,7 @@ where
         trace_id: String,
     ) -> Result<CleanupWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
-        reject_running_lifecycle_state(&workspace)?;
+        self.reject_running_lifecycle_state(&workspace).await?;
         let (workspace, operation, trace_id) = self
             .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
             .await?;
@@ -292,7 +292,7 @@ where
         trace_id: String,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
-        reject_running_lifecycle_state(&workspace)?;
+        self.reject_running_lifecycle_state(&workspace).await?;
         let (workspace, operation, trace_id) = self
             .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
             .await?;
@@ -352,32 +352,37 @@ where
             .await?
             .ok_or_else(|| workspace_not_found(workspace_id))
     }
+
+    async fn reject_running_lifecycle_state(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<(), WorkspaceError> {
+        if !matches!(
+            workspace.state,
+            WorkspaceState::Provisioning | WorkspaceState::CleaningUp
+        ) {
+            return Ok(());
+        }
+
+        let operation = self
+            .lifecycle_journal
+            .find_running_by_workspace(&workspace.id)
+            .await?
+            .ok_or_else(|| invalid_state("workspace lifecycle state has no running operation"))?;
+
+        Err(WorkspaceError::LifecycleOperationAlreadyRunning {
+            operation_id: operation.operation_id,
+        })
+    }
 }
 
-fn map_operation_start_error(
-    workspace_id: &str,
-) -> impl FnOnce(LifecycleJournalError) -> WorkspaceError + '_ {
+fn map_operation_start_error() -> impl FnOnce(LifecycleJournalError) -> WorkspaceError {
     move |error| match error {
-        LifecycleJournalError::RunningOperationExists => {
-            WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: workspace_id.to_string(),
-            }
+        LifecycleJournalError::RunningOperationExists { operation_id } => {
+            WorkspaceError::LifecycleOperationAlreadyRunning { operation_id }
         }
         other => other.into(),
     }
-}
-
-fn reject_running_lifecycle_state(workspace: &Workspace) -> Result<(), WorkspaceError> {
-    if matches!(
-        workspace.state,
-        WorkspaceState::Provisioning | WorkspaceState::CleaningUp
-    ) {
-        return Err(WorkspaceError::LifecycleOperationAlreadyRunning {
-            workspace_id: workspace.id.clone(),
-        });
-    }
-
-    Ok(())
 }
 
 async fn load_terminal_operation(
@@ -412,17 +417,19 @@ where
         &self,
         workspace_id: &str,
         payload: Option<crate::domain::lifecycle_operation::LifecycleOperationPayload>,
-    ) {
+    ) -> String {
         let mut operation = self
             .lifecycle_journal
             .create_operation(&workspace_id.to_string())
             .await
             .expect("operation create should succeed");
+        let operation_id = operation.operation_id.clone();
         operation.payload = payload;
         self.lifecycle_journal
             .update_operation(&operation)
             .await
             .expect("operation update should succeed");
+        operation_id
     }
 }
 
@@ -589,6 +596,9 @@ mod tests {
                 WorkspaceState::Provisioning,
             ))
             .await;
+        let operation_id = service
+            .create_running_operation_for_test("workspace-1", None)
+            .await;
 
         let error = service
             .provision_workspace("workspace-1", "trace-test".to_string())
@@ -597,9 +607,7 @@ mod tests {
 
         assert_eq!(
             error,
-            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: "workspace-1".to_string(),
-            }
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning { operation_id }
         );
         assert_eq!(
             repositories
@@ -607,7 +615,12 @@ mod tests {
                 .list_running()
                 .await
                 .expect("operations"),
-            Vec::new()
+            vec![repositories
+                .lifecycle_journal
+                .latest_for_workspace(&"workspace-1".to_string())
+                .await
+                .expect("latest operation should load")
+                .expect("operation should exist")]
         );
     }
 
@@ -678,6 +691,9 @@ mod tests {
                 WorkspaceState::CleaningUp,
             ))
             .await;
+        let operation_id = service
+            .create_running_operation_for_test("workspace-1", None)
+            .await;
 
         let error = service
             .cleanup_workspace("workspace-1", "trace-test".to_string())
@@ -686,9 +702,7 @@ mod tests {
 
         assert_eq!(
             error,
-            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: "workspace-1".to_string(),
-            }
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning { operation_id }
         );
         assert_eq!(
             repositories
@@ -696,7 +710,12 @@ mod tests {
                 .list_running()
                 .await
                 .expect("operations"),
-            Vec::new()
+            vec![repositories
+                .lifecycle_journal
+                .latest_for_workspace(&"workspace-1".to_string())
+                .await
+                .expect("latest operation should load")
+                .expect("operation should exist")]
         );
     }
 
@@ -706,7 +725,7 @@ mod tests {
         service
             .insert_workspace_for_test(workspace_with_runpod("workspace-1", WorkspaceState::Ready))
             .await;
-        service
+        let operation_id = service
             .create_running_operation_for_test("workspace-1", None)
             .await;
 
@@ -717,9 +736,7 @@ mod tests {
 
         assert_eq!(
             error,
-            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: "workspace-1".to_string(),
-            }
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning { operation_id }
         );
         assert!(repositories
             .workspace_catalog
@@ -748,6 +765,9 @@ mod tests {
                 WorkspaceState::Provisioning,
             ))
             .await;
+        let operation_id = service
+            .create_running_operation_for_test("workspace-1", None)
+            .await;
 
         let error = service
             .delete_workspace("workspace-1", "trace-test".to_string())
@@ -756,9 +776,7 @@ mod tests {
 
         assert_eq!(
             error,
-            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
-                workspace_id: "workspace-1".to_string(),
-            }
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning { operation_id }
         );
         assert_eq!(
             repositories
@@ -766,7 +784,12 @@ mod tests {
                 .list_running()
                 .await
                 .expect("operations"),
-            Vec::new()
+            vec![repositories
+                .lifecycle_journal
+                .latest_for_workspace(&"workspace-1".to_string())
+                .await
+                .expect("latest operation should load")
+                .expect("operation should exist")]
         );
     }
 }

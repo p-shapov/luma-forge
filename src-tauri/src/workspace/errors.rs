@@ -25,8 +25,8 @@ pub enum WorkspaceError {
     LifecycleJournalInvalid(#[from] LifecycleJournalError),
     #[error("workspace was not found: {workspace_id}")]
     WorkspaceNotFound { workspace_id: String },
-    #[error("workspace already has a running lifecycle operation: {workspace_id}")]
-    LifecycleOperationAlreadyRunning { workspace_id: String },
+    #[error("workspace already has a running lifecycle operation: {operation_id}")]
+    LifecycleOperationAlreadyRunning { operation_id: String },
     #[error("invalid runtime state: {message}")]
     InvalidState { message: String },
 }
