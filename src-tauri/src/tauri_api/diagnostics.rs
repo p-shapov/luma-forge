@@ -1,14 +1,15 @@
 use std::error::Error;
 
 use crate::{
-    commands::{
+    app::errors::AppInitializationError,
+    shared::{error_source_chain, leaf_error_message, new_trace_id},
+    tauri_api::{
         errors::{CommandError, NativeCommandError},
         types::{
             secrets::SetupApiKeyRequest,
             workspace::{CreateRunpodWorkspaceRequest, WorkspaceIdRequest},
         },
     },
-    shared::{error_source_chain, leaf_error_message, new_trace_id},
 };
 
 pub type CommandRequestMetadata = Vec<(&'static str, String)>;
@@ -60,12 +61,13 @@ pub fn start_command_trace() -> String {
 pub fn native_command_error<Code>(
     command: &'static str,
     trace_id: &str,
-    error: NativeCommandError,
+    error: AppInitializationError,
     code: Code,
 ) -> CommandError<Code>
 where
     Code: std::fmt::Debug,
 {
+    let error = NativeCommandError::from(error);
     tracing::error!(
         trace_id = %trace_id,
         command = command,

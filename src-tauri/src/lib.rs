@@ -1,8 +1,6 @@
 use tauri::Manager;
-use tauri_specta::{collect_commands, collect_events, Builder};
 
 pub mod app;
-pub mod commands;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod provider;
@@ -10,17 +8,18 @@ pub mod runtime_catalog;
 pub mod secrets;
 pub mod shared;
 pub mod sqlite;
+pub mod tauri_api;
 pub mod workflow_catalog;
 pub mod workspace;
 pub mod workspace_catalog;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = command_builder();
+    let builder = tauri_api::builder();
 
     #[cfg(debug_assertions)]
     {
-        if let Err(error) = export_typescript_bindings(&builder) {
+        if let Err(error) = tauri_api::export_typescript_bindings(&builder) {
             eprintln!("failed to export TypeScript command bindings: {error}");
         }
     }
@@ -36,8 +35,9 @@ pub fn run() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            let app_identifier = app_handle.config().identifier.clone();
             builder.mount_events(app);
-            let support_paths = app::support::prepare_support_paths(&app_handle);
+            let support_paths = tauri_api::support::prepare_support_paths(&app_handle);
             let diagnostics_guard = match support_paths.as_ref() {
                 Ok(support_paths) => {
                     let guard =
@@ -50,19 +50,23 @@ pub fn run() {
                     guard
                 }
                 Err(error) => {
-                    eprintln!("native support directory unavailable: {}", error.message);
+                    eprintln!("native support directory unavailable: {error}");
                     app::diagnostics::init(None)
                 }
             };
             let app_state = match support_paths.and_then(|support_paths| {
                 tauri::async_runtime::block_on(app::bootstrap::build_app_state(
-                    &app_handle,
+                    &app_identifier,
                     &support_paths,
+                    std::sync::Arc::new(tauri_api::events::TauriWorkspaceEventSink::new(
+                        app_handle.clone(),
+                    )),
+                    std::sync::Arc::new(tauri_api::background::TauriBackgroundTaskSpawner),
                 ))
             }) {
                 Ok(state) => app::state::NativeAppState::Ready(Box::new(state)),
                 Err(error) => {
-                    eprintln!("native app initialization failed: {}", error.message);
+                    eprintln!("native app initialization failed: {error}");
                     app::state::NativeAppState::Failed(error)
                 }
             };
@@ -76,44 +80,6 @@ pub fn run() {
     }
 }
 
-fn command_builder() -> Builder<tauri::Wry> {
-    Builder::<tauri::Wry>::new()
-        .commands(collect_commands![
-            commands::native::get_native_startup_status,
-            commands::catalog::get_workflow_catalog,
-            commands::catalog::get_runtime_contract_catalog,
-            commands::catalog::get_runpod_placement_options,
-            commands::catalog::get_workspace_catalog,
-            commands::secrets::setup_runpod_api_key,
-            commands::secrets::get_runpod_api_key_identity,
-            commands::secrets::delete_runpod_api_key,
-            commands::secrets::setup_hugging_face_api_key,
-            commands::secrets::get_hugging_face_api_key_identity,
-            commands::secrets::delete_hugging_face_api_key,
-            commands::workspaces::create_runpod_workspace,
-            commands::workspaces::provision_workspace,
-            commands::workspaces::cleanup_workspace,
-            commands::workspaces::delete_workspace,
-            commands::workspaces::get_running_lifecycle_operations,
-            commands::workspaces::get_latest_lifecycle_operation
-        ])
-        .events(collect_events![
-            commands::types::workspace::LifecycleOperationChangedEvent,
-            commands::types::workspace::WorkspaceChangedEvent,
-            commands::types::workspace::WorkspaceDeletedEvent
-        ])
-}
-
-fn export_typescript_bindings(
-    builder: &Builder<tauri::Wry>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    builder.export(
-        specta_typescript::Typescript::default(),
-        "../src/generated/commands.ts",
-    )?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -121,13 +87,14 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::{command_builder, export_typescript_bindings};
+    use super::tauri_api;
 
     #[test]
     fn export_bindings() {
-        let builder = command_builder();
+        let builder = tauri_api::builder();
 
-        export_typescript_bindings(&builder).expect("failed to export TypeScript command bindings");
+        tauri_api::export_typescript_bindings(&builder)
+            .expect("failed to export TypeScript command bindings");
     }
 
     #[test]

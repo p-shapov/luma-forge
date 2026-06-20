@@ -1,6 +1,5 @@
-pub mod background;
 pub mod bootstrap;
 pub mod diagnostics;
-pub mod events;
+pub mod errors;
 pub mod state;
 pub mod support;

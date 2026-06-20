@@ -12,7 +12,8 @@ use errors::{
 
 use crate::{
     app::state::NativeAppState,
-    commands::{
+    secrets::stores::ApiSecret,
+    tauri_api::{
         diagnostics::{
             command_error, command_request_metadata, empty_command_request_metadata,
             native_command_error, start_command_trace,
@@ -20,7 +21,6 @@ use crate::{
         types::secrets::{ApiKeyIdentityResponse, SetupApiKeyRequest},
         CommandResult,
     },
-    secrets::stores::ApiSecret,
 };
 
 #[tauri::command]
