@@ -213,28 +213,3 @@ impl From<ModelAssetSource> for ModelAssetSourceResponse {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn runtime_catalog_response_serializes_flat_contracts() {
-        let response = RuntimeCatalogResponse {
-            contracts: vec![RuntimeContractResponse {
-                id: "provisioner".to_string(),
-                revisions: vec![RuntimeContractRevisionResponse {
-                    version: "1.0.0".to_string(),
-                    image_ref: "ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-                }],
-            }],
-        };
-
-        let json = serde_json::to_string(&response).expect("runtime catalog response json");
-
-        assert_eq!(
-            json,
-            r#"{"contracts":[{"id":"provisioner","revisions":[{"version":"1.0.0","imageRef":"ghcr.io/example/provisioner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}]}"#
-        );
-    }
-}

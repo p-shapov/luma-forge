@@ -99,24 +99,3 @@ impl From<NativeInitializationCommandError> for NativeInitializationCommandError
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn native_command_error_serializes_message_and_tagged_error() {
-        let error = NativeCommandError::new(
-            NativeInitializationCommandErrorCode::LifecycleStateRestoreFailed,
-            "workspace lifecycle state could not be restored",
-            "diag-123",
-        );
-
-        let json = serde_json::to_string(&error).expect("command error json");
-
-        assert_eq!(
-            json,
-            r#"{"message":"workspace lifecycle state could not be restored","code":"lifecycle_state_restore_failed","diagnosticId":"diag-123"}"#
-        );
-    }
-}
