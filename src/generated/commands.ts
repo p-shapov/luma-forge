@@ -260,7 +260,7 @@ export type WorkspaceResponse = {
 
 export type WorkspaceRuntimeResponse = { runtimeType: "runpod" } & (RunpodWorkspaceResponse);
 
-export type WorkspaceStateResponse = "not_provisioned" | "ready" | "cleanup_required" | "invalid";
+export type WorkspaceStateResponse = "not_provisioned" | "provisioning" | "ready" | "cleaning_up" | "invalid";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

@@ -8,8 +8,9 @@ pub type WorkspaceId = String;
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceState {
     NotProvisioned,
+    Provisioning,
     Ready,
-    CleanupRequired,
+    CleaningUp,
     Invalid,
 }
 

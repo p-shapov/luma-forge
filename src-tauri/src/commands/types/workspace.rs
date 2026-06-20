@@ -40,8 +40,9 @@ pub struct WorkflowReferenceResponse {
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceStateResponse {
     NotProvisioned,
+    Provisioning,
     Ready,
-    CleanupRequired,
+    CleaningUp,
     Invalid,
 }
 
@@ -230,8 +231,9 @@ impl From<WorkspaceState> for WorkspaceStateResponse {
     fn from(value: WorkspaceState) -> Self {
         match value {
             WorkspaceState::NotProvisioned => Self::NotProvisioned,
+            WorkspaceState::Provisioning => Self::Provisioning,
             WorkspaceState::Ready => Self::Ready,
-            WorkspaceState::CleanupRequired => Self::CleanupRequired,
+            WorkspaceState::CleaningUp => Self::CleaningUp,
             WorkspaceState::Invalid => Self::Invalid,
         }
     }
