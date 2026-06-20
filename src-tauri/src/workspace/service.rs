@@ -11,8 +11,8 @@ use crate::{
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
     shared::{
-        leaf_error_message, new_trace_id, spawn_background_task, BackgroundTaskSpawner, EventSink,
-        InFlightRegistry,
+        leaf_error_message, new_trace_id, spawn_background_task, AppFuture, BackgroundTaskSpawner,
+        EventSink, InFlightRegistry,
     },
     workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
@@ -27,52 +27,34 @@ use super::{
     },
 };
 
-pub type LifecycleOperationRegistry = InFlightRegistry<String>;
-
 #[derive(Clone)]
-pub struct WorkspaceService<W, L, WC>
-where
-    W: WorkspaceCatalogRepository,
-    L: LifecycleJournalRepository,
-    WC: WorkflowCatalogRepository,
-{
-    workspace_catalog: Arc<W>,
-    lifecycle_journal: Arc<L>,
-    workflow_catalog: WC,
+pub struct WorkspaceService {
+    workspace_catalog: Arc<dyn WorkspaceCatalogRepository>,
+    lifecycle_journal: Arc<dyn LifecycleJournalRepository>,
+    workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
     runtime: Arc<dyn WorkspaceRuntime>,
-    lifecycle_operation_registry: LifecycleOperationRegistry,
+    lifecycle_operation_registry: InFlightRegistry<String>,
     event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-pub struct WorkspaceServiceDependencies<W, L, WC>
-where
-    W: WorkspaceCatalogRepository,
-    L: LifecycleJournalRepository,
-    WC: WorkflowCatalogRepository,
-{
-    pub workspace_catalog: Arc<W>,
-    pub lifecycle_journal: Arc<L>,
-    pub workflow_catalog: WC,
+pub struct WorkspaceServiceDependencies {
+    pub workspace_catalog: Arc<dyn WorkspaceCatalogRepository>,
+    pub lifecycle_journal: Arc<dyn LifecycleJournalRepository>,
+    pub workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
     pub runtime: Arc<dyn WorkspaceRuntime>,
-    pub lifecycle_operation_registry: LifecycleOperationRegistry,
     pub event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
     pub task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
 
-impl<W, L, WC> WorkspaceService<W, L, WC>
-where
-    W: WorkspaceCatalogRepository + 'static,
-    L: LifecycleJournalRepository + 'static,
-    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
-{
-    pub fn new(dependencies: WorkspaceServiceDependencies<W, L, WC>) -> Self {
+impl WorkspaceService {
+    pub fn new(dependencies: WorkspaceServiceDependencies) -> Self {
         Self {
             workspace_catalog: dependencies.workspace_catalog,
             lifecycle_journal: dependencies.lifecycle_journal,
             workflow_catalog: dependencies.workflow_catalog,
             runtime: dependencies.runtime,
-            lifecycle_operation_registry: dependencies.lifecycle_operation_registry,
+            lifecycle_operation_registry: InFlightRegistry::default(),
             event_sink: dependencies.event_sink,
             task_spawner: dependencies.task_spawner,
         }
@@ -169,15 +151,14 @@ where
             .start_lifecycle_operation(workspace, trace_id, WorkspaceState::Provisioning)
             .await?;
 
-        let runtime = self.runtime.clone();
-        let context = self.runtime_context(trace_id.clone());
-        let runner_operation = operation.clone();
-        let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(operation.clone(), workspace.clone(), trace_id, async move {
-            runtime
-                .provision(context, runner_operation, runner_workspace)
-                .await
-        });
+        self.launch_lifecycle(
+            operation.clone(),
+            workspace.clone(),
+            trace_id,
+            |runtime, context, operation, workspace| {
+                Box::pin(async move { runtime.provision(context, operation, workspace).await })
+            },
+        );
 
         Ok(ProvisionWorkspaceResponse {
             workspace,
@@ -195,15 +176,14 @@ where
         let (workspace, operation, trace_id) = self
             .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
             .await?;
-        let runtime = self.runtime.clone();
-        let context = self.runtime_context(trace_id.clone());
-        let runner_operation = operation.clone();
-        let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(operation.clone(), workspace.clone(), trace_id, async move {
-            runtime
-                .cleanup(context, runner_operation, runner_workspace)
-                .await
-        });
+        self.launch_lifecycle(
+            operation.clone(),
+            workspace.clone(),
+            trace_id,
+            |runtime, context, operation, workspace| {
+                Box::pin(async move { runtime.cleanup(context, operation, workspace).await })
+            },
+        );
 
         Ok(CleanupWorkspaceResponse {
             workspace,
@@ -286,6 +266,32 @@ where
         );
     }
 
+    fn launch_lifecycle<F>(
+        &self,
+        operation: LifecycleOperation,
+        workspace: Workspace,
+        trace_id: String,
+        lifecycle: F,
+    ) where
+        F: FnOnce(
+            Arc<dyn WorkspaceRuntime>,
+            WorkspaceRuntimeContext<'static>,
+            LifecycleOperation,
+            Workspace,
+        ) -> AppFuture<'static, Result<Workspace, WorkspaceError>>,
+    {
+        let runtime = self.runtime.clone();
+        let context = self.runtime_context(trace_id.clone());
+        let runner_operation = operation.clone();
+        let runner_workspace = workspace.clone();
+        self.spawn_lifecycle_runner(
+            operation,
+            workspace,
+            trace_id,
+            lifecycle(runtime, context, runner_operation, runner_workspace),
+        );
+    }
+
     pub async fn delete_workspace(
         &self,
         workspace_id: &str,
@@ -296,15 +302,14 @@ where
         let (workspace, operation, trace_id) = self
             .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
             .await?;
-        let runtime = self.runtime.clone();
-        let context = self.runtime_context(trace_id.clone());
-        let runner_operation = operation.clone();
-        let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(operation, workspace, trace_id, async move {
-            runtime
-                .delete(context, runner_operation, runner_workspace)
-                .await
-        });
+        self.launch_lifecycle(
+            operation,
+            workspace,
+            trace_id,
+            |runtime, context, operation, workspace| {
+                Box::pin(async move { runtime.delete(context, operation, workspace).await })
+            },
+        );
 
         Ok(DeleteWorkspaceResponse {
             workspace_id: workspace_id.to_string(),
@@ -400,12 +405,7 @@ async fn load_terminal_operation(
 }
 
 #[cfg(test)]
-impl<W, L, WC> WorkspaceService<W, L, WC>
-where
-    W: WorkspaceCatalogRepository + 'static,
-    L: LifecycleJournalRepository + 'static,
-    WC: WorkflowCatalogRepository + Clone + Send + Sync + 'static,
-{
+impl WorkspaceService {
     pub async fn insert_workspace_for_test(&self, workspace: Workspace) {
         self.workspace_catalog
             .insert_workspace(&workspace)
