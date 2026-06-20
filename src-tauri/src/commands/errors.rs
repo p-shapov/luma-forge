@@ -11,7 +11,7 @@ pub type NativeCommandError = CommandError<NativeInitializationCommandErrorCode>
 pub struct CommandError<Code> {
     pub message: String,
     pub code: Code,
-    pub diagnostic_id: String,
+    pub trace_id: String,
 }
 
 impl NativeCommandError {
@@ -21,15 +21,11 @@ impl NativeCommandError {
 }
 
 impl<Code> CommandError<Code> {
-    pub(crate) fn new(
-        code: Code,
-        message: impl Into<String>,
-        diagnostic_id: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn new(code: Code, message: impl Into<String>, trace_id: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             code,
-            diagnostic_id: diagnostic_id.into(),
+            trace_id: trace_id.into(),
         }
     }
 }
@@ -44,7 +40,7 @@ where
         Self {
             message,
             code: error,
-            diagnostic_id: crate::diagnostics::new_diagnostic_id(),
+            trace_id: crate::shared::new_trace_id(),
         }
     }
 }

@@ -125,6 +125,7 @@ pub fn runtime_context_for_test<'a>() -> WorkspaceRuntimeContext<'a> {
         repositories.workspace_catalog,
         repositories.lifecycle_journal,
         Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
+        "trace-test".to_string(),
     )
 }
 

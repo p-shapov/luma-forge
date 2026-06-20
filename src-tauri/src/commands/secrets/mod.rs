@@ -13,12 +13,12 @@ use errors::{
 use crate::{
     app::state::NativeAppState,
     commands::{
+        diagnostics::{
+            command_error, command_request_metadata, empty_command_request_metadata,
+            native_command_error, start_command_trace,
+        },
         types::secrets::{ApiKeyIdentityResponse, SetupApiKeyRequest},
         CommandResult,
-    },
-    diagnostics::{
-        command_error, command_request_metadata, empty_command_request_metadata,
-        native_command_error,
     },
     secrets::stores::ApiSecret,
 };
@@ -28,24 +28,36 @@ use crate::{
 #[tracing::instrument(
     name = "native_command",
     skip_all,
-    fields(command = "setup_runpod_api_key", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+    fields(command = "setup_runpod_api_key", request_metadata = tracing::field::debug(command_request_metadata(&request)), trace_id = tracing::field::Empty)
 )]
 pub async fn setup_runpod_api_key(
     state: State<'_, NativeAppState>,
     request: SetupApiKeyRequest,
 ) -> CommandResult<ApiKeyIdentityResponse, SetupRunpodApiKeyErrorCode> {
+    let trace_id = start_command_trace();
     let state = state.ready().map_err(|error| {
         native_command_error(
             "setup_runpod_api_key",
+            &trace_id,
             error,
             SetupRunpodApiKeyErrorCode::NativeInitializationFailed,
         )
     })?;
     let api_key = ApiSecret::new(request.api_key).map_err(|error| {
-        command_error("setup_runpod_api_key", error, setup_runpod_api_key_error)
+        command_error(
+            "setup_runpod_api_key",
+            &trace_id,
+            error,
+            setup_runpod_api_key_error,
+        )
     })?;
     let identity = state.runpod_secrets.write(api_key).await.map_err(|error| {
-        command_error("setup_runpod_api_key", error, setup_runpod_api_key_error)
+        command_error(
+            "setup_runpod_api_key",
+            &trace_id,
+            error,
+            setup_runpod_api_key_error,
+        )
     })?;
 
     Ok(identity.into())
@@ -56,14 +68,16 @@ pub async fn setup_runpod_api_key(
 #[tracing::instrument(
     name = "native_command",
     skip_all,
-    fields(command = "get_runpod_api_key_identity", request_metadata = tracing::field::debug(empty_command_request_metadata()))
+    fields(command = "get_runpod_api_key_identity", request_metadata = tracing::field::debug(empty_command_request_metadata()), trace_id = tracing::field::Empty)
 )]
 pub async fn get_runpod_api_key_identity(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<ApiKeyIdentityResponse, GetRunpodApiKeyIdentityErrorCode> {
+    let trace_id = start_command_trace();
     let state = state.ready().map_err(|error| {
         native_command_error(
             "get_runpod_api_key_identity",
+            &trace_id,
             error,
             GetRunpodApiKeyIdentityErrorCode::NativeInitializationFailed,
         )
@@ -71,6 +85,7 @@ pub async fn get_runpod_api_key_identity(
     let identity = state.runpod_secrets.identity().await.map_err(|error| {
         command_error(
             "get_runpod_api_key_identity",
+            &trace_id,
             error,
             get_runpod_api_key_identity_error,
         )
@@ -84,20 +99,27 @@ pub async fn get_runpod_api_key_identity(
 #[tracing::instrument(
     name = "native_command",
     skip_all,
-    fields(command = "delete_runpod_api_key", request_metadata = tracing::field::debug(empty_command_request_metadata()))
+    fields(command = "delete_runpod_api_key", request_metadata = tracing::field::debug(empty_command_request_metadata()), trace_id = tracing::field::Empty)
 )]
 pub async fn delete_runpod_api_key(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<(), DeleteRunpodApiKeyErrorCode> {
+    let trace_id = start_command_trace();
     let state = state.ready().map_err(|error| {
         native_command_error(
             "delete_runpod_api_key",
+            &trace_id,
             error,
             DeleteRunpodApiKeyErrorCode::NativeInitializationFailed,
         )
     })?;
     state.runpod_secrets.remove().await.map_err(|error| {
-        command_error("delete_runpod_api_key", error, delete_runpod_api_key_error)
+        command_error(
+            "delete_runpod_api_key",
+            &trace_id,
+            error,
+            delete_runpod_api_key_error,
+        )
     })?;
 
     Ok(())
@@ -108,15 +130,17 @@ pub async fn delete_runpod_api_key(
 #[tracing::instrument(
     name = "native_command",
     skip_all,
-    fields(command = "setup_hugging_face_api_key", request_metadata = tracing::field::debug(command_request_metadata(&request)))
+    fields(command = "setup_hugging_face_api_key", request_metadata = tracing::field::debug(command_request_metadata(&request)), trace_id = tracing::field::Empty)
 )]
 pub async fn setup_hugging_face_api_key(
     state: State<'_, NativeAppState>,
     request: SetupApiKeyRequest,
 ) -> CommandResult<ApiKeyIdentityResponse, SetupHuggingFaceApiKeyErrorCode> {
+    let trace_id = start_command_trace();
     let state = state.ready().map_err(|error| {
         native_command_error(
             "setup_hugging_face_api_key",
+            &trace_id,
             error,
             SetupHuggingFaceApiKeyErrorCode::NativeInitializationFailed,
         )
@@ -124,6 +148,7 @@ pub async fn setup_hugging_face_api_key(
     let api_key = ApiSecret::new(request.api_key).map_err(|error| {
         command_error(
             "setup_hugging_face_api_key",
+            &trace_id,
             error,
             setup_hugging_face_api_key_error,
         )
@@ -135,6 +160,7 @@ pub async fn setup_hugging_face_api_key(
         .map_err(|error| {
             command_error(
                 "setup_hugging_face_api_key",
+                &trace_id,
                 error,
                 setup_hugging_face_api_key_error,
             )
@@ -148,14 +174,16 @@ pub async fn setup_hugging_face_api_key(
 #[tracing::instrument(
     name = "native_command",
     skip_all,
-    fields(command = "get_hugging_face_api_key_identity", request_metadata = tracing::field::debug(empty_command_request_metadata()))
+    fields(command = "get_hugging_face_api_key_identity", request_metadata = tracing::field::debug(empty_command_request_metadata()), trace_id = tracing::field::Empty)
 )]
 pub async fn get_hugging_face_api_key_identity(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<ApiKeyIdentityResponse, GetHuggingFaceApiKeyIdentityErrorCode> {
+    let trace_id = start_command_trace();
     let state = state.ready().map_err(|error| {
         native_command_error(
             "get_hugging_face_api_key_identity",
+            &trace_id,
             error,
             GetHuggingFaceApiKeyIdentityErrorCode::NativeInitializationFailed,
         )
@@ -167,6 +195,7 @@ pub async fn get_hugging_face_api_key_identity(
         .map_err(|error| {
             command_error(
                 "get_hugging_face_api_key_identity",
+                &trace_id,
                 error,
                 get_hugging_face_api_key_identity_error,
             )
@@ -180,14 +209,16 @@ pub async fn get_hugging_face_api_key_identity(
 #[tracing::instrument(
     name = "native_command",
     skip_all,
-    fields(command = "delete_hugging_face_api_key", request_metadata = tracing::field::debug(empty_command_request_metadata()))
+    fields(command = "delete_hugging_face_api_key", request_metadata = tracing::field::debug(empty_command_request_metadata()), trace_id = tracing::field::Empty)
 )]
 pub async fn delete_hugging_face_api_key(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<(), DeleteHuggingFaceApiKeyErrorCode> {
+    let trace_id = start_command_trace();
     let state = state.ready().map_err(|error| {
         native_command_error(
             "delete_hugging_face_api_key",
+            &trace_id,
             error,
             DeleteHuggingFaceApiKeyErrorCode::NativeInitializationFailed,
         )
@@ -195,6 +226,7 @@ pub async fn delete_hugging_face_api_key(
     state.hugging_face_secrets.remove().await.map_err(|error| {
         command_error(
             "delete_hugging_face_api_key",
+            &trace_id,
             error,
             delete_hugging_face_api_key_error,
         )

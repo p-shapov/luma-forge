@@ -1,4 +1,5 @@
 pub mod catalog;
+pub(crate) mod diagnostics;
 pub mod errors;
 pub mod native;
 pub mod secrets;

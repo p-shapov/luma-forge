@@ -5,7 +5,6 @@ use crate::{
     commands::types::workspace::{
         LifecycleOperationChangedEvent, WorkspaceChangedEvent, WorkspaceDeletedEvent,
     },
-    diagnostics::lifecycle_log_fields,
     shared::EventSink,
     workspace::events::WorkspaceEvent,
 };
@@ -26,14 +25,27 @@ impl EventSink<WorkspaceEvent> for TauriWorkspaceEventSink {
             WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id,
                 operation_id,
-                diagnostic_id,
+                trace_id,
                 operation,
             } => {
-                let fields = lifecycle_log_fields(operation.payload.as_ref());
+                let payload = operation
+                    .payload
+                    .as_ref()
+                    .and_then(|payload| serde_json::to_value(payload).ok());
+                let operation_kind = payload
+                    .as_ref()
+                    .and_then(|payload| payload.get("operation"))
+                    .and_then(|operation| operation.as_str())
+                    .unwrap_or("unknown");
+                let step = payload
+                    .as_ref()
+                    .and_then(|payload| payload.get("step"))
+                    .and_then(|step| step.as_str())
+                    .unwrap_or("none");
                 let _ = LifecycleOperationChangedEvent {
                     workspace_id: workspace_id.clone(),
                     operation_id: operation_id.clone(),
-                    diagnostic_id: diagnostic_id.clone(),
+                    trace_id: trace_id.clone(),
                     operation: operation.into(),
                 }
                 .emit(&self.app_handle);
@@ -41,9 +53,9 @@ impl EventSink<WorkspaceEvent> for TauriWorkspaceEventSink {
                     event = "lifecycle_operation_changed",
                     workspace_id = %workspace_id,
                     operation_id = %operation_id,
-                    operation_kind = fields.operation_kind,
-                    step = fields.step.unwrap_or("none"),
-                    diagnostic_id = diagnostic_id.as_deref().unwrap_or("none"),
+                    trace_id = %trace_id,
+                    operation_kind = operation_kind,
+                    step = step,
                     "workspace event emitted"
                 );
             }

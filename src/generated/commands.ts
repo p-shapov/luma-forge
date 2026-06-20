@@ -48,7 +48,7 @@ export type CleanupWorkspaceResponse = {
 export type CommandError<Code> = {
 	message: string,
 	code: Code,
-	diagnosticId: string,
+	traceId: string,
 };
 
 export type CreateRunpodWorkspaceErrorCode = "native_initialization_failed" | "provider_unauthorized" | "provider_insufficient_permissions" | "provider_rate_limited" | "provider_timeout" | "provider_request_failed" | "workflow_catalog_parse_failed" | "workflow_catalog_validation_failed" | "runtime_catalog_parse_failed" | "runtime_catalog_validation_failed" | "workspace_catalog_storage_unavailable" | "workspace_catalog_schema_invalid" | "workspace_catalog_data_invalid" | "workspace_already_exists" | "workspace_not_found" | "key_not_found" | "store_unavailable" | "lifecycle_operation_already_running" | "invalid_runtime_state";
@@ -93,7 +93,7 @@ export type LifecycleCleanupPayloadResponse = { runtimeType: "runpod"; step: Run
 export type LifecycleOperationChangedEvent = {
 	workspaceId: string,
 	operationId: string,
-	diagnosticId: string | null,
+	traceId: string,
 	operation: LifecycleOperationResponse,
 };
 
