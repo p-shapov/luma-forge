@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError, shared::ApiError,
-    workflow_catalog::WorkflowCatalogError, workspace::WorkspaceError,
-    workspace_catalog::WorkspaceCatalogError,
+    lifecycle_journal::LifecycleJournalError, runtime_catalog::RuntimeCatalogError,
+    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
+    workspace::WorkspaceError, workspace_catalog::WorkspaceCatalogError,
 };
 
 macro_rules! define_workspace_error_code {
@@ -38,6 +38,12 @@ macro_rules! define_workspace_error_code {
             WorkspaceCatalogSchemaInvalid,
             #[error("workspace catalog data is invalid")]
             WorkspaceCatalogDataInvalid,
+            #[error("lifecycle journal storage unavailable")]
+            LifecycleJournalStorageUnavailable,
+            #[error("lifecycle journal schema is invalid")]
+            LifecycleJournalSchemaInvalid,
+            #[error("lifecycle journal data is invalid")]
+            LifecycleJournalDataInvalid,
             #[error("workspace already exists")]
             WorkspaceAlreadyExists,
             #[error("workspace was not found")]
@@ -97,6 +103,15 @@ pub fn create_runpod_workspace_error(error: &WorkspaceError) -> CreateRunpodWork
         WorkspaceErrorKind::WorkspaceCatalogDataInvalid => {
             CreateRunpodWorkspaceErrorCode::WorkspaceCatalogDataInvalid
         }
+        WorkspaceErrorKind::LifecycleJournalStorageUnavailable => {
+            CreateRunpodWorkspaceErrorCode::LifecycleJournalStorageUnavailable
+        }
+        WorkspaceErrorKind::LifecycleJournalSchemaInvalid => {
+            CreateRunpodWorkspaceErrorCode::LifecycleJournalSchemaInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalDataInvalid => {
+            CreateRunpodWorkspaceErrorCode::LifecycleJournalDataInvalid
+        }
         WorkspaceErrorKind::WorkspaceAlreadyExists => {
             CreateRunpodWorkspaceErrorCode::WorkspaceAlreadyExists
         }
@@ -146,6 +161,15 @@ pub fn provision_workspace_error(error: &WorkspaceError) -> ProvisionWorkspaceEr
         WorkspaceErrorKind::WorkspaceCatalogDataInvalid => {
             ProvisionWorkspaceErrorCode::WorkspaceCatalogDataInvalid
         }
+        WorkspaceErrorKind::LifecycleJournalStorageUnavailable => {
+            ProvisionWorkspaceErrorCode::LifecycleJournalStorageUnavailable
+        }
+        WorkspaceErrorKind::LifecycleJournalSchemaInvalid => {
+            ProvisionWorkspaceErrorCode::LifecycleJournalSchemaInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalDataInvalid => {
+            ProvisionWorkspaceErrorCode::LifecycleJournalDataInvalid
+        }
         WorkspaceErrorKind::WorkspaceAlreadyExists => {
             ProvisionWorkspaceErrorCode::WorkspaceAlreadyExists
         }
@@ -191,6 +215,15 @@ pub fn cleanup_workspace_error(error: &WorkspaceError) -> CleanupWorkspaceErrorC
         WorkspaceErrorKind::WorkspaceCatalogDataInvalid => {
             CleanupWorkspaceErrorCode::WorkspaceCatalogDataInvalid
         }
+        WorkspaceErrorKind::LifecycleJournalStorageUnavailable => {
+            CleanupWorkspaceErrorCode::LifecycleJournalStorageUnavailable
+        }
+        WorkspaceErrorKind::LifecycleJournalSchemaInvalid => {
+            CleanupWorkspaceErrorCode::LifecycleJournalSchemaInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalDataInvalid => {
+            CleanupWorkspaceErrorCode::LifecycleJournalDataInvalid
+        }
         WorkspaceErrorKind::WorkspaceAlreadyExists => {
             CleanupWorkspaceErrorCode::WorkspaceAlreadyExists
         }
@@ -235,6 +268,15 @@ pub fn delete_workspace_error(error: &WorkspaceError) -> DeleteWorkspaceErrorCod
         }
         WorkspaceErrorKind::WorkspaceCatalogDataInvalid => {
             DeleteWorkspaceErrorCode::WorkspaceCatalogDataInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalStorageUnavailable => {
+            DeleteWorkspaceErrorCode::LifecycleJournalStorageUnavailable
+        }
+        WorkspaceErrorKind::LifecycleJournalSchemaInvalid => {
+            DeleteWorkspaceErrorCode::LifecycleJournalSchemaInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalDataInvalid => {
+            DeleteWorkspaceErrorCode::LifecycleJournalDataInvalid
         }
         WorkspaceErrorKind::WorkspaceAlreadyExists => {
             DeleteWorkspaceErrorCode::WorkspaceAlreadyExists
@@ -288,6 +330,15 @@ pub fn get_running_lifecycle_operations_error(
         }
         WorkspaceErrorKind::WorkspaceCatalogDataInvalid => {
             GetRunningLifecycleOperationsErrorCode::WorkspaceCatalogDataInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalStorageUnavailable => {
+            GetRunningLifecycleOperationsErrorCode::LifecycleJournalStorageUnavailable
+        }
+        WorkspaceErrorKind::LifecycleJournalSchemaInvalid => {
+            GetRunningLifecycleOperationsErrorCode::LifecycleJournalSchemaInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalDataInvalid => {
+            GetRunningLifecycleOperationsErrorCode::LifecycleJournalDataInvalid
         }
         WorkspaceErrorKind::WorkspaceAlreadyExists => {
             GetRunningLifecycleOperationsErrorCode::WorkspaceAlreadyExists
@@ -348,6 +399,15 @@ pub fn get_latest_lifecycle_operation_error(
         WorkspaceErrorKind::WorkspaceCatalogDataInvalid => {
             GetLatestLifecycleOperationErrorCode::WorkspaceCatalogDataInvalid
         }
+        WorkspaceErrorKind::LifecycleJournalStorageUnavailable => {
+            GetLatestLifecycleOperationErrorCode::LifecycleJournalStorageUnavailable
+        }
+        WorkspaceErrorKind::LifecycleJournalSchemaInvalid => {
+            GetLatestLifecycleOperationErrorCode::LifecycleJournalSchemaInvalid
+        }
+        WorkspaceErrorKind::LifecycleJournalDataInvalid => {
+            GetLatestLifecycleOperationErrorCode::LifecycleJournalDataInvalid
+        }
         WorkspaceErrorKind::WorkspaceAlreadyExists => {
             GetLatestLifecycleOperationErrorCode::WorkspaceAlreadyExists
         }
@@ -381,6 +441,9 @@ enum WorkspaceErrorKind {
     WorkspaceCatalogStorageUnavailable,
     WorkspaceCatalogSchemaInvalid,
     WorkspaceCatalogDataInvalid,
+    LifecycleJournalStorageUnavailable,
+    LifecycleJournalSchemaInvalid,
+    LifecycleJournalDataInvalid,
     WorkspaceAlreadyExists,
     WorkspaceNotFound,
     KeyNotFound,
@@ -397,7 +460,7 @@ fn workspace_error_kind(error: &WorkspaceError) -> WorkspaceErrorKind {
         WorkspaceError::WorkflowCatalogInvalid(error) => workflow_catalog_error(error),
         WorkspaceError::RuntimeCatalogInvalid(error) => runtime_catalog_error(error),
         WorkspaceError::WorkspaceCatalogInvalid(error) => workspace_catalog_error(error),
-        WorkspaceError::LifecycleJournalInvalid(_) => WorkspaceErrorKind::InvalidRuntimeState,
+        WorkspaceError::LifecycleJournalInvalid(error) => lifecycle_journal_error(error),
         WorkspaceError::WorkspaceNotFound { .. } => WorkspaceErrorKind::WorkspaceNotFound,
         WorkspaceError::LifecycleOperationAlreadyRunning { .. } => {
             WorkspaceErrorKind::LifecycleOperationAlreadyRunning
@@ -462,5 +525,23 @@ fn workspace_catalog_error(error: &WorkspaceCatalogError) -> WorkspaceErrorKind 
         }
         WorkspaceCatalogError::WorkspaceAlreadyExists => WorkspaceErrorKind::WorkspaceAlreadyExists,
         WorkspaceCatalogError::WorkspaceNotFound => WorkspaceErrorKind::WorkspaceNotFound,
+    }
+}
+
+fn lifecycle_journal_error(error: &LifecycleJournalError) -> WorkspaceErrorKind {
+    match error {
+        LifecycleJournalError::OperationNotFound => WorkspaceErrorKind::InvalidRuntimeState,
+        LifecycleJournalError::RunningOperationExists => {
+            WorkspaceErrorKind::LifecycleOperationAlreadyRunning
+        }
+        LifecycleJournalError::StorageUnavailable { .. } => {
+            WorkspaceErrorKind::LifecycleJournalStorageUnavailable
+        }
+        LifecycleJournalError::SchemaInvalid { .. } => {
+            WorkspaceErrorKind::LifecycleJournalSchemaInvalid
+        }
+        LifecycleJournalError::DataInvalid { .. } => {
+            WorkspaceErrorKind::LifecycleJournalDataInvalid
+        }
     }
 }
