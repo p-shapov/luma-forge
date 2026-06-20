@@ -141,6 +141,9 @@ impl WorkspaceService {
     ) -> Result<ProvisionWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         self.reject_running_lifecycle_state(&workspace).await?;
+        if workspace.state == WorkspaceState::Ready {
+            return Err(invalid_state("workspace is already provisioned"));
+        }
         if workspace.state != WorkspaceState::NotProvisioned {
             return Err(invalid_state("workspace is not ready to provision"));
         }
@@ -374,7 +377,7 @@ impl WorkspaceService {
             .lifecycle_journal
             .find_running_by_workspace(&workspace.id)
             .await?
-            .ok_or_else(|| invalid_state("workspace lifecycle state has no running operation"))?;
+            .ok_or_else(|| invalid_state(format!("no running lifecycle operation for this lifecycle state: {}", workspace.state)))?;
 
         Err(WorkspaceError::LifecycleOperationAlreadyRunning {
             operation_id: operation.operation_id,
