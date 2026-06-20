@@ -21,6 +21,7 @@ use super::runtime::{
 };
 const PROVISIONER_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const PROVISIONER_STARTUP_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const PROVISIONER_UNAVAILABLE_RETRY_LIMIT_AFTER_STARTUP: usize = 3;
 
 fn provision_payload(step: RunpodProvisionStep) -> LifecycleOperationPayload {
     LifecycleOperationPayload::Provision(LifecycleProvisionPayload::Runpod(
@@ -99,6 +100,8 @@ pub async fn provision_workspace(
     )
     .await?;
     let provisioner_startup_started_at = Instant::now();
+    let mut provisioner_status_responded = false;
+    let mut consecutive_unavailable_status_polls = 0;
     loop {
         let status = match runpod_client
             .get_provisioner_status(&workspace.id, &provisioner_pod_id)
@@ -106,23 +109,63 @@ pub async fn provision_workspace(
         {
             Ok(status) => status,
             Err(super::errors::RunpodProviderError::ProvisionerWorkerUnavailable { .. }) => {
-                if provisioner_startup_probe_expired(provisioner_startup_started_at, Instant::now())
-                {
+                if provisioner_status_responded {
+                    consecutive_unavailable_status_polls += 1;
+                }
+                if provisioner_worker_unavailable_timed_out(
+                    provisioner_status_responded,
+                    consecutive_unavailable_status_polls,
+                    provisioner_startup_started_at,
+                    Instant::now(),
+                ) {
+                    let message = if provisioner_status_responded {
+                        "provisioner worker unavailable after startup retry limit"
+                    } else {
+                        "provisioner worker startup timed out"
+                    };
+                    terminate_provisioner_pod(
+                        &context,
+                        runpod_client,
+                        &mut operation,
+                        &mut workspace,
+                        &provisioner_pod_id,
+                    )
+                    .await?;
                     return Err(super::runtime::map_provider_error(
                         super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
-                            message: "provisioner worker startup timed out".to_string(),
+                            message: message.to_string(),
                         },
                     ));
                 }
                 tokio::time::sleep(PROVISIONER_POLL_INTERVAL).await;
                 continue;
             }
-            Err(error) => return Err(super::runtime::map_provider_error(error)),
+            Err(error) => {
+                terminate_provisioner_pod(
+                    &context,
+                    runpod_client,
+                    &mut operation,
+                    &mut workspace,
+                    &provisioner_pod_id,
+                )
+                .await?;
+                return Err(super::runtime::map_provider_error(error));
+            }
         };
+        provisioner_status_responded = true;
+        consecutive_unavailable_status_polls = 0;
 
         match status {
             RunpodProvisionerStatus::Succeeded => break,
             RunpodProvisionerStatus::Failed { message } => {
+                terminate_provisioner_pod(
+                    &context,
+                    runpod_client,
+                    &mut operation,
+                    &mut workspace,
+                    &provisioner_pod_id,
+                )
+                .await?;
                 return Err(super::runtime::map_provider_error(
                     super::errors::RunpodProviderError::ProvisionerWorkerFailed { message },
                 ));
@@ -133,20 +176,14 @@ pub async fn provision_workspace(
         }
     }
 
-    mark_step(
+    terminate_provisioner_pod(
         &context,
+        runpod_client,
         &mut operation,
-        RunpodProvisionStep::TerminateProvisionerPod,
+        &mut workspace,
+        &provisioner_pod_id,
     )
     .await?;
-    runpod_client
-        .terminate_provisioner_pod(&provisioner_pod_id)
-        .await
-        .map_err(super::runtime::map_provider_error)?;
-    runpod_workspace_mut(&mut workspace)
-        .resources
-        .provisioner_pod_id = None;
-    workspace = context.persist_workspace(workspace).await?;
 
     mark_step(
         &context,
@@ -195,6 +232,41 @@ fn runpod_workspace_mut(workspace: &mut Workspace) -> &mut RunpodRuntime {
     runtime
 }
 
+async fn terminate_provisioner_pod(
+    context: &WorkspaceRuntimeContext<'_>,
+    runpod_client: &dyn RunpodRuntimeClient,
+    operation: &mut LifecycleOperation,
+    workspace: &mut Workspace,
+    provisioner_pod_id: &str,
+) -> Result<(), WorkspaceError> {
+    mark_step(
+        context,
+        operation,
+        RunpodProvisionStep::TerminateProvisionerPod,
+    )
+    .await?;
+    runpod_client
+        .terminate_provisioner_pod(provisioner_pod_id)
+        .await
+        .map_err(super::runtime::map_provider_error)?;
+    runpod_workspace_mut(workspace).resources.provisioner_pod_id = None;
+    *workspace = context.persist_workspace(workspace.clone()).await?;
+    Ok(())
+}
+
+fn provisioner_worker_unavailable_timed_out(
+    provisioner_status_responded: bool,
+    consecutive_unavailable_status_polls: usize,
+    started_at: Instant,
+    now: Instant,
+) -> bool {
+    if provisioner_status_responded {
+        consecutive_unavailable_status_polls >= PROVISIONER_UNAVAILABLE_RETRY_LIMIT_AFTER_STARTUP
+    } else {
+        provisioner_startup_probe_expired(started_at, now)
+    }
+}
+
 fn provisioner_startup_probe_expired(started_at: Instant, now: Instant) -> bool {
     now.duration_since(started_at) >= PROVISIONER_STARTUP_TIMEOUT
 }
@@ -209,8 +281,9 @@ mod tests {
         },
         provider::runpod::test_support::{
             runpod_client_with_failed_provisioner, runpod_client_with_failure,
-            runpod_client_with_state, runpod_client_with_transient_unavailable_provisioner,
-            workspace_with_runpod, RunpodClientFailure,
+            runpod_client_with_provisioner_status_sequence, runpod_client_with_state,
+            runpod_client_with_transient_unavailable_provisioner, workspace_with_runpod,
+            RunpodClientFailure,
         },
         shared::ApiError,
         workspace::test_support::runtime_context_for_test,
@@ -290,7 +363,7 @@ mod tests {
             (
                 RunpodClientFailure::GetProvisionerStatus,
                 Some("volume"),
-                Some("provisioner"),
+                None,
                 None,
                 None,
             ),
@@ -405,10 +478,93 @@ mod tests {
             runtime.resources.network_volume_id,
             Some("volume".to_string())
         );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(runtime.resources.endpoint_id, None);
+    }
+
+    #[tokio::test]
+    async fn provision_terminates_provisioner_when_status_request_fails() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_failure(RunpodClientFailure::GetProvisionerStatus);
+
+        let error = super::provision_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect_err("provision should fail");
+
         assert_eq!(
-            runtime.resources.provisioner_pod_id,
-            Some("provisioner".to_string())
+            error,
+            WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+                message: "get provisioner status failed".to_string(),
+            })
         );
+        let persisted = context
+            .find_workspace_for_test("workspace-1")
+            .await
+            .expect("persisted workspace");
+        let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id,
+            Some("volume".to_string())
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
+        assert_eq!(runtime.resources.template_id, None);
+        assert_eq!(runtime.resources.endpoint_id, None);
+    }
+
+    #[tokio::test]
+    async fn provision_terminates_provisioner_when_status_poll_retry_limit_is_exhausted() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let unavailable = || {
+            Err(
+                super::super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
+                    message: "provisioner worker is unavailable".to_string(),
+                },
+            )
+        };
+        let runpod_client = runpod_client_with_provisioner_status_sequence(vec![
+            Ok(super::RunpodProvisionerStatus::Running),
+            unavailable(),
+            unavailable(),
+            unavailable(),
+        ]);
+
+        let error = super::provision_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect_err("provision should fail after provisioner status retry limit");
+
+        assert_eq!(
+            error,
+            WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+                message: "provisioner worker unavailable after startup retry limit".to_string(),
+            })
+        );
+        let persisted = context
+            .find_workspace_for_test("workspace-1")
+            .await
+            .expect("persisted workspace");
+        let WorkspaceRuntime::Runpod(runtime) = persisted.runtime;
+        assert_eq!(
+            runtime.resources.network_volume_id,
+            Some("volume".to_string())
+        );
+        assert_eq!(runtime.resources.provisioner_pod_id, None);
         assert_eq!(runtime.resources.template_id, None);
         assert_eq!(runtime.resources.endpoint_id, None);
     }
@@ -433,6 +589,34 @@ mod tests {
         assert_eq!(provisioned.state, WorkspaceState::Ready);
     }
 
+    #[tokio::test]
+    async fn provision_keeps_polling_when_provisioner_is_unavailable_after_successful_status() {
+        let context = runtime_context_for_test();
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+        context.insert_workspace_for_test(workspace.clone()).await;
+        let operation = context.create_operation_for_test("workspace-1").await;
+        let runpod_client = runpod_client_with_provisioner_status_sequence(vec![
+            Ok(super::RunpodProvisionerStatus::Running),
+            Err(
+                super::super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
+                    message: "provisioner worker is unavailable".to_string(),
+                },
+            ),
+            Ok(super::RunpodProvisionerStatus::Succeeded),
+        ]);
+
+        let provisioned = super::provision_workspace(
+            context.clone(),
+            runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
+        .expect("provision should tolerate transient provisioner unavailability after startup");
+
+        assert_eq!(provisioned.state, WorkspaceState::Ready);
+    }
+
     #[test]
     fn provisioner_startup_probe_expires_at_timeout() {
         let started_at = std::time::Instant::now();
@@ -444,6 +628,25 @@ mod tests {
         assert!(super::provisioner_startup_probe_expired(
             started_at,
             started_at + super::PROVISIONER_STARTUP_TIMEOUT,
+        ));
+    }
+
+    #[test]
+    fn provisioner_worker_unavailable_times_out_before_startup_or_after_retry_budget() {
+        let started_at = std::time::Instant::now();
+        let timeout_at = started_at + super::PROVISIONER_STARTUP_TIMEOUT;
+
+        assert!(super::provisioner_worker_unavailable_timed_out(
+            false, 0, started_at, timeout_at
+        ));
+        assert!(!super::provisioner_worker_unavailable_timed_out(
+            true, 1, started_at, timeout_at
+        ));
+        assert!(!super::provisioner_worker_unavailable_timed_out(
+            true, 2, started_at, timeout_at
+        ));
+        assert!(super::provisioner_worker_unavailable_timed_out(
+            true, 3, started_at, timeout_at
         ));
     }
 }

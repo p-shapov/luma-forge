@@ -1,6 +1,9 @@
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+use std::{
+    collections::VecDeque,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use crate::{
@@ -103,6 +106,15 @@ pub fn runpod_client_with_transient_unavailable_provisioner() -> Arc<dyn RunpodR
     })
 }
 
+pub fn runpod_client_with_provisioner_status_sequence(
+    statuses: Vec<Result<RunpodProvisionerStatus, RunpodProviderError>>,
+) -> Arc<dyn RunpodRuntimeClient> {
+    Arc::new(FakeRunpodRuntimeClient {
+        provisioner_status_sequence: Arc::new(Mutex::new(VecDeque::from(statuses))),
+        ..Default::default()
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunpodClientFailure {
     CreateNetworkVolume,
@@ -136,6 +148,8 @@ impl RunpodClientFailure {
 struct FakeRunpodRuntimeClient {
     failure: Option<RunpodClientFailure>,
     provisioner_status: RunpodProvisionerStatus,
+    provisioner_status_sequence:
+        Arc<Mutex<VecDeque<Result<RunpodProvisionerStatus, RunpodProviderError>>>>,
     unavailable_status_polls: Arc<AtomicUsize>,
 }
 
@@ -144,6 +158,7 @@ impl Default for FakeRunpodRuntimeClient {
         Self {
             failure: None,
             provisioner_status: RunpodProvisionerStatus::Succeeded,
+            provisioner_status_sequence: Arc::new(Mutex::new(VecDeque::new())),
             unavailable_status_polls: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -223,6 +238,14 @@ impl RunpodRuntimeClient for FakeRunpodRuntimeClient {
         Box::pin(async move {
             if let Some(error) = self.failed(RunpodClientFailure::GetProvisionerStatus) {
                 return Err(error);
+            }
+            if let Some(status) = self
+                .provisioner_status_sequence
+                .lock()
+                .expect("status sequence lock should succeed")
+                .pop_front()
+            {
+                return status;
             }
             if self.unavailable_status_polls.load(Ordering::SeqCst) > 0 {
                 self.unavailable_status_polls.fetch_sub(1, Ordering::SeqCst);

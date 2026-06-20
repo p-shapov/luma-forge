@@ -93,7 +93,13 @@ impl<'a> WorkspaceRuntimeContext<'a> {
     ) -> Result<LifecycleOperation, WorkspaceError> {
         let operation = match operation.state {
             crate::domain::lifecycle_operation::LifecycleOperationState::Running => {
-                self.lifecycle_journal.update_operation(&operation).await?
+                self.lifecycle_journal
+                    .mark_state(
+                        &operation.operation_id,
+                        crate::domain::lifecycle_operation::LifecycleOperationState::Running,
+                        operation.payload.as_ref(),
+                    )
+                    .await?
             }
             state => {
                 self.lifecycle_journal
@@ -165,5 +171,39 @@ impl<'a> WorkspaceRuntimeContext<'a> {
             .latest_for_workspace(&workspace_id.to_string())
             .await
             .expect("latest operation should load")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        domain::{
+            lifecycle_operation::{
+                LifecycleOperationPayload, LifecycleOperationState, LifecycleProvisionPayload,
+            },
+            runpod::{RunpodLifecycleProvisionPayload, RunpodProvisionStep},
+        },
+        workspace::test_support::runtime_context_for_test,
+    };
+
+    #[tokio::test]
+    async fn persist_running_operation_refreshes_updated_at_for_progress_payload() {
+        let context = runtime_context_for_test();
+        let mut operation = context.create_operation_for_test("workspace-1").await;
+        let original_updated_at = operation.updated_at;
+        operation.payload = Some(LifecycleOperationPayload::Provision(
+            LifecycleProvisionPayload::Runpod(RunpodLifecycleProvisionPayload {
+                step: Some(RunpodProvisionStep::CreateNetworkVolume),
+            }),
+        ));
+        operation.state = LifecycleOperationState::Running;
+
+        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        let updated = context
+            .persist_operation(operation)
+            .await
+            .expect("operation should persist");
+
+        assert!(updated.updated_at > original_updated_at);
     }
 }
