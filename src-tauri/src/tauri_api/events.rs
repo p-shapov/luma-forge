@@ -2,10 +2,10 @@ use tauri::AppHandle;
 use tauri_specta::Event;
 
 use crate::{
-    commands::types::workspace::{
+    shared::EventSink,
+    tauri_api::types::workspace::{
         LifecycleOperationChangedEvent, WorkspaceChangedEvent, WorkspaceDeletedEvent,
     },
-    shared::EventSink,
     workspace::events::WorkspaceEvent,
 };
 

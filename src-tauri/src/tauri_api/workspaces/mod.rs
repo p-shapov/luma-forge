@@ -13,7 +13,9 @@ use errors::{
 
 use crate::{
     app::state::NativeAppState,
-    commands::{
+    domain::runpod::RunpodPlacementPlan,
+    lifecycle_journal::LifecycleJournalRepository,
+    tauri_api::{
         diagnostics::{
             command_error, command_request_metadata, empty_command_request_metadata,
             native_command_error, start_command_trace,
@@ -25,8 +27,6 @@ use crate::{
         },
         CommandResult,
     },
-    domain::runpod::RunpodPlacementPlan,
-    lifecycle_journal::LifecycleJournalRepository,
     workspace::{
         CreateRunpodWorkspaceRequest as CreateRunpodWorkspaceServiceRequest, WorkspaceError,
     },

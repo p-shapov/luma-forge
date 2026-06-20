@@ -2,7 +2,7 @@ use tauri::State;
 
 use crate::{
     app::state::NativeAppState,
-    commands::{
+    tauri_api::{
         diagnostics::{empty_command_request_metadata, start_command_trace},
         types::native::NativeStartupStatusResponse,
         CommandResult,
@@ -22,7 +22,7 @@ pub fn get_native_startup_status(
     let _trace_id = start_command_trace();
     let response = match state.startup_error() {
         Some(error) => NativeStartupStatusResponse::Failed {
-            error: error.clone(),
+            error: error.clone().into(),
         },
         None => NativeStartupStatusResponse::Ready,
     };

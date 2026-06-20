@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
+use crate::app::errors::AppInitializationError;
+
 pub type CommandResult<T, Code = NativeInitializationCommandErrorCode> =
     Result<T, CommandError<Code>>;
 pub type NativeCommandError = CommandError<NativeInitializationCommandErrorCode>;
@@ -17,6 +19,12 @@ pub struct CommandError<Code> {
 impl NativeCommandError {
     pub fn native_initialization(error: NativeInitializationCommandError) -> Self {
         NativeInitializationCommandErrorCode::from(error).into()
+    }
+}
+
+impl From<AppInitializationError> for NativeCommandError {
+    fn from(error: AppInitializationError) -> Self {
+        Self::native_initialization(error.into())
     }
 }
 
@@ -91,6 +99,28 @@ impl From<NativeInitializationCommandError> for NativeInitializationCommandError
             }
             NativeInitializationCommandError::LifecycleStateRestoreFailed { .. } => {
                 Self::LifecycleStateRestoreFailed
+            }
+        }
+    }
+}
+
+impl From<AppInitializationError> for NativeInitializationCommandError {
+    fn from(error: AppInitializationError) -> Self {
+        match error {
+            AppInitializationError::AppDataDirectoryUnavailable { message } => {
+                Self::AppDataDirectoryUnavailable { message }
+            }
+            AppInitializationError::AppDataDirectoryCreateFailed { path, message } => {
+                Self::AppDataDirectoryCreateFailed { path, message }
+            }
+            AppInitializationError::WorkspaceStorageInitializationFailed { path, message } => {
+                Self::WorkspaceStorageInitializationFailed { path, message }
+            }
+            AppInitializationError::ProviderServicesInitializationFailed { message } => {
+                Self::ProviderServicesInitializationFailed { message }
+            }
+            AppInitializationError::LifecycleStateRestoreFailed { message } => {
+                Self::LifecycleStateRestoreFailed { message }
             }
         }
     }

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    commands::errors::NativeCommandError,
+    app::errors::AppInitializationError,
     lifecycle_journal::sqlite::SqliteLifecycleJournalRepository,
     provider::{
         hugging_face::HuggingFaceIdentityProvider,
@@ -27,18 +27,18 @@ pub struct AppState {
 
 pub enum NativeAppState {
     Ready(Box<AppState>),
-    Failed(NativeCommandError),
+    Failed(AppInitializationError),
 }
 
 impl NativeAppState {
-    pub fn ready(&self) -> Result<&AppState, NativeCommandError> {
+    pub fn ready(&self) -> Result<&AppState, AppInitializationError> {
         match self {
             Self::Ready(state) => Ok(state),
             Self::Failed(error) => Err(error.clone()),
         }
     }
 
-    pub fn startup_error(&self) -> Option<&NativeCommandError> {
+    pub fn startup_error(&self) -> Option<&AppInitializationError> {
         match self {
             Self::Ready(_) => None,
             Self::Failed(error) => Some(error),
