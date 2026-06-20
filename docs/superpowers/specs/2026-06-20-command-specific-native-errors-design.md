@@ -4,14 +4,14 @@
 
 `NativeCommandErrorCode` currently aggregates error codes for unrelated native commands. That makes every command appear able to fail with system-wide variants, even when a command has a much narrower failure surface.
 
-Refactor native command errors so each Tauri command exposes its own error code enum and its own command-specific error mapping.
+Refactor native command errors so each ordinary Tauri command exposes its own error code enum and its own command-specific error mapping.
 
 ## Scope
 
 In scope:
 
 - Replace the ordinary command result contract with a generic command error envelope whose `code` is command-specific.
-- Add a distinct public Specta error code enum for each Tauri command.
+- Add a distinct public Specta error code enum for each ordinary Tauri command.
 - Move domain-to-command error mapping from global `NativeCommandErrorCode` conversions to command-submodule-local `errors.rs` files.
 - Regenerate TypeScript command bindings after native contract changes.
 - Keep diagnostics, redaction, diagnostic IDs, and structured logging behavior.
@@ -40,6 +40,9 @@ Each command returns a result whose error code type is specific to that command,
 - `SetupRunpodApiKeyErrorCode`
 - `GetRunpodApiKeyIdentityErrorCode`
 - `DeleteRunpodApiKeyErrorCode`
+- `SetupHuggingFaceApiKeyErrorCode`
+- `GetHuggingFaceApiKeyIdentityErrorCode`
+- `DeleteHuggingFaceApiKeyErrorCode`
 - `GetWorkflowCatalogErrorCode`
 - `GetRuntimeContractCatalogErrorCode`
 - `GetRunpodPlacementOptionsErrorCode`
@@ -53,7 +56,7 @@ Each command returns a result whose error code type is specific to that command,
 
 The generated TypeScript bindings should expose a specific error type per command through `typedError<Success, CommandError<SpecificCode>>` or the equivalent generated representation.
 
-Startup/native initialization failure remains separate from ordinary command errors. It can keep its dedicated startup status error contract because it represents native bootstrap state, not a normal command failure surface.
+Startup/native initialization failure remains separate from ordinary command errors. `get_native_startup_status` does not need a command-specific ordinary error enum because it reports native bootstrap state through `NativeStartupStatusResponse`, not through a normal command failure surface.
 
 ## Mapping
 
@@ -68,9 +71,9 @@ The root `commands/errors.rs` must not become the new aggregate of all command f
 
 Each command submodule owns its public command error code enums and mapper functions in its local `errors.rs`:
 
-- `commands/catalog/errors.rs`
-- `commands/secrets/errors.rs`
-- `commands/workspaces/errors.rs`
+- `commands/catalog/errors.rs` next to `commands/catalog/mod.rs`
+- `commands/secrets/errors.rs` next to `commands/secrets/mod.rs`
+- `commands/workspaces/errors.rs` next to `commands/workspaces/mod.rs`
 
 The command handler files import their own submodule mappers, not a root command error mapper registry.
 

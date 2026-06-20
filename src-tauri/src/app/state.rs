@@ -14,27 +14,21 @@ use crate::{
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
-pub type WorkspaceCatalogAppService = SqliteWorkspaceCatalogRepository;
-pub type LifecycleJournalAppService = SqliteLifecycleJournalRepository;
 pub type WorkspaceAppService = WorkspaceService<
     SqliteWorkspaceCatalogRepository,
     SqliteLifecycleJournalRepository,
     BundledWorkflowCatalogRepository,
 >;
-pub type RunpodProviderAppService = Arc<dyn RunpodRuntimeClient>;
-pub type RunpodSecretsService = SecretsService<KeyringSecretStore, RunpodIdentityProvider>;
-pub type HuggingFaceSecretsService =
-    SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>;
 
 pub struct AppState {
     pub workflow_catalog: BundledWorkflowCatalogRepository,
     pub runtime_catalog: BundledRuntimeCatalogRepository,
-    pub workspace_catalog: WorkspaceCatalogAppService,
-    pub lifecycle_journal: LifecycleJournalAppService,
+    pub workspace_catalog: SqliteWorkspaceCatalogRepository,
+    pub lifecycle_journal: SqliteLifecycleJournalRepository,
     pub workspace: WorkspaceAppService,
-    pub runpod_provider: RunpodProviderAppService,
-    pub runpod_secrets: RunpodSecretsService,
-    pub hugging_face_secrets: HuggingFaceSecretsService,
+    pub runpod_provider: Arc<dyn RunpodRuntimeClient>,
+    pub runpod_secrets: SecretsService<KeyringSecretStore, RunpodIdentityProvider>,
+    pub hugging_face_secrets: SecretsService<KeyringSecretStore, HuggingFaceIdentityProvider>,
 }
 
 pub enum NativeAppState {

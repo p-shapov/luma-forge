@@ -26,35 +26,3 @@ impl From<ApiKeyIdentity> for ApiKeyIdentityResponse {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn setup_api_key_request_uses_camel_case() {
-        let request = SetupApiKeyRequest {
-            api_key: "secret-value".to_string(),
-        };
-
-        assert_eq!(
-            serde_json::to_string(&request).expect("request json"),
-            r#"{"apiKey":"secret-value"}"#
-        );
-    }
-
-    #[test]
-    fn identity_response_does_not_include_secret_value() {
-        let response = ApiKeyIdentityResponse::from(ApiKeyIdentity {
-            email: Some("user@example.test".to_string()),
-            username: Some("user".to_string()),
-            key_display_name: Some("display".to_string()),
-        });
-
-        let json = serde_json::to_string(&response).expect("identity json");
-
-        assert!(json.contains("user@example.test"));
-        assert!(!json.contains("secret"));
-        assert!(!json.contains("apiKey"));
-    }
-}

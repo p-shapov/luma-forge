@@ -1,4 +1,4 @@
-use std::{fs, path::Path, sync::Arc};
+use std::{fs, sync::Arc};
 
 use tauri::{AppHandle, Manager};
 
@@ -41,7 +41,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
     fs::create_dir_all(&app_data_dir).map_err(|error| {
         NativeCommandError::native_initialization(
             NativeInitializationCommandError::AppDataDirectoryCreateFailed {
-                path: display_path(&app_data_dir),
+                path: app_data_dir.display().to_string(),
                 message: error.to_string(),
             },
         )
@@ -53,7 +53,7 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         .map_err(|error| {
             NativeCommandError::native_initialization(
                 NativeInitializationCommandError::WorkspaceStorageInitializationFailed {
-                    path: display_path(&native_db_path),
+                    path: native_db_path.display().to_string(),
                     message: error.to_string(),
                 },
             )
@@ -103,10 +103,6 @@ pub async fn build_app_state(app_handle: &AppHandle) -> Result<AppState, NativeC
         runpod_secrets,
         hugging_face_secrets,
     })
-}
-
-fn display_path(path: &Path) -> String {
-    path.display().to_string()
 }
 
 fn build_runpod_secrets(
