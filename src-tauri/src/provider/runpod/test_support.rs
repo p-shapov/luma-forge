@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use crate::{
     domain::{
@@ -93,6 +96,13 @@ pub fn runpod_client_with_failed_provisioner() -> Arc<dyn RunpodRuntimeClient> {
     })
 }
 
+pub fn runpod_client_with_transient_unavailable_provisioner() -> Arc<dyn RunpodRuntimeClient> {
+    Arc::new(FakeRunpodRuntimeClient {
+        unavailable_status_polls: Arc::new(AtomicUsize::new(1)),
+        ..Default::default()
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunpodClientFailure {
     CreateNetworkVolume,
@@ -122,10 +132,11 @@ impl RunpodClientFailure {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct FakeRunpodRuntimeClient {
     failure: Option<RunpodClientFailure>,
     provisioner_status: RunpodProvisionerStatus,
+    unavailable_status_polls: Arc<AtomicUsize>,
 }
 
 impl Default for FakeRunpodRuntimeClient {
@@ -133,6 +144,7 @@ impl Default for FakeRunpodRuntimeClient {
         Self {
             failure: None,
             provisioner_status: RunpodProvisionerStatus::Succeeded,
+            unavailable_status_polls: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -211,6 +223,12 @@ impl RunpodRuntimeClient for FakeRunpodRuntimeClient {
         Box::pin(async move {
             if let Some(error) = self.failed(RunpodClientFailure::GetProvisionerStatus) {
                 return Err(error);
+            }
+            if self.unavailable_status_polls.load(Ordering::SeqCst) > 0 {
+                self.unavailable_status_polls.fetch_sub(1, Ordering::SeqCst);
+                return Err(RunpodProviderError::ProvisionerWorkerUnavailable {
+                    message: "provisioner worker is unavailable".to_string(),
+                });
             }
             Ok(self.provisioner_status.clone())
         })
