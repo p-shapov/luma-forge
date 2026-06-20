@@ -10,5 +10,6 @@ pub use errors::WorkspaceError;
 pub use runtime::{
     CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
     ProvisionWorkspaceResponse, WorkspaceRuntime, WorkspaceRuntimeContext,
+    WorkspaceRuntimeDispatcher, WorkspaceRuntimeImplementations,
 };
 pub use service::{WorkspaceService, WorkspaceServiceDependencies};

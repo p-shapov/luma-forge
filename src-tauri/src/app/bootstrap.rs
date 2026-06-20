@@ -21,7 +21,10 @@ use crate::{
     },
     sqlite::database::SqliteNativeDatabase,
     workflow_catalog::BundledWorkflowCatalogRepository,
-    workspace::{WorkspaceService, WorkspaceServiceDependencies},
+    workspace::{
+        WorkspaceRuntimeDispatcher, WorkspaceRuntimeImplementations, WorkspaceService,
+        WorkspaceServiceDependencies,
+    },
     workspace_catalog::sqlite::SqliteWorkspaceCatalogRepository,
 };
 
@@ -61,11 +64,14 @@ pub async fn build_app_state(
         Arc::new(workflow_catalog.clone()),
         Arc::new(runtime_catalog.clone()),
     );
+    let runtime_dispatcher = WorkspaceRuntimeDispatcher::new(WorkspaceRuntimeImplementations {
+        runpod: Arc::new(workspace_runtime),
+    });
     let workspace = WorkspaceService::new(WorkspaceServiceDependencies {
         workspace_catalog: Arc::new(workspace_catalog.clone()),
         lifecycle_journal: Arc::new(lifecycle_journal.clone()),
         workflow_catalog: Arc::new(workflow_catalog.clone()),
-        runtime: Arc::new(workspace_runtime),
+        runtime_dispatcher,
         event_sink: Arc::new(TauriWorkspaceEventSink::new(app_handle.clone())),
         task_spawner: Arc::new(TauriBackgroundTaskSpawner),
     });

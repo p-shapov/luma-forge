@@ -18,7 +18,10 @@ use crate::{
     workflow_catalog::BundledWorkflowCatalogRepository,
     workspace::{
         events::WorkspaceEvent,
-        runtime::WorkspaceRuntime as WorkspaceRuntimeTrait,
+        runtime::{
+            WorkspaceRuntime as WorkspaceRuntimeTrait, WorkspaceRuntimeDispatcher,
+            WorkspaceRuntimeImplementations,
+        },
         service::{WorkspaceService, WorkspaceServiceDependencies},
         WorkspaceRuntimeContext,
     },
@@ -89,7 +92,9 @@ pub(crate) fn service_with_runtime(
         workspace_catalog: repositories.workspace_catalog.clone(),
         lifecycle_journal: repositories.lifecycle_journal.clone(),
         workflow_catalog: Arc::new(BundledWorkflowCatalogRepository::new()),
-        runtime,
+        runtime_dispatcher: WorkspaceRuntimeDispatcher::new(WorkspaceRuntimeImplementations {
+            runpod: runtime,
+        }),
         event_sink: Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
         task_spawner: Arc::new(TestBackgroundTaskSpawner),
     });

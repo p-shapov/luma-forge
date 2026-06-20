@@ -24,6 +24,7 @@ use super::{
     runtime::{
         CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
         ProvisionWorkspaceResponse, WorkspaceRuntime, WorkspaceRuntimeContext,
+        WorkspaceRuntimeDispatcher,
     },
 };
 
@@ -32,7 +33,7 @@ pub struct WorkspaceService {
     workspace_catalog: Arc<dyn WorkspaceCatalogRepository>,
     lifecycle_journal: Arc<dyn LifecycleJournalRepository>,
     workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
-    runtime: Arc<dyn WorkspaceRuntime>,
+    runtime_dispatcher: WorkspaceRuntimeDispatcher,
     lifecycle_operation_registry: InFlightRegistry<String>,
     event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
     task_spawner: Arc<dyn BackgroundTaskSpawner>,
@@ -42,7 +43,7 @@ pub struct WorkspaceServiceDependencies {
     pub workspace_catalog: Arc<dyn WorkspaceCatalogRepository>,
     pub lifecycle_journal: Arc<dyn LifecycleJournalRepository>,
     pub workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
-    pub runtime: Arc<dyn WorkspaceRuntime>,
+    pub runtime_dispatcher: WorkspaceRuntimeDispatcher,
     pub event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
     pub task_spawner: Arc<dyn BackgroundTaskSpawner>,
 }
@@ -53,7 +54,7 @@ impl WorkspaceService {
             workspace_catalog: dependencies.workspace_catalog,
             lifecycle_journal: dependencies.lifecycle_journal,
             workflow_catalog: dependencies.workflow_catalog,
-            runtime: dependencies.runtime,
+            runtime_dispatcher: dependencies.runtime_dispatcher,
             lifecycle_operation_registry: InFlightRegistry::default(),
             event_sink: dependencies.event_sink,
             task_spawner: dependencies.task_spawner,
@@ -280,7 +281,7 @@ impl WorkspaceService {
             Workspace,
         ) -> AppFuture<'static, Result<Workspace, WorkspaceError>>,
     {
-        let runtime = self.runtime.clone();
+        let runtime = self.runtime_dispatcher.runtime_for(&workspace);
         let context = self.runtime_context(trace_id.clone());
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();

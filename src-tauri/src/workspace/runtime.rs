@@ -4,7 +4,7 @@ use crate::{
     domain::{
         lifecycle_operation::LifecycleOperation,
         runpod::RunpodPlacementPlan,
-        workspace::{Workspace, WorkspaceId},
+        workspace::{Workspace, WorkspaceId, WorkspaceRuntime as WorkspaceRuntimeDomain},
     },
     lifecycle_journal::LifecycleJournalRepository,
     shared::{AppFuture, EventSink},
@@ -58,6 +58,28 @@ pub trait WorkspaceRuntime: Send + Sync {
         operation: LifecycleOperation,
         workspace: Workspace,
     ) -> AppFuture<'a, Result<Workspace, WorkspaceError>>;
+}
+
+#[derive(Clone)]
+pub struct WorkspaceRuntimeImplementations {
+    pub runpod: Arc<dyn WorkspaceRuntime>,
+}
+
+#[derive(Clone)]
+pub struct WorkspaceRuntimeDispatcher {
+    implementations: WorkspaceRuntimeImplementations,
+}
+
+impl WorkspaceRuntimeDispatcher {
+    pub fn new(implementations: WorkspaceRuntimeImplementations) -> Self {
+        Self { implementations }
+    }
+
+    pub fn runtime_for(&self, workspace: &Workspace) -> Arc<dyn WorkspaceRuntime> {
+        match &workspace.runtime {
+            WorkspaceRuntimeDomain::Runpod(_) => self.implementations.runpod.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -176,15 +198,33 @@ impl<'a> WorkspaceRuntimeContext<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::{
         domain::{
             lifecycle_operation::{
                 LifecycleOperationPayload, LifecycleOperationState, LifecycleProvisionPayload,
             },
             runpod::{RunpodLifecycleProvisionPayload, RunpodProvisionStep},
+            workspace::WorkspaceState,
         },
-        workspace::test_support::runtime_context_for_test,
+        provider::runpod::test_support::workspace_with_runpod,
+        workspace::test_support::{runtime_context_for_test, FakeWorkspaceRuntime},
     };
+
+    #[test]
+    fn dispatcher_returns_runpod_runtime_for_runpod_workspace() {
+        let runpod: Arc<dyn super::WorkspaceRuntime> = Arc::new(FakeWorkspaceRuntime);
+        let dispatcher =
+            super::WorkspaceRuntimeDispatcher::new(super::WorkspaceRuntimeImplementations {
+                runpod: runpod.clone(),
+            });
+        let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
+
+        let selected = dispatcher.runtime_for(&workspace);
+
+        assert!(Arc::ptr_eq(&selected, &runpod));
+    }
 
     #[tokio::test]
     async fn persist_running_operation_refreshes_updated_at_for_progress_payload() {
