@@ -2,7 +2,15 @@
 
 LumaForge is a desktop application for preparing remote GPU infrastructure and running ComfyUI workflows on it.
 
-The main goal of the product is to turn a local workflow choice into a ready-to-use remote workspace and then use that workspace to execute the selected ComfyUI workflow on remote GPU infrastructure.
+The main goal of the product is to turn a workflow choice into a ready-to-use workspace and then use that workspace to execute the selected ComfyUI workflow on the configured runtime environment.
+
+## Core Concepts
+
+A `Workspace` is a user-created working area for one selected ComfyUI workflow preset. It connects the workflow choice with runtime configuration and its lifecycle state. Users can reuse a workspace while its runtime is available, then clean it up when they no longer need it.
+
+A `WorkspaceRuntime` is the execution environment behind a workspace. It owns runtime-specific setup, execution, and cleanup details so the UI can work with workspace status instead of runtime internals. The current implementation is RunPod; future implementations may run locally or use other providers.
+
+A `WorkflowPreset` is a reusable ComfyUI workflow definition available in the app. It describes what can be run, which runtime image and model assets it needs, and which user inputs are mapped into the ComfyUI graph.
 
 ## Development
 

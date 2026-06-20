@@ -2,13 +2,33 @@
 
 This directory contains the active Tauri native backend. Business workflows live in application services, Tauri commands stay as adapters, and domain models stay independent from Tauri runtime APIs, persistence adapters, UI concerns, and provider SDK details.
 
-## Workspace Runtimes
+## Domain Entities
 
-A `Workspace` owns common workspace identity and workflow selection. `WorkspaceRuntime` describes how that workspace is operated at runtime.
+`Workspace` is the persisted user runtime instance. It has a stable identity, references the selected workflow version, records the current lifecycle state, and stores runtime-specific data needed to manage the configured execution environment.
 
-At the moment, only the RunPod runtime is available: `Runpod(RunpodRuntime)`. It represents RunPod-backed GPU infrastructure and RunPod resources. Future runtimes should be added only when they have a clear owner service and operation boundary.
+`WorkspaceState` is the native lifecycle status for a workspace: not provisioned, provisioning, ready, cleaning up, or invalid. Application services update it as lifecycle operations progress, and Tauri commands expose it to the UI as the authoritative workspace status.
 
-When adding a new workspace runtime, keep runtime-specific orchestration behind its own service boundary and persist long-running work through the lifecycle journal.
+`WorkspaceRuntime` is the runtime-specific part of a workspace. It keeps runtime configuration and implementation details out of shared workspace rules. The current runtime variant is `Runpod`.
+
+`WorkflowCatalog` is the bundled catalog of curated workflow presets available to the app. A `WorkflowPreset` is a named workflow option, and each `WorkflowRevision` describes one version: runtime preset, execution schema and input bindings, required model assets, required storage size, credential requirements, and runtime contract requirements.
+
+`RuntimeCatalog` is the bundled catalog of worker/runtime contracts. A `RuntimeContract` groups available revisions for a runtime contract, while `RuntimeContractReference` pins the exact contract id and version a workflow needs during workspace lifecycle operations.
+
+`LifecycleOperation` is the durable record for a background workspace operation such as provision or cleanup. It belongs to a workspace, tracks operation state and timestamps, and may include runtime-specific step payload so progress can resume, report status, and diagnose failures.
+
+`RunpodRuntime` is the RunPod-specific workspace runtime data. It combines the chosen `RunpodPlacementPlan` with `RunpodResources`, the RunPod resource identifiers created during provisioning: network volume, provisioner pod, endpoint, and template. The native backend uses those identifiers to find the existing RunPod resources for later progress updates, cleanup and delete.
+
+`RunpodPlacementOptions` are RunPod-discovered choices available before workspace creation: datacenters, GPU types, VRAM, and maximum supported volume size. A `RunpodPlacementPlan` is the selected datacenter, GPU type, and volume size persisted into the workspace.
+
+## Workspace Service and Runtimes
+
+`WorkspaceService` is the application service that manages the workspace lifecycle. It creates workspaces, starts provision/cleanup/delete tasks in the background, records lifecycle journal state and emits workspace events.
+
+`WorkspaceRuntime` is the service-facing trait for runtime-specific lifecycle operations: provision, cleanup, and delete. The dispatcher inside `WorkspaceService` selects the implementation from the workspace runtime data while the service keeps the shared lifecycle rules and persistence flow.
+
+At the moment, `provider/runpod` is the concrete implementation. `RunpodWorkspaceRuntime` implements `WorkspaceRuntime` for `Runpod(RunpodRuntime)` workspaces, keeps resources provision and cleanup steps, RunPod API calls, provisioner coordination, and runtime catalog access behind the provider boundary.
+
+When adding a new workspace runtime, extend `WorkspaceService` only where the shared lifecycle contract needs a new runtime entry point or dispatch case. Keep provider-specific orchestration behind a `WorkspaceRuntime` implementation, and use `WorkspaceRuntimeContext` to persist workspace and lifecycle journal progress.
 
 ## Native Support Files
 
