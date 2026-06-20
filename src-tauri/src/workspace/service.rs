@@ -124,11 +124,10 @@ where
 
     async fn start_lifecycle_operation(
         &self,
-        workspace_id: &str,
+        mut workspace: Workspace,
         trace_id: String,
         running_state: WorkspaceState,
     ) -> Result<(Workspace, LifecycleOperation, String), WorkspaceError> {
-        let mut workspace = self.load_workspace_required(workspace_id).await?;
         let workspace_id = workspace.id.clone();
 
         let operation = self
@@ -158,6 +157,7 @@ where
         trace_id: String,
     ) -> Result<ProvisionWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
+        reject_running_lifecycle_state(&workspace)?;
         if workspace.state != WorkspaceState::NotProvisioned {
             return Err(invalid_state("workspace is not ready to provision"));
         }
@@ -166,7 +166,7 @@ where
             return Err(invalid_state("workspace already has runpod resources"));
         }
         let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace_id, trace_id, WorkspaceState::Provisioning)
+            .start_lifecycle_operation(workspace, trace_id, WorkspaceState::Provisioning)
             .await?;
 
         let runtime = self.runtime.clone();
@@ -190,8 +190,10 @@ where
         workspace_id: &str,
         trace_id: String,
     ) -> Result<CleanupWorkspaceResponse, WorkspaceError> {
+        let workspace = self.load_workspace_required(workspace_id).await?;
+        reject_running_lifecycle_state(&workspace)?;
         let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace_id, trace_id, WorkspaceState::CleaningUp)
+            .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
             .await?;
         let runtime = self.runtime.clone();
         let context = self.runtime_context(trace_id.clone());
@@ -289,8 +291,10 @@ where
         workspace_id: &str,
         trace_id: String,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
+        let workspace = self.load_workspace_required(workspace_id).await?;
+        reject_running_lifecycle_state(&workspace)?;
         let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace_id, trace_id, WorkspaceState::CleaningUp)
+            .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
             .await?;
         let runtime = self.runtime.clone();
         let context = self.runtime_context(trace_id.clone());
@@ -361,6 +365,19 @@ fn map_operation_start_error(
         }
         other => other.into(),
     }
+}
+
+fn reject_running_lifecycle_state(workspace: &Workspace) -> Result<(), WorkspaceError> {
+    if matches!(
+        workspace.state,
+        WorkspaceState::Provisioning | WorkspaceState::CleaningUp
+    ) {
+        return Err(WorkspaceError::LifecycleOperationAlreadyRunning {
+            workspace_id: workspace.id.clone(),
+        });
+    }
+
+    Ok(())
 }
 
 async fn load_terminal_operation(
@@ -564,6 +581,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provision_rejects_provisioning_workspace_as_lifecycle_operation_already_running() {
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
+        service
+            .insert_workspace_for_test(workspace_with_runpod(
+                "workspace-1",
+                WorkspaceState::Provisioning,
+            ))
+            .await;
+
+        let error = service
+            .provision_workspace("workspace-1", "trace-test".to_string())
+            .await
+            .expect_err("provision should fail");
+
+        assert_eq!(
+            error,
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
+                workspace_id: "workspace-1".to_string(),
+            }
+        );
+        assert_eq!(
+            repositories
+                .lifecycle_journal
+                .list_running()
+                .await
+                .expect("operations"),
+            Vec::new()
+        );
+    }
+
+    #[tokio::test]
     async fn provision_runner_marks_operation_completed_and_clears_in_flight() {
         let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
@@ -622,6 +670,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_rejects_cleaning_up_workspace_as_lifecycle_operation_already_running() {
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
+        service
+            .insert_workspace_for_test(workspace_with_runpod(
+                "workspace-1",
+                WorkspaceState::CleaningUp,
+            ))
+            .await;
+
+        let error = service
+            .cleanup_workspace("workspace-1", "trace-test".to_string())
+            .await
+            .expect_err("cleanup should be rejected");
+
+        assert_eq!(
+            error,
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
+                workspace_id: "workspace-1".to_string(),
+            }
+        );
+        assert_eq!(
+            repositories
+                .lifecycle_journal
+                .list_running()
+                .await
+                .expect("operations"),
+            Vec::new()
+        );
+    }
+
+    #[tokio::test]
     async fn delete_workspace_rejects_when_lifecycle_operation_is_running() {
         let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
         service
@@ -657,6 +736,37 @@ mod tests {
                 .expect("operation should exist")
                 .state,
             LifecycleOperationState::Running
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_rejects_provisioning_workspace_as_lifecycle_operation_already_running() {
+        let (service, repositories) = service_with_runtime(Arc::new(FakeWorkspaceRuntime));
+        service
+            .insert_workspace_for_test(workspace_with_runpod(
+                "workspace-1",
+                WorkspaceState::Provisioning,
+            ))
+            .await;
+
+        let error = service
+            .delete_workspace("workspace-1", "trace-test".to_string())
+            .await
+            .expect_err("delete should be rejected");
+
+        assert_eq!(
+            error,
+            crate::workspace::WorkspaceError::LifecycleOperationAlreadyRunning {
+                workspace_id: "workspace-1".to_string(),
+            }
+        );
+        assert_eq!(
+            repositories
+                .lifecycle_journal
+                .list_running()
+                .await
+                .expect("operations"),
+            Vec::new()
         );
     }
 }
