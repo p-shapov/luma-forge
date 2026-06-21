@@ -17,7 +17,7 @@ pub struct ErrorDiagnostics {
 }
 
 pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
-    let appender = logforth::append::file::FileBuilder::new(logs_dir, current_log_filename())
+    let appender = logforth::append::file::FileBuilder::new(logs_dir, "luma-forge.log")
         .layout(logforth::layout::JsonLayout::default())
         .build()
         .map_err(|error| DiagnosticsInitializationError::SetupFailed {
@@ -87,19 +87,6 @@ fn serialized_error_code(error: &impl serde::Serialize, fallback: &'static str) 
     }
 }
 
-fn current_log_filename() -> String {
-    log_filename_for_date(time::OffsetDateTime::now_utc().date())
-}
-
-fn log_filename_for_date(date: time::Date) -> String {
-    format!(
-        "luma-forge.log.{:04}-{:02}-{:02}",
-        date.year(),
-        u8::from(date.month()),
-        date.day()
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,12 +154,5 @@ mod tests {
         assert_eq!(diagnostics.message, "unit failure");
         assert_eq!(diagnostics.cause, "unit failure");
         assert!(diagnostics.source_chain.is_empty());
-    }
-
-    #[test]
-    fn log_filename_for_date_uses_dated_global_contract_name() {
-        let date = time::Date::from_calendar_date(2026, time::Month::June, 21).unwrap();
-
-        assert_eq!(log_filename_for_date(date), "luma-forge.log.2026-06-21");
     }
 }
