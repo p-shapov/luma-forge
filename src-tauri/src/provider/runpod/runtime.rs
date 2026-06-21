@@ -153,10 +153,18 @@ where
         Ok(options)
     }
 
+    #[fastrace::trace]
     async fn create_network_volume(
         &self,
         params: CreateRunpodNetworkVolumeParams,
     ) -> Result<String, RunpodProviderError> {
+        log::info!(
+            workspace_id = params.workspace_id.as_str(),
+            data_center_id = params.data_center_id.as_str(),
+            size_gb = params.size_gb;
+            "creating runpod network volume"
+        );
+
         let api_key = self.runpod_api_key().await?;
         let body = mapping::network_volume_create_body(
             &params.workspace_id,
@@ -167,26 +175,82 @@ where
             .client
             .create_network_volume(&api_key, &body)
             .await
-            .map_err(RunpodProviderError::from)?;
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    workspace_id = params.workspace_id.as_str(),
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod network volume creation failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            workspace_id = params.workspace_id.as_str(),
+            network_volume_id = response.id.as_str();
+            "created runpod network volume"
+        );
 
         Ok(response.id)
     }
 
+    #[fastrace::trace]
     async fn delete_network_volume(
         &self,
         network_volume_id: &str,
     ) -> Result<(), RunpodProviderError> {
+        log::info!(
+            network_volume_id = network_volume_id;
+            "deleting runpod network volume"
+        );
+
         let api_key = self.runpod_api_key().await?;
         self.client
             .delete_network_volume(&api_key, network_volume_id)
             .await
-            .map_err(RunpodProviderError::from)
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    network_volume_id = network_volume_id,
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod network volume deletion failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            network_volume_id = network_volume_id;
+            "deleted runpod network volume"
+        );
+
+        Ok(())
     }
 
+    #[fastrace::trace]
     async fn start_provisioner_pod(
         &self,
         params: StartRunpodProvisionerPodParams,
     ) -> Result<String, RunpodProviderError> {
+        let workspace_id = params.workspace_id.clone();
+        let data_center_id = params.data_center_id.clone();
+        let network_volume_id = params.network_volume_id.clone();
+        log::info!(
+            workspace_id = workspace_id.as_str(),
+            data_center_id = data_center_id.as_str(),
+            network_volume_id = network_volume_id.as_str();
+            "starting runpod provisioner pod"
+        );
+
         let api_key = self.runpod_api_key().await?;
         let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
         let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
@@ -204,37 +268,121 @@ where
             .client
             .start_pod(&api_key, &body)
             .await
-            .map_err(RunpodProviderError::from)?;
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    workspace_id = workspace_id.as_str(),
+                    data_center_id = data_center_id.as_str(),
+                    network_volume_id = network_volume_id.as_str(),
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod provisioner pod start failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            workspace_id = workspace_id.as_str(),
+            provisioner_pod_id = pod.id.as_str();
+            "started runpod provisioner pod"
+        );
 
         Ok(pod.id)
     }
 
+    #[fastrace::trace]
     async fn terminate_provisioner_pod(
         &self,
         provisioner_pod_id: &str,
     ) -> Result<(), RunpodProviderError> {
+        log::info!(
+            provisioner_pod_id = provisioner_pod_id;
+            "terminating runpod provisioner pod"
+        );
+
         let api_key = self.runpod_api_key().await?;
         self.client
             .delete_pod(&api_key, provisioner_pod_id)
             .await
-            .map_err(RunpodProviderError::from)
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    provisioner_pod_id = provisioner_pod_id,
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod provisioner pod termination failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            provisioner_pod_id = provisioner_pod_id;
+            "terminated runpod provisioner pod"
+        );
+
+        Ok(())
     }
 
+    #[fastrace::trace]
     async fn get_provisioner_status(
         &self,
         workspace_id: &str,
         provisioner_pod_id: &str,
     ) -> Result<RunpodProvisionerStatus, RunpodProviderError> {
+        log::info!(
+            workspace_id = workspace_id,
+            provisioner_pod_id = provisioner_pod_id;
+            "checking runpod provisioner status"
+        );
+
         let bearer_token = self.workspace_bearer_token(workspace_id).await?;
-        self.client
+        let status = self
+            .client
             .provisioner_status_request(&provisioner_status_url(provisioner_pod_id), &bearer_token)
             .await
+            .map_err(|error| {
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    workspace_id = workspace_id,
+                    provisioner_pod_id = provisioner_pod_id,
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod provisioner status check failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            workspace_id = workspace_id,
+            provisioner_pod_id = provisioner_pod_id,
+            status:? = status;
+            "checked runpod provisioner status"
+        );
+
+        Ok(status)
     }
 
+    #[fastrace::trace]
     async fn create_serverless_template(
         &self,
         params: CreateRunpodServerlessTemplateParams,
     ) -> Result<String, RunpodProviderError> {
+        log::info!(
+            workspace_id = params.workspace_id.as_str();
+            "creating runpod serverless template"
+        );
+
         let api_key = self.runpod_api_key().await?;
         let body =
             mapping::endpoint_template_create_body(&params.workspace_id, params.endpoint_image_ref);
@@ -242,15 +390,49 @@ where
             .client
             .create_template(&api_key, &body)
             .await
-            .map_err(RunpodProviderError::from)?;
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    workspace_id = params.workspace_id.as_str(),
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod serverless template creation failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            workspace_id = params.workspace_id.as_str(),
+            template_id = response.id.as_str();
+            "created runpod serverless template"
+        );
 
         Ok(response.id)
     }
 
+    #[fastrace::trace]
     async fn create_serverless_endpoint(
         &self,
         params: CreateRunpodServerlessEndpointParams,
     ) -> Result<String, RunpodProviderError> {
+        let workspace_id = params.workspace_id.clone();
+        let data_center_id = params.data_center_id.clone();
+        let gpu_type_id = params.gpu_type_id.clone();
+        let network_volume_id = params.network_volume_id.clone();
+        let template_id = params.template_id.clone();
+        log::info!(
+            workspace_id = workspace_id.as_str(),
+            data_center_id = data_center_id.as_str(),
+            gpu_type_id = gpu_type_id.as_str(),
+            network_volume_id = network_volume_id.as_str(),
+            template_id = template_id.as_str();
+            "creating runpod serverless endpoint"
+        );
+
         let api_key = self.runpod_api_key().await?;
         let body = mapping::endpoint_create_body(
             &params.workspace_id,
@@ -263,28 +445,103 @@ where
             .client
             .create_endpoint(&api_key, &body)
             .await
-            .map_err(RunpodProviderError::from)?;
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    workspace_id = workspace_id.as_str(),
+                    data_center_id = data_center_id.as_str(),
+                    gpu_type_id = gpu_type_id.as_str(),
+                    network_volume_id = network_volume_id.as_str(),
+                    template_id = template_id.as_str(),
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod serverless endpoint creation failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            workspace_id = workspace_id.as_str(),
+            endpoint_id = response.id.as_str();
+            "created runpod serverless endpoint"
+        );
 
         Ok(response.id)
     }
 
+    #[fastrace::trace]
     async fn delete_serverless_endpoint(
         &self,
         endpoint_id: &str,
     ) -> Result<(), RunpodProviderError> {
+        log::info!(
+            endpoint_id = endpoint_id;
+            "deleting runpod serverless endpoint"
+        );
+
         let api_key = self.runpod_api_key().await?;
         self.client
             .delete_endpoint(&api_key, endpoint_id)
             .await
-            .map_err(RunpodProviderError::from)
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    endpoint_id = endpoint_id,
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod serverless endpoint deletion failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            endpoint_id = endpoint_id;
+            "deleted runpod serverless endpoint"
+        );
+
+        Ok(())
     }
 
+    #[fastrace::trace]
     async fn delete_template(&self, template_id: &str) -> Result<(), RunpodProviderError> {
+        log::info!(
+            template_id = template_id;
+            "deleting runpod serverless template"
+        );
+
         let api_key = self.runpod_api_key().await?;
         self.client
             .delete_template(&api_key, template_id)
             .await
-            .map_err(RunpodProviderError::from)
+            .map_err(|error| {
+                let error = RunpodProviderError::from(error);
+                let diagnostics =
+                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                log::error!(
+                    template_id = template_id,
+                    code = diagnostics.code.as_str(),
+                    message = diagnostics.message.as_str(),
+                    cause = diagnostics.cause.as_str(),
+                    source_chain:? = diagnostics.source_chain;
+                    "runpod serverless template deletion failed"
+                );
+                error
+            })?;
+
+        log::info!(
+            template_id = template_id;
+            "deleted runpod serverless template"
+        );
+
+        Ok(())
     }
 }
 
