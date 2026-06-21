@@ -4,6 +4,8 @@ pub enum AppInitializationError {
     AppDataDirectoryUnavailable { message: String },
     #[error("app data directory could not be created at {path}: {message}")]
     AppDataDirectoryCreateFailed { path: String, message: String },
+    #[error("native diagnostics could not be initialized: {message}")]
+    DiagnosticsInitializationFailed { message: String },
     #[error("workspace storage could not be initialized at {path}: {message}")]
     WorkspaceStorageInitializationFailed { path: String, message: String },
     #[error("provider services could not be initialized: {message}")]

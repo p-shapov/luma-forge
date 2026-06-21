@@ -121,7 +121,7 @@ export type ModelAssetResponse = {
 
 export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
 
-export type NativeInitializationCommandErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed";
+export type NativeInitializationCommandErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed";
 
 export type NativeStartupStatusResponse = { status: "ready" } | { status: "failed"; error: CommandError<NativeInitializationCommandErrorCode> };
 
