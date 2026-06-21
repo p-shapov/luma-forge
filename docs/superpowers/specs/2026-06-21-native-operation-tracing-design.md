@@ -134,13 +134,13 @@ Log milestone coverage:
 - RunPod serverless template create/delete
 - RunPod serverless endpoint create/delete
 
-Provider request diagnostics are operation-level only. Do not log raw request bodies, response bodies, auth headers, signed URLs, or large responses.
+Provider request diagnostics are operation-level only. RunPod provider operation failures should log the original `RunpodProviderError` before it is mapped into a `WorkspaceError`, using the same safe `code`, `message`, `cause`, and `source_chain` fields. Do not log raw request bodies, response bodies, auth headers, signed URLs, or large responses.
 
 ## Error Diagnostics
 
 Log errors once at the boundary that finalizes the operation outcome.
 
-Command failures are logged at the command boundary. Detached lifecycle failures are logged at the lifecycle boundary that marks the operation failed. Lower layers return errors without duplicate logs unless they own a finalized outcome.
+Command failures are logged at the command boundary. Detached lifecycle failures are logged at the lifecycle boundary that marks the operation failed. RunPod provider operation failures are logged at the provider operation boundary before provider errors are converted into workspace errors. Other lower layers return errors without duplicate logs unless they own a finalized outcome.
 
 Failure diagnostics use safe fields:
 
