@@ -44,8 +44,7 @@ Add a top-level `diagnostics` module under `src-tauri/src`. It is infrastructure
 - build the JSONL log file path
 - format a `SpanContext` trace ID for UI/support use
 - read the current local parent trace ID when needed
-- extract safe error `cause` and `source_chain` details
-- extract an error code from serialized externally tagged domain/provider errors without logging the serialized payload
+- extract safe error `code`, `message`, `cause`, and `source_chain` details
 
 `diagnostics` must not know about Tauri commands, command error enums, workspace services, provider types, or app bootstrap types.
 
@@ -150,7 +149,7 @@ Failure diagnostics use safe fields:
 - `cause`: leaf source error message
 - `source_chain`: ordered source chain from immediate source to leaf
 
-`code` must come from typed error mapping or a serialized externally tagged domain/provider error enum, not ad hoc raw string literals. Serialized code extraction may inspect the serialized shape to read the variant tag, but must not log the serialized payload. Unsafe source-chain links must be omitted rather than sanitized into misleading text.
+`code` must come from typed error mapping or a serialized externally tagged domain/provider error enum, not ad hoc raw string literals. Error diagnostics may inspect the serialized shape to read the variant tag, but must not log the serialized payload. `message` is the top-level error display string. Unsafe source-chain links must be omitted rather than sanitized into misleading text.
 
 ## Redaction Rules
 
@@ -177,8 +176,7 @@ Keep new tests local to the new `diagnostics` module and only test diagnostics-o
 
 Allowed tests:
 
-- safe `cause` and `source_chain` extraction for nested errors
-- serialized error-code extraction for externally tagged enum errors
+- safe `code`, `message`, `cause`, and `source_chain` extraction for nested externally tagged enum errors
 - redaction or omission behavior when diagnostics filters unsafe source-chain entries
 - log filename/date path helper if implemented as standalone logic
 
