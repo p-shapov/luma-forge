@@ -14,9 +14,12 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 async-trait = "0.1"
+fastrace = { version = "0.7", features = ["enable"] }
 hex = "0.4"
 hmac = "0.12"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
+log = { version = "0.4", features = ["kv"] }
+logforth = { version = "0.30", features = ["append-file", "bridge-log", "diagnostic-fastrace", "layout-json"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
