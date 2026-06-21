@@ -243,9 +243,7 @@ impl WorkspaceService {
                             workspace_id = workspace.id.as_str(),
                             operation_id = operation.operation_id.as_str(),
                             code = diagnostics.code.as_str(),
-                            message = diagnostics.message.as_str(),
-                            cause = diagnostics.cause.as_str(),
-                            source_chain:? = diagnostics.source_chain;
+                            message = diagnostics.message.as_str();
                             "workspace lifecycle runner failed"
                         );
 

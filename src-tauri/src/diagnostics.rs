@@ -24,8 +24,6 @@ pub enum DiagnosticsInitializationError {
 pub struct ErrorDiagnostics {
     pub code: String,
     pub message: String,
-    pub cause: String,
-    pub source_chain: Vec<String>,
 }
 
 pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
@@ -73,18 +71,9 @@ pub fn error_diagnostics<E>(error: &E, fallback_code: &'static str) -> ErrorDiag
 where
     E: Error + serde::Serialize + 'static,
 {
-    let mut source_chain = Vec::new();
-    let mut leaf: &(dyn Error + 'static) = error;
-    while let Some(source) = leaf.source() {
-        source_chain.push(sanitize_diagnostic_string(&source.to_string()));
-        leaf = source;
-    }
-
     ErrorDiagnostics {
         code: serialized_error_code(error, fallback_code),
         message: sanitize_diagnostic_string(&error.to_string()),
-        cause: sanitize_diagnostic_string(&leaf.to_string()),
-        source_chain,
     }
 }
 
@@ -599,7 +588,18 @@ mod tests {
     }
 
     #[test]
-    fn error_diagnostics_reports_code_message_leaf_cause_and_ordered_sources() {
+    fn error_diagnostics_shape_is_code_and_message_only() {
+        let diagnostics = ErrorDiagnostics {
+            code: "structured_failure".to_string(),
+            message: "top-level".to_string(),
+        };
+
+        assert_eq!(diagnostics.code, "structured_failure");
+        assert_eq!(diagnostics.message, "top-level");
+    }
+
+    #[test]
+    fn error_diagnostics_reports_code_and_message() {
         let error = TestError::StructuredFailure {
             message: "top-level".to_string(),
             source: Some(Box::new(TestError::StructuredFailure {
@@ -615,8 +615,6 @@ mod tests {
 
         assert_eq!(diagnostics.code, "structured_failure");
         assert_eq!(diagnostics.message, "top-level");
-        assert_eq!(diagnostics.cause, "leaf");
-        assert_eq!(diagnostics.source_chain, vec!["middle", "leaf"]);
     }
 
     #[test]
@@ -625,12 +623,10 @@ mod tests {
 
         assert_eq!(diagnostics.code, "unit_failure");
         assert_eq!(diagnostics.message, "unit failure");
-        assert_eq!(diagnostics.cause, "unit failure");
-        assert!(diagnostics.source_chain.is_empty());
     }
 
     #[test]
-    fn error_diagnostics_redacts_sensitive_strings_in_message_cause_and_sources() {
+    fn error_diagnostics_redacts_sensitive_strings_in_message() {
         let error = TestError::StructuredFailure {
             message: "request failed for Bearer top-secret-token at https://example.com/download?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef&foo=bar".to_string(),
             source: Some(Box::new(TestError::StructuredFailure {
@@ -649,28 +645,13 @@ mod tests {
             diagnostics.message,
             "request failed for Bearer [REDACTED] at [REDACTED_URL]"
         );
-        assert_eq!(
-            diagnostics.cause,
-            "worker rejected [REDACTED] access_token=[REDACTED]"
-        );
-        assert_eq!(
-            diagnostics.source_chain,
-            vec![
-                "Authorization: [REDACTED]",
-                "worker rejected [REDACTED] access_token=[REDACTED]",
-            ]
-        );
         assert!(!diagnostics.message.contains("top-secret-token"));
         assert!(!diagnostics.message.contains("deadbeef"));
         assert!(!diagnostics.message.contains("https://example.com/download"));
-        assert!(!diagnostics
-            .cause
-            .contains("abcdefghijklmnopqrstuvwxyz123456"));
-        assert!(!diagnostics.cause.contains("native-secret"));
     }
 
     #[test]
-    fn error_diagnostics_redacts_colon_and_quoted_sensitive_key_forms() {
+    fn error_diagnostics_redacts_colon_and_quoted_sensitive_key_forms_in_message() {
         let error = TestError::StructuredFailure {
             message: r#"api_key: secret-one "access_token":"secret-two" authorization: Bearer secret-three"#.to_string(),
             source: Some(Box::new(TestError::StructuredFailure {
@@ -687,14 +668,6 @@ mod tests {
         assert_eq!(
             diagnostics.message,
             r#"api_key: [REDACTED] "access_token":"[REDACTED]" authorization: [REDACTED]"#
-        );
-        assert_eq!(diagnostics.cause, "provider said access_token: [REDACTED]");
-        assert_eq!(
-            diagnostics.source_chain,
-            vec![
-                r#""token":"[REDACTED]""#,
-                "provider said access_token: [REDACTED]",
-            ]
         );
     }
 
@@ -715,11 +688,6 @@ mod tests {
         let diagnostics = error_diagnostics(&error, "fallback");
 
         assert_eq!(diagnostics.message, "[REDACTED_LARGE_DIAGNOSTIC]");
-        assert_eq!(diagnostics.cause, "[REDACTED_BODY]");
-        assert_eq!(
-            diagnostics.source_chain,
-            vec!["[REDACTED_BODY]", "[REDACTED_BODY]"]
-        );
     }
 
     #[test]
@@ -735,8 +703,6 @@ mod tests {
         let diagnostics = error_diagnostics(&error, "fallback");
 
         assert_eq!(diagnostics.message, "[workspace invalid] missing endpoint");
-        assert_eq!(diagnostics.cause, "{workspace invalid}");
-        assert_eq!(diagnostics.source_chain, vec!["{workspace invalid}"]);
     }
 
     #[test]
@@ -755,11 +721,6 @@ mod tests {
         let diagnostics = error_diagnostics(&error, "fallback");
 
         assert_eq!(diagnostics.message, "[REDACTED_BODY]");
-        assert_eq!(diagnostics.cause, "[REDACTED_BODY]");
-        assert_eq!(
-            diagnostics.source_chain,
-            vec!["[REDACTED_BODY]", "[REDACTED_BODY]"]
-        );
     }
 
     #[test]

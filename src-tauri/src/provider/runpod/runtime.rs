@@ -191,9 +191,7 @@ where
                 log::error!(
                     workspace_id = params.workspace_id.as_str(),
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod network volume creation failed"
                 );
                 error
@@ -229,9 +227,7 @@ where
                 log::error!(
                     network_volume_id = network_volume_id,
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod network volume deletion failed"
                 );
                 error
@@ -286,9 +282,7 @@ where
                     data_center_id = data_center_id.as_str(),
                     network_volume_id = network_volume_id.as_str(),
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod provisioner pod start failed"
                 );
                 error
@@ -324,9 +318,7 @@ where
                 log::error!(
                     provisioner_pod_id = provisioner_pod_id,
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod provisioner pod termination failed"
                 );
                 error
@@ -364,9 +356,7 @@ where
                     workspace_id = workspace_id,
                     provisioner_pod_id = provisioner_pod_id,
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod provisioner status check failed"
                 );
             })?;
@@ -405,9 +395,7 @@ where
                 log::error!(
                     workspace_id = params.workspace_id.as_str(),
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod serverless template creation failed"
                 );
                 error
@@ -464,9 +452,7 @@ where
                     network_volume_id = network_volume_id.as_str(),
                     template_id = template_id.as_str(),
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod serverless endpoint creation failed"
                 );
                 error
@@ -502,9 +488,7 @@ where
                 log::error!(
                     endpoint_id = endpoint_id,
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod serverless endpoint deletion failed"
                 );
                 error
@@ -536,9 +520,7 @@ where
                 log::error!(
                     template_id = template_id,
                     code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str(),
-                    cause = diagnostics.cause.as_str(),
-                    source_chain:? = diagnostics.source_chain;
+                    message = diagnostics.message.as_str();
                     "runpod serverless template deletion failed"
                 );
                 error

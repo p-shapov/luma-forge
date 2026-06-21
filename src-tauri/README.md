@@ -49,11 +49,11 @@ Deleting `native.sqlite` removes local native state only. It does not clean up r
 
 ### Using Logs
 
-Native diagnostics are structured `tracing` logs. UI-facing errors stay safe and compact; native logs keep the trace ID, operation context, redacted error message, source chain, and span close timing needed to debug failures.
+Native diagnostics are structured `tracing` logs. UI-facing errors stay safe and compact; native logs keep the trace ID, operation context, redacted error code, redacted error message, and span close timing needed to debug failures.
 
 - For command failures, copy `traceId` from `NativeCommandError` and search the log file for that exact value.
 - For lifecycle operation failures, copy `traceId` from `LifecycleOperationChangedEvent` and search the log file for that exact value.
-- Use the matching log entry to identify the command or lifecycle operation, native error code, operation ID, workspace ID, redacted error message, and source chain.
+- Use the matching log entry to identify the command or lifecycle operation, native error code, operation ID, workspace ID, and redacted error message.
 - Trace backward from the logged boundary: command adapter to application service to provider/storage call, or lifecycle runner to lifecycle step to provider/worker call.
 
 ## Verification
