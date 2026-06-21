@@ -5,6 +5,10 @@ use logforth::filter::FilterResult;
 use logforth::record::{FilterCriteria, Level, LevelFilter};
 
 const REDACTED: &str = "[REDACTED]";
+const REDACTED_BODY: &str = "[REDACTED_BODY]";
+const REDACTED_LARGE_DIAGNOSTIC: &str = "[REDACTED_LARGE_DIAGNOSTIC]";
+const REDACTED_URL: &str = "[REDACTED_URL]";
+const MAX_DIAGNOSTIC_STRING_LEN: usize = 2048;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiagnosticsInitializationError {
@@ -120,7 +124,16 @@ fn is_app_log_target(target: &str) -> bool {
 }
 
 fn sanitize_diagnostic_string(value: &str) -> String {
-    let mut sanitized = redact_header_value(value, "authorization:");
+    if value.len() > MAX_DIAGNOSTIC_STRING_LEN {
+        return REDACTED_LARGE_DIAGNOSTIC.to_string();
+    }
+
+    if looks_like_raw_body(value) {
+        return REDACTED_BODY.to_string();
+    }
+
+    let mut sanitized = redact_signed_url_tokens(value);
+    sanitized = redact_header_value(&sanitized, "authorization:");
     sanitized = redact_bearer_token(&sanitized);
 
     for key in [
@@ -135,6 +148,82 @@ fn sanitize_diagnostic_string(value: &str) -> String {
     }
 
     redact_hugging_face_token(&sanitized)
+}
+
+fn looks_like_raw_body(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if starts_with_structured_body(trimmed) {
+        return true;
+    }
+
+    let lower = value.to_ascii_lowercase();
+    for marker in [
+        "request body:",
+        "response body:",
+        "provider response body:",
+        "raw provider response body:",
+        "command payload:",
+        "payload:",
+    ] {
+        if let Some(index) = lower.find(marker) {
+            let suffix = value[index + marker.len()..].trim_start();
+            if starts_with_structured_body(suffix) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn starts_with_structured_body(value: &str) -> bool {
+    value.starts_with('{') || value.starts_with('[')
+}
+
+fn redact_signed_url_tokens(value: &str) -> String {
+    let mut sanitized = String::with_capacity(value.len());
+
+    for token in value.split_inclusive(char::is_whitespace) {
+        let token_end = token.trim_end_matches(char::is_whitespace).len();
+        let (content, suffix) = token.split_at(token_end);
+        sanitized.push_str(&redact_signed_url_token(content));
+        sanitized.push_str(suffix);
+    }
+
+    if sanitized.is_empty() && !value.is_empty() {
+        redact_signed_url_token(value)
+    } else {
+        sanitized
+    }
+}
+
+fn redact_signed_url_token(token: &str) -> String {
+    let trimmed_end = token.trim_end_matches(['.', ',', ';', ':', ')', ']', '}']);
+    let trailing = &token[trimmed_end.len()..];
+
+    if looks_like_signed_url(trimmed_end) {
+        format!("{REDACTED_URL}{trailing}")
+    } else {
+        token.to_string()
+    }
+}
+
+fn looks_like_signed_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    (lower.contains("http://") || lower.contains("https://"))
+        && [
+            "x-amz-",
+            "x-goog-",
+            "signature=",
+            "x-amz-signature=",
+            "x-goog-signature=",
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
 }
 
 fn redact_bearer_token(value: &str) -> String {
@@ -326,7 +415,7 @@ mod tests {
     #[test]
     fn error_diagnostics_redacts_sensitive_strings_in_message_cause_and_sources() {
         let error = TestError::StructuredFailure {
-            message: "request failed for Bearer top-secret-token at https://example.com/download?api_key=runpod-secret&foo=bar".to_string(),
+            message: "request failed for Bearer top-secret-token at https://example.com/download?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef&foo=bar".to_string(),
             source: Some(Box::new(TestError::StructuredFailure {
                 message: "Authorization: Basic super-secret".to_string(),
                 source: Some(Box::new(TestError::StructuredFailure {
@@ -341,7 +430,7 @@ mod tests {
         assert_eq!(diagnostics.code, "structured_failure");
         assert_eq!(
             diagnostics.message,
-            "request failed for Bearer [REDACTED] at https://example.com/download?api_key=[REDACTED]&foo=bar"
+            "request failed for Bearer [REDACTED] at [REDACTED_URL]"
         );
         assert_eq!(
             diagnostics.cause,
@@ -355,11 +444,36 @@ mod tests {
             ]
         );
         assert!(!diagnostics.message.contains("top-secret-token"));
-        assert!(!diagnostics.message.contains("runpod-secret"));
+        assert!(!diagnostics.message.contains("deadbeef"));
+        assert!(!diagnostics.message.contains("https://example.com/download"));
         assert!(!diagnostics
             .cause
             .contains("abcdefghijklmnopqrstuvwxyz123456"));
         assert!(!diagnostics.cause.contains("native-secret"));
+    }
+
+    #[test]
+    fn error_diagnostics_suppresses_body_like_and_oversized_strings() {
+        let oversized = "x".repeat(5000);
+        let error = TestError::StructuredFailure {
+            message: oversized,
+            source: Some(Box::new(TestError::StructuredFailure {
+                message: r#"provider response body: {"status":"ok","items":[1,2,3],"nested":{"step":"run"}}"#.to_string(),
+                source: Some(Box::new(TestError::StructuredFailure {
+                    message: r#"request body: {"prompt":"draw","workflow":{"id":"wf_123"}}"#.to_string(),
+                    source: None,
+                })),
+            })),
+        };
+
+        let diagnostics = error_diagnostics(&error, "fallback");
+
+        assert_eq!(diagnostics.message, "[REDACTED_LARGE_DIAGNOSTIC]");
+        assert_eq!(diagnostics.cause, "[REDACTED_BODY]");
+        assert_eq!(
+            diagnostics.source_chain,
+            vec!["[REDACTED_BODY]", "[REDACTED_BODY]"]
+        );
     }
 
     #[test]
