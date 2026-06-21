@@ -10,9 +10,7 @@ mod tracing;
 pub mod types;
 pub mod workspaces;
 
-pub use errors::{
-    CommandError, CommandResult, NativeCommandError, NativeInitializationCommandErrorCode,
-};
+pub use errors::{CommandError, CommandResult, NativeInitializationCommandError};
 
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()

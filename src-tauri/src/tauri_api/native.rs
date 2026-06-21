@@ -3,9 +3,7 @@ use tauri::State;
 use crate::{
     app::state::NativeAppState,
     tauri_api::{
-        errors::{
-            command_error, NativeInitializationCommandError, NativeInitializationCommandErrorCode,
-        },
+        errors::{command_error, NativeInitializationCommandError},
         types::native::NativeStartupStatusResponse,
         CommandResult,
     },
@@ -22,7 +20,6 @@ pub fn get_native_startup_status(
                 error: command_error(
                     &trace_id,
                     NativeInitializationCommandError::from(error.clone()),
-                    |error| NativeInitializationCommandErrorCode::from(error.clone()),
                 ),
             },
             None => NativeStartupStatusResponse::Ready,

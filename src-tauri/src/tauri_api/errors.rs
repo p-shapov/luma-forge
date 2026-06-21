@@ -1,13 +1,10 @@
-use std::error::Error;
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::app::errors::AppInitializationError;
+use crate::{app::errors::AppInitializationError, diagnostics};
 
 pub type CommandResult<T, Code = NativeInitializationCommandErrorCode> =
     Result<T, CommandError<Code>>;
-pub type NativeCommandError = CommandError<NativeInitializationCommandErrorCode>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
 #[error("{message}")]
@@ -16,18 +13,6 @@ pub struct CommandError<Code> {
     pub message: String,
     pub code: Code,
     pub trace_id: String,
-}
-
-impl NativeCommandError {
-    pub fn native_initialization(error: NativeInitializationCommandError) -> Self {
-        NativeInitializationCommandErrorCode::from(error).into()
-    }
-}
-
-impl From<AppInitializationError> for NativeCommandError {
-    fn from(error: AppInitializationError) -> Self {
-        Self::native_initialization(error.into())
-    }
 }
 
 impl<Code> CommandError<Code> {
@@ -40,43 +25,20 @@ impl<Code> CommandError<Code> {
     }
 }
 
-impl<Code> From<Code> for CommandError<Code>
-where
-    Code: ToString,
-{
-    fn from(error: Code) -> Self {
-        let message = error.to_string();
-
-        Self {
-            message,
-            code: error,
-            trace_id: "trace-unavailable".to_string(),
-        }
-    }
+pub(crate) trait CommandErrorCode: Sized {
+    fn from_diagnostics_code(code: &str) -> Self;
+    fn as_str(&self) -> &'static str;
 }
 
-pub(crate) fn command_error<E, Code>(
-    trace_id: &str,
-    error: E,
-    map_code: impl FnOnce(&E) -> Code,
-) -> CommandError<Code>
+pub(crate) fn command_error<E, Code>(trace_id: &str, error: E) -> CommandError<Code>
 where
-    E: std::error::Error + 'static,
+    E: std::error::Error + Serialize + 'static,
+    Code: CommandErrorCode,
 {
-    let code = map_code(&error);
-    let cause = leaf_error_message(&error);
+    let diagnostics = diagnostics::error_diagnostics(&error, "command_error");
+    let code = Code::from_diagnostics_code(&diagnostics.code);
 
-    CommandError::new(code, cause, trace_id)
-}
-
-fn leaf_error_message(error: &(dyn Error + 'static)) -> String {
-    let mut leaf = error;
-
-    while let Some(source) = leaf.source() {
-        leaf = source;
-    }
-
-    leaf.to_string()
+    CommandError::new(code, diagnostics.message, trace_id)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
@@ -94,9 +56,38 @@ pub enum NativeInitializationCommandErrorCode {
     ProviderServicesInitializationFailed,
     #[error("workspace lifecycle state could not be restored")]
     LifecycleStateRestoreFailed,
+    #[error("command error")]
+    CommandError,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+impl CommandErrorCode for NativeInitializationCommandErrorCode {
+    fn from_diagnostics_code(code: &str) -> Self {
+        match code {
+            "app_data_directory_unavailable" => Self::AppDataDirectoryUnavailable,
+            "app_data_directory_create_failed" => Self::AppDataDirectoryCreateFailed,
+            "diagnostics_initialization_failed" => Self::DiagnosticsInitializationFailed,
+            "workspace_storage_initialization_failed" => Self::WorkspaceStorageInitializationFailed,
+            "provider_services_initialization_failed" => Self::ProviderServicesInitializationFailed,
+            "lifecycle_state_restore_failed" => Self::LifecycleStateRestoreFailed,
+            _ => Self::CommandError,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::AppDataDirectoryUnavailable => "app_data_directory_unavailable",
+            Self::AppDataDirectoryCreateFailed => "app_data_directory_create_failed",
+            Self::DiagnosticsInitializationFailed => "diagnostics_initialization_failed",
+            Self::WorkspaceStorageInitializationFailed => "workspace_storage_initialization_failed",
+            Self::ProviderServicesInitializationFailed => "provider_services_initialization_failed",
+            Self::LifecycleStateRestoreFailed => "lifecycle_state_restore_failed",
+            Self::CommandError => "command_error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
 pub enum NativeInitializationCommandError {
     #[error("app data directory is unavailable: {message}")]
     AppDataDirectoryUnavailable { message: String },
@@ -110,31 +101,6 @@ pub enum NativeInitializationCommandError {
     ProviderServicesInitializationFailed { message: String },
     #[error("workspace lifecycle state could not be restored: {message}")]
     LifecycleStateRestoreFailed { message: String },
-}
-
-impl From<NativeInitializationCommandError> for NativeInitializationCommandErrorCode {
-    fn from(error: NativeInitializationCommandError) -> Self {
-        match error {
-            NativeInitializationCommandError::AppDataDirectoryUnavailable { .. } => {
-                Self::AppDataDirectoryUnavailable
-            }
-            NativeInitializationCommandError::AppDataDirectoryCreateFailed { .. } => {
-                Self::AppDataDirectoryCreateFailed
-            }
-            NativeInitializationCommandError::DiagnosticsInitializationFailed { .. } => {
-                Self::DiagnosticsInitializationFailed
-            }
-            NativeInitializationCommandError::WorkspaceStorageInitializationFailed { .. } => {
-                Self::WorkspaceStorageInitializationFailed
-            }
-            NativeInitializationCommandError::ProviderServicesInitializationFailed { .. } => {
-                Self::ProviderServicesInitializationFailed
-            }
-            NativeInitializationCommandError::LifecycleStateRestoreFailed { .. } => {
-                Self::LifecycleStateRestoreFailed
-            }
-        }
-    }
 }
 
 impl From<AppInitializationError> for NativeInitializationCommandError {

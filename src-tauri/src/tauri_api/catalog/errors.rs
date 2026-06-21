@@ -2,137 +2,135 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    provider::errors::ProviderApiError, provider::runpod::RunpodProviderError,
-    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError,
-    workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
+    provider::runpod::RunpodProviderError,
+    runtime_catalog::RuntimeCatalogError,
+    tauri_api::{errors::CommandErrorCode, NativeInitializationCommandError},
+    workflow_catalog::WorkflowCatalogError,
+    workspace_catalog::WorkspaceCatalogError,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-#[serde(rename_all = "snake_case")]
-#[allow(clippy::enum_variant_names)]
-pub enum GetWorkflowCatalogErrorCode {
-    #[error("native initialization failed")]
-    NativeInitializationFailed,
-    #[error("workflow catalog parse failed")]
-    ParseFailed,
-    #[error("workflow catalog validation failed")]
-    ValidationFailed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-#[serde(rename_all = "snake_case")]
-#[allow(clippy::enum_variant_names)]
-pub enum GetRuntimeContractCatalogErrorCode {
-    #[error("native initialization failed")]
-    NativeInitializationFailed,
-    #[error("runtime catalog parse failed")]
-    ParseFailed,
-    #[error("runtime catalog validation failed")]
-    ValidationFailed,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-#[serde(rename_all = "snake_case")]
-pub enum GetRunpodPlacementOptionsErrorCode {
-    #[error("native initialization failed")]
-    NativeInitializationFailed,
-    #[error("provider request was unauthorized")]
-    ProviderUnauthorized,
-    #[error("provider request has insufficient permissions")]
-    ProviderInsufficientPermissions,
-    #[error("provider request was rate limited")]
-    ProviderRateLimited,
-    #[error("provider request timed out")]
-    ProviderTimeout,
-    #[error("provider request failed")]
-    ProviderRequestFailed,
-    #[error("secure storage is unavailable")]
-    StoreUnavailable,
-    #[error("api key is not configured")]
-    KeyNotFound,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-#[serde(rename_all = "snake_case")]
-pub enum GetWorkspaceCatalogErrorCode {
-    #[error("native initialization failed")]
-    NativeInitializationFailed,
-    #[error("workspace catalog storage unavailable")]
-    StorageUnavailable,
-    #[error("workspace catalog schema is invalid")]
-    SchemaInvalid,
-    #[error("workspace catalog data is invalid")]
-    DataInvalid,
-}
-
-pub fn get_workflow_catalog_error(error: &WorkflowCatalogError) -> GetWorkflowCatalogErrorCode {
-    match error {
-        WorkflowCatalogError::ParseFailed { .. } => GetWorkflowCatalogErrorCode::ParseFailed,
-        WorkflowCatalogError::ValidationFailed { .. } => {
-            GetWorkflowCatalogErrorCode::ValidationFailed
+macro_rules! define_catalog_code {
+    ($name:ident { $($variant:ident => $code:literal),+ $(,)? }) => {
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
+        #[serde(rename_all = "snake_case")]
+        pub enum $name {
+            #[error("app data directory is unavailable")]
+            AppDataDirectoryUnavailable,
+            #[error("app data directory could not be created")]
+            AppDataDirectoryCreateFailed,
+            #[error("native diagnostics could not be initialized")]
+            DiagnosticsInitializationFailed,
+            #[error("workspace storage could not be initialized")]
+            WorkspaceStorageInitializationFailed,
+            #[error("provider services could not be initialized")]
+            ProviderServicesInitializationFailed,
+            #[error("workspace lifecycle state could not be restored")]
+            LifecycleStateRestoreFailed,
+            $(
+                #[error($code)]
+                $variant,
+            )+
+            #[error("command error")]
+            CommandError,
         }
-    }
-}
 
-pub fn get_runtime_contract_catalog_error(
-    error: &RuntimeCatalogError,
-) -> GetRuntimeContractCatalogErrorCode {
-    match error {
-        RuntimeCatalogError::ParseFailed { .. } => GetRuntimeContractCatalogErrorCode::ParseFailed,
-        RuntimeCatalogError::ValidationFailed { .. } => {
-            GetRuntimeContractCatalogErrorCode::ValidationFailed
-        }
-    }
-}
-
-pub fn get_runpod_placement_options_error(
-    error: &RunpodProviderError,
-) -> GetRunpodPlacementOptionsErrorCode {
-    match error {
-        RunpodProviderError::ProviderApiError(error) => provider_error(error),
-        RunpodProviderError::RuntimeProviderApiKeyUnavailable(error)
-        | RunpodProviderError::WorkflowProviderApiKeyUnavailable(error) => match error {
-            SecretsStorageError::SecretRequired | SecretsStorageError::KeyNotFound => {
-                GetRunpodPlacementOptionsErrorCode::KeyNotFound
+        impl CommandErrorCode for $name {
+            fn from_diagnostics_code(code: &str) -> Self {
+                match code {
+                    "app_data_directory_unavailable" => Self::AppDataDirectoryUnavailable,
+                    "app_data_directory_create_failed" => Self::AppDataDirectoryCreateFailed,
+                    "diagnostics_initialization_failed" => Self::DiagnosticsInitializationFailed,
+                    "workspace_storage_initialization_failed" => Self::WorkspaceStorageInitializationFailed,
+                    "provider_services_initialization_failed" => Self::ProviderServicesInitializationFailed,
+                    "lifecycle_state_restore_failed" => Self::LifecycleStateRestoreFailed,
+                    $($code => Self::$variant,)+
+                    _ => Self::CommandError,
+                }
             }
-            SecretsStorageError::KeyAlreadyExists
-            | SecretsStorageError::StoreUnavailable
-            | SecretsStorageError::StoredSecretInvalid
-            | SecretsStorageError::IdentityRequestFailed(_)
-            | SecretsStorageError::IdentityResponseInvalid { .. } => {
-                GetRunpodPlacementOptionsErrorCode::StoreUnavailable
+
+            fn as_str(&self) -> &'static str {
+                match self {
+                    Self::AppDataDirectoryUnavailable => "app_data_directory_unavailable",
+                    Self::AppDataDirectoryCreateFailed => "app_data_directory_create_failed",
+                    Self::DiagnosticsInitializationFailed => "diagnostics_initialization_failed",
+                    Self::WorkspaceStorageInitializationFailed => "workspace_storage_initialization_failed",
+                    Self::ProviderServicesInitializationFailed => "provider_services_initialization_failed",
+                    Self::LifecycleStateRestoreFailed => "lifecycle_state_restore_failed",
+                    $(Self::$variant => $code,)+
+                    Self::CommandError => "command_error",
+                }
             }
-        },
-        RunpodProviderError::ProvisionerWorkerUnavailable { .. }
-        | RunpodProviderError::ProvisionerWorkerResponseInvalid { .. }
-        | RunpodProviderError::ProvisionerWorkerFailed { .. } => {
-            GetRunpodPlacementOptionsErrorCode::ProviderRequestFailed
         }
-    }
+    };
 }
 
-pub fn get_workspace_catalog_error(error: &WorkspaceCatalogError) -> GetWorkspaceCatalogErrorCode {
-    match error {
-        WorkspaceCatalogError::StorageUnavailable { .. } => {
-            GetWorkspaceCatalogErrorCode::StorageUnavailable
-        }
-        WorkspaceCatalogError::SchemaInvalid { .. } => GetWorkspaceCatalogErrorCode::SchemaInvalid,
-        WorkspaceCatalogError::DataInvalid { .. } => GetWorkspaceCatalogErrorCode::DataInvalid,
-        WorkspaceCatalogError::WorkspaceAlreadyExists
-        | WorkspaceCatalogError::WorkspaceNotFound => GetWorkspaceCatalogErrorCode::DataInvalid,
-    }
+define_catalog_code!(GetWorkflowCatalogErrorCode {
+    ParseFailed => "parse_failed",
+    ValidationFailed => "validation_failed",
+});
+
+define_catalog_code!(GetRuntimeContractCatalogErrorCode {
+    ParseFailed => "parse_failed",
+    ValidationFailed => "validation_failed",
+});
+
+define_catalog_code!(GetRunpodPlacementOptionsErrorCode {
+    Unauthorized => "unauthorized",
+    InsufficientPermissions => "insufficient_permissions",
+    RateLimited => "rate_limited",
+    Timeout => "timeout",
+    RequestFailed => "request_failed",
+    SecretRequired => "secret_required",
+    KeyAlreadyExists => "key_already_exists",
+    KeyNotFound => "key_not_found",
+    StoreUnavailable => "store_unavailable",
+    StoredSecretInvalid => "stored_secret_invalid",
+    IdentityResponseInvalid => "identity_response_invalid",
+    ProvisionerWorkerUnavailable => "provisioner_worker_unavailable",
+    ProvisionerWorkerResponseInvalid => "provisioner_worker_response_invalid",
+    ProvisionerWorkerFailed => "provisioner_worker_failed",
+});
+
+define_catalog_code!(GetWorkspaceCatalogErrorCode {
+    StorageUnavailable => "storage_unavailable",
+    SchemaInvalid => "schema_invalid",
+    DataInvalid => "data_invalid",
+    WorkspaceAlreadyExists => "workspace_already_exists",
+    WorkspaceNotFound => "workspace_not_found",
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[serde(untagged)]
+pub(crate) enum GetWorkflowCatalogCommandError {
+    #[error("native initialization failed: {0}")]
+    NativeInitialization(#[from] NativeInitializationCommandError),
+    #[error("workflow catalog failed: {0}")]
+    WorkflowCatalog(#[from] WorkflowCatalogError),
 }
 
-fn provider_error(error: &ProviderApiError) -> GetRunpodPlacementOptionsErrorCode {
-    match error {
-        ProviderApiError::Unauthorized => GetRunpodPlacementOptionsErrorCode::ProviderUnauthorized,
-        ProviderApiError::InsufficientPermissions => {
-            GetRunpodPlacementOptionsErrorCode::ProviderInsufficientPermissions
-        }
-        ProviderApiError::RateLimited => GetRunpodPlacementOptionsErrorCode::ProviderRateLimited,
-        ProviderApiError::Timeout => GetRunpodPlacementOptionsErrorCode::ProviderTimeout,
-        ProviderApiError::RequestFailed { .. } => {
-            GetRunpodPlacementOptionsErrorCode::ProviderRequestFailed
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[serde(untagged)]
+pub(crate) enum GetRuntimeContractCatalogCommandError {
+    #[error("native initialization failed: {0}")]
+    NativeInitialization(#[from] NativeInitializationCommandError),
+    #[error("runtime contract catalog failed: {0}")]
+    RuntimeCatalog(#[from] RuntimeCatalogError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[serde(untagged)]
+pub(crate) enum GetRunpodPlacementOptionsCommandError {
+    #[error("native initialization failed: {0}")]
+    NativeInitialization(#[from] NativeInitializationCommandError),
+    #[error("runpod placement options failed: {0}")]
+    RunpodProvider(#[from] RunpodProviderError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[serde(untagged)]
+pub(crate) enum GetWorkspaceCatalogCommandError {
+    #[error("native initialization failed: {0}")]
+    NativeInitialization(#[from] NativeInitializationCommandError),
+    #[error("workspace catalog failed: {0}")]
+    WorkspaceCatalog(#[from] WorkspaceCatalogError),
 }
