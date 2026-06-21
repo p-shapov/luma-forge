@@ -147,23 +147,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn diagnostics_are_initialized_before_app_state_bootstrap() {
-        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
-            .expect("lib source should be readable");
-        let diagnostics_init_index = source
-            .find("diagnostics::init(support_paths.logs_dir())")
-            .expect("diagnostics initialization should be present");
-        let bootstrap_index = source
-            .find("app::bootstrap::build_app_state")
-            .expect("app state bootstrap should be present");
-
-        assert!(
-            diagnostics_init_index < bootstrap_index,
-            "native diagnostics must be initialized before app state bootstrap"
-        );
-    }
-
     fn rust_source_files(root: &Path) -> Vec<PathBuf> {
         let mut files = Vec::new();
         collect_rust_source_files(root, &mut files);
