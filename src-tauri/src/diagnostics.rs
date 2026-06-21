@@ -2,7 +2,11 @@ use std::{error::Error, path::Path};
 
 use fastrace::{collector::SpanContext, Span};
 use logforth::filter::FilterResult;
+use logforth::kv::{KeyView, ValueView, Visitor};
 use logforth::record::{FilterCriteria, Level, LevelFilter};
+use serde::Serialize;
+use serde_json::Map;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 const REDACTED: &str = "[REDACTED]";
 const REDACTED_BODY: &str = "[REDACTED_BODY]";
@@ -26,7 +30,7 @@ pub struct ErrorDiagnostics {
 
 pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
     let appender = logforth::append::file::FileBuilder::new(logs_dir, "luma-forge.log")
-        .layout(logforth::layout::JsonLayout::default())
+        .layout(SanitizingJsonLayout::default())
         .build()
         .map_err(|error| DiagnosticsInitializationError::SetupFailed {
             message: error.to_string(),
@@ -150,6 +154,77 @@ fn sanitize_diagnostic_string(value: &str) -> String {
     redact_hugging_face_token(&sanitized)
 }
 
+#[derive(Debug, Clone, Default)]
+struct SanitizingJsonLayout;
+
+#[derive(Debug, Default)]
+struct JsonValueCollector {
+    kvs: Map<String, serde_json::Value>,
+}
+
+impl Visitor for JsonValueCollector {
+    fn visit(&mut self, key: KeyView, value: ValueView) -> Result<(), logforth::Error> {
+        let key = key.to_string();
+        let value = match serde_json::to_value(&value) {
+            Ok(value) => sanitize_json_value(value),
+            Err(_) => sanitize_json_value(serde_json::Value::String(value.to_string())),
+        };
+        self.kvs.insert(key, value);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SanitizedRecordLine {
+    timestamp: String,
+    level: &'static str,
+    target: String,
+    file: String,
+    line: u32,
+    message: String,
+    #[serde(skip_serializing_if = "Map::is_empty")]
+    kvs: Map<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "Map::is_empty")]
+    diags: Map<String, serde_json::Value>,
+}
+
+impl logforth::Layout for SanitizingJsonLayout {
+    fn format(
+        &self,
+        record: &logforth::record::Record,
+        diags: &[Box<dyn logforth::Diagnostic>],
+    ) -> Result<Vec<u8>, logforth::Error> {
+        let timestamp: OffsetDateTime = record.time().into();
+        let timestamp = timestamp
+            .format(&Rfc3339)
+            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+
+        let mut kvs_collector = JsonValueCollector::default();
+        record.key_values().visit(&mut kvs_collector)?;
+
+        let mut diags_collector = JsonValueCollector::default();
+        for diagnostic in diags {
+            diagnostic.visit(&mut diags_collector)?;
+        }
+
+        let record_line = SanitizedRecordLine {
+            timestamp,
+            level: record.level().name(),
+            target: record.target().to_string(),
+            file: record.file().unwrap_or_default().to_string(),
+            line: record.line().unwrap_or_default(),
+            message: sanitize_diagnostic_string(&record.payload().to_string()),
+            kvs: kvs_collector.kvs,
+            diags: diags_collector.kvs,
+        };
+
+        serde_json::to_vec(&record_line).map_err(|error| {
+            logforth::Error::new("failed to serialize sanitized diagnostics log record")
+                .with_source(error)
+        })
+    }
+}
+
 fn looks_like_raw_body(value: &str) -> bool {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -169,15 +244,29 @@ fn looks_like_raw_body(value: &str) -> bool {
         "command payload:",
         "payload:",
     ] {
-        if let Some(index) = lower.find(marker) {
-            let suffix = value[index + marker.len()..].trim_start();
-            if starts_with_structured_body(suffix) {
-                return true;
-            }
+        if lower.contains(marker) {
+            return true;
         }
     }
 
     false
+}
+
+fn sanitize_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(string) => {
+            serde_json::Value::String(sanitize_diagnostic_string(&string))
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(sanitize_json_value).collect())
+        }
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.into_iter()
+                .map(|(key, value)| (key, sanitize_json_value(value)))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 fn starts_with_structured_body(value: &str) -> bool {
@@ -346,8 +435,10 @@ mod tests {
     use std::fmt;
 
     use logforth::filter::FilterResult;
+    use logforth::kv::{KeyOwned, ValueOwned};
     use logforth::record::{FilterCriteria, Level};
     use logforth::Filter;
+    use logforth::Layout;
     use serde::Serialize;
 
     #[derive(Debug, Serialize)]
@@ -474,6 +565,68 @@ mod tests {
             diagnostics.source_chain,
             vec!["[REDACTED_BODY]", "[REDACTED_BODY]"]
         );
+    }
+
+    #[test]
+    fn error_diagnostics_suppresses_plain_text_body_markers() {
+        let error = TestError::StructuredFailure {
+            message: "request body: not json but sensitive".to_string(),
+            source: Some(Box::new(TestError::StructuredFailure {
+                message: "payload: plain text secret".to_string(),
+                source: Some(Box::new(TestError::StructuredFailure {
+                    message: "response body: not-json".to_string(),
+                    source: None,
+                })),
+            })),
+        };
+
+        let diagnostics = error_diagnostics(&error, "fallback");
+
+        assert_eq!(diagnostics.message, "[REDACTED_BODY]");
+        assert_eq!(diagnostics.cause, "[REDACTED_BODY]");
+        assert_eq!(
+            diagnostics.source_chain,
+            vec!["[REDACTED_BODY]", "[REDACTED_BODY]"]
+        );
+    }
+
+    #[test]
+    fn sanitizing_json_layout_redacts_payload_and_key_values() {
+        let layout = SanitizingJsonLayout::default();
+        let key_values = [
+            (
+                KeyOwned::new("payload"),
+                ValueOwned::str("provider response body: not json but sensitive"),
+            ),
+            (
+                KeyOwned::new("download_url"),
+                ValueOwned::str(
+                    "https://example.com/download?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef",
+                ),
+            ),
+        ];
+        let record = logforth::record::Record::builder()
+            .level(Level::Info)
+            .target_static("luma_forge_lib::diagnostics")
+            .file_static("src/diagnostics.rs")
+            .line(Some(123))
+            .payload(format_args!("Authorization: Bearer top-secret-token"))
+            .key_values(&key_values[..])
+            .build();
+
+        let formatted = layout.format(&record, &[]).expect("record should format");
+        let json: serde_json::Value =
+            serde_json::from_slice(&formatted).expect("formatted line should be valid json");
+
+        assert_eq!(json["message"], "Authorization: [REDACTED]");
+        assert_eq!(json["kvs"]["payload"], "[REDACTED_BODY]");
+        assert_eq!(json["kvs"]["download_url"], "[REDACTED_URL]");
+        assert!(!formatted
+            .windows("top-secret-token".len())
+            .any(|window| window == b"top-secret-token"));
+        assert!(!formatted
+            .windows("deadbeef".len())
+            .any(|window| window == b"deadbeef"));
     }
 
     #[test]
