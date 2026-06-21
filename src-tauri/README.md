@@ -43,7 +43,7 @@ Native support files are configured centrally in `src/app/support.rs` and live u
 Current support files:
 
 - `native.sqlite`: native SQLite database for workspace catalog and lifecycle journal state.
-- `logs/`: native diagnostics logs, including `luma-forge.log.YYYY-MM-DD`.
+- `logs/`: native diagnostics logs, including `luma-forge.log`.
 
 Deleting `native.sqlite` removes local native state only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
 
