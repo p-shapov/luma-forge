@@ -79,17 +79,19 @@ The command's async work runs under the command span using `FutureExt::in_span(r
 
 `CommandError.trace_id` remains part of the UI/support contract. Only its source changes: fastrace span context replaces the current random UUID helper.
 
-Command boundary logs should include safe fields such as command name, public error code, workspace ID, operation ID, and lifecycle action when those values are already safe and available. They must not include command payloads or secrets.
+Command boundary logs should include safe fields such as command name, public error code, workspace ID, and operation ID when those values are already safe and available. They must not include command payloads or secrets.
 
 ## Detached Lifecycle Flow
 
 Command-driven lifecycle work must continue the command trace.
 
-At `launch_lifecycle()` or `spawn_lifecycle_runner()`, before `tokio::spawn`, capture `SpanContext::current_local_parent()`. This happens while the command future is still running under its command span.
+Lifecycle entry methods such as `provision_workspace`, `cleanup_workspace`, and `delete_workspace` are annotated with `#[fastrace::trace]`. They call `spawn_lifecycle_runner()` directly after creating the durable lifecycle operation.
+
+Inside `spawn_lifecycle_runner()`, before `tokio::spawn`, capture `SpanContext::current_local_parent()`. This happens while the lifecycle entry method span is active, so no diagnostic-only action parameter is needed.
 
 Move that captured `Option<SpanContext>` into the spawned task. Inside the task:
 
-- create a lifecycle runner span from the captured parent when present
+- create a generic lifecycle runner span from the captured parent when present
 - use a startup/recovery parent for recovery paths when available
 - fall back to a new root only when there is genuinely no parent context
 - run the detached future under that lifecycle span with `FutureExt::in_span(...)`
