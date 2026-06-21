@@ -1,8 +1,8 @@
 # LumaForge
 
-LumaForge is a desktop application for preparing remote GPU infrastructure and running ComfyUI workflows on it.
+LumaForge is a desktop application that turns ComfyUI workflows into ready-to-use remote GPU workspaces.
 
-The main goal of the product is to turn a workflow choice into a ready-to-use workspace and then use that workspace to execute the selected ComfyUI workflow on the configured runtime environment.
+Its main goal is to automate the setup of GPU infrastructure, runtime environment, and workflow execution, so users can run selected ComfyUI workflows without manually provisioning or configuring the workspace.
 
 ## Core Concepts
 
