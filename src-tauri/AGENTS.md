@@ -16,10 +16,10 @@
 ## Diagnostics And Bug Triage
 
 1. Locate support files in Tauri `app_data_dir()`. On macOS this is `~/Library/Application Support/<bundle identifier>/`.
-2. Locate logs under `<app_data_dir>/logs/luma-forge.log.YYYY-MM-DD`.
+2. Locate logs under `<app_data_dir>/logs/luma-forge.log`.
 3. If the user provides `traceId`, search that exact ID first.
-4. Resolve the log date from the user report. If unclear, search today, yesterday, then all `luma-forge.log.*`.
-5. If there is no `traceId`, ask for error text, approximate time, workspace ID, and the action that failed.
+4. If there is no `traceId`, search the single `luma-forge.log` for approximate time, workspace ID, action, or error text.
+5. If the report lacks enough detail to search the log, ask for error text, approximate time, workspace ID, and the action that failed.
 6. Read the matched log entry, then trace the failure path from its command or lifecycle operation context.
 7. Do not diagnose from the UI message alone when log context is available.
 
