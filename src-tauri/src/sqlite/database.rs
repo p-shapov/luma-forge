@@ -8,9 +8,9 @@ use crate::{lifecycle_journal, workspace_catalog};
 pub enum SqliteNativeDatabaseError {
     #[error("sqlite error: {0}")]
     Sqlx(sqlx::Error),
-    #[error("lifecycle journal error: {0}")]
+    #[error("lifecycle journal error")]
     LifecycleJournal(lifecycle_journal::LifecycleJournalError),
-    #[error("workspace catalog error: {0}")]
+    #[error("workspace catalog error")]
     WorkspaceCatalog(workspace_catalog::WorkspaceCatalogError),
 }
 

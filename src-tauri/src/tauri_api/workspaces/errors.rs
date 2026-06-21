@@ -163,7 +163,7 @@ macro_rules! define_workspace_command_error {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
         #[serde(untagged)]
         pub(crate) enum $name {
-            #[error("native initialization failed: {0}")]
+            #[error("native initialization failed")]
             NativeInitialization(#[from] NativeInitializationCommandError),
             #[error($message)]
             Workspace(#[from] WorkspaceError),
@@ -173,25 +173,25 @@ macro_rules! define_workspace_command_error {
 
 define_workspace_command_error!(
     CreateRunpodWorkspaceCommandError,
-    "runpod workspace creation failed: {0}"
+    "runpod workspace creation failed"
 );
 define_workspace_command_error!(
     ProvisionWorkspaceCommandError,
-    "workspace provision failed: {0}"
+    "workspace provision failed"
 );
 define_workspace_command_error!(
     CleanupWorkspaceCommandError,
-    "workspace cleanup failed: {0}"
+    "workspace cleanup failed"
 );
 define_workspace_command_error!(
     DeleteWorkspaceCommandError,
-    "workspace deletion failed: {0}"
+    "workspace deletion failed"
 );
 define_workspace_command_error!(
     GetRunningLifecycleOperationsCommandError,
-    "running lifecycle operations lookup failed: {0}"
+    "running lifecycle operations lookup failed"
 );
 define_workspace_command_error!(
     GetLatestLifecycleOperationCommandError,
-    "latest lifecycle operation lookup failed: {0}"
+    "latest lifecycle operation lookup failed"
 );
