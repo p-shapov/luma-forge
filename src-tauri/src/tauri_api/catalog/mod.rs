@@ -3,16 +3,17 @@ mod errors;
 use tauri::State;
 
 use errors::{
-    get_runpod_placement_options_error, get_runtime_contract_catalog_error,
-    get_workflow_catalog_error, get_workspace_catalog_error, GetRunpodPlacementOptionsErrorCode,
-    GetRuntimeContractCatalogErrorCode, GetWorkflowCatalogErrorCode, GetWorkspaceCatalogErrorCode,
+    GetRunpodPlacementOptionsCommandError, GetRunpodPlacementOptionsErrorCode,
+    GetRuntimeContractCatalogCommandError, GetRuntimeContractCatalogErrorCode,
+    GetWorkflowCatalogCommandError, GetWorkflowCatalogErrorCode, GetWorkspaceCatalogCommandError,
+    GetWorkspaceCatalogErrorCode,
 };
 
 use crate::{
     app::state::NativeAppState,
     runtime_catalog::RuntimeCatalogRepository,
     tauri_api::{
-        errors::{command_error, NativeCommandError},
+        errors::{command_error, NativeInitializationCommandError},
         types::{
             catalog::{RuntimeCatalogResponse, WorkflowCatalogResponse},
             placement::RunpodPlacementOptionsResponse,
@@ -31,14 +32,17 @@ pub fn get_workflow_catalog(
 ) -> CommandResult<WorkflowCatalogResponse, GetWorkflowCatalogErrorCode> {
     super::tracing::run_sync_command("get_workflow_catalog", |trace_id| {
         let state = state.ready().map_err(|error| {
-            command_error(&trace_id, NativeCommandError::from(error), |_| {
-                GetWorkflowCatalogErrorCode::NativeInitializationFailed
-            })
+            command_error(
+                &trace_id,
+                GetWorkflowCatalogCommandError::from(NativeInitializationCommandError::from(error)),
+            )
         })?;
         let catalog = state
             .workflow_catalog
             .get_workflow_catalog()
-            .map_err(|error| command_error(&trace_id, error, get_workflow_catalog_error))?;
+            .map_err(|error| {
+                command_error(&trace_id, GetWorkflowCatalogCommandError::from(error))
+            })?;
 
         Ok(catalog.into())
     })
@@ -51,14 +55,22 @@ pub fn get_runtime_contract_catalog(
 ) -> CommandResult<RuntimeCatalogResponse, GetRuntimeContractCatalogErrorCode> {
     super::tracing::run_sync_command("get_runtime_contract_catalog", |trace_id| {
         let state = state.ready().map_err(|error| {
-            command_error(&trace_id, NativeCommandError::from(error), |_| {
-                GetRuntimeContractCatalogErrorCode::NativeInitializationFailed
-            })
+            command_error(
+                &trace_id,
+                GetRuntimeContractCatalogCommandError::from(
+                    NativeInitializationCommandError::from(error),
+                ),
+            )
         })?;
         let catalog = state
             .runtime_catalog
             .get_runtime_contract_catalog()
-            .map_err(|error| command_error(&trace_id, error, get_runtime_contract_catalog_error))?;
+            .map_err(|error| {
+                command_error(
+                    &trace_id,
+                    GetRuntimeContractCatalogCommandError::from(error),
+                )
+            })?;
 
         Ok(catalog.into())
     })
@@ -71,15 +83,23 @@ pub async fn get_runpod_placement_options(
 ) -> CommandResult<RunpodPlacementOptionsResponse, GetRunpodPlacementOptionsErrorCode> {
     super::tracing::run_async_command("get_runpod_placement_options", |trace_id| async move {
         let state = state.ready().map_err(|error| {
-            command_error(&trace_id, NativeCommandError::from(error), |_| {
-                GetRunpodPlacementOptionsErrorCode::NativeInitializationFailed
-            })
+            command_error(
+                &trace_id,
+                GetRunpodPlacementOptionsCommandError::from(
+                    NativeInitializationCommandError::from(error),
+                ),
+            )
         })?;
         let options = state
             .runpod_provider
             .placement_options()
             .await
-            .map_err(|error| command_error(&trace_id, error, get_runpod_placement_options_error))?;
+            .map_err(|error| {
+                command_error(
+                    &trace_id,
+                    GetRunpodPlacementOptionsCommandError::from(error),
+                )
+            })?;
 
         Ok(options.into())
     })
@@ -93,15 +113,20 @@ pub async fn get_workspace_catalog(
 ) -> CommandResult<WorkspaceCatalogResponse, GetWorkspaceCatalogErrorCode> {
     super::tracing::run_async_command("get_workspace_catalog", |trace_id| async move {
         let state = state.ready().map_err(|error| {
-            command_error(&trace_id, NativeCommandError::from(error), |_| {
-                GetWorkspaceCatalogErrorCode::NativeInitializationFailed
-            })
+            command_error(
+                &trace_id,
+                GetWorkspaceCatalogCommandError::from(NativeInitializationCommandError::from(
+                    error,
+                )),
+            )
         })?;
         let catalog = state
             .workspace_catalog
             .list_workspaces()
             .await
-            .map_err(|error| command_error(&trace_id, error, get_workspace_catalog_error))?;
+            .map_err(|error| {
+                command_error(&trace_id, GetWorkspaceCatalogCommandError::from(error))
+            })?;
 
         Ok(catalog.into())
     })

@@ -78,15 +78,45 @@ where
 }
 
 fn serialized_error_code(error: &impl serde::Serialize, fallback: &'static str) -> String {
-    match serde_json::to_value(error) {
-        Ok(serde_json::Value::String(code)) => code,
-        Ok(serde_json::Value::Object(fields)) => fields
-            .keys()
-            .next()
-            .cloned()
-            .unwrap_or_else(|| fallback.to_string()),
-        _ => fallback.to_string(),
+    serde_json::to_value(error)
+        .ok()
+        .and_then(|value| serialized_error_code_value(&value))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn serialized_error_code_value(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(code) => Some(code.clone()),
+        serde_json::Value::Object(fields) => {
+            let (code, nested) = fields.iter().next()?;
+            if should_descend_into_serialized_error(nested) {
+                serialized_error_code_value(nested).or_else(|| Some(code.clone()))
+            } else {
+                Some(code.clone())
+            }
+        }
+        _ => None,
     }
+}
+
+fn should_descend_into_serialized_error(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(_) => true,
+        serde_json::Value::Object(fields) => {
+            fields.len() == 1
+                && !fields
+                    .keys()
+                    .any(|key| is_serialized_error_payload_key(key.as_str()))
+        }
+        _ => false,
+    }
+}
+
+fn is_serialized_error_payload_key(key: &str) -> bool {
+    matches!(
+        key,
+        "message" | "path" | "workspace_id" | "operation_id" | "source"
+    )
 }
 
 #[derive(Debug)]

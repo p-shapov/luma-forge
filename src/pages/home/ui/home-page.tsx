@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import type {
   CommandError,
   CreateRunpodWorkspaceRequest,
-  NativeInitializationCommandErrorCode,
   NativeStartupStatusResponse,
   WorkspaceIdRequest,
 } from "@/generated/commands";
@@ -527,7 +526,7 @@ function StartupLoadingPage() {
 function StartupErrorPage({
   error,
 }: {
-  error: CommandError<NativeInitializationCommandErrorCode>;
+  error: CommandError<string>;
 }) {
   const storagePath = extractStoragePath(error.message);
 

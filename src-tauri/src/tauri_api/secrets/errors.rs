@@ -1,317 +1,154 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::{provider::errors::ProviderApiError, secrets::SecretsStorageError};
+use crate::{
+    secrets::SecretsStorageError,
+    tauri_api::{errors::CommandErrorCode, NativeInitializationCommandError},
+};
 
-macro_rules! define_setup_api_key_error_code {
+macro_rules! define_secret_error_code {
     ($name:ident) => {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
         #[serde(rename_all = "snake_case")]
         pub enum $name {
-            #[error("native initialization failed")]
-            NativeInitializationFailed,
+            #[error("app data directory is unavailable")]
+            AppDataDirectoryUnavailable,
+            #[error("app data directory could not be created")]
+            AppDataDirectoryCreateFailed,
+            #[error("native diagnostics could not be initialized")]
+            DiagnosticsInitializationFailed,
+            #[error("workspace storage could not be initialized")]
+            WorkspaceStorageInitializationFailed,
+            #[error("provider services could not be initialized")]
+            ProviderServicesInitializationFailed,
+            #[error("workspace lifecycle state could not be restored")]
+            LifecycleStateRestoreFailed,
             #[error("api key is required")]
             SecretRequired,
             #[error("api key is already configured")]
             KeyAlreadyExists,
-            #[error("secure storage is unavailable")]
-            StoreUnavailable,
-            #[error("api key identity request was unauthorized")]
-            IdentityUnauthorized,
-            #[error("api key identity request has insufficient permissions")]
-            IdentityInsufficientPermissions,
-            #[error("api key identity request was rate limited")]
-            IdentityRateLimited,
-            #[error("api key identity request timed out")]
-            IdentityTimeout,
-            #[error("api key identity request failed")]
-            IdentityRequestFailed,
-            #[error("api key identity response is invalid")]
-            IdentityResponseInvalid,
-        }
-    };
-}
-
-macro_rules! define_get_api_key_identity_error_code {
-    ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-        #[serde(rename_all = "snake_case")]
-        pub enum $name {
-            #[error("native initialization failed")]
-            NativeInitializationFailed,
             #[error("api key is not configured")]
             KeyNotFound,
             #[error("secure storage is unavailable")]
             StoreUnavailable,
             #[error("stored api key is invalid")]
             StoredSecretInvalid,
-            #[error("api key identity request was unauthorized")]
-            IdentityUnauthorized,
-            #[error("api key identity request has insufficient permissions")]
-            IdentityInsufficientPermissions,
-            #[error("api key identity request was rate limited")]
-            IdentityRateLimited,
-            #[error("api key identity request timed out")]
-            IdentityTimeout,
-            #[error("api key identity request failed")]
-            IdentityRequestFailed,
+            #[error("api request was unauthorized")]
+            Unauthorized,
+            #[error("api request has insufficient permissions")]
+            InsufficientPermissions,
+            #[error("api request was rate limited")]
+            RateLimited,
+            #[error("api request timed out")]
+            Timeout,
+            #[error("api request failed")]
+            RequestFailed,
             #[error("api key identity response is invalid")]
             IdentityResponseInvalid,
+            #[error("command error")]
+            CommandError,
+        }
+
+        impl CommandErrorCode for $name {
+            fn from_diagnostics_code(code: &str) -> Self {
+                match code {
+                    "app_data_directory_unavailable" => Self::AppDataDirectoryUnavailable,
+                    "app_data_directory_create_failed" => Self::AppDataDirectoryCreateFailed,
+                    "diagnostics_initialization_failed" => Self::DiagnosticsInitializationFailed,
+                    "workspace_storage_initialization_failed" => {
+                        Self::WorkspaceStorageInitializationFailed
+                    }
+                    "provider_services_initialization_failed" => {
+                        Self::ProviderServicesInitializationFailed
+                    }
+                    "lifecycle_state_restore_failed" => Self::LifecycleStateRestoreFailed,
+                    "secret_required" => Self::SecretRequired,
+                    "key_already_exists" => Self::KeyAlreadyExists,
+                    "key_not_found" => Self::KeyNotFound,
+                    "store_unavailable" => Self::StoreUnavailable,
+                    "stored_secret_invalid" => Self::StoredSecretInvalid,
+                    "unauthorized" => Self::Unauthorized,
+                    "insufficient_permissions" => Self::InsufficientPermissions,
+                    "rate_limited" => Self::RateLimited,
+                    "timeout" => Self::Timeout,
+                    "request_failed" => Self::RequestFailed,
+                    "identity_response_invalid" => Self::IdentityResponseInvalid,
+                    _ => Self::CommandError,
+                }
+            }
+
+            fn as_str(&self) -> &'static str {
+                match self {
+                    Self::AppDataDirectoryUnavailable => "app_data_directory_unavailable",
+                    Self::AppDataDirectoryCreateFailed => "app_data_directory_create_failed",
+                    Self::DiagnosticsInitializationFailed => "diagnostics_initialization_failed",
+                    Self::WorkspaceStorageInitializationFailed => {
+                        "workspace_storage_initialization_failed"
+                    }
+                    Self::ProviderServicesInitializationFailed => {
+                        "provider_services_initialization_failed"
+                    }
+                    Self::LifecycleStateRestoreFailed => "lifecycle_state_restore_failed",
+                    Self::SecretRequired => "secret_required",
+                    Self::KeyAlreadyExists => "key_already_exists",
+                    Self::KeyNotFound => "key_not_found",
+                    Self::StoreUnavailable => "store_unavailable",
+                    Self::StoredSecretInvalid => "stored_secret_invalid",
+                    Self::Unauthorized => "unauthorized",
+                    Self::InsufficientPermissions => "insufficient_permissions",
+                    Self::RateLimited => "rate_limited",
+                    Self::Timeout => "timeout",
+                    Self::RequestFailed => "request_failed",
+                    Self::IdentityResponseInvalid => "identity_response_invalid",
+                    Self::CommandError => "command_error",
+                }
+            }
         }
     };
 }
 
-macro_rules! define_delete_api_key_error_code {
-    ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-        #[serde(rename_all = "snake_case")]
-        pub enum $name {
-            #[error("native initialization failed")]
-            NativeInitializationFailed,
-            #[error("api key is not configured")]
-            KeyNotFound,
-            #[error("secure storage is unavailable")]
-            StoreUnavailable,
+define_secret_error_code!(SetupRunpodApiKeyErrorCode);
+define_secret_error_code!(GetRunpodApiKeyIdentityErrorCode);
+define_secret_error_code!(DeleteRunpodApiKeyErrorCode);
+define_secret_error_code!(SetupHuggingFaceApiKeyErrorCode);
+define_secret_error_code!(GetHuggingFaceApiKeyIdentityErrorCode);
+define_secret_error_code!(DeleteHuggingFaceApiKeyErrorCode);
+
+macro_rules! define_secret_command_error {
+    ($name:ident, $message:literal) => {
+        #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+        #[serde(untagged)]
+        pub(crate) enum $name {
+            #[error("native initialization failed: {0}")]
+            NativeInitialization(#[from] NativeInitializationCommandError),
+            #[error($message)]
+            SecretsStorage(#[from] SecretsStorageError),
         }
     };
 }
 
-define_setup_api_key_error_code!(SetupRunpodApiKeyErrorCode);
-define_get_api_key_identity_error_code!(GetRunpodApiKeyIdentityErrorCode);
-define_delete_api_key_error_code!(DeleteRunpodApiKeyErrorCode);
+define_secret_command_error!(
+    SetupRunpodApiKeyCommandError,
+    "runpod api key setup failed: {0}"
+);
+define_secret_command_error!(
+    GetRunpodApiKeyIdentityCommandError,
+    "runpod api key identity failed: {0}"
+);
+define_secret_command_error!(
+    DeleteRunpodApiKeyCommandError,
+    "runpod api key deletion failed: {0}"
+);
 
-define_setup_api_key_error_code!(SetupHuggingFaceApiKeyErrorCode);
-define_get_api_key_identity_error_code!(GetHuggingFaceApiKeyIdentityErrorCode);
-define_delete_api_key_error_code!(DeleteHuggingFaceApiKeyErrorCode);
-
-pub fn setup_runpod_api_key_error(error: &SecretsStorageError) -> SetupRunpodApiKeyErrorCode {
-    match setup_api_key_error_kind(error) {
-        SetupApiKeyErrorKind::SecretRequired => SetupRunpodApiKeyErrorCode::SecretRequired,
-        SetupApiKeyErrorKind::KeyAlreadyExists => SetupRunpodApiKeyErrorCode::KeyAlreadyExists,
-        SetupApiKeyErrorKind::StoreUnavailable => SetupRunpodApiKeyErrorCode::StoreUnavailable,
-        SetupApiKeyErrorKind::IdentityUnauthorized => {
-            SetupRunpodApiKeyErrorCode::IdentityUnauthorized
-        }
-        SetupApiKeyErrorKind::IdentityInsufficientPermissions => {
-            SetupRunpodApiKeyErrorCode::IdentityInsufficientPermissions
-        }
-        SetupApiKeyErrorKind::IdentityRateLimited => {
-            SetupRunpodApiKeyErrorCode::IdentityRateLimited
-        }
-        SetupApiKeyErrorKind::IdentityTimeout => SetupRunpodApiKeyErrorCode::IdentityTimeout,
-        SetupApiKeyErrorKind::IdentityRequestFailed => {
-            SetupRunpodApiKeyErrorCode::IdentityRequestFailed
-        }
-        SetupApiKeyErrorKind::IdentityResponseInvalid => {
-            SetupRunpodApiKeyErrorCode::IdentityResponseInvalid
-        }
-    }
-}
-
-pub fn get_runpod_api_key_identity_error(
-    error: &SecretsStorageError,
-) -> GetRunpodApiKeyIdentityErrorCode {
-    match get_api_key_identity_error_kind(error) {
-        GetApiKeyIdentityErrorKind::KeyNotFound => GetRunpodApiKeyIdentityErrorCode::KeyNotFound,
-        GetApiKeyIdentityErrorKind::StoreUnavailable => {
-            GetRunpodApiKeyIdentityErrorCode::StoreUnavailable
-        }
-        GetApiKeyIdentityErrorKind::StoredSecretInvalid => {
-            GetRunpodApiKeyIdentityErrorCode::StoredSecretInvalid
-        }
-        GetApiKeyIdentityErrorKind::IdentityUnauthorized => {
-            GetRunpodApiKeyIdentityErrorCode::IdentityUnauthorized
-        }
-        GetApiKeyIdentityErrorKind::IdentityInsufficientPermissions => {
-            GetRunpodApiKeyIdentityErrorCode::IdentityInsufficientPermissions
-        }
-        GetApiKeyIdentityErrorKind::IdentityRateLimited => {
-            GetRunpodApiKeyIdentityErrorCode::IdentityRateLimited
-        }
-        GetApiKeyIdentityErrorKind::IdentityTimeout => {
-            GetRunpodApiKeyIdentityErrorCode::IdentityTimeout
-        }
-        GetApiKeyIdentityErrorKind::IdentityRequestFailed => {
-            GetRunpodApiKeyIdentityErrorCode::IdentityRequestFailed
-        }
-        GetApiKeyIdentityErrorKind::IdentityResponseInvalid => {
-            GetRunpodApiKeyIdentityErrorCode::IdentityResponseInvalid
-        }
-    }
-}
-
-pub fn delete_runpod_api_key_error(error: &SecretsStorageError) -> DeleteRunpodApiKeyErrorCode {
-    match delete_api_key_error_kind(error) {
-        DeleteApiKeyErrorKind::KeyNotFound => DeleteRunpodApiKeyErrorCode::KeyNotFound,
-        DeleteApiKeyErrorKind::StoreUnavailable => DeleteRunpodApiKeyErrorCode::StoreUnavailable,
-    }
-}
-
-pub fn setup_hugging_face_api_key_error(
-    error: &SecretsStorageError,
-) -> SetupHuggingFaceApiKeyErrorCode {
-    match setup_api_key_error_kind(error) {
-        SetupApiKeyErrorKind::SecretRequired => SetupHuggingFaceApiKeyErrorCode::SecretRequired,
-        SetupApiKeyErrorKind::KeyAlreadyExists => SetupHuggingFaceApiKeyErrorCode::KeyAlreadyExists,
-        SetupApiKeyErrorKind::StoreUnavailable => SetupHuggingFaceApiKeyErrorCode::StoreUnavailable,
-        SetupApiKeyErrorKind::IdentityUnauthorized => {
-            SetupHuggingFaceApiKeyErrorCode::IdentityUnauthorized
-        }
-        SetupApiKeyErrorKind::IdentityInsufficientPermissions => {
-            SetupHuggingFaceApiKeyErrorCode::IdentityInsufficientPermissions
-        }
-        SetupApiKeyErrorKind::IdentityRateLimited => {
-            SetupHuggingFaceApiKeyErrorCode::IdentityRateLimited
-        }
-        SetupApiKeyErrorKind::IdentityTimeout => SetupHuggingFaceApiKeyErrorCode::IdentityTimeout,
-        SetupApiKeyErrorKind::IdentityRequestFailed => {
-            SetupHuggingFaceApiKeyErrorCode::IdentityRequestFailed
-        }
-        SetupApiKeyErrorKind::IdentityResponseInvalid => {
-            SetupHuggingFaceApiKeyErrorCode::IdentityResponseInvalid
-        }
-    }
-}
-
-pub fn get_hugging_face_api_key_identity_error(
-    error: &SecretsStorageError,
-) -> GetHuggingFaceApiKeyIdentityErrorCode {
-    match get_api_key_identity_error_kind(error) {
-        GetApiKeyIdentityErrorKind::KeyNotFound => {
-            GetHuggingFaceApiKeyIdentityErrorCode::KeyNotFound
-        }
-        GetApiKeyIdentityErrorKind::StoreUnavailable => {
-            GetHuggingFaceApiKeyIdentityErrorCode::StoreUnavailable
-        }
-        GetApiKeyIdentityErrorKind::StoredSecretInvalid => {
-            GetHuggingFaceApiKeyIdentityErrorCode::StoredSecretInvalid
-        }
-        GetApiKeyIdentityErrorKind::IdentityUnauthorized => {
-            GetHuggingFaceApiKeyIdentityErrorCode::IdentityUnauthorized
-        }
-        GetApiKeyIdentityErrorKind::IdentityInsufficientPermissions => {
-            GetHuggingFaceApiKeyIdentityErrorCode::IdentityInsufficientPermissions
-        }
-        GetApiKeyIdentityErrorKind::IdentityRateLimited => {
-            GetHuggingFaceApiKeyIdentityErrorCode::IdentityRateLimited
-        }
-        GetApiKeyIdentityErrorKind::IdentityTimeout => {
-            GetHuggingFaceApiKeyIdentityErrorCode::IdentityTimeout
-        }
-        GetApiKeyIdentityErrorKind::IdentityRequestFailed => {
-            GetHuggingFaceApiKeyIdentityErrorCode::IdentityRequestFailed
-        }
-        GetApiKeyIdentityErrorKind::IdentityResponseInvalid => {
-            GetHuggingFaceApiKeyIdentityErrorCode::IdentityResponseInvalid
-        }
-    }
-}
-
-pub fn delete_hugging_face_api_key_error(
-    error: &SecretsStorageError,
-) -> DeleteHuggingFaceApiKeyErrorCode {
-    match delete_api_key_error_kind(error) {
-        DeleteApiKeyErrorKind::KeyNotFound => DeleteHuggingFaceApiKeyErrorCode::KeyNotFound,
-        DeleteApiKeyErrorKind::StoreUnavailable => {
-            DeleteHuggingFaceApiKeyErrorCode::StoreUnavailable
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SetupApiKeyErrorKind {
-    SecretRequired,
-    KeyAlreadyExists,
-    StoreUnavailable,
-    IdentityUnauthorized,
-    IdentityInsufficientPermissions,
-    IdentityRateLimited,
-    IdentityTimeout,
-    IdentityRequestFailed,
-    IdentityResponseInvalid,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GetApiKeyIdentityErrorKind {
-    KeyNotFound,
-    StoreUnavailable,
-    StoredSecretInvalid,
-    IdentityUnauthorized,
-    IdentityInsufficientPermissions,
-    IdentityRateLimited,
-    IdentityTimeout,
-    IdentityRequestFailed,
-    IdentityResponseInvalid,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DeleteApiKeyErrorKind {
-    KeyNotFound,
-    StoreUnavailable,
-}
-
-fn setup_api_key_error_kind(error: &SecretsStorageError) -> SetupApiKeyErrorKind {
-    match error {
-        SecretsStorageError::SecretRequired => SetupApiKeyErrorKind::SecretRequired,
-        SecretsStorageError::KeyAlreadyExists => SetupApiKeyErrorKind::KeyAlreadyExists,
-        SecretsStorageError::KeyNotFound => SetupApiKeyErrorKind::StoreUnavailable,
-        SecretsStorageError::StoreUnavailable => SetupApiKeyErrorKind::StoreUnavailable,
-        SecretsStorageError::StoredSecretInvalid => SetupApiKeyErrorKind::StoreUnavailable,
-        SecretsStorageError::IdentityRequestFailed(error) => setup_identity_error(error),
-        SecretsStorageError::IdentityResponseInvalid { .. } => {
-            SetupApiKeyErrorKind::IdentityResponseInvalid
-        }
-    }
-}
-
-fn get_api_key_identity_error_kind(error: &SecretsStorageError) -> GetApiKeyIdentityErrorKind {
-    match error {
-        SecretsStorageError::SecretRequired => GetApiKeyIdentityErrorKind::KeyNotFound,
-        SecretsStorageError::KeyAlreadyExists => GetApiKeyIdentityErrorKind::StoreUnavailable,
-        SecretsStorageError::KeyNotFound => GetApiKeyIdentityErrorKind::KeyNotFound,
-        SecretsStorageError::StoreUnavailable => GetApiKeyIdentityErrorKind::StoreUnavailable,
-        SecretsStorageError::StoredSecretInvalid => GetApiKeyIdentityErrorKind::StoredSecretInvalid,
-        SecretsStorageError::IdentityRequestFailed(error) => get_identity_error(error),
-        SecretsStorageError::IdentityResponseInvalid { .. } => {
-            GetApiKeyIdentityErrorKind::IdentityResponseInvalid
-        }
-    }
-}
-
-fn delete_api_key_error_kind(error: &SecretsStorageError) -> DeleteApiKeyErrorKind {
-    match error {
-        SecretsStorageError::KeyNotFound => DeleteApiKeyErrorKind::KeyNotFound,
-        SecretsStorageError::SecretRequired
-        | SecretsStorageError::KeyAlreadyExists
-        | SecretsStorageError::StoreUnavailable
-        | SecretsStorageError::StoredSecretInvalid
-        | SecretsStorageError::IdentityRequestFailed(_)
-        | SecretsStorageError::IdentityResponseInvalid { .. } => {
-            DeleteApiKeyErrorKind::StoreUnavailable
-        }
-    }
-}
-
-fn setup_identity_error(error: &ProviderApiError) -> SetupApiKeyErrorKind {
-    match error {
-        ProviderApiError::Unauthorized => SetupApiKeyErrorKind::IdentityUnauthorized,
-        ProviderApiError::InsufficientPermissions => {
-            SetupApiKeyErrorKind::IdentityInsufficientPermissions
-        }
-        ProviderApiError::RateLimited => SetupApiKeyErrorKind::IdentityRateLimited,
-        ProviderApiError::Timeout => SetupApiKeyErrorKind::IdentityTimeout,
-        ProviderApiError::RequestFailed { .. } => SetupApiKeyErrorKind::IdentityRequestFailed,
-    }
-}
-
-fn get_identity_error(error: &ProviderApiError) -> GetApiKeyIdentityErrorKind {
-    match error {
-        ProviderApiError::Unauthorized => GetApiKeyIdentityErrorKind::IdentityUnauthorized,
-        ProviderApiError::InsufficientPermissions => {
-            GetApiKeyIdentityErrorKind::IdentityInsufficientPermissions
-        }
-        ProviderApiError::RateLimited => GetApiKeyIdentityErrorKind::IdentityRateLimited,
-        ProviderApiError::Timeout => GetApiKeyIdentityErrorKind::IdentityTimeout,
-        ProviderApiError::RequestFailed { .. } => GetApiKeyIdentityErrorKind::IdentityRequestFailed,
-    }
-}
+define_secret_command_error!(
+    SetupHuggingFaceApiKeyCommandError,
+    "hugging face api key setup failed: {0}"
+);
+define_secret_command_error!(
+    GetHuggingFaceApiKeyIdentityCommandError,
+    "hugging face api key identity failed: {0}"
+);
+define_secret_command_error!(
+    DeleteHuggingFaceApiKeyCommandError,
+    "hugging face api key deletion failed: {0}"
+);
