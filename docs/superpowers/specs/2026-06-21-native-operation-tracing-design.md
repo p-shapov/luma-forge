@@ -9,7 +9,7 @@ The design uses `fastrace` for span structure and `log`/`logforth` for operation
 ## Goals
 
 - Initialize native logging and tracing after support paths are ready.
-- Write JSONL logs under `<app_data_dir>/logs/luma-forge.log.YYYY-MM-DD`.
+- Write JSONL logs under `<app_data_dir>/logs/luma-forge.log`.
 - Create one root span for every Tauri command.
 - Derive UI-safe command `trace_id` values from `fastrace::collector::SpanContext`.
 - Use fastrace-derived command error trace IDs as the current native contract.
@@ -197,7 +197,7 @@ Run command codegen and frontend checks only if command signatures or generated 
 
 ## Acceptance Criteria
 
-- JSONL logs are written to `<app_data_dir>/logs/luma-forge.log.YYYY-MM-DD`.
+- JSONL logs are written to `<app_data_dir>/logs/luma-forge.log`.
 - Logs emitted under active spans include `trace_id` and `span_id`.
 - Every Tauri command creates one command root span.
 - Every command error returns a fastrace-derived `trace_id`.
