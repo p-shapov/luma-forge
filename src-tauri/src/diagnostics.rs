@@ -1,9 +1,6 @@
 use std::{error::Error, path::Path};
 
-use fastrace::{
-    collector::{Config, ConsoleReporter, SpanContext},
-    Span,
-};
+use fastrace::{collector::SpanContext, Span};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiagnosticsInitializationError {
@@ -20,9 +17,8 @@ pub struct ErrorDiagnostics {
 }
 
 pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
-    let appender = logforth::append::file::FileBuilder::new(logs_dir, "luma-forge.log")
+    let appender = logforth::append::file::FileBuilder::new(logs_dir, current_log_filename())
         .layout(logforth::layout::JsonLayout::default())
-        .rollover_daily()
         .build()
         .map_err(|error| DiagnosticsInitializationError::SetupFailed {
             message: error.to_string(),
@@ -45,7 +41,6 @@ pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
     })?;
     log::set_max_level(log::LevelFilter::Trace);
 
-    fastrace::set_reporter(ConsoleReporter, Config::default());
     Ok(())
 }
 
@@ -90,6 +85,10 @@ fn serialized_error_code(error: &impl serde::Serialize, fallback: &'static str) 
             .unwrap_or_else(|| fallback.to_string()),
         _ => fallback.to_string(),
     }
+}
+
+fn current_log_filename() -> String {
+    "luma-forge.log".to_string()
 }
 
 #[cfg(test)]
@@ -159,5 +158,10 @@ mod tests {
         assert_eq!(diagnostics.message, "unit failure");
         assert_eq!(diagnostics.cause, "unit failure");
         assert!(diagnostics.source_chain.is_empty());
+    }
+
+    #[test]
+    fn current_log_filename_uses_single_stable_log_name() {
+        assert_eq!(current_log_filename(), "luma-forge.log");
     }
 }
