@@ -109,44 +109,6 @@ macro_rules! define_workspace_error_code {
                     _ => Self::CommandError,
                 }
             }
-
-            fn as_str(&self) -> &'static str {
-                match self {
-                    Self::AppDataDirectoryUnavailable => "app_data_directory_unavailable",
-                    Self::AppDataDirectoryCreateFailed => "app_data_directory_create_failed",
-                    Self::DiagnosticsInitializationFailed => "diagnostics_initialization_failed",
-                    Self::WorkspaceStorageInitializationFailed => {
-                        "workspace_storage_initialization_failed"
-                    }
-                    Self::ProviderServicesInitializationFailed => {
-                        "provider_services_initialization_failed"
-                    }
-                    Self::LifecycleStateRestoreFailed => "lifecycle_state_restore_failed",
-                    Self::Unauthorized => "unauthorized",
-                    Self::InsufficientPermissions => "insufficient_permissions",
-                    Self::RateLimited => "rate_limited",
-                    Self::Timeout => "timeout",
-                    Self::RequestFailed => "request_failed",
-                    Self::SecretRequired => "secret_required",
-                    Self::KeyAlreadyExists => "key_already_exists",
-                    Self::KeyNotFound => "key_not_found",
-                    Self::StoreUnavailable => "store_unavailable",
-                    Self::StoredSecretInvalid => "stored_secret_invalid",
-                    Self::IdentityResponseInvalid => "identity_response_invalid",
-                    Self::StorageUnavailable => "storage_unavailable",
-                    Self::ParseFailed => "parse_failed",
-                    Self::ValidationFailed => "validation_failed",
-                    Self::SchemaInvalid => "schema_invalid",
-                    Self::DataInvalid => "data_invalid",
-                    Self::WorkspaceAlreadyExists => "workspace_already_exists",
-                    Self::WorkspaceNotFound => "workspace_not_found",
-                    Self::OperationNotFound => "operation_not_found",
-                    Self::RunningOperationExists => "running_operation_exists",
-                    Self::LifecycleOperationAlreadyRunning => "lifecycle_operation_already_running",
-                    Self::InvalidState => "invalid_state",
-                    Self::CommandError => "command_error",
-                }
-            }
         }
     };
 }
@@ -175,18 +137,9 @@ define_workspace_command_error!(
     CreateRunpodWorkspaceCommandError,
     "runpod workspace creation failed"
 );
-define_workspace_command_error!(
-    ProvisionWorkspaceCommandError,
-    "workspace provision failed"
-);
-define_workspace_command_error!(
-    CleanupWorkspaceCommandError,
-    "workspace cleanup failed"
-);
-define_workspace_command_error!(
-    DeleteWorkspaceCommandError,
-    "workspace deletion failed"
-);
+define_workspace_command_error!(ProvisionWorkspaceCommandError, "workspace provision failed");
+define_workspace_command_error!(CleanupWorkspaceCommandError, "workspace cleanup failed");
+define_workspace_command_error!(DeleteWorkspaceCommandError, "workspace deletion failed");
 define_workspace_command_error!(
     GetRunningLifecycleOperationsCommandError,
     "running lifecycle operations lookup failed"

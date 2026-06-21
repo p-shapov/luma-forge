@@ -190,8 +190,7 @@ where
                     crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     workspace_id = params.workspace_id.as_str(),
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod network volume creation failed"
                 );
                 error
@@ -226,8 +225,7 @@ where
                     crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     network_volume_id = network_volume_id,
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod network volume deletion failed"
                 );
                 error
@@ -281,8 +279,7 @@ where
                     workspace_id = workspace_id.as_str(),
                     data_center_id = data_center_id.as_str(),
                     network_volume_id = network_volume_id.as_str(),
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod provisioner pod start failed"
                 );
                 error
@@ -317,8 +314,7 @@ where
                     crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     provisioner_pod_id = provisioner_pod_id,
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod provisioner pod termination failed"
                 );
                 error
@@ -355,8 +351,7 @@ where
                 log::error!(
                     workspace_id = workspace_id,
                     provisioner_pod_id = provisioner_pod_id,
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod provisioner status check failed"
                 );
             })?;
@@ -394,8 +389,7 @@ where
                     crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     workspace_id = params.workspace_id.as_str(),
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod serverless template creation failed"
                 );
                 error
@@ -451,8 +445,7 @@ where
                     gpu_type_id = gpu_type_id.as_str(),
                     network_volume_id = network_volume_id.as_str(),
                     template_id = template_id.as_str(),
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod serverless endpoint creation failed"
                 );
                 error
@@ -487,8 +480,7 @@ where
                     crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     endpoint_id = endpoint_id,
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod serverless endpoint deletion failed"
                 );
                 error
@@ -519,8 +511,7 @@ where
                     crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     template_id = template_id,
-                    code = diagnostics.code.as_str(),
-                    message = diagnostics.message.as_str();
+                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                     "runpod serverless template deletion failed"
                 );
                 error

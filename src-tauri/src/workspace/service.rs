@@ -242,8 +242,7 @@ impl WorkspaceService {
                         log::error!(
                             workspace_id = workspace.id.as_str(),
                             operation_id = operation.operation_id.as_str(),
-                            code = diagnostics.code.as_str(),
-                            message = diagnostics.message.as_str();
+                            error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
                             "workspace lifecycle runner failed"
                         );
 
