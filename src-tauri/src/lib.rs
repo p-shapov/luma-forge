@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 pub mod app;
+pub mod diagnostics;
 pub mod domain;
 pub mod lifecycle_journal;
 pub mod provider;
