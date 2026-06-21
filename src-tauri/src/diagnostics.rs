@@ -20,10 +20,17 @@ pub enum DiagnosticsInitializationError {
     SetupFailed { message: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ErrorDiagnosticFrame {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ErrorDiagnostics {
     pub code: String,
     pub message: String,
+    pub chain: Vec<ErrorDiagnosticFrame>,
 }
 
 pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
@@ -71,10 +78,45 @@ pub fn error_diagnostics<E>(error: &E, fallback_code: &'static str) -> ErrorDiag
 where
     E: Error + serde::Serialize + 'static,
 {
+    let message = sanitize_diagnostic_string(&error.to_string());
     ErrorDiagnostics {
         code: serialized_error_code(error, fallback_code),
-        message: sanitize_diagnostic_string(&error.to_string()),
+        message: message.clone(),
+        chain: error_diagnostic_chain(error, fallback_code, message),
     }
+}
+
+pub fn error_diagnostics_log_json(diagnostics: &ErrorDiagnostics) -> String {
+    serde_json::to_string(diagnostics).unwrap_or_else(|_| {
+        r#"{"code":"diagnostics_serialization_failed","message":"error diagnostics serialization failed","chain":[]}"#.to_string()
+    })
+}
+
+fn error_diagnostic_chain<E>(
+    error: &E,
+    fallback_code: &'static str,
+    message: String,
+) -> Vec<ErrorDiagnosticFrame>
+where
+    E: Error + serde::Serialize + 'static,
+{
+    let mut chain = vec![ErrorDiagnosticFrame {
+        code: serialized_direct_error_code(error)
+            .unwrap_or_else(|| diagnostic_code_from_message(&message, fallback_code)),
+        message,
+    }];
+
+    let mut source = error.source();
+    while let Some(error) = source {
+        let message = sanitize_diagnostic_string(&error.to_string());
+        chain.push(ErrorDiagnosticFrame {
+            code: diagnostic_code_from_message(&message, fallback_code),
+            message,
+        });
+        source = error.source();
+    }
+
+    chain
 }
 
 fn serialized_error_code(error: &impl serde::Serialize, fallback: &'static str) -> String {
@@ -82,6 +124,27 @@ fn serialized_error_code(error: &impl serde::Serialize, fallback: &'static str) 
         .ok()
         .and_then(|value| serialized_error_code_value(&value))
         .unwrap_or_else(|| fallback.to_string())
+}
+
+fn serialized_direct_error_code(error: &impl serde::Serialize) -> Option<String> {
+    serde_json::to_value(error)
+        .ok()
+        .and_then(|value| serialized_direct_error_code_value(&value))
+}
+
+fn serialized_direct_error_code_value(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(code) => Some(code.clone()),
+        serde_json::Value::Object(fields) => {
+            let (code, nested) = fields.iter().next()?;
+            if should_descend_into_serialized_error(nested) {
+                None
+            } else {
+                Some(code.clone())
+            }
+        }
+        _ => None,
+    }
 }
 
 fn serialized_error_code_value(value: &serde_json::Value) -> Option<String> {
@@ -117,6 +180,33 @@ fn is_serialized_error_payload_key(key: &str) -> bool {
         key,
         "message" | "path" | "workspace_id" | "operation_id" | "source"
     )
+}
+
+fn diagnostic_code_from_message(message: &str, fallback: &'static str) -> String {
+    let mut code = String::new();
+    let mut previous_was_separator = true;
+
+    for word in message
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+    {
+        let word = word.to_ascii_lowercase();
+        if matches!(word.as_str(), "a" | "an" | "the" | "is" | "was" | "were") {
+            continue;
+        }
+
+        if !previous_was_separator {
+            code.push('_');
+        }
+        code.push_str(&word);
+        previous_was_separator = false;
+    }
+
+    if code.is_empty() {
+        fallback.to_string()
+    } else {
+        code
+    }
 }
 
 #[derive(Debug)]
@@ -177,15 +267,26 @@ struct JsonValueCollector {
 impl Visitor for JsonValueCollector {
     fn visit(&mut self, key: KeyView, value: ValueView) -> Result<(), logforth::Error> {
         let key = key.to_string();
-        let value = match serde_json::to_value(&value) {
-            Ok(value) => sanitize_json_value_for_key(Some(key.as_str()), value),
-            Err(_) => sanitize_json_value_for_key(
-                Some(key.as_str()),
-                serde_json::Value::String(value.to_string()),
-            ),
-        };
+        let value = json_value_for_log_kv(key.as_str(), value);
         self.kvs.insert(key, value);
         Ok(())
+    }
+}
+
+fn json_value_for_log_kv(key: &str, value: ValueView) -> serde_json::Value {
+    if key == "error" {
+        if let Some(string) = value.to_str() {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(string) {
+                return sanitize_json_value_for_key(Some(key), value);
+            }
+        }
+    }
+
+    match serde_json::to_value(&value) {
+        Ok(value) => sanitize_json_value_for_key(Some(key), value),
+        Err(_) => {
+            sanitize_json_value_for_key(Some(key), serde_json::Value::String(value.to_string()))
+        }
     }
 }
 
@@ -197,8 +298,10 @@ struct SanitizedRecordLine {
     file: String,
     line: u32,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Map::is_empty")]
-    kvs: Map<String, serde_json::Value>,
+    ctx: Map<String, serde_json::Value>,
     #[serde(skip_serializing_if = "Map::is_empty")]
     diags: Map<String, serde_json::Value>,
 }
@@ -214,8 +317,8 @@ impl logforth::Layout for SanitizingJsonLayout {
             .format(&Rfc3339)
             .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
 
-        let mut kvs_collector = JsonValueCollector::default();
-        record.key_values().visit(&mut kvs_collector)?;
+        let mut ctx_collector = JsonValueCollector::default();
+        record.key_values().visit(&mut ctx_collector)?;
 
         let mut diags_collector = JsonValueCollector::default();
         for diagnostic in diags {
@@ -229,7 +332,8 @@ impl logforth::Layout for SanitizingJsonLayout {
             file: record.file().unwrap_or_default().to_string(),
             line: record.line().unwrap_or_default(),
             message: sanitize_diagnostic_string(&record.payload().to_string()),
-            kvs: kvs_collector.kvs,
+            error: ctx_collector.kvs.remove("error"),
+            ctx: ctx_collector.kvs,
             diags: diags_collector.kvs,
         };
 
@@ -618,18 +722,29 @@ mod tests {
     }
 
     #[test]
-    fn error_diagnostics_shape_is_code_and_message_only() {
+    fn error_diagnostics_shape_includes_chain() {
         let diagnostics = ErrorDiagnostics {
             code: "structured_failure".to_string(),
             message: "top-level".to_string(),
+            chain: vec![ErrorDiagnosticFrame {
+                code: "structured_failure".to_string(),
+                message: "top-level".to_string(),
+            }],
         };
 
         assert_eq!(diagnostics.code, "structured_failure");
         assert_eq!(diagnostics.message, "top-level");
+        assert_eq!(
+            diagnostics.chain,
+            vec![ErrorDiagnosticFrame {
+                code: "structured_failure".to_string(),
+                message: "top-level".to_string(),
+            }]
+        );
     }
 
     #[test]
-    fn error_diagnostics_reports_code_and_message() {
+    fn error_diagnostics_reports_code_message_and_chain() {
         let error = TestError::StructuredFailure {
             message: "top-level".to_string(),
             source: Some(Box::new(TestError::StructuredFailure {
@@ -645,6 +760,23 @@ mod tests {
 
         assert_eq!(diagnostics.code, "structured_failure");
         assert_eq!(diagnostics.message, "top-level");
+        assert_eq!(
+            diagnostics.chain,
+            vec![
+                ErrorDiagnosticFrame {
+                    code: "structured_failure".to_string(),
+                    message: "top-level".to_string(),
+                },
+                ErrorDiagnosticFrame {
+                    code: "middle".to_string(),
+                    message: "middle".to_string(),
+                },
+                ErrorDiagnosticFrame {
+                    code: "leaf".to_string(),
+                    message: "leaf".to_string(),
+                },
+            ]
+        );
     }
 
     #[test]
@@ -653,6 +785,13 @@ mod tests {
 
         assert_eq!(diagnostics.code, "unit_failure");
         assert_eq!(diagnostics.message, "unit failure");
+        assert_eq!(
+            diagnostics.chain,
+            vec![ErrorDiagnosticFrame {
+                code: "unit_failure".to_string(),
+                message: "unit failure".to_string(),
+            }]
+        );
     }
 
     #[test]
@@ -674,6 +813,23 @@ mod tests {
         assert_eq!(
             diagnostics.message,
             "request failed for Bearer [REDACTED] at [REDACTED_URL]"
+        );
+        assert_eq!(
+            diagnostics.chain,
+            vec![
+                ErrorDiagnosticFrame {
+                    code: "structured_failure".to_string(),
+                    message: "request failed for Bearer [REDACTED] at [REDACTED_URL]".to_string(),
+                },
+                ErrorDiagnosticFrame {
+                    code: "authorization_redacted".to_string(),
+                    message: "Authorization: [REDACTED]".to_string(),
+                },
+                ErrorDiagnosticFrame {
+                    code: "worker_rejected_redacted_access_token_redacted".to_string(),
+                    message: "worker rejected [REDACTED] access_token=[REDACTED]".to_string(),
+                },
+            ]
         );
         assert!(!diagnostics.message.contains("top-secret-token"));
         assert!(!diagnostics.message.contains("deadbeef"));
@@ -885,6 +1041,127 @@ mod tests {
             json["kvs"]["details"],
             r#"api_key: [REDACTED] "token":"[REDACTED]""#
         );
+    }
+
+    #[test]
+    fn sanitizing_json_layout_lifts_error_key_value_to_top_level() {
+        let layout = SanitizingJsonLayout;
+        let key_values = [(
+            KeyOwned::new("error"),
+            ValueOwned::map([
+                (
+                    KeyOwned::new("code"),
+                    ValueOwned::str("runtime_provider_api_key_unavailable"),
+                ),
+                (
+                    KeyOwned::new("message"),
+                    ValueOwned::str("runpod placement options failed"),
+                ),
+                (
+                    KeyOwned::new("chain"),
+                    ValueOwned::list([
+                        ValueOwned::map([
+                            (
+                                KeyOwned::new("code"),
+                                ValueOwned::str("runpod_placement_options_failed"),
+                            ),
+                            (
+                                KeyOwned::new("message"),
+                                ValueOwned::str("runpod placement options failed"),
+                            ),
+                        ]),
+                        ValueOwned::map([
+                            (
+                                KeyOwned::new("code"),
+                                ValueOwned::str("runtime_provider_api_key_unavailable"),
+                            ),
+                            (
+                                KeyOwned::new("message"),
+                                ValueOwned::str("runtime provider api key unavailable"),
+                            ),
+                        ]),
+                        ValueOwned::map([
+                            (
+                                KeyOwned::new("code"),
+                                ValueOwned::str("secure_storage_unavailable"),
+                            ),
+                            (
+                                KeyOwned::new("message"),
+                                ValueOwned::str("secure storage is unavailable"),
+                            ),
+                        ]),
+                    ]),
+                ),
+            ]),
+        )];
+        let record = logforth::record::Record::builder()
+            .level(Level::Error)
+            .target_static("luma_forge_lib::diagnostics")
+            .file_static("src/diagnostics.rs")
+            .line(Some(123))
+            .payload(format_args!("tauri command failed"))
+            .key_values(&key_values[..])
+            .build();
+
+        let formatted = layout.format(&record, &[]).expect("record should format");
+        let json: serde_json::Value =
+            serde_json::from_slice(&formatted).expect("formatted line should be valid json");
+
+        assert_eq!(
+            json["error"]["code"],
+            "runtime_provider_api_key_unavailable"
+        );
+        assert_eq!(json["error"]["message"], "runpod placement options failed");
+        assert_eq!(json["error"]["chain"].as_array().unwrap().len(), 3);
+        assert!(json["kvs"].get("error").is_none());
+    }
+
+    #[test]
+    fn sanitizing_json_layout_lifts_json_string_error_key_value_to_top_level() {
+        let diagnostics = ErrorDiagnostics {
+            code: "runtime_provider_api_key_unavailable".to_string(),
+            message: "runpod placement options failed".to_string(),
+            chain: vec![
+                ErrorDiagnosticFrame {
+                    code: "runpod_placement_options_failed".to_string(),
+                    message: "runpod placement options failed".to_string(),
+                },
+                ErrorDiagnosticFrame {
+                    code: "runtime_provider_api_key_unavailable".to_string(),
+                    message: "runtime provider api key unavailable".to_string(),
+                },
+                ErrorDiagnosticFrame {
+                    code: "secure_storage_unavailable".to_string(),
+                    message: "secure storage is unavailable".to_string(),
+                },
+            ],
+        };
+        let error_json = error_diagnostics_log_json(&diagnostics);
+        assert!(error_json.starts_with(r#"{"code":"runtime_provider_api_key_unavailable""#));
+        assert!(!error_json.contains("ErrorDiagnostics"));
+
+        let layout = SanitizingJsonLayout;
+        let key_values = [(KeyOwned::new("error"), ValueOwned::str(error_json))];
+        let record = logforth::record::Record::builder()
+            .level(Level::Error)
+            .target_static("luma_forge_lib::diagnostics")
+            .file_static("src/diagnostics.rs")
+            .line(Some(123))
+            .payload(format_args!("tauri command failed"))
+            .key_values(&key_values[..])
+            .build();
+
+        let formatted = layout.format(&record, &[]).expect("record should format");
+        let json: serde_json::Value =
+            serde_json::from_slice(&formatted).expect("formatted line should be valid json");
+
+        assert_eq!(
+            json["error"]["code"],
+            "runtime_provider_api_key_unavailable"
+        );
+        assert_eq!(json["error"]["message"], "runpod placement options failed");
+        assert_eq!(json["error"]["chain"].as_array().unwrap().len(), 3);
+        assert!(json["kvs"].get("error").is_none());
     }
 
     #[test]

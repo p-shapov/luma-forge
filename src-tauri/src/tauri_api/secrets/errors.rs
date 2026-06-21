@@ -76,33 +76,6 @@ macro_rules! define_secret_error_code {
                     _ => Self::CommandError,
                 }
             }
-
-            fn as_str(&self) -> &'static str {
-                match self {
-                    Self::AppDataDirectoryUnavailable => "app_data_directory_unavailable",
-                    Self::AppDataDirectoryCreateFailed => "app_data_directory_create_failed",
-                    Self::DiagnosticsInitializationFailed => "diagnostics_initialization_failed",
-                    Self::WorkspaceStorageInitializationFailed => {
-                        "workspace_storage_initialization_failed"
-                    }
-                    Self::ProviderServicesInitializationFailed => {
-                        "provider_services_initialization_failed"
-                    }
-                    Self::LifecycleStateRestoreFailed => "lifecycle_state_restore_failed",
-                    Self::SecretRequired => "secret_required",
-                    Self::KeyAlreadyExists => "key_already_exists",
-                    Self::KeyNotFound => "key_not_found",
-                    Self::StoreUnavailable => "store_unavailable",
-                    Self::StoredSecretInvalid => "stored_secret_invalid",
-                    Self::Unauthorized => "unauthorized",
-                    Self::InsufficientPermissions => "insufficient_permissions",
-                    Self::RateLimited => "rate_limited",
-                    Self::Timeout => "timeout",
-                    Self::RequestFailed => "request_failed",
-                    Self::IdentityResponseInvalid => "identity_response_invalid",
-                    Self::CommandError => "command_error",
-                }
-            }
         }
     };
 }
@@ -127,10 +100,7 @@ macro_rules! define_secret_command_error {
     };
 }
 
-define_secret_command_error!(
-    SetupRunpodApiKeyCommandError,
-    "runpod api key setup failed"
-);
+define_secret_command_error!(SetupRunpodApiKeyCommandError, "runpod api key setup failed");
 define_secret_command_error!(
     GetRunpodApiKeyIdentityCommandError,
     "runpod api key identity failed"

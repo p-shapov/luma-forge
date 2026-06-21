@@ -48,18 +48,6 @@ macro_rules! define_catalog_code {
                 }
             }
 
-            fn as_str(&self) -> &'static str {
-                match self {
-                    Self::AppDataDirectoryUnavailable => "app_data_directory_unavailable",
-                    Self::AppDataDirectoryCreateFailed => "app_data_directory_create_failed",
-                    Self::DiagnosticsInitializationFailed => "diagnostics_initialization_failed",
-                    Self::WorkspaceStorageInitializationFailed => "workspace_storage_initialization_failed",
-                    Self::ProviderServicesInitializationFailed => "provider_services_initialization_failed",
-                    Self::LifecycleStateRestoreFailed => "lifecycle_state_restore_failed",
-                    $(Self::$variant => $code,)+
-                    Self::CommandError => "command_error",
-                }
-            }
         }
     };
 }
