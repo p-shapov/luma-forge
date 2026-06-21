@@ -5,7 +5,7 @@ use crate::{provider::errors::ProviderApiError, secrets::SecretsStorageError};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodProviderError {
-    #[error("provider api error")]
+    #[error("provider api error: {0}")]
     ProviderApiError(#[from] ProviderApiError),
     #[error("runtime provider api key unavailable: {0}")]
     RuntimeProviderApiKeyUnavailable(#[source] SecretsStorageError),
