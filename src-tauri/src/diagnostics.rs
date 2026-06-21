@@ -166,8 +166,11 @@ impl Visitor for JsonValueCollector {
     fn visit(&mut self, key: KeyView, value: ValueView) -> Result<(), logforth::Error> {
         let key = key.to_string();
         let value = match serde_json::to_value(&value) {
-            Ok(value) => sanitize_json_value(value),
-            Err(_) => sanitize_json_value(serde_json::Value::String(value.to_string())),
+            Ok(value) => sanitize_json_value_for_key(Some(key.as_str()), value),
+            Err(_) => sanitize_json_value_for_key(
+                Some(key.as_str()),
+                serde_json::Value::String(value.to_string()),
+            ),
         };
         self.kvs.insert(key, value);
         Ok(())
@@ -252,21 +255,93 @@ fn looks_like_raw_body(value: &str) -> bool {
     false
 }
 
-fn sanitize_json_value(value: serde_json::Value) -> serde_json::Value {
+fn sanitize_json_value_for_key(key: Option<&str>, value: serde_json::Value) -> serde_json::Value {
+    if key.is_some_and(is_body_like_json_key) {
+        return suppress_json_value(value);
+    }
+
+    if key.is_some_and(is_sensitive_json_key) {
+        return serde_json::Value::String(REDACTED.to_string());
+    }
+
     match value {
         serde_json::Value::String(string) => {
             serde_json::Value::String(sanitize_diagnostic_string(&string))
         }
-        serde_json::Value::Array(values) => {
-            serde_json::Value::Array(values.into_iter().map(sanitize_json_value).collect())
-        }
+        serde_json::Value::Array(values) => serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(|value| sanitize_json_value_for_key(None, value))
+                .collect(),
+        ),
         serde_json::Value::Object(map) => serde_json::Value::Object(
             map.into_iter()
-                .map(|(key, value)| (key, sanitize_json_value(value)))
+                .map(|(child_key, value)| {
+                    let sanitized = sanitize_json_value_for_key(Some(child_key.as_str()), value);
+                    (child_key, sanitized)
+                })
                 .collect(),
         ),
         other => other,
     }
+}
+
+fn suppress_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(string) => {
+            if string.len() > MAX_DIAGNOSTIC_STRING_LEN {
+                serde_json::Value::String(REDACTED_LARGE_DIAGNOSTIC.to_string())
+            } else {
+                serde_json::Value::String(REDACTED_BODY.to_string())
+            }
+        }
+        _ => serde_json::Value::String(REDACTED_BODY.to_string()),
+    }
+}
+
+fn is_sensitive_json_key(key: &str) -> bool {
+    let normalized = normalize_json_key(key);
+
+    normalized.contains("authorization")
+        || normalized.contains("authheader")
+        || normalized == "apikey"
+        || normalized.ends_with("apikey")
+        || normalized == "token"
+        || normalized.ends_with("token")
+        || normalized == "accesstoken"
+        || normalized.ends_with("accesstoken")
+        || normalized == "workertoken"
+        || normalized.ends_with("workertoken")
+        || normalized == "providerapikey"
+        || normalized.ends_with("providerapikey")
+        || normalized == "huggingfacekey"
+        || normalized.ends_with("huggingfacekey")
+        || normalized == "hftoken"
+        || normalized.ends_with("hftoken")
+}
+
+fn is_body_like_json_key(key: &str) -> bool {
+    let normalized = normalize_json_key(key);
+
+    matches!(
+        normalized.as_str(),
+        "body"
+            | "payload"
+            | "requestbody"
+            | "responsebody"
+            | "providerresponse"
+            | "rawproviderresponse"
+            | "commandpayload"
+            | "request"
+            | "response"
+    )
+}
+
+fn normalize_json_key(key: &str) -> String {
+    key.chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
 }
 
 fn starts_with_structured_body(value: &str) -> bool {
@@ -627,6 +702,74 @@ mod tests {
         assert!(!formatted
             .windows("deadbeef".len())
             .any(|window| window == b"deadbeef"));
+    }
+
+    #[test]
+    fn sanitizing_json_layout_redacts_nested_structured_key_values() {
+        let layout = SanitizingJsonLayout::default();
+        let request_value = ValueOwned::map([
+            (
+                KeyOwned::new("authorization"),
+                ValueOwned::str("Basic secret"),
+            ),
+            (
+                KeyOwned::new("nested"),
+                ValueOwned::map([
+                    (KeyOwned::new("api_key"), ValueOwned::str("abc")),
+                    (KeyOwned::new("access_token"), ValueOwned::str("xyz")),
+                ]),
+            ),
+            (
+                KeyOwned::new("body"),
+                ValueOwned::map([
+                    (KeyOwned::new("prompt"), ValueOwned::str("draw")),
+                    (
+                        KeyOwned::new("workflow"),
+                        ValueOwned::map([(KeyOwned::new("id"), ValueOwned::str("wf_123"))]),
+                    ),
+                ]),
+            ),
+            (
+                KeyOwned::new("payload"),
+                ValueOwned::list([ValueOwned::map([(
+                    KeyOwned::new("token"),
+                    ValueOwned::str("array-secret"),
+                )])]),
+            ),
+            (
+                KeyOwned::new("safe"),
+                ValueOwned::str("Bearer top-secret-token"),
+            ),
+        ]);
+        let key_values = [(KeyOwned::new("details"), request_value)];
+        let record = logforth::record::Record::builder()
+            .level(Level::Info)
+            .target_static("luma_forge_lib::diagnostics")
+            .file_static("src/diagnostics.rs")
+            .line(Some(123))
+            .payload(format_args!("structured request"))
+            .key_values(&key_values[..])
+            .build();
+
+        let formatted = layout.format(&record, &[]).expect("record should format");
+        let json: serde_json::Value =
+            serde_json::from_slice(&formatted).expect("formatted line should be valid json");
+
+        assert_eq!(json["kvs"]["details"]["authorization"], "[REDACTED]");
+        assert_eq!(json["kvs"]["details"]["nested"]["api_key"], "[REDACTED]");
+        assert_eq!(
+            json["kvs"]["details"]["nested"]["access_token"],
+            "[REDACTED]"
+        );
+        assert_eq!(json["kvs"]["details"]["body"], "[REDACTED_BODY]");
+        assert_eq!(json["kvs"]["details"]["payload"], "[REDACTED_BODY]");
+        assert_eq!(json["kvs"]["details"]["safe"], "Bearer [REDACTED]");
+        assert!(!formatted
+            .windows("Basic secret".len())
+            .any(|window| window == b"Basic secret"));
+        assert!(!formatted
+            .windows("array-secret".len())
+            .any(|window| window == b"array-secret"));
     }
 
     #[test]
