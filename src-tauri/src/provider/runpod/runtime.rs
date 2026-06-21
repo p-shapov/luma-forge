@@ -29,6 +29,15 @@ pub enum RunpodProvisionerStatus {
     Failed { message: String },
 }
 
+fn runpod_provisioner_status_label(status: &RunpodProvisionerStatus) -> &'static str {
+    match status {
+        RunpodProvisionerStatus::Pending => "pending",
+        RunpodProvisionerStatus::Running => "running",
+        RunpodProvisionerStatus::Succeeded => "succeeded",
+        RunpodProvisionerStatus::Failed { .. } => "failed",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateRunpodNetworkVolumeParams {
     pub workspace_id: String,
@@ -366,7 +375,7 @@ where
         log::info!(
             workspace_id = workspace_id,
             provisioner_pod_id = provisioner_pod_id,
-            status:? = status;
+            status = runpod_provisioner_status_label(&status);
             "checked runpod provisioner status"
         );
 
