@@ -27,11 +27,11 @@ pub async fn delete_workspace(
 mod tests {
     use crate::{
         domain::lifecycle_operation::LifecycleOperationPayload,
+        provider::errors::ProviderApiError,
         provider::runpod::test_support::{
             runpod_client_with_failure, runpod_client_with_state, workspace_with_runpod_resources,
             RunpodClientFailure,
         },
-        shared::ApiError,
         workspace::test_support::runtime_context_for_test,
         workspace::WorkspaceError,
     };
@@ -93,7 +93,7 @@ mod tests {
 
             assert_eq!(
                 error,
-                WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+                WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
                     message: failure.message().to_string(),
                 })
             );

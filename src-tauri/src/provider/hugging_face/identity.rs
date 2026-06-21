@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 use crate::{
     domain::secrets::ApiKeyIdentity,
+    provider::errors::ProviderApiError,
     secrets::{
         errors::{
             identity_response_invalid_error, identity_response_invalid_message, SecretsStorageError,
@@ -9,7 +10,6 @@ use crate::{
         stores::ApiSecret,
         ApiKeyIdentityProvider,
     },
-    shared::{ApiError, AppFuture},
 };
 
 use super::client::HuggingFaceApiClient;
@@ -19,19 +19,15 @@ pub struct HuggingFaceIdentityProvider<C = HuggingFaceApiClient> {
     client: C,
 }
 
+#[async_trait::async_trait]
 pub(super) trait HuggingFaceIdentityClient: Clone + Send + Sync {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>>;
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError>;
 }
 
+#[async_trait::async_trait]
 impl HuggingFaceIdentityClient for HuggingFaceApiClient {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-        Box::pin(async move { self.get_identity(secret.expose_secret().to_string()).await })
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError> {
+        self.get_identity(secret.expose_secret().to_string()).await
     }
 }
 
@@ -43,15 +39,13 @@ impl HuggingFaceIdentityProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl<C> ApiKeyIdentityProvider for HuggingFaceIdentityProvider<C>
 where
     C: HuggingFaceIdentityClient,
 {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-        self.client.identity(secret)
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError> {
+        self.client.identity(secret).await
     }
 }
 
@@ -115,20 +109,22 @@ pub(super) fn map_whoami_response(
         "read" | "write" => {}
         "fineGrained" => {
             let fine_grained = response.auth.access_token.fine_grained.ok_or(
-                SecretsStorageError::IdentityRequestFailed(ApiError::InsufficientPermissions),
+                SecretsStorageError::IdentityRequestFailed(
+                    ProviderApiError::InsufficientPermissions,
+                ),
             )?;
 
             if !fine_grained.can_read_gated_repos.unwrap_or(false)
                 || !fine_grained.has_repo_content_read_permission()
             {
                 return Err(SecretsStorageError::IdentityRequestFailed(
-                    ApiError::InsufficientPermissions,
+                    ProviderApiError::InsufficientPermissions,
                 ));
             }
         }
         _ => {
             return Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::InsufficientPermissions,
+                ProviderApiError::InsufficientPermissions,
             ));
         }
     }
@@ -235,7 +231,7 @@ mod tests {
         assert_eq!(
             map_whoami_response(response),
             Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::InsufficientPermissions
+                ProviderApiError::InsufficientPermissions
             ))
         );
     }

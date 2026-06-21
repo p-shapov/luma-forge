@@ -1,50 +1,46 @@
-use crate::{
-    domain::{
-        lifecycle_operation::{
-            LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
-            LifecycleOperationState,
-        },
-        workspace::WorkspaceId,
+use crate::domain::{
+    lifecycle_operation::{
+        LifecycleOperation, LifecycleOperationId, LifecycleOperationPayload,
+        LifecycleOperationState,
     },
-    shared::AppFuture,
+    workspace::WorkspaceId,
 };
 
 use super::LifecycleJournalError;
 
+#[async_trait::async_trait]
 pub trait LifecycleJournalRepository: Send + Sync {
-    fn create_operation<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>>;
+    async fn create_operation(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<LifecycleOperation, LifecycleJournalError>;
 
-    fn find_running_by_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>>;
+    async fn find_running_by_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<LifecycleOperation>, LifecycleJournalError>;
 
-    fn list_running<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<Vec<LifecycleOperation>, LifecycleJournalError>>;
+    async fn list_running(&self) -> Result<Vec<LifecycleOperation>, LifecycleJournalError>;
 
-    fn latest_for_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>>;
+    async fn latest_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<LifecycleOperation>, LifecycleJournalError>;
 
-    fn delete_for_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<(), LifecycleJournalError>>;
+    async fn delete_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<(), LifecycleJournalError>;
 
-    fn update_operation<'a>(
-        &'a self,
-        operation: &'a LifecycleOperation,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>>;
+    async fn update_operation(
+        &self,
+        operation: &LifecycleOperation,
+    ) -> Result<LifecycleOperation, LifecycleJournalError>;
 
-    fn mark_state<'a>(
-        &'a self,
-        operation_id: &'a LifecycleOperationId,
+    async fn mark_state(
+        &self,
+        operation_id: &LifecycleOperationId,
         state: LifecycleOperationState,
-        payload: Option<&'a LifecycleOperationPayload>,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>>;
+        payload: Option<&LifecycleOperationPayload>,
+    ) -> Result<LifecycleOperation, LifecycleJournalError>;
 }

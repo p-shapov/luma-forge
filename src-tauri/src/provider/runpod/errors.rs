@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{secrets::SecretsStorageError, shared::ApiError};
+use crate::{provider::errors::ProviderApiError, secrets::SecretsStorageError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodProviderError {
     #[error("provider api error")]
-    ProviderApiError(#[from] ApiError),
+    ProviderApiError(#[from] ProviderApiError),
     #[error("runtime provider api key unavailable: {0}")]
     RuntimeProviderApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("workflow provider api key unavailable: {0}")]

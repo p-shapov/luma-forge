@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    provider::runpod::RunpodProviderError, runtime_catalog::RuntimeCatalogError,
-    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace_catalog::WorkspaceCatalogError,
+    provider::errors::ProviderApiError, provider::runpod::RunpodProviderError,
+    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError,
+    workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
@@ -123,14 +123,16 @@ pub fn get_workspace_catalog_error(error: &WorkspaceCatalogError) -> GetWorkspac
     }
 }
 
-fn provider_error(error: &ApiError) -> GetRunpodPlacementOptionsErrorCode {
+fn provider_error(error: &ProviderApiError) -> GetRunpodPlacementOptionsErrorCode {
     match error {
-        ApiError::Unauthorized => GetRunpodPlacementOptionsErrorCode::ProviderUnauthorized,
-        ApiError::InsufficientPermissions => {
+        ProviderApiError::Unauthorized => GetRunpodPlacementOptionsErrorCode::ProviderUnauthorized,
+        ProviderApiError::InsufficientPermissions => {
             GetRunpodPlacementOptionsErrorCode::ProviderInsufficientPermissions
         }
-        ApiError::RateLimited => GetRunpodPlacementOptionsErrorCode::ProviderRateLimited,
-        ApiError::Timeout => GetRunpodPlacementOptionsErrorCode::ProviderTimeout,
-        ApiError::RequestFailed { .. } => GetRunpodPlacementOptionsErrorCode::ProviderRequestFailed,
+        ProviderApiError::RateLimited => GetRunpodPlacementOptionsErrorCode::ProviderRateLimited,
+        ProviderApiError::Timeout => GetRunpodPlacementOptionsErrorCode::ProviderTimeout,
+        ProviderApiError::RequestFailed { .. } => {
+            GetRunpodPlacementOptionsErrorCode::ProviderRequestFailed
+        }
     }
 }

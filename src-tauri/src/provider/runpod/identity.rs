@@ -1,11 +1,11 @@
 use crate::{
     domain::secrets::ApiKeyIdentity,
+    provider::errors::ProviderApiError,
     secrets::{
         errors::{identity_response_invalid_message, SecretsStorageError},
         stores::ApiSecret,
         ApiKeyIdentityProvider,
     },
-    shared::{ApiError, AppFuture},
 };
 
 use super::client::{
@@ -17,19 +17,15 @@ pub struct RunpodIdentityProvider<C = RunpodApiClient> {
     client: C,
 }
 
+#[async_trait::async_trait]
 pub(super) trait RunpodIdentityClient: Clone + Send + Sync {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>>;
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError>;
 }
 
+#[async_trait::async_trait]
 impl RunpodIdentityClient for RunpodApiClient {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-        Box::pin(async move { self.get_identity(secret.expose_secret().to_string()).await })
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError> {
+        self.get_identity(secret.expose_secret().to_string()).await
     }
 }
 
@@ -41,15 +37,13 @@ impl RunpodIdentityProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl<C> ApiKeyIdentityProvider for RunpodIdentityProvider<C>
 where
     C: RunpodIdentityClient,
 {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-        self.client.identity(secret)
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError> {
+        self.client.identity(secret).await
     }
 }
 
@@ -74,7 +68,7 @@ pub(super) fn map_graphql_response(
     let matched_key = match_api_key(submitted_secret, &identity.api_keys)?;
     if !matched_key.is_active {
         return Err(SecretsStorageError::IdentityRequestFailed(
-            ApiError::Unauthorized,
+            ProviderApiError::Unauthorized,
         ));
     }
 
@@ -128,7 +122,7 @@ fn classify_graphql_errors(errors: &[GraphQlError]) -> SecretsStorageError {
             || message.contains("authentication")
             || message.contains("api key")
     }) {
-        SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized)
+        SecretsStorageError::IdentityRequestFailed(ProviderApiError::Unauthorized)
     } else {
         identity_response_invalid_message("API key is invalid")
     }
@@ -215,7 +209,7 @@ mod tests {
         assert_eq!(
             map_graphql_response("inactive-key-secret-value", response),
             Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
+                ProviderApiError::Unauthorized
             ))
         );
     }
@@ -261,7 +255,7 @@ mod tests {
         assert_eq!(
             map_graphql_response("submitted-key-secret-value", response),
             Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
+                ProviderApiError::Unauthorized
             ))
         );
     }

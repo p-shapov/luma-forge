@@ -36,77 +36,57 @@ fn keyring_entry(service_name: &str, key: SecretKey) -> Result<Entry, SecretsSto
         .map_err(|_| SecretsStorageError::StoreUnavailable)
 }
 
+#[async_trait::async_trait]
 impl SecretStore for KeyringSecretStore {
-    fn has<'a>(
-        &'a self,
-        key: SecretKey,
-    ) -> crate::shared::AppFuture<'a, Result<bool, SecretsStorageError>> {
+    async fn has(&self, key: SecretKey) -> Result<bool, SecretsStorageError> {
         let service_name = self.service_name.clone();
 
-        Box::pin(async move {
-            run_blocking_keyring_operation(move || {
-                match keyring_entry(&service_name, key)?.get_password() {
-                    Ok(_) => Ok(true),
-                    Err(KeyringError::NoEntry) => Ok(false),
-                    Err(_) => Err(SecretsStorageError::StoreUnavailable),
-                }
-            })
-            .await
+        run_blocking_keyring_operation(move || {
+            match keyring_entry(&service_name, key)?.get_password() {
+                Ok(_) => Ok(true),
+                Err(KeyringError::NoEntry) => Ok(false),
+                Err(_) => Err(SecretsStorageError::StoreUnavailable),
+            }
         })
+        .await
     }
 
-    fn write<'a>(
-        &'a self,
-        key: SecretKey,
-        secret: ApiSecret,
-    ) -> crate::shared::AppFuture<'a, Result<(), SecretsStorageError>> {
+    async fn write(&self, key: SecretKey, secret: ApiSecret) -> Result<(), SecretsStorageError> {
         let service_name = self.service_name.clone();
 
-        Box::pin(async move {
-            run_blocking_keyring_operation(move || {
-                keyring_entry(&service_name, key)?
-                    .set_password(secret.expose_secret())
-                    .map_err(|_| SecretsStorageError::StoreUnavailable)
-            })
-            .await
+        run_blocking_keyring_operation(move || {
+            keyring_entry(&service_name, key)?
+                .set_password(secret.expose_secret())
+                .map_err(|_| SecretsStorageError::StoreUnavailable)
         })
+        .await
     }
 
-    fn delete<'a>(
-        &'a self,
-        key: SecretKey,
-    ) -> crate::shared::AppFuture<'a, Result<(), SecretsStorageError>> {
+    async fn delete(&self, key: SecretKey) -> Result<(), SecretsStorageError> {
         let service_name = self.service_name.clone();
 
-        Box::pin(async move {
-            run_blocking_keyring_operation(move || {
-                match keyring_entry(&service_name, key)?.delete_credential() {
-                    Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
-                    Err(_) => Err(SecretsStorageError::StoreUnavailable),
-                }
-            })
-            .await
+        run_blocking_keyring_operation(move || {
+            match keyring_entry(&service_name, key)?.delete_credential() {
+                Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+                Err(_) => Err(SecretsStorageError::StoreUnavailable),
+            }
         })
+        .await
     }
 
-    fn read<'a>(
-        &'a self,
-        key: SecretKey,
-    ) -> crate::shared::AppFuture<'a, Result<Option<ApiSecret>, SecretsStorageError>> {
+    async fn read(&self, key: SecretKey) -> Result<Option<ApiSecret>, SecretsStorageError> {
         let service_name = self.service_name.clone();
 
-        Box::pin(async move {
-            run_blocking_keyring_operation(move || {
-                match keyring_entry(&service_name, key)?.get_password() {
-                    Ok(secret) => ApiSecret::new(secret)
-                        .map(Some)
-                        .map_err(|_| SecretsStorageError::StoredSecretInvalid),
-                    Err(KeyringError::NoEntry) => Ok(None),
-                    Err(_) => Err(SecretsStorageError::StoreUnavailable),
-                }
-            })
-            .await
+        run_blocking_keyring_operation(move || {
+            match keyring_entry(&service_name, key)?.get_password() {
+                Ok(secret) => ApiSecret::new(secret)
+                    .map(Some)
+                    .map_err(|_| SecretsStorageError::StoredSecretInvalid),
+                Err(KeyringError::NoEntry) => Ok(None),
+                Err(_) => Err(SecretsStorageError::StoreUnavailable),
+            }
         })
+        .await
     }
 }
 

@@ -1,6 +1,7 @@
-use std::sync::Arc;
-
-use tracing::Instrument;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use crate::{
     domain::{
@@ -10,21 +11,16 @@ use crate::{
         workspace::{Workspace, WorkspaceRuntime as WorkspaceRuntimeDomain, WorkspaceState},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    shared::{
-        leaf_error_message, new_trace_id, serialized_error_code, spawn_background_task, AppFuture,
-        BackgroundTaskSpawner, EventSink, InFlightRegistry,
-    },
     workflow_catalog::WorkflowCatalogRepository,
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
 use super::{
     errors::{invalid_state, workspace_not_found, WorkspaceError},
-    events::WorkspaceEvent,
+    events::{WorkspaceEvent, WorkspaceEventSink},
     runtime::{
         CleanupWorkspaceResponse, CreateRunpodWorkspaceRequest, DeleteWorkspaceResponse,
-        ProvisionWorkspaceResponse, WorkspaceRuntime, WorkspaceRuntimeContext,
-        WorkspaceRuntimeDispatcher,
+        ProvisionWorkspaceResponse, WorkspaceRuntimeContext, WorkspaceRuntimeDispatcher,
     },
 };
 
@@ -34,9 +30,8 @@ pub struct WorkspaceService {
     lifecycle_journal: Arc<dyn LifecycleJournalRepository>,
     workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
     runtime_dispatcher: WorkspaceRuntimeDispatcher,
-    lifecycle_operation_registry: InFlightRegistry<String>,
-    event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
-    task_spawner: Arc<dyn BackgroundTaskSpawner>,
+    lifecycle_operation_registry: Arc<Mutex<HashSet<String>>>,
+    event_sink: Arc<dyn WorkspaceEventSink>,
 }
 
 pub struct WorkspaceServiceDependencies {
@@ -44,8 +39,14 @@ pub struct WorkspaceServiceDependencies {
     pub lifecycle_journal: Arc<dyn LifecycleJournalRepository>,
     pub workflow_catalog: Arc<dyn WorkflowCatalogRepository>,
     pub runtime_dispatcher: WorkspaceRuntimeDispatcher,
-    pub event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
-    pub task_spawner: Arc<dyn BackgroundTaskSpawner>,
+    pub event_sink: Arc<dyn WorkspaceEventSink>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LifecycleAction {
+    Provision,
+    Cleanup,
+    Delete,
 }
 
 impl WorkspaceService {
@@ -55,9 +56,8 @@ impl WorkspaceService {
             lifecycle_journal: dependencies.lifecycle_journal,
             workflow_catalog: dependencies.workflow_catalog,
             runtime_dispatcher: dependencies.runtime_dispatcher,
-            lifecycle_operation_registry: InFlightRegistry::default(),
+            lifecycle_operation_registry: Arc::new(Mutex::new(HashSet::new())),
             event_sink: dependencies.event_sink,
-            task_spawner: dependencies.task_spawner,
         }
     }
 
@@ -108,9 +108,8 @@ impl WorkspaceService {
     async fn start_lifecycle_operation(
         &self,
         mut workspace: Workspace,
-        trace_id: String,
         running_state: WorkspaceState,
-    ) -> Result<(Workspace, LifecycleOperation, String), WorkspaceError> {
+    ) -> Result<(Workspace, LifecycleOperation), WorkspaceError> {
         let workspace_id = workspace.id.clone();
 
         let operation = self
@@ -122,22 +121,17 @@ impl WorkspaceService {
             .emit(WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
                 operation_id: operation.operation_id.clone(),
-                trace_id: trace_id.clone(),
                 operation: operation.clone(),
             });
         workspace.state = running_state;
-        workspace = self
-            .runtime_context(trace_id.clone())
-            .persist_workspace(workspace)
-            .await?;
+        workspace = self.runtime_context().persist_workspace(workspace).await?;
 
-        Ok((workspace, operation, trace_id))
+        Ok((workspace, operation))
     }
 
     pub async fn provision_workspace(
         &self,
         workspace_id: &str,
-        trace_id: String,
     ) -> Result<ProvisionWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         self.reject_running_lifecycle_state(&workspace).await?;
@@ -151,17 +145,14 @@ impl WorkspaceService {
         if runtime.resources != RunpodResources::default() {
             return Err(invalid_state("workspace already has runpod resources"));
         }
-        let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace, trace_id, WorkspaceState::Provisioning)
+        let (workspace, operation) = self
+            .start_lifecycle_operation(workspace, WorkspaceState::Provisioning)
             .await?;
 
         self.launch_lifecycle(
             operation.clone(),
             workspace.clone(),
-            trace_id,
-            |runtime, context, operation, workspace| {
-                Box::pin(async move { runtime.provision(context, operation, workspace).await })
-            },
+            LifecycleAction::Provision,
         );
 
         Ok(ProvisionWorkspaceResponse {
@@ -173,20 +164,16 @@ impl WorkspaceService {
     pub async fn cleanup_workspace(
         &self,
         workspace_id: &str,
-        trace_id: String,
     ) -> Result<CleanupWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         self.reject_running_lifecycle_state(&workspace).await?;
-        let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
+        let (workspace, operation) = self
+            .start_lifecycle_operation(workspace, WorkspaceState::CleaningUp)
             .await?;
         self.launch_lifecycle(
             operation.clone(),
             workspace.clone(),
-            trace_id,
-            |runtime, context, operation, workspace| {
-                Box::pin(async move { runtime.cleanup(context, operation, workspace).await })
-            },
+            LifecycleAction::Cleanup,
         );
 
         Ok(CleanupWorkspaceResponse {
@@ -199,122 +186,104 @@ impl WorkspaceService {
         &self,
         operation: LifecycleOperation,
         workspace: Workspace,
-        trace_id: String,
         lifecycle: F,
     ) where
         F: std::future::Future<Output = Result<Workspace, WorkspaceError>> + Send + 'static,
     {
-        if !self
-            .lifecycle_operation_registry
-            .try_register(&operation.operation_id)
-        {
+        if !try_register_in_flight_operation(
+            &self.lifecycle_operation_registry,
+            &operation.operation_id,
+        ) {
             return;
         }
 
         let lifecycle_operation_registry = self.lifecycle_operation_registry.clone();
         let lifecycle_journal = self.lifecycle_journal.clone();
         let workspace_catalog = self.workspace_catalog.clone();
-        let context = self.runtime_context(trace_id);
-        let lifecycle_span = tracing::info_span!(
-            "workspace_lifecycle",
-            trace_id = %context.trace_id(),
-            workspace_id = %workspace.id,
-            operation_id = %operation.operation_id
-        );
-        spawn_background_task(
-            self.task_spawner.as_ref(),
-            async move {
-                let persisted_terminal_state = match lifecycle.await {
-                    Ok(_) => {
-                        let mut completed = load_terminal_operation(
-                            lifecycle_journal.as_ref(),
-                            &operation,
-                            &workspace.id,
-                        )
-                        .await
-                        .unwrap_or_else(|_| operation.clone());
-                        completed.state = LifecycleOperationState::Completed;
-                        context.persist_operation(completed).await.is_ok()
-                    }
-                    Err(error) => {
-                        let error_message = leaf_error_message(&error);
-                        let error_code = serialized_error_code(&error, "workspace_error");
-                        tracing::error!(
-                            code = %error_code,
-                            message = %error_message
-                        );
-
-                        if let Ok(Some(mut persisted_workspace)) =
-                            workspace_catalog.find_workspace_by_id(&workspace.id).await
-                        {
-                            persisted_workspace.state = WorkspaceState::Invalid;
-                            let _ = context.persist_workspace(persisted_workspace).await;
-                        }
-
-                        let mut failed = load_terminal_operation(
-                            lifecycle_journal.as_ref(),
-                            &operation,
-                            &workspace.id,
-                        )
-                        .await
-                        .unwrap_or_else(|_| operation.clone());
-                        failed.state = LifecycleOperationState::Failed;
-                        context.persist_operation(failed).await.is_ok()
-                    }
-                };
-
-                if persisted_terminal_state {
-                    lifecycle_operation_registry.complete(&operation.operation_id);
+        let context = self.runtime_context();
+        tokio::spawn(async move {
+            let persisted_terminal_state = match lifecycle.await {
+                Ok(_) => {
+                    let mut completed = load_terminal_operation(
+                        lifecycle_journal.as_ref(),
+                        &operation,
+                        &workspace.id,
+                    )
+                    .await
+                    .unwrap_or_else(|_| operation.clone());
+                    completed.state = LifecycleOperationState::Completed;
+                    context.persist_operation(completed).await.is_ok()
                 }
+                Err(_error) => {
+                    if let Ok(Some(mut persisted_workspace)) =
+                        workspace_catalog.find_workspace_by_id(&workspace.id).await
+                    {
+                        persisted_workspace.state = WorkspaceState::Invalid;
+                        let _ = context.persist_workspace(persisted_workspace).await;
+                    }
+
+                    let mut failed = load_terminal_operation(
+                        lifecycle_journal.as_ref(),
+                        &operation,
+                        &workspace.id,
+                    )
+                    .await
+                    .unwrap_or_else(|_| operation.clone());
+                    failed.state = LifecycleOperationState::Failed;
+                    context.persist_operation(failed).await.is_ok()
+                }
+            };
+
+            if persisted_terminal_state {
+                complete_in_flight_operation(
+                    &lifecycle_operation_registry,
+                    &operation.operation_id,
+                );
             }
-            .instrument(lifecycle_span),
-        );
+        });
     }
 
-    fn launch_lifecycle<F>(
+    fn launch_lifecycle(
         &self,
         operation: LifecycleOperation,
         workspace: Workspace,
-        trace_id: String,
-        lifecycle: F,
-    ) where
-        F: FnOnce(
-            Arc<dyn WorkspaceRuntime>,
-            WorkspaceRuntimeContext<'static>,
-            LifecycleOperation,
-            Workspace,
-        ) -> AppFuture<'static, Result<Workspace, WorkspaceError>>,
-    {
+        action: LifecycleAction,
+    ) {
         let runtime = self.runtime_dispatcher.runtime_for(&workspace);
-        let context = self.runtime_context(trace_id.clone());
+        let context = self.runtime_context();
         let runner_operation = operation.clone();
         let runner_workspace = workspace.clone();
-        self.spawn_lifecycle_runner(
-            operation,
-            workspace,
-            trace_id,
-            lifecycle(runtime, context, runner_operation, runner_workspace),
-        );
+        self.spawn_lifecycle_runner(operation, workspace, async move {
+            match action {
+                LifecycleAction::Provision => {
+                    runtime
+                        .provision(context, runner_operation, runner_workspace)
+                        .await
+                }
+                LifecycleAction::Cleanup => {
+                    runtime
+                        .cleanup(context, runner_operation, runner_workspace)
+                        .await
+                }
+                LifecycleAction::Delete => {
+                    runtime
+                        .delete(context, runner_operation, runner_workspace)
+                        .await
+                }
+            }
+        });
     }
 
     pub async fn delete_workspace(
         &self,
         workspace_id: &str,
-        trace_id: String,
     ) -> Result<DeleteWorkspaceResponse, WorkspaceError> {
         let workspace = self.load_workspace_required(workspace_id).await?;
         self.reject_running_lifecycle_state(&workspace).await?;
-        let (workspace, operation, trace_id) = self
-            .start_lifecycle_operation(workspace, trace_id, WorkspaceState::CleaningUp)
+        let (workspace, operation) = self
+            .start_lifecycle_operation(workspace, WorkspaceState::CleaningUp)
             .await?;
-        self.launch_lifecycle(
-            operation,
-            workspace,
-            trace_id,
-            |runtime, context, operation, workspace| {
-                Box::pin(async move { runtime.delete(context, operation, workspace).await })
-            },
-        );
+        self.launch_lifecycle(operation, workspace, LifecycleAction::Delete);
 
         Ok(DeleteWorkspaceResponse {
             workspace_id: workspace_id.to_string(),
@@ -329,27 +298,22 @@ impl WorkspaceService {
                 .await?
             {
                 workspace.state = WorkspaceState::Invalid;
-                self.runtime_context(new_trace_id())
-                    .persist_workspace(workspace)
-                    .await?;
+                self.runtime_context().persist_workspace(workspace).await?;
             }
 
             let mut stale = operation;
             stale.state = LifecycleOperationState::Stale;
-            self.runtime_context(new_trace_id())
-                .persist_operation(stale)
-                .await?;
+            self.runtime_context().persist_operation(stale).await?;
         }
 
         Ok(())
     }
 
-    fn runtime_context(&self, trace_id: String) -> WorkspaceRuntimeContext<'static> {
+    fn runtime_context(&self) -> WorkspaceRuntimeContext<'static> {
         WorkspaceRuntimeContext::new(
             self.workspace_catalog.clone(),
             self.lifecycle_journal.clone(),
             self.event_sink.clone(),
-            trace_id,
         )
     }
 
@@ -400,6 +364,26 @@ fn map_operation_start_error() -> impl FnOnce(LifecycleJournalError) -> Workspac
     }
 }
 
+fn try_register_in_flight_operation(
+    registry: &Arc<Mutex<HashSet<String>>>,
+    operation_id: &str,
+) -> bool {
+    in_flight_operation_ids(registry).insert(operation_id.to_string())
+}
+
+fn complete_in_flight_operation(registry: &Arc<Mutex<HashSet<String>>>, operation_id: &str) {
+    in_flight_operation_ids(registry).remove(operation_id);
+}
+
+fn in_flight_operation_ids(
+    registry: &Arc<Mutex<HashSet<String>>>,
+) -> MutexGuard<'_, HashSet<String>> {
+    match registry.lock() {
+        Ok(ids) => ids,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 async fn load_terminal_operation(
     lifecycle_journal: &dyn LifecycleJournalRepository,
     operation: &LifecycleOperation,
@@ -441,6 +425,10 @@ impl WorkspaceService {
             .expect("operation update should succeed");
         operation_id
     }
+
+    pub fn try_register_lifecycle_operation_for_test(&self, operation_id: &str) -> bool {
+        try_register_in_flight_operation(&self.lifecycle_operation_registry, operation_id)
+    }
 }
 
 #[cfg(test)]
@@ -455,7 +443,6 @@ mod tests {
         },
         lifecycle_journal::LifecycleJournalRepository,
         provider::runpod::test_support::{draft_create_request, workspace_with_runpod},
-        shared::AppFuture,
         workspace::test_support::{service_with_runtime, FakeWorkspaceRuntime},
         workspace_catalog::WorkspaceCatalogRepository,
     };
@@ -463,35 +450,34 @@ mod tests {
     #[derive(Debug, Clone, Copy)]
     struct FailingCleanupRuntime;
 
+    #[async_trait::async_trait]
     impl crate::workspace::runtime::WorkspaceRuntime for FailingCleanupRuntime {
-        fn provision<'a>(
+        async fn provision<'a>(
             &'a self,
             _context: crate::workspace::WorkspaceRuntimeContext<'a>,
             _operation: LifecycleOperation,
             workspace: Workspace,
-        ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
-            Box::pin(async move { Ok(workspace) })
+        ) -> Result<Workspace, crate::workspace::WorkspaceError> {
+            Ok(workspace)
         }
 
-        fn cleanup<'a>(
+        async fn cleanup<'a>(
             &'a self,
             _context: crate::workspace::WorkspaceRuntimeContext<'a>,
             _operation: LifecycleOperation,
             _workspace: Workspace,
-        ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
-            Box::pin(async move { Err(crate::workspace::errors::invalid_state("cleanup failed")) })
+        ) -> Result<Workspace, crate::workspace::WorkspaceError> {
+            Err(crate::workspace::errors::invalid_state("cleanup failed"))
         }
 
-        fn delete<'a>(
+        async fn delete<'a>(
             &'a self,
             context: crate::workspace::WorkspaceRuntimeContext<'a>,
             _operation: LifecycleOperation,
             workspace: Workspace,
-        ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
-            Box::pin(async move {
-                context.delete_workspace(&workspace.id).await?;
-                Ok(workspace)
-            })
+        ) -> Result<Workspace, crate::workspace::WorkspaceError> {
+            context.delete_workspace(&workspace.id).await?;
+            Ok(workspace)
         }
     }
 
@@ -527,7 +513,7 @@ mod tests {
             .expect("workspace");
 
         let response = service
-            .provision_workspace("workspace-1", "trace-test".to_string())
+            .provision_workspace("workspace-1")
             .await
             .expect("provision scheduled");
 
@@ -583,7 +569,7 @@ mod tests {
             .await;
 
         service
-            .provision_workspace("workspace-1", "trace-test".to_string())
+            .provision_workspace("workspace-1")
             .await
             .expect_err("provision should fail");
 
@@ -611,7 +597,7 @@ mod tests {
             .await;
 
         let error = service
-            .provision_workspace("workspace-1", "trace-test".to_string())
+            .provision_workspace("workspace-1")
             .await
             .expect_err("provision should fail");
 
@@ -643,7 +629,7 @@ mod tests {
             .expect("workspace");
 
         let response = service
-            .provision_workspace("workspace-1", "trace-test".to_string())
+            .provision_workspace("workspace-1")
             .await
             .expect("provision scheduled");
         let completed = wait_for_operation_state(
@@ -655,9 +641,7 @@ mod tests {
 
         assert_eq!(completed.operation_id, response.operation.operation_id);
         assert_eq!(completed.payload, None);
-        assert!(service
-            .lifecycle_operation_registry
-            .try_register(&response.operation.operation_id));
+        assert!(service.try_register_lifecycle_operation_for_test(&response.operation.operation_id));
     }
 
     #[tokio::test]
@@ -668,7 +652,7 @@ mod tests {
             .await;
 
         let response = service
-            .cleanup_workspace("workspace-1", "trace-test".to_string())
+            .cleanup_workspace("workspace-1")
             .await
             .expect("cleanup scheduled");
         assert_eq!(response.workspace.state, WorkspaceState::CleaningUp);
@@ -687,9 +671,7 @@ mod tests {
             .expect("workspace should load")
             .expect("workspace should exist");
         assert_eq!(workspace.state, WorkspaceState::Invalid);
-        assert!(service
-            .lifecycle_operation_registry
-            .try_register(&response.operation.operation_id));
+        assert!(service.try_register_lifecycle_operation_for_test(&response.operation.operation_id));
     }
 
     #[tokio::test]
@@ -706,7 +688,7 @@ mod tests {
             .await;
 
         let error = service
-            .cleanup_workspace("workspace-1", "trace-test".to_string())
+            .cleanup_workspace("workspace-1")
             .await
             .expect_err("cleanup should be rejected");
 
@@ -740,7 +722,7 @@ mod tests {
             .await;
 
         let error = service
-            .delete_workspace("workspace-1", "trace-test".to_string())
+            .delete_workspace("workspace-1")
             .await
             .expect_err("delete should be rejected");
 
@@ -780,7 +762,7 @@ mod tests {
             .await;
 
         let error = service
-            .delete_workspace("workspace-1", "trace-test".to_string())
+            .delete_workspace("workspace-1")
             .await
             .expect_err("delete should be rejected");
 

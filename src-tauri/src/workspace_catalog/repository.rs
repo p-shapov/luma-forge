@@ -1,32 +1,25 @@
-use crate::{
-    domain::workspace::{Workspace, WorkspaceCatalog},
-    shared::AppFuture,
-};
+use crate::domain::workspace::{Workspace, WorkspaceCatalog};
 
 use super::errors::WorkspaceCatalogError;
 
+#[async_trait::async_trait]
 pub trait WorkspaceCatalogRepository: Send + Sync {
-    fn list_workspaces<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>>;
+    async fn list_workspaces(&self) -> Result<WorkspaceCatalog, WorkspaceCatalogError>;
 
-    fn find_workspace_by_id<'a>(
-        &'a self,
-        id: &'a str,
-    ) -> AppFuture<'a, Result<Option<Workspace>, WorkspaceCatalogError>>;
+    async fn find_workspace_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<Workspace>, WorkspaceCatalogError>;
 
-    fn insert_workspace<'a>(
-        &'a self,
-        workspace: &'a Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>>;
+    async fn insert_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Workspace, WorkspaceCatalogError>;
 
-    fn update_workspace<'a>(
-        &'a self,
-        workspace: &'a Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>>;
+    async fn update_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Workspace, WorkspaceCatalogError>;
 
-    fn delete_workspace<'a>(
-        &'a self,
-        id: &'a str,
-    ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>>;
+    async fn delete_workspace(&self, id: &str) -> Result<(), WorkspaceCatalogError>;
 }

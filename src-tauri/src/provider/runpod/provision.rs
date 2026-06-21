@@ -284,6 +284,7 @@ mod tests {
             workflow_preset::WorkflowCatalog,
             workspace::{Workspace, WorkspaceRuntime, WorkspaceState},
         },
+        provider::errors::ProviderApiError,
         provider::runpod::runtime::RunpodRuntimeClient,
         provider::runpod::test_support::{
             runpod_client_with_failed_provisioner, runpod_client_with_failure,
@@ -294,7 +295,6 @@ mod tests {
         runtime_catalog::{
             BundledRuntimeCatalogRepository, RuntimeCatalogError, RuntimeCatalogRepository,
         },
-        shared::ApiError,
         workflow_catalog::{
             BundledWorkflowCatalogRepository, WorkflowCatalogError, WorkflowCatalogRepository,
         },
@@ -496,7 +496,7 @@ mod tests {
 
             assert_eq!(
                 error,
-                WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+                WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
                     message: failure.message().to_string(),
                 })
             );
@@ -544,7 +544,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+            WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
                 message: "asset_download_failed: download failed".to_string(),
             })
         );
@@ -582,7 +582,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+            WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
                 message: "get provisioner status failed".to_string(),
             })
         );
@@ -631,7 +631,7 @@ mod tests {
 
         assert_eq!(
             error,
-            WorkspaceError::ProviderApiError(ApiError::RequestFailed {
+            WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
                 message: "provisioner worker unavailable after startup retry limit".to_string(),
             })
         );

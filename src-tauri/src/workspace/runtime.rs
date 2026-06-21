@@ -7,11 +7,13 @@ use crate::{
         workspace::{Workspace, WorkspaceId, WorkspaceRuntime as WorkspaceRuntimeDomain},
     },
     lifecycle_journal::LifecycleJournalRepository,
-    shared::{AppFuture, EventSink},
     workspace_catalog::WorkspaceCatalogRepository,
 };
 
-use super::{errors::WorkspaceError, events::WorkspaceEvent};
+use super::{
+    errors::WorkspaceError,
+    events::{WorkspaceEvent, WorkspaceEventSink},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateRunpodWorkspaceRequest {
@@ -37,27 +39,28 @@ pub struct DeleteWorkspaceResponse {
     pub workspace_id: WorkspaceId,
 }
 
+#[async_trait::async_trait]
 pub trait WorkspaceRuntime: Send + Sync {
-    fn provision<'a>(
+    async fn provision<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>>;
+    ) -> Result<Workspace, WorkspaceError>;
 
-    fn cleanup<'a>(
+    async fn cleanup<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>>;
+    ) -> Result<Workspace, WorkspaceError>;
 
-    fn delete<'a>(
+    async fn delete<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>>;
+    ) -> Result<Workspace, WorkspaceError>;
 }
 
 #[derive(Clone)]
@@ -86,27 +89,20 @@ impl WorkspaceRuntimeDispatcher {
 pub struct WorkspaceRuntimeContext<'a> {
     workspace_catalog: Arc<dyn WorkspaceCatalogRepository + 'a>,
     lifecycle_journal: Arc<dyn LifecycleJournalRepository + 'a>,
-    event_sink: Arc<dyn EventSink<WorkspaceEvent> + 'a>,
-    trace_id: String,
+    event_sink: Arc<dyn WorkspaceEventSink + 'a>,
 }
 
 impl<'a> WorkspaceRuntimeContext<'a> {
     pub fn new(
         workspace_catalog: Arc<dyn WorkspaceCatalogRepository + 'a>,
         lifecycle_journal: Arc<dyn LifecycleJournalRepository + 'a>,
-        event_sink: Arc<dyn EventSink<WorkspaceEvent> + 'a>,
-        trace_id: String,
+        event_sink: Arc<dyn WorkspaceEventSink + 'a>,
     ) -> Self {
         Self {
             workspace_catalog,
             lifecycle_journal,
             event_sink,
-            trace_id,
         }
-    }
-
-    pub fn trace_id(&self) -> &str {
-        &self.trace_id
     }
 
     pub async fn persist_operation(
@@ -133,7 +129,6 @@ impl<'a> WorkspaceRuntimeContext<'a> {
             .emit(WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
                 operation_id: operation.operation_id.clone(),
-                trace_id: self.trace_id.clone(),
                 operation: operation.clone(),
             });
         Ok(operation)
