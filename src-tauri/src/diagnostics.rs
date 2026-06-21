@@ -140,14 +140,7 @@ fn sanitize_diagnostic_string(value: &str) -> String {
     sanitized = redact_header_value(&sanitized, "authorization:");
     sanitized = redact_bearer_token(&sanitized);
 
-    for key in [
-        "access_token",
-        "api_key",
-        "token",
-        "x-amz-signature",
-        "x-amz-credential",
-        "x-goog-signature",
-    ] {
+    for key in plain_text_sensitive_keys() {
         sanitized = redact_key_value(&sanitized, key);
     }
 
@@ -234,10 +227,6 @@ fn looks_like_raw_body(value: &str) -> bool {
         return false;
     }
 
-    if starts_with_structured_body(trimmed) {
-        return true;
-    }
-
     let lower = value.to_ascii_lowercase();
     for marker in [
         "request body:",
@@ -304,20 +293,7 @@ fn is_sensitive_json_key(key: &str) -> bool {
 
     normalized.contains("authorization")
         || normalized.contains("authheader")
-        || normalized == "apikey"
-        || normalized.ends_with("apikey")
-        || normalized == "token"
-        || normalized.ends_with("token")
-        || normalized == "accesstoken"
-        || normalized.ends_with("accesstoken")
-        || normalized == "workertoken"
-        || normalized.ends_with("workertoken")
-        || normalized == "providerapikey"
-        || normalized.ends_with("providerapikey")
-        || normalized == "huggingfacekey"
-        || normalized.ends_with("huggingfacekey")
-        || normalized == "hftoken"
-        || normalized.ends_with("hftoken")
+        || matches_sensitive_json_key_suffix(&normalized)
 }
 
 fn is_body_like_json_key(key: &str) -> bool {
@@ -344,8 +320,33 @@ fn normalize_json_key(key: &str) -> String {
         .collect()
 }
 
-fn starts_with_structured_body(value: &str) -> bool {
-    value.starts_with('{') || value.starts_with('[')
+fn plain_text_sensitive_keys() -> &'static [&'static str] {
+    &[
+        "access_token",
+        "api_key",
+        "token",
+        "worker_token",
+        "provider_api_key",
+        "hugging_face_key",
+        "hf_token",
+        "x-amz-signature",
+        "x-amz-credential",
+        "x-goog-signature",
+    ]
+}
+
+fn matches_sensitive_json_key_suffix(normalized: &str) -> bool {
+    [
+        "apikey",
+        "token",
+        "accesstoken",
+        "workertoken",
+        "providerapikey",
+        "huggingfacekey",
+        "hftoken",
+    ]
+    .into_iter()
+    .any(|suffix| normalized == suffix || normalized.ends_with(suffix))
 }
 
 fn redact_signed_url_tokens(value: &str) -> String {
@@ -446,23 +447,47 @@ fn redact_header_value(value: &str, header_name: &str) -> String {
 }
 
 fn redact_key_value(value: &str, key: &str) -> String {
-    let pattern = format!("{key}=");
     let mut sanitized = value.to_string();
     let mut search_from = 0;
 
-    while let Some(relative_start) = find_case_insensitive(&sanitized[search_from..], &pattern) {
+    while let Some(relative_start) = find_case_insensitive(&sanitized[search_from..], key) {
         let start = search_from + relative_start;
+        let key_end = start + key.len();
 
-        if has_identifier_prefix(&sanitized, start) {
-            search_from = start + pattern.len();
+        if has_identifier_prefix(&sanitized, start) || has_identifier_suffix(&sanitized, key_end) {
+            search_from = key_end;
             continue;
         }
 
-        let secret_start = start + pattern.len();
-        let secret_end = sanitized[secret_start..]
-            .find(['&', ' ', '\t', '\n', '\r', '"', '\'', ')', ']', '}'])
-            .map(|offset| secret_start + offset)
-            .unwrap_or_else(|| sanitized.len());
+        let separator_index = skip_key_suffix_delimiters(&sanitized, key_end);
+        let Some(separator) = sanitized[separator_index..].chars().next() else {
+            break;
+        };
+        if separator != ':' && separator != '=' {
+            search_from = key_end;
+            continue;
+        }
+
+        let value_start = skip_spaces(&sanitized, separator_index + separator.len_utf8());
+        let (secret_start, secret_end) = if let Some(quote) = sanitized[value_start..]
+            .chars()
+            .next()
+            .filter(|character| matches!(character, '"' | '\''))
+        {
+            let quoted_start = value_start + quote.len_utf8();
+            let quoted_end = sanitized[quoted_start..]
+                .find(quote)
+                .map(|offset| quoted_start + offset)
+                .unwrap_or_else(|| find_key_value_end(&sanitized, quoted_start));
+            (quoted_start, quoted_end)
+        } else {
+            (value_start, find_key_value_end(&sanitized, value_start))
+        };
+
+        if secret_start == secret_end {
+            search_from = value_start;
+            continue;
+        }
 
         sanitized.replace_range(secret_start..secret_end, REDACTED);
         search_from = secret_start + REDACTED.len();
@@ -478,6 +503,13 @@ fn has_identifier_prefix(value: &str, index: usize) -> bool {
         .is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
+fn has_identifier_suffix(value: &str, index: usize) -> bool {
+    value[index..]
+        .chars()
+        .next()
+        .is_some_and(|character| character.is_ascii_alphanumeric() || character == '_')
+}
+
 fn skip_spaces(value: &str, index: usize) -> usize {
     let mut current = index;
     while let Some(character) = value[current..].chars().next() {
@@ -489,11 +521,30 @@ fn skip_spaces(value: &str, index: usize) -> usize {
     current
 }
 
+fn skip_key_suffix_delimiters(value: &str, index: usize) -> usize {
+    let mut current = index;
+    while let Some(character) = value[current..].chars().next() {
+        if character.is_ascii_whitespace() || matches!(character, '"' | '\'') {
+            current += character.len_utf8();
+            continue;
+        }
+        break;
+    }
+    current
+}
+
 fn find_secret_end(value: &str, index: usize) -> usize {
     value[index..]
         .find([
             ' ', '\t', '\n', '\r', ',', ';', '"', '\'', ')', ']', '}', '<', '>',
         ])
+        .map(|offset| index + offset)
+        .unwrap_or_else(|| value.len())
+}
+
+fn find_key_value_end(value: &str, index: usize) -> usize {
+    value[index..]
+        .find(['&', ' ', '\t', '\n', '\r', ',', ';', ')', ']', '}'])
         .map(|offset| index + offset)
         .unwrap_or_else(|| value.len())
 }
@@ -619,6 +670,35 @@ mod tests {
     }
 
     #[test]
+    fn error_diagnostics_redacts_colon_and_quoted_sensitive_key_forms() {
+        let error = TestError::StructuredFailure {
+            message: r#"api_key: secret-one "access_token":"secret-two" authorization: Bearer secret-three"#.to_string(),
+            source: Some(Box::new(TestError::StructuredFailure {
+                message: r#""token":"secret-four""#.to_string(),
+                source: Some(Box::new(TestError::StructuredFailure {
+                    message: r#"provider said access_token: secret-five"#.to_string(),
+                    source: None,
+                })),
+            })),
+        };
+
+        let diagnostics = error_diagnostics(&error, "fallback");
+
+        assert_eq!(
+            diagnostics.message,
+            r#"api_key: [REDACTED] "access_token":"[REDACTED]" authorization: [REDACTED]"#
+        );
+        assert_eq!(diagnostics.cause, "provider said access_token: [REDACTED]");
+        assert_eq!(
+            diagnostics.source_chain,
+            vec![
+                r#""token":"[REDACTED]""#,
+                "provider said access_token: [REDACTED]",
+            ]
+        );
+    }
+
+    #[test]
     fn error_diagnostics_suppresses_body_like_and_oversized_strings() {
         let oversized = "x".repeat(5000);
         let error = TestError::StructuredFailure {
@@ -640,6 +720,23 @@ mod tests {
             diagnostics.source_chain,
             vec!["[REDACTED_BODY]", "[REDACTED_BODY]"]
         );
+    }
+
+    #[test]
+    fn error_diagnostics_keeps_safe_bracketed_messages_visible() {
+        let error = TestError::StructuredFailure {
+            message: "[workspace invalid] missing endpoint".to_string(),
+            source: Some(Box::new(TestError::StructuredFailure {
+                message: "{workspace invalid}".to_string(),
+                source: None,
+            })),
+        };
+
+        let diagnostics = error_diagnostics(&error, "fallback");
+
+        assert_eq!(diagnostics.message, "[workspace invalid] missing endpoint");
+        assert_eq!(diagnostics.cause, "{workspace invalid}");
+        assert_eq!(diagnostics.source_chain, vec!["{workspace invalid}"]);
     }
 
     #[test]
@@ -770,6 +867,33 @@ mod tests {
         assert!(!formatted
             .windows("array-secret".len())
             .any(|window| window == b"array-secret"));
+    }
+
+    #[test]
+    fn sanitizing_json_layout_redacts_colon_and_quoted_sensitive_key_forms() {
+        let layout = SanitizingJsonLayout::default();
+        let key_values = [(
+            KeyOwned::new("details"),
+            ValueOwned::str(r#"api_key: secret-one "token":"secret-two""#),
+        )];
+        let record = logforth::record::Record::builder()
+            .level(Level::Info)
+            .target_static("luma_forge_lib::diagnostics")
+            .file_static("src/diagnostics.rs")
+            .line(Some(123))
+            .payload(format_args!(r#"authorization: Bearer secret-three"#))
+            .key_values(&key_values[..])
+            .build();
+
+        let formatted = layout.format(&record, &[]).expect("record should format");
+        let json: serde_json::Value =
+            serde_json::from_slice(&formatted).expect("formatted line should be valid json");
+
+        assert_eq!(json["message"], "authorization: [REDACTED]");
+        assert_eq!(
+            json["kvs"]["details"],
+            r#"api_key: [REDACTED] "token":"[REDACTED]""#
+        );
     }
 
     #[test]
