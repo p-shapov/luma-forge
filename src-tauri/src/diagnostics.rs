@@ -88,7 +88,16 @@ fn serialized_error_code(error: &impl serde::Serialize, fallback: &'static str) 
 }
 
 fn current_log_filename() -> String {
-    "luma-forge.log".to_string()
+    log_filename_for_date(time::OffsetDateTime::now_utc().date())
+}
+
+fn log_filename_for_date(date: time::Date) -> String {
+    format!(
+        "luma-forge.log.{:04}-{:02}-{:02}",
+        date.year(),
+        u8::from(date.month()),
+        date.day()
+    )
 }
 
 #[cfg(test)]
@@ -161,7 +170,9 @@ mod tests {
     }
 
     #[test]
-    fn current_log_filename_uses_single_stable_log_name() {
-        assert_eq!(current_log_filename(), "luma-forge.log");
+    fn log_filename_for_date_uses_dated_global_contract_name() {
+        let date = time::Date::from_calendar_date(2026, time::Month::June, 21).unwrap();
+
+        assert_eq!(log_filename_for_date(date), "luma-forge.log.2026-06-21");
     }
 }
