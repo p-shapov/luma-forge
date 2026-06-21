@@ -20,10 +20,23 @@ fn cleanup_payload(step: RunpodCleanupStep) -> LifecycleOperationPayload {
 async fn mark_step(
     context: &WorkspaceRuntimeContext<'_>,
     operation: &mut LifecycleOperation,
+    workspace_id: &str,
     step: RunpodCleanupStep,
 ) -> Result<(), WorkspaceError> {
-    operation.payload = Some(cleanup_payload(step));
+    log::info!(
+        workspace_id = workspace_id,
+        operation_id = operation.operation_id.as_str(),
+        step:? = step;
+        "runpod cleanup step started"
+    );
+    operation.payload = Some(cleanup_payload(step.clone()));
     *operation = context.persist_operation(operation.clone()).await?;
+    log::info!(
+        workspace_id = workspace_id,
+        operation_id = operation.operation_id.as_str(),
+        step:? = step;
+        "runpod cleanup step persisted"
+    );
     Ok(())
 }
 
@@ -33,10 +46,15 @@ pub async fn cleanup_remote_resources(
     runpod_client: &dyn RunpodRuntimeClient,
     workspace: &mut Workspace,
 ) -> Result<(), WorkspaceError> {
-    let resources = runpod_resources_mut(workspace);
-    if let Some(endpoint_id) = resources.endpoint_id.clone() {
+    if let Some(endpoint_id) = runpod_resources(workspace).endpoint_id.clone() {
         if let Some(operation) = operation.as_mut() {
-            mark_step(context, operation, RunpodCleanupStep::DeleteEndpoint).await?;
+            mark_step(
+                context,
+                operation,
+                workspace.id.as_str(),
+                RunpodCleanupStep::DeleteEndpoint,
+            )
+            .await?;
         }
         runpod_client
             .delete_serverless_endpoint(&endpoint_id)
@@ -44,11 +62,26 @@ pub async fn cleanup_remote_resources(
             .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).endpoint_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
+        if let Some(operation) = operation.as_ref() {
+            log::info!(
+                workspace_id = workspace.id.as_str(),
+                operation_id = operation.operation_id.as_str(),
+                step:? = RunpodCleanupStep::DeleteEndpoint,
+                endpoint_id = endpoint_id.as_str();
+                "runpod cleanup step completed"
+            );
+        }
     }
 
     if let Some(template_id) = runpod_resources(workspace).template_id.clone() {
         if let Some(operation) = operation.as_mut() {
-            mark_step(context, operation, RunpodCleanupStep::DeleteTemplate).await?;
+            mark_step(
+                context,
+                operation,
+                workspace.id.as_str(),
+                RunpodCleanupStep::DeleteTemplate,
+            )
+            .await?;
         }
         runpod_client
             .delete_template(&template_id)
@@ -56,6 +89,15 @@ pub async fn cleanup_remote_resources(
             .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).template_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
+        if let Some(operation) = operation.as_ref() {
+            log::info!(
+                workspace_id = workspace.id.as_str(),
+                operation_id = operation.operation_id.as_str(),
+                step:? = RunpodCleanupStep::DeleteTemplate,
+                template_id = template_id.as_str();
+                "runpod cleanup step completed"
+            );
+        }
     }
 
     if let Some(provisioner_pod_id) = runpod_resources(workspace).provisioner_pod_id.clone() {
@@ -63,6 +105,7 @@ pub async fn cleanup_remote_resources(
             mark_step(
                 context,
                 operation,
+                workspace.id.as_str(),
                 RunpodCleanupStep::TerminateProvisionerPod,
             )
             .await?;
@@ -73,11 +116,26 @@ pub async fn cleanup_remote_resources(
             .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).provisioner_pod_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
+        if let Some(operation) = operation.as_ref() {
+            log::info!(
+                workspace_id = workspace.id.as_str(),
+                operation_id = operation.operation_id.as_str(),
+                step:? = RunpodCleanupStep::TerminateProvisionerPod,
+                provisioner_pod_id = provisioner_pod_id.as_str();
+                "runpod cleanup step completed"
+            );
+        }
     }
 
     if let Some(network_volume_id) = runpod_resources(workspace).network_volume_id.clone() {
         if let Some(operation) = operation.as_mut() {
-            mark_step(context, operation, RunpodCleanupStep::DeleteNetworkVolume).await?;
+            mark_step(
+                context,
+                operation,
+                workspace.id.as_str(),
+                RunpodCleanupStep::DeleteNetworkVolume,
+            )
+            .await?;
         }
         runpod_client
             .delete_network_volume(&network_volume_id)
@@ -85,6 +143,15 @@ pub async fn cleanup_remote_resources(
             .map_err(super::runtime::map_provider_error)?;
         runpod_resources_mut(workspace).network_volume_id = None;
         *workspace = context.persist_workspace(workspace.clone()).await?;
+        if let Some(operation) = operation.as_ref() {
+            log::info!(
+                workspace_id = workspace.id.as_str(),
+                operation_id = operation.operation_id.as_str(),
+                step:? = RunpodCleanupStep::DeleteNetworkVolume,
+                network_volume_id = network_volume_id.as_str();
+                "runpod cleanup step completed"
+            );
+        }
     }
 
     Ok(())
@@ -96,6 +163,11 @@ pub async fn cleanup_workspace(
     mut operation: LifecycleOperation,
     mut workspace: Workspace,
 ) -> Result<Workspace, WorkspaceError> {
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str();
+        "runpod cleanup started"
+    );
     cleanup_remote_resources(
         &context,
         Some(&mut operation),
@@ -104,7 +176,13 @@ pub async fn cleanup_workspace(
     )
     .await?;
     workspace.state = WorkspaceState::NotProvisioned;
-    context.persist_workspace(workspace).await
+    workspace = context.persist_workspace(workspace).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str();
+        "runpod cleanup completed"
+    );
+    Ok(workspace)
 }
 
 fn runpod_resources(workspace: &Workspace) -> &crate::domain::runpod::RunpodResources {

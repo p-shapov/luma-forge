@@ -32,10 +32,23 @@ fn provision_payload(step: RunpodProvisionStep) -> LifecycleOperationPayload {
 async fn mark_step(
     context: &WorkspaceRuntimeContext<'_>,
     operation: &mut LifecycleOperation,
+    workspace_id: &str,
     step: RunpodProvisionStep,
 ) -> Result<(), WorkspaceError> {
-    operation.payload = Some(provision_payload(step));
+    log::info!(
+        workspace_id = workspace_id,
+        operation_id = operation.operation_id.as_str(),
+        step:? = step;
+        "runpod provision step started"
+    );
+    operation.payload = Some(provision_payload(step.clone()));
     *operation = context.persist_operation(operation.clone()).await?;
+    log::info!(
+        workspace_id = workspace_id,
+        operation_id = operation.operation_id.as_str(),
+        step:? = step;
+        "runpod provision step persisted"
+    );
     Ok(())
 }
 
@@ -56,6 +69,7 @@ pub async fn provision_workspace(
     mark_step(
         &context,
         &mut operation,
+        workspace.id.as_str(),
         RunpodProvisionStep::CreateNetworkVolume,
     )
     .await?;
@@ -71,10 +85,18 @@ pub async fn provision_workspace(
         .resources
         .network_volume_id = Some(network_volume_id.clone());
     workspace = context.persist_workspace(workspace).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str(),
+        step:? = RunpodProvisionStep::CreateNetworkVolume,
+        network_volume_id = network_volume_id.as_str();
+        "runpod provision step completed"
+    );
 
     mark_step(
         &context,
         &mut operation,
+        workspace.id.as_str(),
         RunpodProvisionStep::StartProvisionerPod,
     )
     .await?;
@@ -93,10 +115,19 @@ pub async fn provision_workspace(
         .resources
         .provisioner_pod_id = Some(provisioner_pod_id.clone());
     workspace = context.persist_workspace(workspace).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str(),
+        step:? = RunpodProvisionStep::StartProvisionerPod,
+        provisioner_pod_id = provisioner_pod_id.as_str(),
+        network_volume_id = network_volume_id.as_str();
+        "runpod provision step completed"
+    );
 
     mark_step(
         &context,
         &mut operation,
+        workspace.id.as_str(),
         RunpodProvisionStep::PollProvisioner,
     )
     .await?;
@@ -176,6 +207,13 @@ pub async fn provision_workspace(
             }
         }
     }
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str(),
+        step:? = RunpodProvisionStep::PollProvisioner,
+        provisioner_pod_id = provisioner_pod_id.as_str();
+        "runpod provision step completed"
+    );
 
     terminate_provisioner_pod(
         &context,
@@ -189,6 +227,7 @@ pub async fn provision_workspace(
     mark_step(
         &context,
         &mut operation,
+        workspace.id.as_str(),
         RunpodProvisionStep::CreateTemplate,
     )
     .await?;
@@ -201,10 +240,18 @@ pub async fn provision_workspace(
         .map_err(super::runtime::map_provider_error)?;
     runpod_workspace_mut(&mut workspace).resources.template_id = Some(template_id.clone());
     workspace = context.persist_workspace(workspace).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str(),
+        step:? = RunpodProvisionStep::CreateTemplate,
+        template_id = template_id.as_str();
+        "runpod provision step completed"
+    );
 
     mark_step(
         &context,
         &mut operation,
+        workspace.id.as_str(),
         RunpodProvisionStep::CreateEndpoint,
     )
     .await?;
@@ -218,9 +265,17 @@ pub async fn provision_workspace(
         })
         .await
         .map_err(super::runtime::map_provider_error)?;
-    runpod_workspace_mut(&mut workspace).resources.endpoint_id = Some(endpoint_id);
+    runpod_workspace_mut(&mut workspace).resources.endpoint_id = Some(endpoint_id.clone());
     workspace.state = WorkspaceState::Ready;
-    context.persist_workspace(workspace).await
+    workspace = context.persist_workspace(workspace).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str(),
+        step:? = RunpodProvisionStep::CreateEndpoint,
+        endpoint_id = endpoint_id.as_str();
+        "runpod provision step completed"
+    );
+    Ok(workspace)
 }
 
 fn runpod_workspace(workspace: &Workspace) -> &RunpodRuntime {
@@ -243,6 +298,7 @@ async fn terminate_provisioner_pod(
     mark_step(
         context,
         operation,
+        workspace.id.as_str(),
         RunpodProvisionStep::TerminateProvisionerPod,
     )
     .await?;
@@ -252,6 +308,13 @@ async fn terminate_provisioner_pod(
         .map_err(super::runtime::map_provider_error)?;
     runpod_workspace_mut(workspace).resources.provisioner_pod_id = None;
     *workspace = context.persist_workspace(workspace.clone()).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str(),
+        step:? = RunpodProvisionStep::TerminateProvisionerPod,
+        provisioner_pod_id = provisioner_pod_id;
+        "runpod provision step completed"
+    );
     Ok(())
 }
 

@@ -12,6 +12,11 @@ pub async fn delete_workspace(
     mut operation: LifecycleOperation,
     mut workspace: Workspace,
 ) -> Result<Workspace, WorkspaceError> {
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str();
+        "runpod delete started"
+    );
     super::cleanup::cleanup_remote_resources(
         &context,
         Some(&mut operation),
@@ -19,7 +24,17 @@ pub async fn delete_workspace(
         &mut workspace,
     )
     .await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str();
+        "runpod delete cleanup completed"
+    );
     context.delete_workspace(&workspace.id).await?;
+    log::info!(
+        workspace_id = workspace.id.as_str(),
+        operation_id = operation.operation_id.as_str();
+        "runpod delete completed"
+    );
     Ok(workspace)
 }
 
