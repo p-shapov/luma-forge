@@ -2,7 +2,13 @@ use tauri::State;
 
 use crate::{
     app::state::NativeAppState,
-    tauri_api::{types::native::NativeStartupStatusResponse, CommandResult},
+    tauri_api::{
+        errors::{
+            command_error, NativeInitializationCommandError, NativeInitializationCommandErrorCode,
+        },
+        types::native::NativeStartupStatusResponse,
+        CommandResult,
+    },
 };
 
 #[tauri::command]
@@ -10,11 +16,17 @@ use crate::{
 pub fn get_native_startup_status(
     state: State<'_, NativeAppState>,
 ) -> CommandResult<NativeStartupStatusResponse> {
-    let response = match state.startup_error() {
-        Some(error) => NativeStartupStatusResponse::Failed {
-            error: error.clone().into(),
-        },
-        None => NativeStartupStatusResponse::Ready,
-    };
-    Ok(response)
+    super::tracing::run_sync_command("get_native_startup_status", |trace_id| {
+        let response = match state.startup_error() {
+            Some(error) => NativeStartupStatusResponse::Failed {
+                error: command_error(
+                    &trace_id,
+                    NativeInitializationCommandError::from(error.clone()),
+                    |error| NativeInitializationCommandErrorCode::from(error.clone()),
+                ),
+            },
+            None => NativeStartupStatusResponse::Ready,
+        };
+        Ok(response)
+    })
 }

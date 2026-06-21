@@ -6,6 +6,7 @@ pub mod events;
 pub mod native;
 pub mod secrets;
 pub mod support;
+mod tracing;
 pub mod types;
 pub mod workspaces;
 

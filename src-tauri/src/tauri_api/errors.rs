@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::error::Error;
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -8,21 +8,6 @@ use crate::app::errors::AppInitializationError;
 pub type CommandResult<T, Code = NativeInitializationCommandErrorCode> =
     Result<T, CommandError<Code>>;
 pub type NativeCommandError = CommandError<NativeInitializationCommandErrorCode>;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct TraceId(String);
-
-impl TraceId {
-    pub(crate) fn random() -> Self {
-        Self(format!("trace-{}", uuid::Uuid::new_v4()))
-    }
-}
-
-impl fmt::Display for TraceId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
 #[error("{message}")]
@@ -65,7 +50,7 @@ where
         Self {
             message,
             code: error,
-            trace_id: TraceId::random().to_string(),
+            trace_id: "trace-unavailable".to_string(),
         }
     }
 }
