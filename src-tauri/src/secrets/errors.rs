@@ -17,7 +17,7 @@ pub enum SecretsStorageError {
     StoreUnavailable,
     #[error("stored api key is invalid")]
     StoredSecretInvalid,
-    #[error("api key identity request failed: {0}")]
+    #[error("api key identity request failed")]
     IdentityRequestFailed(#[from] ProviderApiError),
     #[error("api key identity response is invalid: {message}")]
     IdentityResponseInvalid { message: String },

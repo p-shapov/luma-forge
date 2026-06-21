@@ -119,7 +119,7 @@ macro_rules! define_secret_command_error {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
         #[serde(untagged)]
         pub(crate) enum $name {
-            #[error("native initialization failed: {0}")]
+            #[error("native initialization failed")]
             NativeInitialization(#[from] NativeInitializationCommandError),
             #[error($message)]
             SecretsStorage(#[from] SecretsStorageError),
@@ -129,26 +129,26 @@ macro_rules! define_secret_command_error {
 
 define_secret_command_error!(
     SetupRunpodApiKeyCommandError,
-    "runpod api key setup failed: {0}"
+    "runpod api key setup failed"
 );
 define_secret_command_error!(
     GetRunpodApiKeyIdentityCommandError,
-    "runpod api key identity failed: {0}"
+    "runpod api key identity failed"
 );
 define_secret_command_error!(
     DeleteRunpodApiKeyCommandError,
-    "runpod api key deletion failed: {0}"
+    "runpod api key deletion failed"
 );
 
 define_secret_command_error!(
     SetupHuggingFaceApiKeyCommandError,
-    "hugging face api key setup failed: {0}"
+    "hugging face api key setup failed"
 );
 define_secret_command_error!(
     GetHuggingFaceApiKeyIdentityCommandError,
-    "hugging face api key identity failed: {0}"
+    "hugging face api key identity failed"
 );
 define_secret_command_error!(
     DeleteHuggingFaceApiKeyCommandError,
-    "hugging face api key deletion failed: {0}"
+    "hugging face api key deletion failed"
 );

@@ -9,19 +9,19 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceError {
-    #[error("provider api error: {0}")]
+    #[error("provider api error")]
     ProviderApiError(#[from] ProviderApiError),
-    #[error("runtime provider api key unavailable: {0}")]
+    #[error("runtime provider api key unavailable")]
     RuntimeProviderApiKeyUnavailable(#[source] SecretsStorageError),
-    #[error("workflow provider api key unavailable: {0}")]
+    #[error("workflow provider api key unavailable")]
     WorkflowProviderApiKeyUnavailable(#[source] SecretsStorageError),
-    #[error("workflow catalog invalid: {0}")]
+    #[error("workflow catalog invalid")]
     WorkflowCatalogInvalid(#[from] WorkflowCatalogError),
-    #[error("runtime catalog invalid: {0}")]
+    #[error("runtime catalog invalid")]
     RuntimeCatalogInvalid(#[from] RuntimeCatalogError),
-    #[error("workspace catalog invalid: {0}")]
+    #[error("workspace catalog invalid")]
     WorkspaceCatalogInvalid(#[from] WorkspaceCatalogError),
-    #[error("lifecycle journal invalid: {0}")]
+    #[error("lifecycle journal invalid")]
     LifecycleJournalInvalid(#[from] LifecycleJournalError),
     #[error("workspace was not found: {workspace_id}")]
     WorkspaceNotFound { workspace_id: String },

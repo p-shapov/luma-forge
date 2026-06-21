@@ -5,11 +5,11 @@ use crate::{provider::errors::ProviderApiError, secrets::SecretsStorageError};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum RunpodProviderError {
-    #[error("provider api error: {0}")]
+    #[error("provider api error")]
     ProviderApiError(#[from] ProviderApiError),
-    #[error("runtime provider api key unavailable: {0}")]
+    #[error("runtime provider api key unavailable")]
     RuntimeProviderApiKeyUnavailable(#[source] SecretsStorageError),
-    #[error("workflow provider api key unavailable: {0}")]
+    #[error("workflow provider api key unavailable")]
     WorkflowProviderApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("provisioner worker unavailable: {message}")]
     ProvisionerWorkerUnavailable { message: String },

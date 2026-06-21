@@ -102,35 +102,35 @@ define_catalog_code!(GetWorkspaceCatalogErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[serde(untagged)]
 pub(crate) enum GetWorkflowCatalogCommandError {
-    #[error("native initialization failed: {0}")]
+    #[error("native initialization failed")]
     NativeInitialization(#[from] NativeInitializationCommandError),
-    #[error("workflow catalog failed: {0}")]
+    #[error("workflow catalog failed")]
     WorkflowCatalog(#[from] WorkflowCatalogError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[serde(untagged)]
 pub(crate) enum GetRuntimeContractCatalogCommandError {
-    #[error("native initialization failed: {0}")]
+    #[error("native initialization failed")]
     NativeInitialization(#[from] NativeInitializationCommandError),
-    #[error("runtime contract catalog failed: {0}")]
+    #[error("runtime contract catalog failed")]
     RuntimeCatalog(#[from] RuntimeCatalogError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[serde(untagged)]
 pub(crate) enum GetRunpodPlacementOptionsCommandError {
-    #[error("native initialization failed: {0}")]
+    #[error("native initialization failed")]
     NativeInitialization(#[from] NativeInitializationCommandError),
-    #[error("runpod placement options failed: {0}")]
+    #[error("runpod placement options failed")]
     RunpodProvider(#[from] RunpodProviderError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[serde(untagged)]
 pub(crate) enum GetWorkspaceCatalogCommandError {
-    #[error("native initialization failed: {0}")]
+    #[error("native initialization failed")]
     NativeInitialization(#[from] NativeInitializationCommandError),
-    #[error("workspace catalog failed: {0}")]
+    #[error("workspace catalog failed")]
     WorkspaceCatalog(#[from] WorkspaceCatalogError),
 }
