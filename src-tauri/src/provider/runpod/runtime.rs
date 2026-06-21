@@ -357,9 +357,9 @@ where
             .client
             .provisioner_status_request(&provisioner_status_url(provisioner_pod_id), &bearer_token)
             .await
-            .map_err(|error| {
+            .inspect_err(|error| {
                 let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
+                    crate::diagnostics::error_diagnostics(&error.clone(), "runpod_provider_error");
                 log::error!(
                     workspace_id = workspace_id,
                     provisioner_pod_id = provisioner_pod_id,
@@ -369,7 +369,6 @@ where
                     source_chain:? = diagnostics.source_chain;
                     "runpod provisioner status check failed"
                 );
-                error
             })?;
 
         log::info!(

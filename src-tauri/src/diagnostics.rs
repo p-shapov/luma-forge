@@ -30,7 +30,7 @@ pub struct ErrorDiagnostics {
 
 pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
     let appender = logforth::append::file::FileBuilder::new(logs_dir, "luma-forge.log")
-        .layout(SanitizingJsonLayout::default())
+        .layout(SanitizingJsonLayout)
         .build()
         .map_err(|error| DiagnosticsInitializationError::SetupFailed {
             message: error.to_string(),
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn sanitizing_json_layout_redacts_payload_and_key_values() {
-        let layout = SanitizingJsonLayout::default();
+        let layout = SanitizingJsonLayout;
         let key_values = [
             (
                 KeyOwned::new("payload"),
@@ -803,7 +803,7 @@ mod tests {
 
     #[test]
     fn sanitizing_json_layout_redacts_nested_structured_key_values() {
-        let layout = SanitizingJsonLayout::default();
+        let layout = SanitizingJsonLayout;
         let request_value = ValueOwned::map([
             (
                 KeyOwned::new("authorization"),
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn sanitizing_json_layout_redacts_colon_and_quoted_sensitive_key_forms() {
-        let layout = SanitizingJsonLayout::default();
+        let layout = SanitizingJsonLayout;
         let key_values = [(
             KeyOwned::new("details"),
             ValueOwned::str(r#"api_key: secret-one "token":"secret-two""#),
