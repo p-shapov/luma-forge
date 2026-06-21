@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::{secrets::SecretsStorageError, shared::ApiError};
+use crate::{provider::errors::ProviderApiError, secrets::SecretsStorageError};
 
 macro_rules! define_setup_api_key_error_code {
     ($name:ident) => {
@@ -292,24 +292,26 @@ fn delete_api_key_error_kind(error: &SecretsStorageError) -> DeleteApiKeyErrorKi
     }
 }
 
-fn setup_identity_error(error: &ApiError) -> SetupApiKeyErrorKind {
+fn setup_identity_error(error: &ProviderApiError) -> SetupApiKeyErrorKind {
     match error {
-        ApiError::Unauthorized => SetupApiKeyErrorKind::IdentityUnauthorized,
-        ApiError::InsufficientPermissions => SetupApiKeyErrorKind::IdentityInsufficientPermissions,
-        ApiError::RateLimited => SetupApiKeyErrorKind::IdentityRateLimited,
-        ApiError::Timeout => SetupApiKeyErrorKind::IdentityTimeout,
-        ApiError::RequestFailed { .. } => SetupApiKeyErrorKind::IdentityRequestFailed,
+        ProviderApiError::Unauthorized => SetupApiKeyErrorKind::IdentityUnauthorized,
+        ProviderApiError::InsufficientPermissions => {
+            SetupApiKeyErrorKind::IdentityInsufficientPermissions
+        }
+        ProviderApiError::RateLimited => SetupApiKeyErrorKind::IdentityRateLimited,
+        ProviderApiError::Timeout => SetupApiKeyErrorKind::IdentityTimeout,
+        ProviderApiError::RequestFailed { .. } => SetupApiKeyErrorKind::IdentityRequestFailed,
     }
 }
 
-fn get_identity_error(error: &ApiError) -> GetApiKeyIdentityErrorKind {
+fn get_identity_error(error: &ProviderApiError) -> GetApiKeyIdentityErrorKind {
     match error {
-        ApiError::Unauthorized => GetApiKeyIdentityErrorKind::IdentityUnauthorized,
-        ApiError::InsufficientPermissions => {
+        ProviderApiError::Unauthorized => GetApiKeyIdentityErrorKind::IdentityUnauthorized,
+        ProviderApiError::InsufficientPermissions => {
             GetApiKeyIdentityErrorKind::IdentityInsufficientPermissions
         }
-        ApiError::RateLimited => GetApiKeyIdentityErrorKind::IdentityRateLimited,
-        ApiError::Timeout => GetApiKeyIdentityErrorKind::IdentityTimeout,
-        ApiError::RequestFailed { .. } => GetApiKeyIdentityErrorKind::IdentityRequestFailed,
+        ProviderApiError::RateLimited => GetApiKeyIdentityErrorKind::IdentityRateLimited,
+        ProviderApiError::Timeout => GetApiKeyIdentityErrorKind::IdentityTimeout,
+        ProviderApiError::RequestFailed { .. } => GetApiKeyIdentityErrorKind::IdentityRequestFailed,
     }
 }

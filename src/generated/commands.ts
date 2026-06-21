@@ -93,7 +93,6 @@ export type LifecycleCleanupPayloadResponse = { runtimeType: "runpod"; step: Run
 export type LifecycleOperationChangedEvent = {
 	workspaceId: string,
 	operationId: string,
-	traceId: string,
 	operation: LifecycleOperationResponse,
 };
 

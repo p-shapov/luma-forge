@@ -16,10 +16,9 @@ use crate::{
         stores::{keyring::KeyringSecretStore, SecretKey},
         SecretsService,
     },
-    shared::{BackgroundTaskSpawner, EventSink},
     sqlite::database::SqliteNativeDatabase,
     workflow_catalog::BundledWorkflowCatalogRepository,
-    workspace::events::WorkspaceEvent,
+    workspace::events::WorkspaceEventSink,
     workspace::{
         WorkspaceRuntimeDispatcher, WorkspaceRuntimeImplementations, WorkspaceService,
         WorkspaceServiceDependencies,
@@ -32,8 +31,7 @@ use super::{state::AppState, support::SupportPaths};
 pub async fn build_app_state(
     app_identifier: &str,
     support_paths: &SupportPaths,
-    event_sink: Arc<dyn EventSink<WorkspaceEvent>>,
-    task_spawner: Arc<dyn BackgroundTaskSpawner>,
+    event_sink: Arc<dyn WorkspaceEventSink>,
 ) -> Result<AppState, AppInitializationError> {
     let native_db_path = support_paths.native_db_path();
     let database = SqliteNativeDatabase::connect(native_db_path)
@@ -71,7 +69,6 @@ pub async fn build_app_state(
         workflow_catalog: Arc::new(workflow_catalog.clone()),
         runtime_dispatcher,
         event_sink,
-        task_spawner,
     });
 
     workspace

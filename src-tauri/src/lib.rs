@@ -6,7 +6,6 @@ pub mod lifecycle_journal;
 pub mod provider;
 pub mod runtime_catalog;
 pub mod secrets;
-pub mod shared;
 pub mod sqlite;
 pub mod tauri_api;
 pub mod workflow_catalog;
@@ -19,9 +18,7 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     {
-        if let Err(error) = tauri_api::export_typescript_bindings(&builder) {
-            eprintln!("failed to export TypeScript command bindings: {error}");
-        }
+        let _ = tauri_api::export_typescript_bindings(&builder);
     }
 
     let mut app_builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
@@ -31,29 +28,13 @@ pub fn run() {
         app_builder = app_builder.plugin(tauri_plugin_mcp_bridge::init());
     }
 
-    if let Err(error) = app_builder
+    let _ = app_builder
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let app_identifier = app_handle.config().identifier.clone();
             builder.mount_events(app);
             let support_paths = tauri_api::support::prepare_support_paths(&app_handle);
-            let diagnostics_guard = match support_paths.as_ref() {
-                Ok(support_paths) => {
-                    let guard =
-                        app::diagnostics::init(Some(support_paths.logs_dir().to_path_buf()));
-                    tracing::info!(
-                        support_dir = %support_paths.root_dir().display(),
-                        log_dir = %support_paths.logs_dir().display(),
-                        "native diagnostics file logging initialized"
-                    );
-                    guard
-                }
-                Err(error) => {
-                    eprintln!("native support directory unavailable: {error}");
-                    app::diagnostics::init(None)
-                }
-            };
             let app_state = match support_paths.and_then(|support_paths| {
                 tauri::async_runtime::block_on(app::bootstrap::build_app_state(
                     &app_identifier,
@@ -61,23 +42,15 @@ pub fn run() {
                     std::sync::Arc::new(tauri_api::events::TauriWorkspaceEventSink::new(
                         app_handle.clone(),
                     )),
-                    std::sync::Arc::new(tauri_api::background::TauriBackgroundTaskSpawner),
                 ))
             }) {
                 Ok(state) => app::state::NativeAppState::Ready(Box::new(state)),
-                Err(error) => {
-                    eprintln!("native app initialization failed: {error}");
-                    app::state::NativeAppState::Failed(error)
-                }
+                Err(error) => app::state::NativeAppState::Failed(error),
             };
-            app.manage(diagnostics_guard);
             app.manage(app_state);
             Ok(())
         })
-        .run(tauri::generate_context!())
-    {
-        eprintln!("error while running tauri application: {error}");
-    }
+        .run(tauri::generate_context!());
 }
 
 #[cfg(test)]

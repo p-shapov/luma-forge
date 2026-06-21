@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     domain::{runpod::RunpodPlacementOptions, secrets::ApiKeyIdentity},
-    shared::ApiError,
+    provider::errors::ProviderApiError,
 };
 
 use super::runtime::RunpodProvisionerStatus;
@@ -84,7 +84,7 @@ impl RunpodApiClient {
     pub(super) async fn placement_options_request(
         &self,
         api_key: &str,
-    ) -> Result<RunpodPlacementOptions, ApiError> {
+    ) -> Result<RunpodPlacementOptions, ProviderApiError> {
         let response = self
             .http
             .post(&self.graphql_url)
@@ -104,7 +104,7 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         body: &NetworkVolumeCreateBody,
-    ) -> Result<NetworkVolumeResponse, ApiError> {
+    ) -> Result<NetworkVolumeResponse, ProviderApiError> {
         self.post_rest(api_key, "/networkvolumes", body).await
     }
 
@@ -112,7 +112,7 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         network_volume_id: &str,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ProviderApiError> {
         self.delete_rest(api_key, &format!("/networkvolumes/{network_volume_id}"))
             .await
     }
@@ -121,11 +121,15 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         body: &PodCreateBody,
-    ) -> Result<PodResponse, ApiError> {
+    ) -> Result<PodResponse, ProviderApiError> {
         self.post_rest(api_key, "/pods", body).await
     }
 
-    pub(super) async fn delete_pod(&self, api_key: &str, pod_id: &str) -> Result<(), ApiError> {
+    pub(super) async fn delete_pod(
+        &self,
+        api_key: &str,
+        pod_id: &str,
+    ) -> Result<(), ProviderApiError> {
         self.delete_rest(api_key, &format!("/pods/{pod_id}")).await
     }
 
@@ -133,7 +137,7 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         body: &TemplateCreateBody,
-    ) -> Result<TemplateResponse, ApiError> {
+    ) -> Result<TemplateResponse, ProviderApiError> {
         self.post_rest(api_key, "/templates", body).await
     }
 
@@ -141,7 +145,7 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         template_id: &str,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ProviderApiError> {
         self.delete_rest(api_key, &format!("/templates/{template_id}"))
             .await
     }
@@ -150,7 +154,7 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         body: &EndpointCreateBody,
-    ) -> Result<EndpointResponse, ApiError> {
+    ) -> Result<EndpointResponse, ProviderApiError> {
         self.post_rest(api_key, "/endpoints", body).await
     }
 
@@ -158,12 +162,17 @@ impl RunpodApiClient {
         &self,
         api_key: &str,
         endpoint_id: &str,
-    ) -> Result<(), ApiError> {
+    ) -> Result<(), ProviderApiError> {
         self.delete_rest(api_key, &format!("/endpoints/{endpoint_id}"))
             .await
     }
 
-    async fn post_rest<B, T>(&self, api_key: &str, path: &str, body: &B) -> Result<T, ApiError>
+    async fn post_rest<B, T>(
+        &self,
+        api_key: &str,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ProviderApiError>
     where
         B: serde::Serialize + ?Sized,
         T: for<'de> serde::Deserialize<'de>,
@@ -180,7 +189,7 @@ impl RunpodApiClient {
         mapping::parse_json_response(response).await
     }
 
-    async fn delete_rest(&self, api_key: &str, path: &str) -> Result<(), ApiError> {
+    async fn delete_rest(&self, api_key: &str, path: &str) -> Result<(), ProviderApiError> {
         let response = self
             .http
             .request(Method::DELETE, format!("{}{path}", self.rest_base_url))

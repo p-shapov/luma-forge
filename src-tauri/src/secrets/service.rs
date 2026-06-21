@@ -1,31 +1,23 @@
-use crate::{domain::secrets::ApiKeyIdentity, shared::AppFuture};
+use crate::domain::secrets::ApiKeyIdentity;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use super::{ApiSecret, SecretKey, SecretsStorageError};
 
+#[async_trait::async_trait]
 pub trait ApiKeyIdentityProvider: Send + Sync {
-    fn identity<'a>(
-        &'a self,
-        secret: &'a ApiSecret,
-    ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>>;
+    async fn identity(&self, secret: &ApiSecret) -> Result<ApiKeyIdentity, SecretsStorageError>;
 }
 
+#[async_trait::async_trait]
 pub trait SecretStore: Send + Sync {
-    fn has<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<bool, SecretsStorageError>>;
+    async fn has(&self, key: SecretKey) -> Result<bool, SecretsStorageError>;
 
-    fn write<'a>(
-        &'a self,
-        key: SecretKey,
-        secret: ApiSecret,
-    ) -> AppFuture<'a, Result<(), SecretsStorageError>>;
+    async fn write(&self, key: SecretKey, secret: ApiSecret) -> Result<(), SecretsStorageError>;
 
-    fn delete<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<(), SecretsStorageError>>;
+    async fn delete(&self, key: SecretKey) -> Result<(), SecretsStorageError>;
 
-    fn read<'a>(
-        &'a self,
-        key: SecretKey,
-    ) -> AppFuture<'a, Result<Option<ApiSecret>, SecretsStorageError>>;
+    async fn read(&self, key: SecretKey) -> Result<Option<ApiSecret>, SecretsStorageError>;
 }
 
 #[derive(Clone)]
@@ -103,10 +95,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use crate::{
-        domain::secrets::ApiKeyIdentity,
-        shared::{ApiError, AppFuture},
-    };
+    use crate::{domain::secrets::ApiKeyIdentity, provider::errors::ProviderApiError};
 
     use super::*;
     use crate::secrets::{
@@ -155,50 +144,40 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl SecretStore for FakeStore {
-        fn has<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<bool, SecretsStorageError>> {
-            Box::pin(async move {
-                let mut state = self.inner.lock().expect("store state");
-                state.calls.push(StoreCall::Has(key));
+        async fn has(&self, key: SecretKey) -> Result<bool, SecretsStorageError> {
+            let mut state = self.inner.lock().expect("store state");
+            state.calls.push(StoreCall::Has(key));
 
-                Ok(state.secrets.contains_key(&key))
-            })
+            Ok(state.secrets.contains_key(&key))
         }
 
-        fn write<'a>(
-            &'a self,
+        async fn write(
+            &self,
             key: SecretKey,
             secret: ApiSecret,
-        ) -> AppFuture<'a, Result<(), SecretsStorageError>> {
-            Box::pin(async move {
-                let mut state = self.inner.lock().expect("store state");
-                state.calls.push(StoreCall::Write(key));
-                state.secrets.insert(key, secret);
+        ) -> Result<(), SecretsStorageError> {
+            let mut state = self.inner.lock().expect("store state");
+            state.calls.push(StoreCall::Write(key));
+            state.secrets.insert(key, secret);
 
-                Ok(())
-            })
+            Ok(())
         }
 
-        fn delete<'a>(&'a self, key: SecretKey) -> AppFuture<'a, Result<(), SecretsStorageError>> {
-            Box::pin(async move {
-                let mut state = self.inner.lock().expect("store state");
-                state.calls.push(StoreCall::Delete(key));
-                state.secrets.remove(&key);
+        async fn delete(&self, key: SecretKey) -> Result<(), SecretsStorageError> {
+            let mut state = self.inner.lock().expect("store state");
+            state.calls.push(StoreCall::Delete(key));
+            state.secrets.remove(&key);
 
-                Ok(())
-            })
+            Ok(())
         }
 
-        fn read<'a>(
-            &'a self,
-            key: SecretKey,
-        ) -> AppFuture<'a, Result<Option<ApiSecret>, SecretsStorageError>> {
-            Box::pin(async move {
-                let mut state = self.inner.lock().expect("store state");
-                state.calls.push(StoreCall::Read(key));
+        async fn read(&self, key: SecretKey) -> Result<Option<ApiSecret>, SecretsStorageError> {
+            let mut state = self.inner.lock().expect("store state");
+            state.calls.push(StoreCall::Read(key));
 
-                Ok(state.secrets.get(&key).cloned())
-            })
+            Ok(state.secrets.get(&key).cloned())
         }
     }
 
@@ -227,17 +206,16 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl ApiKeyIdentityProvider for FakeIdentityProvider {
-        fn identity<'a>(
-            &'a self,
-            secret: &'a ApiSecret,
-        ) -> AppFuture<'a, Result<ApiKeyIdentity, SecretsStorageError>> {
-            Box::pin(async move {
-                let mut state = self.inner.lock().expect("identity state");
-                state.calls.push(secret.expose_secret().to_string());
+        async fn identity(
+            &self,
+            secret: &ApiSecret,
+        ) -> Result<ApiKeyIdentity, SecretsStorageError> {
+            let mut state = self.inner.lock().expect("identity state");
+            state.calls.push(secret.expose_secret().to_string());
 
-                state.results.pop_front().expect("identity result")
-            })
+            state.results.pop_front().expect("identity result")
         }
     }
 
@@ -299,7 +277,7 @@ mod tests {
     async fn write_does_not_store_after_validation_failure() {
         let store = FakeStore::default();
         let identity = FakeIdentityProvider::new(vec![Err(
-            SecretsStorageError::IdentityRequestFailed(ApiError::Unauthorized),
+            SecretsStorageError::IdentityRequestFailed(ProviderApiError::Unauthorized),
         )]);
         let service = SecretsService::new(store.clone(), identity.clone(), SecretKey::RunpodApiKey);
 
@@ -308,7 +286,7 @@ mod tests {
         assert_eq!(
             result,
             Err(SecretsStorageError::IdentityRequestFailed(
-                ApiError::Unauthorized
+                ProviderApiError::Unauthorized
             ))
         );
         assert_eq!(store.calls(), vec![StoreCall::Has(SecretKey::RunpodApiKey)]);

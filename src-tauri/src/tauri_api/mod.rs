@@ -1,8 +1,6 @@
 use tauri_specta::{collect_commands, collect_events, Builder};
 
-pub mod background;
 pub mod catalog;
-pub(crate) mod diagnostics;
 pub mod errors;
 pub mod events;
 pub mod native;

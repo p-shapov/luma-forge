@@ -1,16 +1,14 @@
 use std::sync::Arc;
 
-use tracing::Instrument;
-
 use crate::{
     domain::{
         lifecycle_operation::LifecycleOperation, runpod::RunpodPlacementOptions,
         workflow_preset::ModelAsset, workspace::Workspace,
     },
+    provider::errors::ProviderApiError,
     runtime_catalog::RuntimeCatalogRepository,
     secrets::SecretsStorageError,
     secrets::{ApiKeyIdentityProvider, SecretStore, SecretsService},
-    shared::{ApiError, AppFuture},
     workflow_catalog::WorkflowCatalogRepository,
     workspace::{WorkspaceError, WorkspaceRuntime, WorkspaceRuntimeContext},
 };
@@ -63,56 +61,52 @@ pub struct CreateRunpodServerlessEndpointParams {
     pub template_id: String,
 }
 
+#[async_trait::async_trait]
 pub trait RunpodRuntimeClient: Send + Sync {
-    fn placement_options<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodProviderError>>;
+    async fn placement_options(&self) -> Result<RunpodPlacementOptions, RunpodProviderError>;
 
-    fn create_network_volume<'a>(
-        &'a self,
+    async fn create_network_volume(
+        &self,
         params: CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>>;
+    ) -> Result<String, RunpodProviderError>;
 
-    fn delete_network_volume<'a>(
-        &'a self,
-        network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>>;
+    async fn delete_network_volume(
+        &self,
+        network_volume_id: &str,
+    ) -> Result<(), RunpodProviderError>;
 
-    fn start_provisioner_pod<'a>(
-        &'a self,
+    async fn start_provisioner_pod(
+        &self,
         params: StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>>;
+    ) -> Result<String, RunpodProviderError>;
 
-    fn terminate_provisioner_pod<'a>(
-        &'a self,
-        provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>>;
+    async fn terminate_provisioner_pod(
+        &self,
+        provisioner_pod_id: &str,
+    ) -> Result<(), RunpodProviderError>;
 
-    fn get_provisioner_status<'a>(
-        &'a self,
-        workspace_id: &'a str,
-        provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodProviderError>>;
+    async fn get_provisioner_status(
+        &self,
+        workspace_id: &str,
+        provisioner_pod_id: &str,
+    ) -> Result<RunpodProvisionerStatus, RunpodProviderError>;
 
-    fn create_serverless_template<'a>(
-        &'a self,
+    async fn create_serverless_template(
+        &self,
         params: CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>>;
+    ) -> Result<String, RunpodProviderError>;
 
-    fn create_serverless_endpoint<'a>(
-        &'a self,
+    async fn create_serverless_endpoint(
+        &self,
         params: CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>>;
+    ) -> Result<String, RunpodProviderError>;
 
-    fn delete_serverless_endpoint<'a>(
-        &'a self,
-        endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>>;
+    async fn delete_serverless_endpoint(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<(), RunpodProviderError>;
 
-    fn delete_template<'a>(
-        &'a self,
-        template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>>;
+    async fn delete_template(&self, template_id: &str) -> Result<(), RunpodProviderError>;
 }
 
 pub struct RunpodRuntimeProvider<RS, RI, HS, HI> {
@@ -140,6 +134,7 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<RS, RI, HS, HI> RunpodRuntimeClient for RunpodRuntimeProvider<RS, RI, HS, HI>
 where
     RS: SecretStore,
@@ -147,275 +142,149 @@ where
     HS: SecretStore,
     HI: ApiKeyIdentityProvider,
 {
-    fn placement_options<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodProviderError>> {
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                let mut options = self
-                    .client
-                    .placement_options_request(&api_key)
-                    .await
-                    .map_err(RunpodProviderError::from)?;
-                options.max_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
-                Ok(options)
-            }
-            .instrument(tracing::info_span!(
-                "runpod_provider",
-                provider_operation = "placement_options"
-            )),
-        )
+    async fn placement_options(&self) -> Result<RunpodPlacementOptions, RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        let mut options = self
+            .client
+            .placement_options_request(&api_key)
+            .await
+            .map_err(RunpodProviderError::from)?;
+        options.max_volume_size_gb = Some(NETWORK_VOLUME_MAX_SIZE_GB);
+        Ok(options)
     }
 
-    fn create_network_volume<'a>(
-        &'a self,
+    async fn create_network_volume(
+        &self,
         params: CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        let workspace_id = params.workspace_id.clone();
-        let datacenter_id = params.data_center_id.clone();
-        let volume_size_gb = params.size_gb;
-        let span = tracing::info_span!(
-            "runpod_provider",
-            provider_operation = "create_network_volume",
-            workspace_id = %workspace_id,
-            datacenter_id = %datacenter_id,
-            volume_size_gb = volume_size_gb
+    ) -> Result<String, RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        let body = mapping::network_volume_create_body(
+            &params.workspace_id,
+            params.data_center_id,
+            params.size_gb,
         );
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                let body = mapping::network_volume_create_body(
-                    &params.workspace_id,
-                    params.data_center_id,
-                    params.size_gb,
-                );
-                let response: NetworkVolumeResponse = self
-                    .client
-                    .create_network_volume(&api_key, &body)
-                    .await
-                    .map_err(RunpodProviderError::from)?;
+        let response: NetworkVolumeResponse = self
+            .client
+            .create_network_volume(&api_key, &body)
+            .await
+            .map_err(RunpodProviderError::from)?;
 
-                Ok(response.id)
-            }
-            .instrument(span),
-        )
+        Ok(response.id)
     }
 
-    fn delete_network_volume<'a>(
-        &'a self,
-        network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                self.client
-                    .delete_network_volume(&api_key, network_volume_id)
-                    .await
-                    .map_err(RunpodProviderError::from)
-            }
-            .instrument(tracing::info_span!(
-                "runpod_provider",
-                provider_operation = "delete_network_volume",
-                network_volume_id = %network_volume_id
-            )),
-        )
+    async fn delete_network_volume(
+        &self,
+        network_volume_id: &str,
+    ) -> Result<(), RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        self.client
+            .delete_network_volume(&api_key, network_volume_id)
+            .await
+            .map_err(RunpodProviderError::from)
     }
 
-    fn start_provisioner_pod<'a>(
-        &'a self,
+    async fn start_provisioner_pod(
+        &self,
         params: StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        let workspace_id = params.workspace_id.clone();
-        let datacenter_id = params.data_center_id.clone();
-        let network_volume_id = params.network_volume_id.clone();
-        let requires_hugging_face_api_key = params.requires_hugging_face_api_key;
-        let span = tracing::info_span!(
-            "runpod_provider",
-            provider_operation = "start_provisioner_pod",
-            workspace_id = %workspace_id,
-            datacenter_id = %datacenter_id,
-            network_volume_id = %network_volume_id,
-            requires_hugging_face_api_key = requires_hugging_face_api_key
-        );
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
-                let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
-                let body = mapping::provisioner_pod_create_body(
-                    &params.workspace_id,
-                    params.data_center_id,
-                    params.provisioner_image_ref,
-                    params.network_volume_id,
-                    bearer_token,
-                    params.required_model_assets,
-                    hugging_face_api_key,
-                )
-                .map_err(RunpodProviderError::from)?;
-                let pod: PodResponse = self
-                    .client
-                    .start_pod(&api_key, &body)
-                    .await
-                    .map_err(RunpodProviderError::from)?;
-
-                Ok(pod.id)
-            }
-            .instrument(span),
+    ) -> Result<String, RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        let bearer_token = self.workspace_bearer_token(&params.workspace_id).await?;
+        let hugging_face_api_key = self.hugging_face_api_key(&params).await?;
+        let body = mapping::provisioner_pod_create_body(
+            &params.workspace_id,
+            params.data_center_id,
+            params.provisioner_image_ref,
+            params.network_volume_id,
+            bearer_token,
+            params.required_model_assets,
+            hugging_face_api_key,
         )
+        .map_err(RunpodProviderError::from)?;
+        let pod: PodResponse = self
+            .client
+            .start_pod(&api_key, &body)
+            .await
+            .map_err(RunpodProviderError::from)?;
+
+        Ok(pod.id)
     }
 
-    fn terminate_provisioner_pod<'a>(
-        &'a self,
-        provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                self.client
-                    .delete_pod(&api_key, provisioner_pod_id)
-                    .await
-                    .map_err(RunpodProviderError::from)
-            }
-            .instrument(tracing::info_span!(
-                "runpod_provider",
-                provider_operation = "terminate_provisioner_pod",
-                provisioner_pod_id = %provisioner_pod_id
-            )),
-        )
+    async fn terminate_provisioner_pod(
+        &self,
+        provisioner_pod_id: &str,
+    ) -> Result<(), RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        self.client
+            .delete_pod(&api_key, provisioner_pod_id)
+            .await
+            .map_err(RunpodProviderError::from)
     }
 
-    fn get_provisioner_status<'a>(
-        &'a self,
-        workspace_id: &'a str,
-        provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodProviderError>> {
-        Box::pin(
-            async move {
-                let bearer_token = self.workspace_bearer_token(workspace_id).await?;
-                self.client
-                    .provisioner_status_request(
-                        &provisioner_status_url(provisioner_pod_id),
-                        &bearer_token,
-                    )
-                    .await
-            }
-            .instrument(tracing::info_span!(
-                "runpod_provider",
-                provider_operation = "get_provisioner_status",
-                workspace_id = %workspace_id,
-                provisioner_pod_id = %provisioner_pod_id
-            )),
-        )
+    async fn get_provisioner_status(
+        &self,
+        workspace_id: &str,
+        provisioner_pod_id: &str,
+    ) -> Result<RunpodProvisionerStatus, RunpodProviderError> {
+        let bearer_token = self.workspace_bearer_token(workspace_id).await?;
+        self.client
+            .provisioner_status_request(&provisioner_status_url(provisioner_pod_id), &bearer_token)
+            .await
     }
 
-    fn create_serverless_template<'a>(
-        &'a self,
+    async fn create_serverless_template(
+        &self,
         params: CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        let workspace_id = params.workspace_id.clone();
-        let span = tracing::info_span!(
-            "runpod_provider",
-            provider_operation = "create_serverless_template",
-            workspace_id = %workspace_id
-        );
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                let body = mapping::endpoint_template_create_body(
-                    &params.workspace_id,
-                    params.endpoint_image_ref,
-                );
-                let response: TemplateResponse = self
-                    .client
-                    .create_template(&api_key, &body)
-                    .await
-                    .map_err(RunpodProviderError::from)?;
+    ) -> Result<String, RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        let body =
+            mapping::endpoint_template_create_body(&params.workspace_id, params.endpoint_image_ref);
+        let response: TemplateResponse = self
+            .client
+            .create_template(&api_key, &body)
+            .await
+            .map_err(RunpodProviderError::from)?;
 
-                Ok(response.id)
-            }
-            .instrument(span),
-        )
+        Ok(response.id)
     }
 
-    fn create_serverless_endpoint<'a>(
-        &'a self,
+    async fn create_serverless_endpoint(
+        &self,
         params: CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        let workspace_id = params.workspace_id.clone();
-        let datacenter_id = params.data_center_id.clone();
-        let gpu_type_id = params.gpu_type_id.clone();
-        let network_volume_id = params.network_volume_id.clone();
-        let template_id = params.template_id.clone();
-        let span = tracing::info_span!(
-            "runpod_provider",
-            provider_operation = "create_serverless_endpoint",
-            workspace_id = %workspace_id,
-            datacenter_id = %datacenter_id,
-            gpu_type_id = %gpu_type_id,
-            network_volume_id = %network_volume_id,
-            template_id = %template_id
+    ) -> Result<String, RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        let body = mapping::endpoint_create_body(
+            &params.workspace_id,
+            params.data_center_id,
+            params.gpu_type_id,
+            params.network_volume_id,
+            params.template_id,
         );
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                let body = mapping::endpoint_create_body(
-                    &params.workspace_id,
-                    params.data_center_id,
-                    params.gpu_type_id,
-                    params.network_volume_id,
-                    params.template_id,
-                );
-                let response: EndpointResponse = self
-                    .client
-                    .create_endpoint(&api_key, &body)
-                    .await
-                    .map_err(RunpodProviderError::from)?;
+        let response: EndpointResponse = self
+            .client
+            .create_endpoint(&api_key, &body)
+            .await
+            .map_err(RunpodProviderError::from)?;
 
-                Ok(response.id)
-            }
-            .instrument(span),
-        )
+        Ok(response.id)
     }
 
-    fn delete_serverless_endpoint<'a>(
-        &'a self,
-        endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                self.client
-                    .delete_endpoint(&api_key, endpoint_id)
-                    .await
-                    .map_err(RunpodProviderError::from)
-            }
-            .instrument(tracing::info_span!(
-                "runpod_provider",
-                provider_operation = "delete_serverless_endpoint",
-                endpoint_id = %endpoint_id
-            )),
-        )
+    async fn delete_serverless_endpoint(
+        &self,
+        endpoint_id: &str,
+    ) -> Result<(), RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        self.client
+            .delete_endpoint(&api_key, endpoint_id)
+            .await
+            .map_err(RunpodProviderError::from)
     }
 
-    fn delete_template<'a>(
-        &'a self,
-        template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(
-            async move {
-                let api_key = self.runpod_api_key().await?;
-                self.client
-                    .delete_template(&api_key, template_id)
-                    .await
-                    .map_err(RunpodProviderError::from)
-            }
-            .instrument(tracing::info_span!(
-                "runpod_provider",
-                provider_operation = "delete_template",
-                template_id = %template_id
-            )),
-        )
+    async fn delete_template(&self, template_id: &str) -> Result<(), RunpodProviderError> {
+        let api_key = self.runpod_api_key().await?;
+        self.client
+            .delete_template(&api_key, template_id)
+            .await
+            .map_err(RunpodProviderError::from)
     }
 }
 
@@ -493,62 +362,52 @@ pub(super) fn map_provider_error(error: RunpodProviderError) -> WorkspaceError {
         RunpodProviderError::ProvisionerWorkerUnavailable { message }
         | RunpodProviderError::ProvisionerWorkerResponseInvalid { message }
         | RunpodProviderError::ProvisionerWorkerFailed { message } => {
-            WorkspaceError::ProviderApiError(ApiError::RequestFailed { message })
+            WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed { message })
         }
     }
 }
 
+#[async_trait::async_trait]
 impl WorkspaceRuntime for RunpodWorkspaceRuntime {
-    fn provision<'a>(
+    async fn provision<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>> {
-        Box::pin(async move {
-            super::provision::provision_workspace(
-                context,
-                self.runpod_client.as_ref(),
-                self.workflow_catalog.as_ref(),
-                self.runtime_catalog.as_ref(),
-                operation,
-                workspace,
-            )
-            .await
-        })
+    ) -> Result<Workspace, WorkspaceError> {
+        super::provision::provision_workspace(
+            context,
+            self.runpod_client.as_ref(),
+            self.workflow_catalog.as_ref(),
+            self.runtime_catalog.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
     }
 
-    fn cleanup<'a>(
+    async fn cleanup<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>> {
-        Box::pin(async move {
-            super::cleanup::cleanup_workspace(
-                context,
-                self.runpod_client.as_ref(),
-                operation,
-                workspace,
-            )
-            .await
-        })
+    ) -> Result<Workspace, WorkspaceError> {
+        super::cleanup::cleanup_workspace(
+            context,
+            self.runpod_client.as_ref(),
+            operation,
+            workspace,
+        )
+        .await
     }
 
-    fn delete<'a>(
+    async fn delete<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceError>> {
-        Box::pin(async move {
-            super::delete::delete_workspace(
-                context,
-                self.runpod_client.as_ref(),
-                operation,
-                workspace,
-            )
+    ) -> Result<Workspace, WorkspaceError> {
+        super::delete::delete_workspace(context, self.runpod_client.as_ref(), operation, workspace)
             .await
-        })
     }
 }

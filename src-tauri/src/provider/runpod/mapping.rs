@@ -7,7 +7,7 @@ use crate::{
         RunpodDatacenterPlacementOption, RunpodGpuPlacementOption, RunpodPlacementOptions,
     },
     domain::workflow_preset::ModelAsset,
-    shared::{map_api_status_error, map_api_transport_error, ApiError},
+    provider::errors::{map_api_status_error, map_api_transport_error, ProviderApiError},
 };
 
 const PROVISIONER_COMPUTE_TYPE: &str = "CPU";
@@ -206,7 +206,7 @@ pub(super) fn provisioner_pod_create_body(
     bearer_token: String,
     required_model_assets: Vec<ModelAsset>,
     hugging_face_api_key: Option<String>,
-) -> Result<PodCreateBody, ApiError> {
+) -> Result<PodCreateBody, ProviderApiError> {
     let required_model_assets =
         serde_json::to_string(&required_model_assets).map_err(|_| provider_request_failed())?;
     let mut env = HashMap::from([
@@ -266,7 +266,9 @@ fn worker_port() -> String {
     format!("{PROVISIONER_PORT}/{WORKER_PORT_PROTOCOL}")
 }
 
-pub(super) async fn parse_json_response<T>(response: reqwest::Response) -> Result<T, ApiError>
+pub(super) async fn parse_json_response<T>(
+    response: reqwest::Response,
+) -> Result<T, ProviderApiError>
 where
     T: for<'de> Deserialize<'de>,
 {
@@ -277,7 +279,7 @@ where
         .map_err(|_| provider_request_failed())
 }
 
-pub(super) fn map_empty_response(status: StatusCode) -> Result<(), ApiError> {
+pub(super) fn map_empty_response(status: StatusCode) -> Result<(), ProviderApiError> {
     if status.is_success() {
         return Ok(());
     }
@@ -285,23 +287,23 @@ pub(super) fn map_empty_response(status: StatusCode) -> Result<(), ApiError> {
     Err(map_status_error(status))
 }
 
-fn map_status_error(status: StatusCode) -> ApiError {
+fn map_status_error(status: StatusCode) -> ProviderApiError {
     map_api_status_error("RunPod", status, |error| error).unwrap_or_else(provider_request_failed)
 }
 
-pub(super) fn map_send_error(error: reqwest::Error) -> ApiError {
+pub(super) fn map_send_error(error: reqwest::Error) -> ProviderApiError {
     map_api_transport_error(error, |error| error)
 }
 
-fn provider_request_failed() -> ApiError {
-    ApiError::RequestFailed {
+fn provider_request_failed() -> ProviderApiError {
+    ProviderApiError::RequestFailed {
         message: "RunPod API request failed".to_string(),
     }
 }
 
 pub(super) fn map_placement_response(
     response: GraphqlResponse<PlacementQueryData>,
-) -> Result<RunpodPlacementOptions, ApiError> {
+) -> Result<RunpodPlacementOptions, ProviderApiError> {
     if !response.errors.is_empty() {
         let message = response
             .errors
@@ -309,7 +311,7 @@ pub(super) fn map_placement_response(
             .map(|error| error.message)
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(ApiError::RequestFailed { message });
+        return Err(ProviderApiError::RequestFailed { message });
     }
 
     let data = response.data.ok_or_else(provider_request_failed)?;

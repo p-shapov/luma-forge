@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 use crate::{
-    lifecycle_journal::LifecycleJournalError, runtime_catalog::RuntimeCatalogError,
-    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace::WorkspaceError, workspace_catalog::WorkspaceCatalogError,
+    lifecycle_journal::LifecycleJournalError, provider::errors::ProviderApiError,
+    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError,
+    workflow_catalog::WorkflowCatalogError, workspace::WorkspaceError,
+    workspace_catalog::WorkspaceCatalogError,
 };
 
 macro_rules! define_workspace_error_code {
@@ -469,13 +470,15 @@ fn workspace_error_kind(error: &WorkspaceError) -> WorkspaceErrorKind {
     }
 }
 
-fn provider_error(error: &ApiError) -> WorkspaceErrorKind {
+fn provider_error(error: &ProviderApiError) -> WorkspaceErrorKind {
     match error {
-        ApiError::Unauthorized => WorkspaceErrorKind::ProviderUnauthorized,
-        ApiError::InsufficientPermissions => WorkspaceErrorKind::ProviderInsufficientPermissions,
-        ApiError::RateLimited => WorkspaceErrorKind::ProviderRateLimited,
-        ApiError::Timeout => WorkspaceErrorKind::ProviderTimeout,
-        ApiError::RequestFailed { .. } => WorkspaceErrorKind::ProviderRequestFailed,
+        ProviderApiError::Unauthorized => WorkspaceErrorKind::ProviderUnauthorized,
+        ProviderApiError::InsufficientPermissions => {
+            WorkspaceErrorKind::ProviderInsufficientPermissions
+        }
+        ProviderApiError::RateLimited => WorkspaceErrorKind::ProviderRateLimited,
+        ProviderApiError::Timeout => WorkspaceErrorKind::ProviderTimeout,
+        ProviderApiError::RequestFailed { .. } => WorkspaceErrorKind::ProviderRequestFailed,
     }
 }
 

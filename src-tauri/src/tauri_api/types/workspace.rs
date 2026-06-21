@@ -182,7 +182,6 @@ pub enum RunpodCleanupStepResponse {
 pub struct LifecycleOperationChangedEvent {
     pub workspace_id: String,
     pub operation_id: String,
-    pub trace_id: String,
     pub operation: LifecycleOperationResponse,
 }
 

@@ -8,7 +8,6 @@ use crate::{
         LifecycleOperationState,
     },
     domain::workspace::WorkspaceId,
-    shared::AppFuture,
 };
 
 use super::{
@@ -79,20 +78,20 @@ impl SqliteLifecycleJournalRepository {
     }
 }
 
+#[async_trait::async_trait]
 impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
-    fn create_operation<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
-        Box::pin(async move {
-            validate_workspace_id(workspace_id)?;
+    async fn create_operation(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<LifecycleOperation, LifecycleJournalError> {
+        validate_workspace_id(workspace_id)?;
 
-            let operation_id = Uuid::new_v4().to_string();
-            let payload_json = encode_payload(None)?;
-            let now = timestamp()?;
+        let operation_id = Uuid::new_v4().to_string();
+        let payload_json = encode_payload(None)?;
+        let now = timestamp()?;
 
-            let result = sqlx::query(
-                "INSERT INTO lifecycle_operations (
+        let result = sqlx::query(
+            "INSERT INTO lifecycle_operations (
                     id,
                     workspace_id,
                     state,
@@ -102,210 +101,190 @@ impl LifecycleJournalRepository for SqliteLifecycleJournalRepository {
                     finished_at
                 )
                  VALUES (?1, ?2, 'running', ?3, ?4, ?5, NULL)",
-            )
-            .bind(&operation_id)
-            .bind(workspace_id)
-            .bind(payload_json)
-            .bind(&now)
-            .bind(&now)
-            .execute(&self.pool)
-            .await;
+        )
+        .bind(&operation_id)
+        .bind(workspace_id)
+        .bind(payload_json)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool)
+        .await;
 
-            if let Err(error) = result {
-                if is_unique_constraint(&error) {
-                    return Err(running_operation_exists_error(self, workspace_id).await?);
-                }
-                return Err(storage_unavailable_error(error));
+        if let Err(error) = result {
+            if is_unique_constraint(&error) {
+                return Err(running_operation_exists_error(self, workspace_id).await?);
             }
+            return Err(storage_unavailable_error(error));
+        }
 
-            self.find_by_id(&operation_id).await
-        })
+        self.find_by_id(&operation_id).await
     }
 
-    fn find_running_by_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>> {
-        Box::pin(async move {
-            validate_workspace_id(workspace_id)?;
+    async fn find_running_by_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<LifecycleOperation>, LifecycleJournalError> {
+        validate_workspace_id(workspace_id)?;
 
-            let row = sqlx::query(
-                "SELECT id, workspace_id, state, payload_json, created_at, updated_at, finished_at
+        let row = sqlx::query(
+            "SELECT id, workspace_id, state, payload_json, created_at, updated_at, finished_at
                  FROM lifecycle_operations
                  WHERE workspace_id = ?1 AND state = 'running'
                  LIMIT 1",
-            )
-            .bind(workspace_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(storage_unavailable_error)?;
+        )
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(storage_unavailable_error)?;
 
-            row.as_ref().map(operation_from_row).transpose()
-        })
+        row.as_ref().map(operation_from_row).transpose()
     }
 
-    fn list_running<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<Vec<LifecycleOperation>, LifecycleJournalError>> {
-        Box::pin(async move {
-            let rows = sqlx::query(
-                "SELECT id, workspace_id, state, payload_json, created_at, updated_at, finished_at
+    async fn list_running(&self) -> Result<Vec<LifecycleOperation>, LifecycleJournalError> {
+        let rows = sqlx::query(
+            "SELECT id, workspace_id, state, payload_json, created_at, updated_at, finished_at
                  FROM lifecycle_operations
                  WHERE state = 'running'
                  ORDER BY created_at ASC, id ASC",
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(storage_unavailable_error)?;
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(storage_unavailable_error)?;
 
-            rows.iter().map(operation_from_row).collect()
-        })
+        rows.iter().map(operation_from_row).collect()
     }
 
-    fn latest_for_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>> {
-        Box::pin(async move {
-            validate_workspace_id(workspace_id)?;
+    async fn latest_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<LifecycleOperation>, LifecycleJournalError> {
+        validate_workspace_id(workspace_id)?;
 
-            let row = sqlx::query(
-                "SELECT id, workspace_id, state, payload_json, created_at, updated_at, finished_at
+        let row = sqlx::query(
+            "SELECT id, workspace_id, state, payload_json, created_at, updated_at, finished_at
                  FROM lifecycle_operations
                  WHERE workspace_id = ?1
                  ORDER BY created_at DESC, updated_at DESC, id DESC
                  LIMIT 1",
-            )
+        )
+        .bind(workspace_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(storage_unavailable_error)?;
+
+        row.as_ref().map(operation_from_row).transpose()
+    }
+
+    async fn delete_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<(), LifecycleJournalError> {
+        validate_workspace_id(workspace_id)?;
+
+        sqlx::query("DELETE FROM lifecycle_operations WHERE workspace_id = ?1")
             .bind(workspace_id)
-            .fetch_optional(&self.pool)
+            .execute(&self.pool)
             .await
             .map_err(storage_unavailable_error)?;
 
-            row.as_ref().map(operation_from_row).transpose()
-        })
+        Ok(())
     }
 
-    fn delete_for_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<(), LifecycleJournalError>> {
-        Box::pin(async move {
-            validate_workspace_id(workspace_id)?;
+    async fn update_operation(
+        &self,
+        operation: &LifecycleOperation,
+    ) -> Result<LifecycleOperation, LifecycleJournalError> {
+        validate_operation_for_update(operation)?;
 
-            sqlx::query("DELETE FROM lifecycle_operations WHERE workspace_id = ?1")
-                .bind(workspace_id)
-                .execute(&self.pool)
-                .await
-                .map_err(storage_unavailable_error)?;
+        let existing = self.find_by_id(&operation.operation_id).await?;
+        validate_operation_identity_matches(&existing, operation)?;
 
-            Ok(())
-        })
-    }
+        let payload_json = encode_payload(operation.payload.as_ref())?;
+        let finished_at =
+            finished_at_for_update(operation.state, operation.updated_at, operation.finished_at)?;
+        let finished_at_storage = format_optional_timestamp(finished_at)?;
 
-    fn update_operation<'a>(
-        &'a self,
-        operation: &'a LifecycleOperation,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
-        Box::pin(async move {
-            validate_operation_for_update(operation)?;
-
-            let existing = self.find_by_id(&operation.operation_id).await?;
-            validate_operation_identity_matches(&existing, operation)?;
-
-            let payload_json = encode_payload(operation.payload.as_ref())?;
-            let finished_at = finished_at_for_update(
-                operation.state,
-                operation.updated_at,
-                operation.finished_at,
-            )?;
-            let finished_at_storage = format_optional_timestamp(finished_at)?;
-
-            let result = sqlx::query(
-                "UPDATE lifecycle_operations
+        let result = sqlx::query(
+            "UPDATE lifecycle_operations
                  SET state = ?1,
                      payload_json = ?2,
                      updated_at = ?3,
                      finished_at = ?4
                  WHERE id = ?5",
-            )
-            .bind(state_to_storage(operation.state))
-            .bind(payload_json)
-            .bind(format_timestamp(operation.updated_at)?)
-            .bind(finished_at_storage)
-            .bind(&operation.operation_id)
-            .execute(&self.pool)
-            .await;
+        )
+        .bind(state_to_storage(operation.state))
+        .bind(payload_json)
+        .bind(format_timestamp(operation.updated_at)?)
+        .bind(finished_at_storage)
+        .bind(&operation.operation_id)
+        .execute(&self.pool)
+        .await;
 
-            let result = match result {
-                Ok(result) => result,
-                Err(error) if is_unique_constraint(&error) => {
-                    return Err(
-                        running_operation_exists_error(self, &operation.workspace_id).await?,
-                    );
-                }
-                Err(error) => return Err(storage_unavailable_error(error)),
-            };
-
-            if result.rows_affected() == 0 {
-                return Err(LifecycleJournalError::OperationNotFound);
+        let result = match result {
+            Ok(result) => result,
+            Err(error) if is_unique_constraint(&error) => {
+                return Err(running_operation_exists_error(self, &operation.workspace_id).await?);
             }
+            Err(error) => return Err(storage_unavailable_error(error)),
+        };
 
-            self.find_by_id(&operation.operation_id).await
-        })
+        if result.rows_affected() == 0 {
+            return Err(LifecycleJournalError::OperationNotFound);
+        }
+
+        self.find_by_id(&operation.operation_id).await
     }
 
-    fn mark_state<'a>(
-        &'a self,
-        operation_id: &'a LifecycleOperationId,
+    async fn mark_state(
+        &self,
+        operation_id: &LifecycleOperationId,
         state: LifecycleOperationState,
-        payload: Option<&'a LifecycleOperationPayload>,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
-        Box::pin(async move {
-            validate_operation_id(operation_id)?;
+        payload: Option<&LifecycleOperationPayload>,
+    ) -> Result<LifecycleOperation, LifecycleJournalError> {
+        validate_operation_id(operation_id)?;
 
-            let current = self.find_by_id(operation_id).await?;
-            if current.state != LifecycleOperationState::Running {
-                return Err(LifecycleJournalError::OperationNotFound);
-            }
+        let current = self.find_by_id(operation_id).await?;
+        if current.state != LifecycleOperationState::Running {
+            return Err(LifecycleJournalError::OperationNotFound);
+        }
 
-            let payload_json = encode_payload(payload)?;
-            let updated_at = timestamp()?;
-            let finished_at = if state == LifecycleOperationState::Running {
-                None
-            } else {
-                Some(updated_at.clone())
-            };
+        let payload_json = encode_payload(payload)?;
+        let updated_at = timestamp()?;
+        let finished_at = if state == LifecycleOperationState::Running {
+            None
+        } else {
+            Some(updated_at.clone())
+        };
 
-            let result = sqlx::query(
-                "UPDATE lifecycle_operations
+        let result = sqlx::query(
+            "UPDATE lifecycle_operations
                  SET state = ?1,
                      payload_json = ?2,
                      updated_at = ?3,
                      finished_at = ?4
                  WHERE id = ?5 AND state = 'running'",
-            )
-            .bind(state_to_storage(state))
-            .bind(payload_json)
-            .bind(&updated_at)
-            .bind(finished_at)
-            .bind(operation_id)
-            .execute(&self.pool)
-            .await;
+        )
+        .bind(state_to_storage(state))
+        .bind(payload_json)
+        .bind(&updated_at)
+        .bind(finished_at)
+        .bind(operation_id)
+        .execute(&self.pool)
+        .await;
 
-            let result = match result {
-                Ok(result) => result,
-                Err(error) if is_unique_constraint(&error) => {
-                    return Err(running_operation_exists_error(self, &current.workspace_id).await?);
-                }
-                Err(error) => return Err(storage_unavailable_error(error)),
-            };
-
-            if result.rows_affected() == 0 {
-                return Err(LifecycleJournalError::OperationNotFound);
+        let result = match result {
+            Ok(result) => result,
+            Err(error) if is_unique_constraint(&error) => {
+                return Err(running_operation_exists_error(self, &current.workspace_id).await?);
             }
+            Err(error) => return Err(storage_unavailable_error(error)),
+        };
 
-            self.find_by_id(operation_id).await
-        })
+        if result.rows_affected() == 0 {
+            return Err(LifecycleJournalError::OperationNotFound);
+        }
+
+        self.find_by_id(operation_id).await
     }
 }
 

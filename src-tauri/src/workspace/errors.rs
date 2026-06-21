@@ -1,16 +1,16 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    lifecycle_journal::LifecycleJournalError, runtime_catalog::RuntimeCatalogError,
-    secrets::SecretsStorageError, shared::ApiError, workflow_catalog::WorkflowCatalogError,
-    workspace_catalog::WorkspaceCatalogError,
+    lifecycle_journal::LifecycleJournalError, provider::errors::ProviderApiError,
+    runtime_catalog::RuntimeCatalogError, secrets::SecretsStorageError,
+    workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceError {
     #[error("provider api error")]
-    ProviderApiError(#[from] ApiError),
+    ProviderApiError(#[from] ProviderApiError),
     #[error("runtime provider api key unavailable: {0}")]
     RuntimeProviderApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("workflow provider api key unavailable: {0}")]

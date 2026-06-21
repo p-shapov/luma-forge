@@ -20,7 +20,6 @@ use crate::{
             StartRunpodProvisionerPodParams,
         },
     },
-    shared::AppFuture,
     workspace::CreateRunpodWorkspaceRequest,
 };
 
@@ -170,148 +169,126 @@ impl FakeRunpodRuntimeClient {
     }
 }
 
+#[async_trait::async_trait]
 impl RunpodRuntimeClient for FakeRunpodRuntimeClient {
-    fn placement_options<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<RunpodPlacementOptions, RunpodProviderError>> {
-        Box::pin(async move {
-            Ok(RunpodPlacementOptions {
-                max_volume_size_gb: Some(10),
-                datacenters: vec![],
-            })
+    async fn placement_options(&self) -> Result<RunpodPlacementOptions, RunpodProviderError> {
+        Ok(RunpodPlacementOptions {
+            max_volume_size_gb: Some(10),
+            datacenters: vec![],
         })
     }
 
-    fn create_network_volume<'a>(
-        &'a self,
+    async fn create_network_volume(
+        &self,
         _params: CreateRunpodNetworkVolumeParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::CreateNetworkVolume) {
-                return Err(error);
-            }
-            Ok("volume".to_string())
-        })
+    ) -> Result<String, RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::CreateNetworkVolume) {
+            return Err(error);
+        }
+        Ok("volume".to_string())
     }
 
-    fn delete_network_volume<'a>(
-        &'a self,
-        _network_volume_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::DeleteNetworkVolume) {
-                return Err(error);
-            }
-            Ok(())
-        })
+    async fn delete_network_volume(
+        &self,
+        _network_volume_id: &str,
+    ) -> Result<(), RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::DeleteNetworkVolume) {
+            return Err(error);
+        }
+        Ok(())
     }
 
-    fn start_provisioner_pod<'a>(
-        &'a self,
+    async fn start_provisioner_pod(
+        &self,
         _params: StartRunpodProvisionerPodParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::StartProvisionerPod) {
-                return Err(error);
-            }
-            Ok("provisioner".to_string())
-        })
+    ) -> Result<String, RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::StartProvisionerPod) {
+            return Err(error);
+        }
+        Ok("provisioner".to_string())
     }
 
-    fn terminate_provisioner_pod<'a>(
-        &'a self,
-        _provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::TerminateProvisionerPod) {
-                return Err(error);
-            }
-            Ok(())
-        })
+    async fn terminate_provisioner_pod(
+        &self,
+        _provisioner_pod_id: &str,
+    ) -> Result<(), RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::TerminateProvisionerPod) {
+            return Err(error);
+        }
+        Ok(())
     }
 
-    fn get_provisioner_status<'a>(
-        &'a self,
-        _workspace_id: &'a str,
-        _provisioner_pod_id: &'a str,
-    ) -> AppFuture<'a, Result<RunpodProvisionerStatus, RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::GetProvisionerStatus) {
-                return Err(error);
-            }
-            if let Some(status) = self
-                .provisioner_status_sequence
-                .lock()
-                .expect("status sequence lock should succeed")
-                .pop_front()
-            {
-                return status;
-            }
-            if self.unavailable_status_polls.load(Ordering::SeqCst) > 0 {
-                self.unavailable_status_polls.fetch_sub(1, Ordering::SeqCst);
-                return Err(RunpodProviderError::ProvisionerWorkerUnavailable {
-                    message: "provisioner worker is unavailable".to_string(),
-                });
-            }
-            Ok(self.provisioner_status.clone())
-        })
+    async fn get_provisioner_status(
+        &self,
+        _workspace_id: &str,
+        _provisioner_pod_id: &str,
+    ) -> Result<RunpodProvisionerStatus, RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::GetProvisionerStatus) {
+            return Err(error);
+        }
+        if let Some(status) = self
+            .provisioner_status_sequence
+            .lock()
+            .expect("status sequence lock should succeed")
+            .pop_front()
+        {
+            return status;
+        }
+        if self.unavailable_status_polls.load(Ordering::SeqCst) > 0 {
+            self.unavailable_status_polls.fetch_sub(1, Ordering::SeqCst);
+            return Err(RunpodProviderError::ProvisionerWorkerUnavailable {
+                message: "provisioner worker is unavailable".to_string(),
+            });
+        }
+        Ok(self.provisioner_status.clone())
     }
 
-    fn create_serverless_template<'a>(
-        &'a self,
+    async fn create_serverless_template(
+        &self,
         _params: CreateRunpodServerlessTemplateParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::CreateServerlessTemplate) {
-                return Err(error);
-            }
-            Ok("template".to_string())
-        })
+    ) -> Result<String, RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::CreateServerlessTemplate) {
+            return Err(error);
+        }
+        Ok("template".to_string())
     }
 
-    fn create_serverless_endpoint<'a>(
-        &'a self,
+    async fn create_serverless_endpoint(
+        &self,
         _params: CreateRunpodServerlessEndpointParams,
-    ) -> AppFuture<'a, Result<String, RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::CreateServerlessEndpoint) {
-                return Err(error);
-            }
-            Ok("endpoint".to_string())
-        })
+    ) -> Result<String, RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::CreateServerlessEndpoint) {
+            return Err(error);
+        }
+        Ok("endpoint".to_string())
     }
 
-    fn delete_serverless_endpoint<'a>(
-        &'a self,
-        _endpoint_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::DeleteEndpoint) {
-                return Err(error);
-            }
-            Ok(())
-        })
+    async fn delete_serverless_endpoint(
+        &self,
+        _endpoint_id: &str,
+    ) -> Result<(), RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::DeleteEndpoint) {
+            return Err(error);
+        }
+        Ok(())
     }
 
-    fn delete_template<'a>(
-        &'a self,
-        _template_id: &'a str,
-    ) -> AppFuture<'a, Result<(), RunpodProviderError>> {
-        Box::pin(async move {
-            if let Some(error) = self.failed(RunpodClientFailure::DeleteTemplate) {
-                return Err(error);
-            }
-            Ok(())
-        })
+    async fn delete_template(&self, _template_id: &str) -> Result<(), RunpodProviderError> {
+        if let Some(error) = self.failed(RunpodClientFailure::DeleteTemplate) {
+            return Err(error);
+        }
+        Ok(())
     }
 }
 
 fn provider_failure(failure: RunpodClientFailure) -> RunpodProviderError {
-    provider_api_error(failure.message())
+    provider_request_failed(failure.message())
 }
 
-fn provider_api_error(message: &str) -> RunpodProviderError {
-    RunpodProviderError::ProviderApiError(crate::shared::ApiError::RequestFailed {
-        message: message.to_string(),
-    })
+fn provider_request_failed(message: &str) -> RunpodProviderError {
+    RunpodProviderError::ProviderApiError(
+        crate::provider::errors::ProviderApiError::RequestFailed {
+            message: message.to_string(),
+        },
+    )
 }

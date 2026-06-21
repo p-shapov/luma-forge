@@ -14,10 +14,9 @@ use crate::{
         workspace::{Workspace, WorkspaceCatalog, WorkspaceId},
     },
     lifecycle_journal::{LifecycleJournalError, LifecycleJournalRepository},
-    shared::{AppFuture, BackgroundTask, BackgroundTaskSpawner, NoopEventSink},
     workflow_catalog::BundledWorkflowCatalogRepository,
     workspace::{
-        events::WorkspaceEvent,
+        events::NoopWorkspaceEventSink,
         runtime::{
             WorkspaceRuntime as WorkspaceRuntimeTrait, WorkspaceRuntimeDispatcher,
             WorkspaceRuntimeImplementations,
@@ -29,46 +28,36 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TestBackgroundTaskSpawner;
-
-impl BackgroundTaskSpawner for TestBackgroundTaskSpawner {
-    fn spawn(&self, task: BackgroundTask) {
-        tokio::spawn(task);
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FakeWorkspaceRuntime;
 
+#[async_trait::async_trait]
 impl WorkspaceRuntimeTrait for FakeWorkspaceRuntime {
-    fn provision<'a>(
+    async fn provision<'a>(
         &'a self,
         _context: WorkspaceRuntimeContext<'a>,
         _operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
-        Box::pin(async move { Ok(workspace) })
+    ) -> Result<Workspace, crate::workspace::WorkspaceError> {
+        Ok(workspace)
     }
 
-    fn cleanup<'a>(
+    async fn cleanup<'a>(
         &'a self,
         _context: WorkspaceRuntimeContext<'a>,
         _operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
-        Box::pin(async move { Ok(workspace) })
+    ) -> Result<Workspace, crate::workspace::WorkspaceError> {
+        Ok(workspace)
     }
 
-    fn delete<'a>(
+    async fn delete<'a>(
         &'a self,
         context: WorkspaceRuntimeContext<'a>,
         _operation: LifecycleOperation,
         workspace: Workspace,
-    ) -> AppFuture<'a, Result<Workspace, crate::workspace::WorkspaceError>> {
-        Box::pin(async move {
-            context.delete_workspace(&workspace.id).await?;
-            Ok(workspace)
-        })
+    ) -> Result<Workspace, crate::workspace::WorkspaceError> {
+        context.delete_workspace(&workspace.id).await?;
+        Ok(workspace)
     }
 }
 
@@ -95,8 +84,7 @@ pub(crate) fn service_with_runtime(
         runtime_dispatcher: WorkspaceRuntimeDispatcher::new(WorkspaceRuntimeImplementations {
             runpod: runtime,
         }),
-        event_sink: Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
-        task_spawner: Arc::new(TestBackgroundTaskSpawner),
+        event_sink: Arc::new(NoopWorkspaceEventSink),
     });
     (service, repositories)
 }
@@ -106,8 +94,7 @@ pub fn runtime_context_for_test<'a>() -> WorkspaceRuntimeContext<'a> {
     WorkspaceRuntimeContext::new(
         repositories.workspace_catalog,
         repositories.lifecycle_journal,
-        Arc::new(NoopEventSink::<WorkspaceEvent>::new()),
-        "trace-test".to_string(),
+        Arc::new(NoopWorkspaceEventSink),
     )
 }
 
@@ -116,85 +103,71 @@ pub struct InMemoryWorkspaceRepository {
     workspaces: Arc<Mutex<HashMap<String, Workspace>>>,
 }
 
+#[async_trait::async_trait]
 impl WorkspaceCatalogRepository for InMemoryWorkspaceRepository {
-    fn list_workspaces<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<WorkspaceCatalog, WorkspaceCatalogError>> {
-        Box::pin(async move {
-            Ok(WorkspaceCatalog {
-                workspaces: self
-                    .workspaces
-                    .lock()
-                    .expect("workspace lock should succeed")
-                    .values()
-                    .cloned()
-                    .collect(),
-            })
-        })
-    }
-
-    fn find_workspace_by_id<'a>(
-        &'a self,
-        id: &'a str,
-    ) -> AppFuture<'a, Result<Option<Workspace>, WorkspaceCatalogError>> {
-        Box::pin(async move {
-            Ok(self
+    async fn list_workspaces(&self) -> Result<WorkspaceCatalog, WorkspaceCatalogError> {
+        Ok(WorkspaceCatalog {
+            workspaces: self
                 .workspaces
                 .lock()
                 .expect("workspace lock should succeed")
-                .get(id)
-                .cloned())
+                .values()
+                .cloned()
+                .collect(),
         })
     }
 
-    fn insert_workspace<'a>(
-        &'a self,
-        workspace: &'a Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
-        Box::pin(async move {
-            let mut workspaces = self
-                .workspaces
-                .lock()
-                .expect("workspace lock should succeed");
-            if workspaces.contains_key(&workspace.id) {
-                return Err(WorkspaceCatalogError::WorkspaceAlreadyExists);
-            }
-
-            workspaces.insert(workspace.id.clone(), workspace.clone());
-            Ok(workspace.clone())
-        })
+    async fn find_workspace_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<Workspace>, WorkspaceCatalogError> {
+        Ok(self
+            .workspaces
+            .lock()
+            .expect("workspace lock should succeed")
+            .get(id)
+            .cloned())
     }
 
-    fn update_workspace<'a>(
-        &'a self,
-        workspace: &'a Workspace,
-    ) -> AppFuture<'a, Result<Workspace, WorkspaceCatalogError>> {
-        Box::pin(async move {
-            let mut workspaces = self
-                .workspaces
-                .lock()
-                .expect("workspace lock should succeed");
-            if !workspaces.contains_key(&workspace.id) {
-                return Err(WorkspaceCatalogError::WorkspaceNotFound);
-            }
+    async fn insert_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Workspace, WorkspaceCatalogError> {
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .expect("workspace lock should succeed");
+        if workspaces.contains_key(&workspace.id) {
+            return Err(WorkspaceCatalogError::WorkspaceAlreadyExists);
+        }
 
-            workspaces.insert(workspace.id.clone(), workspace.clone());
-            Ok(workspace.clone())
-        })
+        workspaces.insert(workspace.id.clone(), workspace.clone());
+        Ok(workspace.clone())
     }
 
-    fn delete_workspace<'a>(
-        &'a self,
-        id: &'a str,
-    ) -> AppFuture<'a, Result<(), WorkspaceCatalogError>> {
-        Box::pin(async move {
-            self.workspaces
-                .lock()
-                .expect("workspace lock should succeed")
-                .remove(id)
-                .map(|_| ())
-                .ok_or(WorkspaceCatalogError::WorkspaceNotFound)
-        })
+    async fn update_workspace(
+        &self,
+        workspace: &Workspace,
+    ) -> Result<Workspace, WorkspaceCatalogError> {
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .expect("workspace lock should succeed");
+        if !workspaces.contains_key(&workspace.id) {
+            return Err(WorkspaceCatalogError::WorkspaceNotFound);
+        }
+
+        workspaces.insert(workspace.id.clone(), workspace.clone());
+        Ok(workspace.clone())
+    }
+
+    async fn delete_workspace(&self, id: &str) -> Result<(), WorkspaceCatalogError> {
+        self.workspaces
+            .lock()
+            .expect("workspace lock should succeed")
+            .remove(id)
+            .map(|_| ())
+            .ok_or(WorkspaceCatalogError::WorkspaceNotFound)
     }
 }
 
@@ -203,150 +176,135 @@ pub struct InMemoryLifecycleJournal {
     operations: Arc<Mutex<HashMap<String, LifecycleOperation>>>,
 }
 
+#[async_trait::async_trait]
 impl LifecycleJournalRepository for InMemoryLifecycleJournal {
-    fn create_operation<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
-        Box::pin(async move {
-            let now = OffsetDateTime::now_utc();
-            let mut operations = self
-                .operations
-                .lock()
-                .expect("operation lock should succeed");
-            if let Some(operation) = operations.values().find(|operation| {
+    async fn create_operation(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<LifecycleOperation, LifecycleJournalError> {
+        let now = OffsetDateTime::now_utc();
+        let mut operations = self
+            .operations
+            .lock()
+            .expect("operation lock should succeed");
+        if let Some(operation) = operations.values().find(|operation| {
+            operation.workspace_id == *workspace_id
+                && operation.state == LifecycleOperationState::Running
+        }) {
+            return Err(LifecycleJournalError::RunningOperationExists {
+                operation_id: operation.operation_id.clone(),
+            });
+        }
+
+        let operation = LifecycleOperation {
+            operation_id: format!("operation-{}", operations.len() + 1),
+            workspace_id: workspace_id.clone(),
+            state: LifecycleOperationState::Running,
+            payload: None,
+            created_at: now,
+            updated_at: now,
+            finished_at: None,
+        };
+        operations.insert(operation.operation_id.clone(), operation.clone());
+        Ok(operation)
+    }
+
+    async fn find_running_by_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<LifecycleOperation>, LifecycleJournalError> {
+        Ok(self
+            .operations
+            .lock()
+            .expect("operation lock should succeed")
+            .values()
+            .find(|operation| {
                 operation.workspace_id == *workspace_id
                     && operation.state == LifecycleOperationState::Running
-            }) {
-                return Err(LifecycleJournalError::RunningOperationExists {
-                    operation_id: operation.operation_id.clone(),
-                });
-            }
-
-            let operation = LifecycleOperation {
-                operation_id: format!("operation-{}", operations.len() + 1),
-                workspace_id: workspace_id.clone(),
-                state: LifecycleOperationState::Running,
-                payload: None,
-                created_at: now,
-                updated_at: now,
-                finished_at: None,
-            };
-            operations.insert(operation.operation_id.clone(), operation.clone());
-            Ok(operation)
-        })
+            })
+            .cloned())
     }
 
-    fn find_running_by_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>> {
-        Box::pin(async move {
-            Ok(self
-                .operations
-                .lock()
-                .expect("operation lock should succeed")
-                .values()
-                .find(|operation| {
-                    operation.workspace_id == *workspace_id
-                        && operation.state == LifecycleOperationState::Running
-                })
-                .cloned())
-        })
+    async fn list_running(&self) -> Result<Vec<LifecycleOperation>, LifecycleJournalError> {
+        Ok(self
+            .operations
+            .lock()
+            .expect("operation lock should succeed")
+            .values()
+            .filter(|operation| operation.state == LifecycleOperationState::Running)
+            .cloned()
+            .collect())
     }
 
-    fn list_running<'a>(
-        &'a self,
-    ) -> AppFuture<'a, Result<Vec<LifecycleOperation>, LifecycleJournalError>> {
-        Box::pin(async move {
-            Ok(self
-                .operations
-                .lock()
-                .expect("operation lock should succeed")
-                .values()
-                .filter(|operation| operation.state == LifecycleOperationState::Running)
-                .cloned()
-                .collect())
-        })
+    async fn latest_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<LifecycleOperation>, LifecycleJournalError> {
+        Ok(self
+            .operations
+            .lock()
+            .expect("operation lock should succeed")
+            .values()
+            .filter(|operation| operation.workspace_id == *workspace_id)
+            .max_by(|left, right| {
+                left.created_at
+                    .cmp(&right.created_at)
+                    .then_with(|| left.updated_at.cmp(&right.updated_at))
+                    .then_with(|| left.operation_id.cmp(&right.operation_id))
+            })
+            .cloned())
     }
 
-    fn latest_for_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<Option<LifecycleOperation>, LifecycleJournalError>> {
-        Box::pin(async move {
-            Ok(self
-                .operations
-                .lock()
-                .expect("operation lock should succeed")
-                .values()
-                .filter(|operation| operation.workspace_id == *workspace_id)
-                .max_by(|left, right| {
-                    left.created_at
-                        .cmp(&right.created_at)
-                        .then_with(|| left.updated_at.cmp(&right.updated_at))
-                        .then_with(|| left.operation_id.cmp(&right.operation_id))
-                })
-                .cloned())
-        })
+    async fn delete_for_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<(), LifecycleJournalError> {
+        self.operations
+            .lock()
+            .expect("operation lock should succeed")
+            .retain(|_, operation| operation.workspace_id != *workspace_id);
+        Ok(())
     }
 
-    fn delete_for_workspace<'a>(
-        &'a self,
-        workspace_id: &'a WorkspaceId,
-    ) -> AppFuture<'a, Result<(), LifecycleJournalError>> {
-        Box::pin(async move {
-            self.operations
-                .lock()
-                .expect("operation lock should succeed")
-                .retain(|_, operation| operation.workspace_id != *workspace_id);
-            Ok(())
-        })
+    async fn update_operation(
+        &self,
+        operation: &LifecycleOperation,
+    ) -> Result<LifecycleOperation, LifecycleJournalError> {
+        let mut operations = self
+            .operations
+            .lock()
+            .expect("operation lock should succeed");
+        if !operations.contains_key(&operation.operation_id) {
+            return Err(LifecycleJournalError::OperationNotFound);
+        }
+
+        operations.insert(operation.operation_id.clone(), operation.clone());
+        Ok(operation.clone())
     }
 
-    fn update_operation<'a>(
-        &'a self,
-        operation: &'a LifecycleOperation,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
-        Box::pin(async move {
-            let mut operations = self
-                .operations
-                .lock()
-                .expect("operation lock should succeed");
-            if !operations.contains_key(&operation.operation_id) {
-                return Err(LifecycleJournalError::OperationNotFound);
-            }
-
-            operations.insert(operation.operation_id.clone(), operation.clone());
-            Ok(operation.clone())
-        })
-    }
-
-    fn mark_state<'a>(
-        &'a self,
-        operation_id: &'a LifecycleOperationId,
+    async fn mark_state(
+        &self,
+        operation_id: &LifecycleOperationId,
         state: LifecycleOperationState,
-        payload: Option<&'a LifecycleOperationPayload>,
-    ) -> AppFuture<'a, Result<LifecycleOperation, LifecycleJournalError>> {
-        Box::pin(async move {
-            let mut operations = self
-                .operations
-                .lock()
-                .expect("operation lock should succeed");
-            let operation = operations
-                .get_mut(operation_id)
-                .ok_or(LifecycleJournalError::OperationNotFound)?;
-            if operation.state != LifecycleOperationState::Running {
-                return Err(LifecycleJournalError::OperationNotFound);
-            }
+        payload: Option<&LifecycleOperationPayload>,
+    ) -> Result<LifecycleOperation, LifecycleJournalError> {
+        let mut operations = self
+            .operations
+            .lock()
+            .expect("operation lock should succeed");
+        let operation = operations
+            .get_mut(operation_id)
+            .ok_or(LifecycleJournalError::OperationNotFound)?;
+        if operation.state != LifecycleOperationState::Running {
+            return Err(LifecycleJournalError::OperationNotFound);
+        }
 
-            operation.state = state;
-            operation.payload = payload.cloned();
-            operation.updated_at = OffsetDateTime::now_utc();
-            if state != LifecycleOperationState::Running {
-                operation.finished_at = Some(operation.updated_at);
-            }
-            Ok(operation.clone())
-        })
+        operation.state = state;
+        operation.payload = payload.cloned();
+        operation.updated_at = OffsetDateTime::now_utc();
+        if state != LifecycleOperationState::Running {
+            operation.finished_at = Some(operation.updated_at);
+        }
+        Ok(operation.clone())
     }
 }

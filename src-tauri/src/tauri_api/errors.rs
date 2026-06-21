@@ -1,3 +1,5 @@
+use std::{error::Error, fmt};
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -6,6 +8,21 @@ use crate::app::errors::AppInitializationError;
 pub type CommandResult<T, Code = NativeInitializationCommandErrorCode> =
     Result<T, CommandError<Code>>;
 pub type NativeCommandError = CommandError<NativeInitializationCommandErrorCode>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct TraceId(String);
+
+impl TraceId {
+    pub(crate) fn random() -> Self {
+        Self(format!("trace-{}", uuid::Uuid::new_v4()))
+    }
+}
+
+impl fmt::Display for TraceId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
 #[error("{message}")]
@@ -48,9 +65,33 @@ where
         Self {
             message,
             code: error,
-            trace_id: crate::shared::new_trace_id(),
+            trace_id: TraceId::random().to_string(),
         }
     }
+}
+
+pub(crate) fn command_error<E, Code>(
+    trace_id: &str,
+    error: E,
+    map_code: impl FnOnce(&E) -> Code,
+) -> CommandError<Code>
+where
+    E: std::error::Error + 'static,
+{
+    let code = map_code(&error);
+    let cause = leaf_error_message(&error);
+
+    CommandError::new(code, cause, trace_id)
+}
+
+fn leaf_error_message(error: &(dyn Error + 'static)) -> String {
+    let mut leaf = error;
+
+    while let Some(source) = leaf.source() {
+        leaf = source;
+    }
+
+    leaf.to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
