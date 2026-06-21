@@ -1,3 +1,4 @@
+use fastrace::future::FutureExt;
 use tauri::Manager;
 
 pub mod app;
@@ -37,13 +38,30 @@ pub fn run() {
             builder.mount_events(app);
             let support_paths = tauri_api::support::prepare_support_paths(&app_handle);
             let app_state = match support_paths.and_then(|support_paths| {
-                tauri::async_runtime::block_on(app::bootstrap::build_app_state(
-                    &app_identifier,
-                    &support_paths,
-                    std::sync::Arc::new(tauri_api::events::TauriWorkspaceEventSink::new(
-                        app_handle.clone(),
-                    )),
-                ))
+                diagnostics::init(support_paths.logs_dir()).map_err(|error| {
+                    app::errors::AppInitializationError::DiagnosticsInitializationFailed {
+                        message: error.to_string(),
+                    }
+                })?;
+
+                let startup_span = fastrace::Span::root(
+                    "native.startup.bootstrap",
+                    fastrace::collector::SpanContext::random(),
+                );
+
+                tauri::async_runtime::block_on(
+                    async {
+                        app::bootstrap::build_app_state(
+                            &app_identifier,
+                            &support_paths,
+                            std::sync::Arc::new(tauri_api::events::TauriWorkspaceEventSink::new(
+                                app_handle.clone(),
+                            )),
+                        )
+                        .await
+                    }
+                    .in_span(startup_span),
+                )
             }) {
                 Ok(state) => app::state::NativeAppState::Ready(Box::new(state)),
                 Err(error) => app::state::NativeAppState::Failed(error),
@@ -126,6 +144,23 @@ mod tests {
         assert!(
             mount_events_index < bootstrap_index,
             "Tauri Specta events must be mounted before app state bootstrap because startup stale-operation recovery emits runtime events"
+        );
+    }
+
+    #[test]
+    fn diagnostics_are_initialized_before_app_state_bootstrap() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source should be readable");
+        let diagnostics_init_index = source
+            .find("diagnostics::init(support_paths.logs_dir())")
+            .expect("diagnostics initialization should be present");
+        let bootstrap_index = source
+            .find("app::bootstrap::build_app_state")
+            .expect("app state bootstrap should be present");
+
+        assert!(
+            diagnostics_init_index < bootstrap_index,
+            "native diagnostics must be initialized before app state bootstrap"
         );
     }
 

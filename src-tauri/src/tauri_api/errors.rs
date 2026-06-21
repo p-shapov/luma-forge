@@ -101,6 +101,8 @@ pub enum NativeInitializationCommandErrorCode {
     AppDataDirectoryUnavailable,
     #[error("app data directory could not be created")]
     AppDataDirectoryCreateFailed,
+    #[error("native diagnostics could not be initialized")]
+    DiagnosticsInitializationFailed,
     #[error("workspace storage could not be initialized")]
     WorkspaceStorageInitializationFailed,
     #[error("provider services could not be initialized")]
@@ -115,6 +117,8 @@ pub enum NativeInitializationCommandError {
     AppDataDirectoryUnavailable { message: String },
     #[error("app data directory could not be created at {path}: {message}")]
     AppDataDirectoryCreateFailed { path: String, message: String },
+    #[error("native diagnostics could not be initialized: {message}")]
+    DiagnosticsInitializationFailed { message: String },
     #[error("workspace storage could not be initialized at {path}: {message}")]
     WorkspaceStorageInitializationFailed { path: String, message: String },
     #[error("provider services could not be initialized: {message}")]
@@ -131,6 +135,9 @@ impl From<NativeInitializationCommandError> for NativeInitializationCommandError
             }
             NativeInitializationCommandError::AppDataDirectoryCreateFailed { .. } => {
                 Self::AppDataDirectoryCreateFailed
+            }
+            NativeInitializationCommandError::DiagnosticsInitializationFailed { .. } => {
+                Self::DiagnosticsInitializationFailed
             }
             NativeInitializationCommandError::WorkspaceStorageInitializationFailed { .. } => {
                 Self::WorkspaceStorageInitializationFailed
@@ -153,6 +160,9 @@ impl From<AppInitializationError> for NativeInitializationCommandError {
             }
             AppInitializationError::AppDataDirectoryCreateFailed { path, message } => {
                 Self::AppDataDirectoryCreateFailed { path, message }
+            }
+            AppInitializationError::DiagnosticsInitializationFailed { message } => {
+                Self::DiagnosticsInitializationFailed { message }
             }
             AppInitializationError::WorkspaceStorageInitializationFailed { path, message } => {
                 Self::WorkspaceStorageInitializationFailed { path, message }
