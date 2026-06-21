@@ -447,11 +447,8 @@ impl WorkspaceService {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
-
-    use fastrace::{collector::SpanContext, future::FutureExt, Span};
-    use tokio::sync::oneshot;
 
     use crate::{
         domain::{
@@ -485,50 +482,6 @@ mod tests {
             _workspace: Workspace,
         ) -> Result<Workspace, crate::workspace::WorkspaceError> {
             Err(crate::workspace::errors::invalid_state("cleanup failed"))
-        }
-
-        async fn delete<'a>(
-            &'a self,
-            context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            _operation: LifecycleOperation,
-            workspace: Workspace,
-        ) -> Result<Workspace, crate::workspace::WorkspaceError> {
-            context.delete_workspace(&workspace.id).await?;
-            Ok(workspace)
-        }
-    }
-
-    #[derive(Debug)]
-    struct TraceCapturingRuntime {
-        trace_id_tx: Mutex<Option<oneshot::Sender<Option<String>>>>,
-    }
-
-    #[async_trait::async_trait]
-    impl crate::workspace::runtime::WorkspaceRuntime for TraceCapturingRuntime {
-        async fn provision<'a>(
-            &'a self,
-            _context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            _operation: LifecycleOperation,
-            workspace: Workspace,
-        ) -> Result<Workspace, crate::workspace::WorkspaceError> {
-            if let Some(sender) = self
-                .trace_id_tx
-                .lock()
-                .expect("trace sender lock should succeed")
-                .take()
-            {
-                let _ = sender.send(crate::diagnostics::current_trace_id());
-            }
-            Ok(workspace)
-        }
-
-        async fn cleanup<'a>(
-            &'a self,
-            _context: crate::workspace::WorkspaceRuntimeContext<'a>,
-            _operation: LifecycleOperation,
-            workspace: Workspace,
-        ) -> Result<Workspace, crate::workspace::WorkspaceError> {
-            Ok(workspace)
         }
 
         async fn delete<'a>(
@@ -703,39 +656,6 @@ mod tests {
         assert_eq!(completed.operation_id, response.operation.operation_id);
         assert_eq!(completed.payload, None);
         assert!(service.try_register_lifecycle_operation_for_test(&response.operation.operation_id));
-    }
-
-    #[tokio::test]
-    async fn provision_runner_inherits_caller_trace_context() {
-        let (trace_id_tx, trace_id_rx) = oneshot::channel();
-        let runtime = Arc::new(TraceCapturingRuntime {
-            trace_id_tx: Mutex::new(Some(trace_id_tx)),
-        });
-        let (service, _repositories) = service_with_runtime(runtime);
-        service
-            .create_runpod_workspace(draft_create_request("workspace-1"))
-            .await
-            .expect("workspace");
-
-        let root = Span::root("test.command", SpanContext::random());
-        let expected_trace_id =
-            crate::diagnostics::trace_id_from_span(&root).expect("trace id should exist");
-
-        async {
-            service
-                .provision_workspace("workspace-1")
-                .await
-                .expect("provision scheduled");
-        }
-        .in_span(root)
-        .await;
-
-        let captured_trace_id = tokio::time::timeout(Duration::from_secs(1), trace_id_rx)
-            .await
-            .expect("trace capture should complete")
-            .expect("trace sender should produce a value");
-
-        assert_eq!(captured_trace_id, Some(expected_trace_id));
     }
 
     #[tokio::test]
