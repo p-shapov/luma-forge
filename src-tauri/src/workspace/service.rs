@@ -239,12 +239,10 @@ impl WorkspaceService {
                         context.persist_operation(completed).await.is_ok()
                     }
                     Err(error) => {
-                        let diagnostics =
-                            crate::diagnostics::error_diagnostics(&error, "workspace_error");
                         log::error!(
                             workspace_id = workspace.id.as_str(),
                             operation_id = operation.operation_id.as_str(),
-                            error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                            error = crate::diagnostics::error_diagnostics_log_json(&error);
                             "workspace lifecycle runner failed"
                         );
 

@@ -4,7 +4,7 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 
 use crate::{lifecycle_journal, workspace_catalog};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, luma_diagnostic::DiagnosticCode)]
 pub enum SqliteNativeDatabaseError {
     #[error("sqlite error: {0}")]
     Sqlx(sqlx::Error),

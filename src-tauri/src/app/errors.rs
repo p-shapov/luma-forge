@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, luma_diagnostic::DiagnosticCode)]
 pub enum AppInitializationError {
     #[error("app data directory is unavailable: {message}")]
     AppDataDirectoryUnavailable { message: String },

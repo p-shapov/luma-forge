@@ -1,111 +1,15 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::{
-    tauri_api::{errors::CommandErrorCode, NativeInitializationCommandError},
-    workspace::WorkspaceError,
-};
+use crate::tauri_api::errors::{is_native_initialization_diagnostics_code, CommandErrorCode};
 
-macro_rules! define_workspace_error_code {
-    ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-        #[serde(rename_all = "snake_case")]
-        pub enum $name {
-            #[error("app data directory is unavailable")]
-            AppDataDirectoryUnavailable,
-            #[error("app data directory could not be created")]
-            AppDataDirectoryCreateFailed,
-            #[error("native diagnostics could not be initialized")]
-            DiagnosticsInitializationFailed,
-            #[error("workspace storage could not be initialized")]
-            WorkspaceStorageInitializationFailed,
-            #[error("provider services could not be initialized")]
-            ProviderServicesInitializationFailed,
-            #[error("workspace lifecycle state could not be restored")]
-            LifecycleStateRestoreFailed,
-            #[error("api request was unauthorized")]
-            Unauthorized,
-            #[error("api request has insufficient permissions")]
-            InsufficientPermissions,
-            #[error("api request was rate limited")]
-            RateLimited,
-            #[error("api request timed out")]
-            Timeout,
-            #[error("api request failed")]
-            RequestFailed,
-            #[error("api key is required")]
-            SecretRequired,
-            #[error("api key is already configured")]
-            KeyAlreadyExists,
-            #[error("api key is not configured")]
-            KeyNotFound,
-            #[error("secure storage is unavailable")]
-            StoreUnavailable,
-            #[error("stored api key is invalid")]
-            StoredSecretInvalid,
-            #[error("api key identity response is invalid")]
-            IdentityResponseInvalid,
-            #[error("storage is unavailable")]
-            StorageUnavailable,
-            #[error("catalog parse failed")]
-            ParseFailed,
-            #[error("catalog validation failed")]
-            ValidationFailed,
-            #[error("schema is invalid")]
-            SchemaInvalid,
-            #[error("data is invalid")]
-            DataInvalid,
-            #[error("workspace already exists")]
-            WorkspaceAlreadyExists,
-            #[error("workspace was not found")]
-            WorkspaceNotFound,
-            #[error("operation was not found")]
-            OperationNotFound,
-            #[error("running operation exists")]
-            RunningOperationExists,
-            #[error("workspace already has a running lifecycle operation")]
-            LifecycleOperationAlreadyRunning,
-            #[error("invalid runtime state")]
-            InvalidState,
-            #[error("command error")]
-            CommandError,
-        }
-
+macro_rules! impl_workspace_error_code {
+    ($name:ident { $($diagnostic_code:literal => $code_variant:ident),+ $(,)? }) => {
         impl CommandErrorCode for $name {
             fn from_diagnostics_code(code: &str) -> Self {
                 match code {
-                    "app_data_directory_unavailable" => Self::AppDataDirectoryUnavailable,
-                    "app_data_directory_create_failed" => Self::AppDataDirectoryCreateFailed,
-                    "diagnostics_initialization_failed" => Self::DiagnosticsInitializationFailed,
-                    "workspace_storage_initialization_failed" => {
-                        Self::WorkspaceStorageInitializationFailed
-                    }
-                    "provider_services_initialization_failed" => {
-                        Self::ProviderServicesInitializationFailed
-                    }
-                    "lifecycle_state_restore_failed" => Self::LifecycleStateRestoreFailed,
-                    "unauthorized" => Self::Unauthorized,
-                    "insufficient_permissions" => Self::InsufficientPermissions,
-                    "rate_limited" => Self::RateLimited,
-                    "timeout" => Self::Timeout,
-                    "request_failed" => Self::RequestFailed,
-                    "secret_required" => Self::SecretRequired,
-                    "key_already_exists" => Self::KeyAlreadyExists,
-                    "key_not_found" => Self::KeyNotFound,
-                    "store_unavailable" => Self::StoreUnavailable,
-                    "stored_secret_invalid" => Self::StoredSecretInvalid,
-                    "identity_response_invalid" => Self::IdentityResponseInvalid,
-                    "storage_unavailable" => Self::StorageUnavailable,
-                    "parse_failed" => Self::ParseFailed,
-                    "validation_failed" => Self::ValidationFailed,
-                    "schema_invalid" => Self::SchemaInvalid,
-                    "data_invalid" => Self::DataInvalid,
-                    "workspace_already_exists" => Self::WorkspaceAlreadyExists,
-                    "workspace_not_found" => Self::WorkspaceNotFound,
-                    "operation_not_found" => Self::OperationNotFound,
-                    "running_operation_exists" => Self::RunningOperationExists,
-                    "lifecycle_operation_already_running" => Self::LifecycleOperationAlreadyRunning,
-                    "invalid_state" => Self::InvalidState,
+                    code if is_native_initialization_diagnostics_code(code) => Self::NativeInitializationFailed,
+                    $($diagnostic_code => Self::$code_variant,)+
                     _ => Self::CommandError,
                 }
             }
@@ -113,38 +17,124 @@ macro_rules! define_workspace_error_code {
     };
 }
 
-define_workspace_error_code!(CreateRunpodWorkspaceErrorCode);
-define_workspace_error_code!(ProvisionWorkspaceErrorCode);
-define_workspace_error_code!(CleanupWorkspaceErrorCode);
-define_workspace_error_code!(DeleteWorkspaceErrorCode);
-define_workspace_error_code!(GetRunningLifecycleOperationsErrorCode);
-define_workspace_error_code!(GetLatestLifecycleOperationErrorCode);
-
-macro_rules! define_workspace_command_error {
-    ($name:ident, $message:literal) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
-        #[serde(untagged)]
-        pub(crate) enum $name {
-            #[error("native initialization failed")]
-            NativeInitialization(#[from] NativeInitializationCommandError),
-            #[error($message)]
-            Workspace(#[from] WorkspaceError),
-        }
-    };
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CreateRunpodWorkspaceErrorCode {
+    NativeInitializationFailed,
+    ParseFailed,
+    ValidationFailed,
+    StorageUnavailable,
+    SchemaInvalid,
+    DataInvalid,
+    WorkspaceAlreadyExists,
+    InvalidState,
+    CommandError,
 }
 
-define_workspace_command_error!(
-    CreateRunpodWorkspaceCommandError,
-    "runpod workspace creation failed"
-);
-define_workspace_command_error!(ProvisionWorkspaceCommandError, "workspace provision failed");
-define_workspace_command_error!(CleanupWorkspaceCommandError, "workspace cleanup failed");
-define_workspace_command_error!(DeleteWorkspaceCommandError, "workspace deletion failed");
-define_workspace_command_error!(
-    GetRunningLifecycleOperationsCommandError,
-    "running lifecycle operations lookup failed"
-);
-define_workspace_command_error!(
-    GetLatestLifecycleOperationCommandError,
-    "latest lifecycle operation lookup failed"
-);
+impl_workspace_error_code!(CreateRunpodWorkspaceErrorCode {
+    "parse_failed" => ParseFailed,
+    "validation_failed" => ValidationFailed,
+    "storage_unavailable" => StorageUnavailable,
+    "schema_invalid" => SchemaInvalid,
+    "data_invalid" => DataInvalid,
+    "workspace_already_exists" => WorkspaceAlreadyExists,
+    "invalid_state" => InvalidState,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvisionWorkspaceErrorCode {
+    NativeInitializationFailed,
+    StorageUnavailable,
+    SchemaInvalid,
+    DataInvalid,
+    WorkspaceNotFound,
+    LifecycleOperationAlreadyRunning,
+    InvalidState,
+    CommandError,
+}
+
+impl_workspace_error_code!(ProvisionWorkspaceErrorCode {
+    "storage_unavailable" => StorageUnavailable,
+    "schema_invalid" => SchemaInvalid,
+    "data_invalid" => DataInvalid,
+    "workspace_not_found" => WorkspaceNotFound,
+    "lifecycle_operation_already_running" => LifecycleOperationAlreadyRunning,
+    "invalid_state" => InvalidState,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupWorkspaceErrorCode {
+    NativeInitializationFailed,
+    StorageUnavailable,
+    SchemaInvalid,
+    DataInvalid,
+    WorkspaceNotFound,
+    LifecycleOperationAlreadyRunning,
+    InvalidState,
+    CommandError,
+}
+
+impl_workspace_error_code!(CleanupWorkspaceErrorCode {
+    "storage_unavailable" => StorageUnavailable,
+    "schema_invalid" => SchemaInvalid,
+    "data_invalid" => DataInvalid,
+    "workspace_not_found" => WorkspaceNotFound,
+    "lifecycle_operation_already_running" => LifecycleOperationAlreadyRunning,
+    "invalid_state" => InvalidState,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteWorkspaceErrorCode {
+    NativeInitializationFailed,
+    StorageUnavailable,
+    SchemaInvalid,
+    DataInvalid,
+    WorkspaceNotFound,
+    LifecycleOperationAlreadyRunning,
+    InvalidState,
+    CommandError,
+}
+
+impl_workspace_error_code!(DeleteWorkspaceErrorCode {
+    "storage_unavailable" => StorageUnavailable,
+    "schema_invalid" => SchemaInvalid,
+    "data_invalid" => DataInvalid,
+    "workspace_not_found" => WorkspaceNotFound,
+    "lifecycle_operation_already_running" => LifecycleOperationAlreadyRunning,
+    "invalid_state" => InvalidState,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum GetRunningLifecycleOperationsErrorCode {
+    NativeInitializationFailed,
+    StorageUnavailable,
+    SchemaInvalid,
+    DataInvalid,
+    CommandError,
+}
+
+impl_workspace_error_code!(GetRunningLifecycleOperationsErrorCode {
+    "storage_unavailable" => StorageUnavailable,
+    "schema_invalid" => SchemaInvalid,
+    "data_invalid" => DataInvalid,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum GetLatestLifecycleOperationErrorCode {
+    NativeInitializationFailed,
+    StorageUnavailable,
+    SchemaInvalid,
+    DataInvalid,
+    CommandError,
+}
+
+impl_workspace_error_code!(GetLatestLifecycleOperationErrorCode {
+    "storage_unavailable" => StorageUnavailable,
+    "schema_invalid" => SchemaInvalid,
+    "data_invalid" => DataInvalid,
+});
