@@ -236,9 +236,7 @@ impl RunpodRuntimeClient for FakeRunpodRuntimeClient {
         }
         if self.unavailable_status_polls.load(Ordering::SeqCst) > 0 {
             self.unavailable_status_polls.fetch_sub(1, Ordering::SeqCst);
-            return Err(RunpodProviderError::ProvisionerWorkerUnavailable {
-                message: "provisioner worker is unavailable".to_string(),
-            });
+            return Err(RunpodProviderError::ProvisionerWorkerUnavailable);
         }
         Ok(self.provisioner_status.clone())
     }

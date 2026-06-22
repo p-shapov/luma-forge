@@ -140,7 +140,7 @@ pub async fn provision_workspace(
             .await
         {
             Ok(status) => status,
-            Err(super::errors::RunpodProviderError::ProvisionerWorkerUnavailable { .. }) => {
+            Err(super::errors::RunpodProviderError::ProvisionerWorkerUnavailable) => {
                 if provisioner_status_responded {
                     consecutive_unavailable_status_polls += 1;
                 }
@@ -150,11 +150,6 @@ pub async fn provision_workspace(
                     provisioner_startup_started_at,
                     Instant::now(),
                 ) {
-                    let message = if provisioner_status_responded {
-                        "provisioner worker unavailable after startup retry limit"
-                    } else {
-                        "provisioner worker startup timed out"
-                    };
                     terminate_provisioner_pod(
                         &context,
                         runpod_client,
@@ -164,9 +159,7 @@ pub async fn provision_workspace(
                     )
                     .await?;
                     return Err(super::runtime::map_provider_error(
-                        super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
-                            message: message.to_string(),
-                        },
+                        super::errors::RunpodProviderError::ProvisionerWorkerUnavailable,
                     ));
                 }
                 tokio::time::sleep(PROVISIONER_POLL_INTERVAL).await;
@@ -669,13 +662,8 @@ mod tests {
         let workspace = workspace_with_runpod("workspace-1", WorkspaceState::NotProvisioned);
         context.insert_workspace_for_test(workspace.clone()).await;
         let operation = context.create_operation_for_test("workspace-1").await;
-        let unavailable = || {
-            Err(
-                super::super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
-                    message: "provisioner worker is unavailable".to_string(),
-                },
-            )
-        };
+        let unavailable =
+            || Err(super::super::errors::RunpodProviderError::ProvisionerWorkerUnavailable);
         let runpod_client = runpod_client_with_provisioner_status_sequence(vec![
             Ok(super::RunpodProvisionerStatus::Running),
             unavailable(),
@@ -695,7 +683,7 @@ mod tests {
         assert_eq!(
             error,
             WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
-                message: "provisioner worker unavailable after startup retry limit".to_string(),
+                message: "provisioner worker unavailable".to_string(),
             })
         );
         let persisted = context
@@ -740,11 +728,7 @@ mod tests {
         let operation = context.create_operation_for_test("workspace-1").await;
         let runpod_client = runpod_client_with_provisioner_status_sequence(vec![
             Ok(super::RunpodProvisionerStatus::Running),
-            Err(
-                super::super::errors::RunpodProviderError::ProvisionerWorkerUnavailable {
-                    message: "provisioner worker is unavailable".to_string(),
-                },
-            ),
+            Err(super::super::errors::RunpodProviderError::ProvisionerWorkerUnavailable),
             Ok(super::RunpodProvisionerStatus::Succeeded),
         ]);
 

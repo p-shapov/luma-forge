@@ -597,9 +597,17 @@ pub(super) fn map_provider_error(error: RunpodProviderError) -> WorkspaceError {
         RunpodProviderError::WorkflowProviderApiKeyUnavailable(error) => {
             WorkspaceError::WorkflowProviderApiKeyUnavailable(error)
         }
-        RunpodProviderError::ProvisionerWorkerUnavailable { message }
-        | RunpodProviderError::ProvisionerWorkerResponseInvalid { message }
-        | RunpodProviderError::ProvisionerWorkerFailed { message } => {
+        RunpodProviderError::ProvisionerWorkerUnavailable => {
+            WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
+                message: "provisioner worker unavailable".to_string(),
+            })
+        }
+        RunpodProviderError::ProvisionerWorkerResponseInvalid => {
+            WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed {
+                message: "provisioner worker response invalid".to_string(),
+            })
+        }
+        RunpodProviderError::ProvisionerWorkerFailed { message } => {
             WorkspaceError::ProviderApiError(ProviderApiError::RequestFailed { message })
         }
     }
