@@ -11,10 +11,10 @@ pub enum RunpodProviderError {
     RuntimeProviderApiKeyUnavailable(#[source] SecretsStorageError),
     #[error("workflow provider api key unavailable")]
     WorkflowProviderApiKeyUnavailable(#[source] SecretsStorageError),
-    #[error("provisioner worker unavailable: {message}")]
-    ProvisionerWorkerUnavailable { message: String },
-    #[error("provisioner worker response invalid: {message}")]
-    ProvisionerWorkerResponseInvalid { message: String },
+    #[error("provisioner worker unavailable")]
+    ProvisionerWorkerUnavailable,
+    #[error("provisioner worker response invalid")]
+    ProvisionerWorkerResponseInvalid,
     #[error("provisioner worker failed: {message}")]
     ProvisionerWorkerFailed { message: String },
 }

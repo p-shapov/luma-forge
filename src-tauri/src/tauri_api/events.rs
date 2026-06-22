@@ -24,11 +24,13 @@ impl WorkspaceEventSink for TauriWorkspaceEventSink {
             WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id,
                 operation_id,
+                trace_id,
                 operation,
             } => {
                 let _ = LifecycleOperationChangedEvent {
                     workspace_id: workspace_id.clone(),
                     operation_id: operation_id.clone(),
+                    trace_id: trace_id.clone(),
                     operation: operation.into(),
                 }
                 .emit(&self.app_handle);

@@ -129,6 +129,8 @@ impl<'a> WorkspaceRuntimeContext<'a> {
             .emit(WorkspaceEvent::LifecycleOperationChanged {
                 workspace_id: operation.workspace_id.clone(),
                 operation_id: operation.operation_id.clone(),
+                trace_id: crate::diagnostics::current_trace_id()
+                    .unwrap_or_else(|| "trace-unavailable".to_string()),
                 operation: operation.clone(),
             });
         Ok(operation)

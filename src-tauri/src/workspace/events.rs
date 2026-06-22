@@ -5,6 +5,7 @@ pub enum WorkspaceEvent {
     LifecycleOperationChanged {
         workspace_id: String,
         operation_id: String,
+        trace_id: String,
         operation: LifecycleOperation,
     },
     WorkspaceChanged {

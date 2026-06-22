@@ -305,15 +305,11 @@ fn map_provisioner_http_status(status: StatusCode) -> Result<(), RunpodProviderE
 }
 
 fn provisioner_unavailable() -> RunpodProviderError {
-    RunpodProviderError::ProvisionerWorkerUnavailable {
-        message: "provisioner worker is unavailable".to_string(),
-    }
+    RunpodProviderError::ProvisionerWorkerUnavailable
 }
 
 fn provisioner_response_invalid() -> RunpodProviderError {
-    RunpodProviderError::ProvisionerWorkerResponseInvalid {
-        message: "provisioner worker response is invalid".to_string(),
-    }
+    RunpodProviderError::ProvisionerWorkerResponseInvalid
 }
 
 fn provisioner_failed() -> RunpodProviderError {

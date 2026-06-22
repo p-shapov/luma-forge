@@ -938,8 +938,8 @@ mod tests {
             serde_json::from_slice(&formatted).expect("formatted line should be valid json");
 
         assert_eq!(json["message"], "Authorization: [REDACTED]");
-        assert_eq!(json["kvs"]["payload"], "[REDACTED_BODY]");
-        assert_eq!(json["kvs"]["download_url"], "[REDACTED_URL]");
+        assert_eq!(json["ctx"]["payload"], "[REDACTED_BODY]");
+        assert_eq!(json["ctx"]["download_url"], "[REDACTED_URL]");
         assert!(!formatted
             .windows("top-secret-token".len())
             .any(|window| window == b"top-secret-token"));
@@ -999,15 +999,15 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_slice(&formatted).expect("formatted line should be valid json");
 
-        assert_eq!(json["kvs"]["details"]["authorization"], "[REDACTED]");
-        assert_eq!(json["kvs"]["details"]["nested"]["api_key"], "[REDACTED]");
+        assert_eq!(json["ctx"]["details"]["authorization"], "[REDACTED]");
+        assert_eq!(json["ctx"]["details"]["nested"]["api_key"], "[REDACTED]");
         assert_eq!(
-            json["kvs"]["details"]["nested"]["access_token"],
+            json["ctx"]["details"]["nested"]["access_token"],
             "[REDACTED]"
         );
-        assert_eq!(json["kvs"]["details"]["body"], "[REDACTED_BODY]");
-        assert_eq!(json["kvs"]["details"]["payload"], "[REDACTED_BODY]");
-        assert_eq!(json["kvs"]["details"]["safe"], "Bearer [REDACTED]");
+        assert_eq!(json["ctx"]["details"]["body"], "[REDACTED_BODY]");
+        assert_eq!(json["ctx"]["details"]["payload"], "[REDACTED_BODY]");
+        assert_eq!(json["ctx"]["details"]["safe"], "Bearer [REDACTED]");
         assert!(!formatted
             .windows("Basic secret".len())
             .any(|window| window == b"Basic secret"));
@@ -1038,7 +1038,7 @@ mod tests {
 
         assert_eq!(json["message"], "authorization: [REDACTED]");
         assert_eq!(
-            json["kvs"]["details"],
+            json["ctx"]["details"],
             r#"api_key: [REDACTED] "token":"[REDACTED]""#
         );
     }
@@ -1113,7 +1113,7 @@ mod tests {
         );
         assert_eq!(json["error"]["message"], "runpod placement options failed");
         assert_eq!(json["error"]["chain"].as_array().unwrap().len(), 3);
-        assert!(json["kvs"].get("error").is_none());
+        assert!(json["ctx"].get("error").is_none());
     }
 
     #[test]
@@ -1161,7 +1161,7 @@ mod tests {
         );
         assert_eq!(json["error"]["message"], "runpod placement options failed");
         assert_eq!(json["error"]["chain"].as_array().unwrap().len(), 3);
-        assert!(json["kvs"].get("error").is_none());
+        assert!(json["ctx"].get("error").is_none());
     }
 
     #[test]
