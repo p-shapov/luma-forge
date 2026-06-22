@@ -1,78 +1,15 @@
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-use crate::{
-    secrets::SecretsStorageError,
-    tauri_api::{errors::CommandErrorCode, NativeInitializationCommandError},
-};
+use crate::tauri_api::errors::{is_native_initialization_diagnostics_code, CommandErrorCode};
 
-macro_rules! define_secret_error_code {
-    ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type, thiserror::Error)]
-        #[serde(rename_all = "snake_case")]
-        pub enum $name {
-            #[error("app data directory is unavailable")]
-            AppDataDirectoryUnavailable,
-            #[error("app data directory could not be created")]
-            AppDataDirectoryCreateFailed,
-            #[error("native diagnostics could not be initialized")]
-            DiagnosticsInitializationFailed,
-            #[error("workspace storage could not be initialized")]
-            WorkspaceStorageInitializationFailed,
-            #[error("provider services could not be initialized")]
-            ProviderServicesInitializationFailed,
-            #[error("workspace lifecycle state could not be restored")]
-            LifecycleStateRestoreFailed,
-            #[error("api key is required")]
-            SecretRequired,
-            #[error("api key is already configured")]
-            KeyAlreadyExists,
-            #[error("api key is not configured")]
-            KeyNotFound,
-            #[error("secure storage is unavailable")]
-            StoreUnavailable,
-            #[error("stored api key is invalid")]
-            StoredSecretInvalid,
-            #[error("api request was unauthorized")]
-            Unauthorized,
-            #[error("api request has insufficient permissions")]
-            InsufficientPermissions,
-            #[error("api request was rate limited")]
-            RateLimited,
-            #[error("api request timed out")]
-            Timeout,
-            #[error("api request failed")]
-            RequestFailed,
-            #[error("api key identity response is invalid")]
-            IdentityResponseInvalid,
-            #[error("command error")]
-            CommandError,
-        }
-
+macro_rules! impl_secret_error_code {
+    ($name:ident { $($diagnostic_code:literal => $code_variant:ident),+ $(,)? }) => {
         impl CommandErrorCode for $name {
             fn from_diagnostics_code(code: &str) -> Self {
                 match code {
-                    "app_data_directory_unavailable" => Self::AppDataDirectoryUnavailable,
-                    "app_data_directory_create_failed" => Self::AppDataDirectoryCreateFailed,
-                    "diagnostics_initialization_failed" => Self::DiagnosticsInitializationFailed,
-                    "workspace_storage_initialization_failed" => {
-                        Self::WorkspaceStorageInitializationFailed
-                    }
-                    "provider_services_initialization_failed" => {
-                        Self::ProviderServicesInitializationFailed
-                    }
-                    "lifecycle_state_restore_failed" => Self::LifecycleStateRestoreFailed,
-                    "secret_required" => Self::SecretRequired,
-                    "key_already_exists" => Self::KeyAlreadyExists,
-                    "key_not_found" => Self::KeyNotFound,
-                    "store_unavailable" => Self::StoreUnavailable,
-                    "stored_secret_invalid" => Self::StoredSecretInvalid,
-                    "unauthorized" => Self::Unauthorized,
-                    "insufficient_permissions" => Self::InsufficientPermissions,
-                    "rate_limited" => Self::RateLimited,
-                    "timeout" => Self::Timeout,
-                    "request_failed" => Self::RequestFailed,
-                    "identity_response_invalid" => Self::IdentityResponseInvalid,
+                    code if is_native_initialization_diagnostics_code(code) => Self::NativeInitializationFailed,
+                    $($diagnostic_code => Self::$code_variant,)+
                     _ => Self::CommandError,
                 }
             }
@@ -80,45 +17,142 @@ macro_rules! define_secret_error_code {
     };
 }
 
-define_secret_error_code!(SetupRunpodApiKeyErrorCode);
-define_secret_error_code!(GetRunpodApiKeyIdentityErrorCode);
-define_secret_error_code!(DeleteRunpodApiKeyErrorCode);
-define_secret_error_code!(SetupHuggingFaceApiKeyErrorCode);
-define_secret_error_code!(GetHuggingFaceApiKeyIdentityErrorCode);
-define_secret_error_code!(DeleteHuggingFaceApiKeyErrorCode);
-
-macro_rules! define_secret_command_error {
-    ($name:ident, $message:literal) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
-        #[serde(untagged)]
-        pub(crate) enum $name {
-            #[error("native initialization failed")]
-            NativeInitialization(#[from] NativeInitializationCommandError),
-            #[error($message)]
-            SecretsStorage(#[from] SecretsStorageError),
-        }
-    };
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupRunpodApiKeyErrorCode {
+    NativeInitializationFailed,
+    SecretRequired,
+    KeyAlreadyExists,
+    StoreUnavailable,
+    Unauthorized,
+    InsufficientPermissions,
+    RateLimited,
+    Timeout,
+    RequestFailed,
+    IdentityResponseInvalid,
+    CommandError,
 }
 
-define_secret_command_error!(SetupRunpodApiKeyCommandError, "runpod api key setup failed");
-define_secret_command_error!(
-    GetRunpodApiKeyIdentityCommandError,
-    "runpod api key identity failed"
-);
-define_secret_command_error!(
-    DeleteRunpodApiKeyCommandError,
-    "runpod api key deletion failed"
-);
+impl_secret_error_code!(SetupRunpodApiKeyErrorCode {
+    "secret_required" => SecretRequired,
+    "key_already_exists" => KeyAlreadyExists,
+    "store_unavailable" => StoreUnavailable,
+    "unauthorized" => Unauthorized,
+    "insufficient_permissions" => InsufficientPermissions,
+    "rate_limited" => RateLimited,
+    "timeout" => Timeout,
+    "request_failed" => RequestFailed,
+    "identity_response_invalid" => IdentityResponseInvalid,
+});
 
-define_secret_command_error!(
-    SetupHuggingFaceApiKeyCommandError,
-    "hugging face api key setup failed"
-);
-define_secret_command_error!(
-    GetHuggingFaceApiKeyIdentityCommandError,
-    "hugging face api key identity failed"
-);
-define_secret_command_error!(
-    DeleteHuggingFaceApiKeyCommandError,
-    "hugging face api key deletion failed"
-);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum GetRunpodApiKeyIdentityErrorCode {
+    NativeInitializationFailed,
+    KeyNotFound,
+    StoreUnavailable,
+    StoredSecretInvalid,
+    Unauthorized,
+    InsufficientPermissions,
+    RateLimited,
+    Timeout,
+    RequestFailed,
+    IdentityResponseInvalid,
+    CommandError,
+}
+
+impl_secret_error_code!(GetRunpodApiKeyIdentityErrorCode {
+    "key_not_found" => KeyNotFound,
+    "store_unavailable" => StoreUnavailable,
+    "stored_secret_invalid" => StoredSecretInvalid,
+    "unauthorized" => Unauthorized,
+    "insufficient_permissions" => InsufficientPermissions,
+    "rate_limited" => RateLimited,
+    "timeout" => Timeout,
+    "request_failed" => RequestFailed,
+    "identity_response_invalid" => IdentityResponseInvalid,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteRunpodApiKeyErrorCode {
+    NativeInitializationFailed,
+    KeyNotFound,
+    StoreUnavailable,
+    CommandError,
+}
+
+impl_secret_error_code!(DeleteRunpodApiKeyErrorCode {
+    "key_not_found" => KeyNotFound,
+    "store_unavailable" => StoreUnavailable,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupHuggingFaceApiKeyErrorCode {
+    NativeInitializationFailed,
+    SecretRequired,
+    KeyAlreadyExists,
+    StoreUnavailable,
+    Unauthorized,
+    InsufficientPermissions,
+    RateLimited,
+    Timeout,
+    RequestFailed,
+    IdentityResponseInvalid,
+    CommandError,
+}
+
+impl_secret_error_code!(SetupHuggingFaceApiKeyErrorCode {
+    "secret_required" => SecretRequired,
+    "key_already_exists" => KeyAlreadyExists,
+    "store_unavailable" => StoreUnavailable,
+    "unauthorized" => Unauthorized,
+    "insufficient_permissions" => InsufficientPermissions,
+    "rate_limited" => RateLimited,
+    "timeout" => Timeout,
+    "request_failed" => RequestFailed,
+    "identity_response_invalid" => IdentityResponseInvalid,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum GetHuggingFaceApiKeyIdentityErrorCode {
+    NativeInitializationFailed,
+    KeyNotFound,
+    StoreUnavailable,
+    StoredSecretInvalid,
+    Unauthorized,
+    InsufficientPermissions,
+    RateLimited,
+    Timeout,
+    RequestFailed,
+    IdentityResponseInvalid,
+    CommandError,
+}
+
+impl_secret_error_code!(GetHuggingFaceApiKeyIdentityErrorCode {
+    "key_not_found" => KeyNotFound,
+    "store_unavailable" => StoreUnavailable,
+    "stored_secret_invalid" => StoredSecretInvalid,
+    "unauthorized" => Unauthorized,
+    "insufficient_permissions" => InsufficientPermissions,
+    "rate_limited" => RateLimited,
+    "timeout" => Timeout,
+    "request_failed" => RequestFailed,
+    "identity_response_invalid" => IdentityResponseInvalid,
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteHuggingFaceApiKeyErrorCode {
+    NativeInitializationFailed,
+    KeyNotFound,
+    StoreUnavailable,
+    CommandError,
+}
+
+impl_secret_error_code!(DeleteHuggingFaceApiKeyErrorCode {
+    "key_not_found" => KeyNotFound,
+    "store_unavailable" => StoreUnavailable,
+});

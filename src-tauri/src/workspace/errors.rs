@@ -6,7 +6,16 @@ use crate::{
     workflow_catalog::WorkflowCatalogError, workspace_catalog::WorkspaceCatalogError,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+    luma_diagnostic::DiagnosticCode,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceError {
     #[error("provider api error")]

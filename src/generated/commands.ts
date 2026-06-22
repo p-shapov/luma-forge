@@ -38,7 +38,7 @@ export type ApiKeyIdentityResponse = {
 	keyDisplayName: string | null,
 };
 
-export type CleanupWorkspaceErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "storage_unavailable" | "parse_failed" | "validation_failed" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "operation_not_found" | "running_operation_exists" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
+export type CleanupWorkspaceErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "workspace_not_found" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
 
 export type CleanupWorkspaceResponse = {
 	workspace: WorkspaceResponse,
@@ -46,43 +46,42 @@ export type CleanupWorkspaceResponse = {
 };
 
 export type CommandError<Code> = {
-	message: string,
 	code: Code,
 	traceId: string,
 };
 
-export type CreateRunpodWorkspaceErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "storage_unavailable" | "parse_failed" | "validation_failed" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "operation_not_found" | "running_operation_exists" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
+export type CreateRunpodWorkspaceErrorCode = "native_initialization_failed" | "parse_failed" | "validation_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "invalid_state" | "command_error";
 
 export type CreateRunpodWorkspaceRequest = {
 	workflowPresetId: string,
 	placement: RunpodPlacementPlanInput,
 };
 
-export type DeleteHuggingFaceApiKeyErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
+export type DeleteHuggingFaceApiKeyErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable" | "command_error";
 
-export type DeleteRunpodApiKeyErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
+export type DeleteRunpodApiKeyErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable" | "command_error";
 
-export type DeleteWorkspaceErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "storage_unavailable" | "parse_failed" | "validation_failed" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "operation_not_found" | "running_operation_exists" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
+export type DeleteWorkspaceErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "workspace_not_found" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
 
 export type DeleteWorkspaceResponse = {
 	workspaceId: string,
 };
 
-export type GetHuggingFaceApiKeyIdentityErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
+export type GetHuggingFaceApiKeyIdentityErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
 
-export type GetLatestLifecycleOperationErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "storage_unavailable" | "parse_failed" | "validation_failed" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "operation_not_found" | "running_operation_exists" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
+export type GetLatestLifecycleOperationErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "command_error";
 
-export type GetRunningLifecycleOperationsErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "storage_unavailable" | "parse_failed" | "validation_failed" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "operation_not_found" | "running_operation_exists" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
+export type GetRunningLifecycleOperationsErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "command_error";
 
-export type GetRunpodApiKeyIdentityErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
+export type GetRunpodApiKeyIdentityErrorCode = "native_initialization_failed" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
 
-export type GetRunpodPlacementOptionsErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "provisioner_worker_unavailable" | "provisioner_worker_response_invalid" | "provisioner_worker_failed" | "command_error";
+export type GetRunpodPlacementOptionsErrorCode = "native_initialization_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "command_error";
 
-export type GetRuntimeContractCatalogErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "parse_failed" | "validation_failed" | "command_error";
+export type GetRuntimeContractCatalogErrorCode = "native_initialization_failed" | "parse_failed" | "validation_failed" | "command_error";
 
-export type GetWorkflowCatalogErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "parse_failed" | "validation_failed" | "command_error";
+export type GetWorkflowCatalogErrorCode = "native_initialization_failed" | "parse_failed" | "validation_failed" | "command_error";
 
-export type GetWorkspaceCatalogErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "command_error";
+export type GetWorkspaceCatalogErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "command_error";
 
 export type LatestLifecycleOperationResponse = {
 	operation: LifecycleOperationResponse | null,
@@ -122,11 +121,11 @@ export type ModelAssetResponse = {
 
 export type ModelAssetSourceResponse = { sourceType: "huggingface"; repository_id: string; file_path: string; revision: string };
 
-export type NativeInitializationCommandErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "command_error";
+export type NativeInitializationCommandErrorCode = "native_initialization_failed" | "command_error";
 
 export type NativeStartupStatusResponse = { status: "ready" } | { status: "failed"; error: CommandError<NativeInitializationCommandErrorCode> };
 
-export type ProvisionWorkspaceErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "identity_response_invalid" | "storage_unavailable" | "parse_failed" | "validation_failed" | "schema_invalid" | "data_invalid" | "workspace_already_exists" | "workspace_not_found" | "operation_not_found" | "running_operation_exists" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
+export type ProvisionWorkspaceErrorCode = "native_initialization_failed" | "storage_unavailable" | "schema_invalid" | "data_invalid" | "workspace_not_found" | "lifecycle_operation_already_running" | "invalid_state" | "command_error";
 
 export type ProvisionWorkspaceResponse = {
 	workspace: WorkspaceResponse,
@@ -204,9 +203,9 @@ export type SetupApiKeyRequest = {
 	apiKey: string,
 };
 
-export type SetupHuggingFaceApiKeyErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
+export type SetupHuggingFaceApiKeyErrorCode = "native_initialization_failed" | "secret_required" | "key_already_exists" | "store_unavailable" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
 
-export type SetupRunpodApiKeyErrorCode = "app_data_directory_unavailable" | "app_data_directory_create_failed" | "diagnostics_initialization_failed" | "workspace_storage_initialization_failed" | "provider_services_initialization_failed" | "lifecycle_state_restore_failed" | "secret_required" | "key_already_exists" | "key_not_found" | "store_unavailable" | "stored_secret_invalid" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
+export type SetupRunpodApiKeyErrorCode = "native_initialization_failed" | "secret_required" | "key_already_exists" | "store_unavailable" | "unauthorized" | "insufficient_permissions" | "rate_limited" | "timeout" | "request_failed" | "identity_response_invalid" | "command_error";
 
 export type WorkflowCatalogResponse = {
 	workflowPresets: WorkflowPresetResponse[],

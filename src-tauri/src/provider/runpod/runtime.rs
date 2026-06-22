@@ -186,11 +186,9 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     workspace_id = params.workspace_id.as_str(),
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod network volume creation failed"
                 );
                 error
@@ -221,11 +219,9 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     network_volume_id = network_volume_id,
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod network volume deletion failed"
                 );
                 error
@@ -273,13 +269,11 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     workspace_id = workspace_id.as_str(),
                     data_center_id = data_center_id.as_str(),
                     network_volume_id = network_volume_id.as_str(),
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod provisioner pod start failed"
                 );
                 error
@@ -310,11 +304,9 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     provisioner_pod_id = provisioner_pod_id,
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod provisioner pod termination failed"
                 );
                 error
@@ -346,12 +338,10 @@ where
             .provisioner_status_request(&provisioner_status_url(provisioner_pod_id), &bearer_token)
             .await
             .inspect_err(|error| {
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error.clone(), "runpod_provider_error");
                 log::error!(
                     workspace_id = workspace_id,
                     provisioner_pod_id = provisioner_pod_id,
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(error);
                     "runpod provisioner status check failed"
                 );
             })?;
@@ -385,11 +375,9 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     workspace_id = params.workspace_id.as_str(),
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod serverless template creation failed"
                 );
                 error
@@ -437,15 +425,13 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     workspace_id = workspace_id.as_str(),
                     data_center_id = data_center_id.as_str(),
                     gpu_type_id = gpu_type_id.as_str(),
                     network_volume_id = network_volume_id.as_str(),
                     template_id = template_id.as_str(),
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod serverless endpoint creation failed"
                 );
                 error
@@ -476,11 +462,9 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     endpoint_id = endpoint_id,
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod serverless endpoint deletion failed"
                 );
                 error
@@ -507,11 +491,9 @@ where
             .await
             .map_err(|error| {
                 let error = RunpodProviderError::from(error);
-                let diagnostics =
-                    crate::diagnostics::error_diagnostics(&error, "runpod_provider_error");
                 log::error!(
                     template_id = template_id,
-                    error = crate::diagnostics::error_diagnostics_log_json(&diagnostics);
+                    error = crate::diagnostics::error_diagnostics_log_json(&error);
                     "runpod serverless template deletion failed"
                 );
                 error

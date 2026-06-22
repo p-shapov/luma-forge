@@ -4,7 +4,16 @@ use reqwest::StatusCode;
 
 use crate::provider::errors::{map_api_status_error, map_api_transport_error, ProviderApiError};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    thiserror::Error,
+    luma_diagnostic::DiagnosticCode,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SecretsStorageError {
     #[error("api key is required")]
