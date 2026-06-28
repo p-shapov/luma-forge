@@ -268,6 +268,7 @@ WorkflowCatalogRepository
 RuntimeCatalogRepository
 WorkspaceEventSink
 WorkspaceRuntimeLifecycle
+RuntimeEventSink
 ```
 
 `WorkspaceRuntimeLifecycle` is the application-owned trait used by
@@ -278,6 +279,7 @@ RunPod runtime ports:
 
 ```text
 RunpodRuntimeClient
+RunpodRuntimeRepository
 ```
 
 Secret-related application ports are declared in `application/ports.rs` and
@@ -291,15 +293,18 @@ facade command
   -> application::WorkspaceService::provision_workspace
   -> create lifecycle operation and set workspace Provisioning
   -> spawn lifecycle runner
-  -> runtime::runpod::provision
-  -> report step/resource updates through application-owned progress port
-  -> application repositories persist normalized rows
+  -> runtime::runpod::provision with application-owned RuntimeContext
+  -> runtime persists RunPod runtime data through runtime-owned ports
+  -> runtime reports typed runtime facts through application-owned RuntimeEventSink
   -> event sink emits UI-safe events
 ```
 
 Application owns operation terminal state and workspace state transitions.
-Runtime reports RunPod facts and requested resource updates. Infrastructure
-persists those updates through application-owned repository ports.
+Runtime may persist RunPod-specific runtime data through `runtime/runpod` ports,
+but it does not emit Tauri/UI events directly. Application receives typed enum
+envelopes such as `RuntimeSnapshot::Runpod` and
+`RuntimeOperationPayload::Runpod`, then emits UI-safe events. Do not use opaque
+JSON payloads for runtime updates.
 
 ## Facade, Errors, And Secrets
 
@@ -352,8 +357,9 @@ Iteration 4 verifies application models, ports, and use cases with fake ports.
 Iteration 5 verifies secrets adapters against fake keyring/provider
 infrastructure.
 
-Iteration 6 verifies `runtime/runpod` step sequencing and provider failure
-handling with fake provider/progress ports.
+Iteration 6 verifies `runtime/runpod` step sequencing, provider failure
+handling, runtime persistence, and typed event reporting with fake runtime
+client/repository/event ports.
 
 Iteration 7 verifies facade, composition, codegen, and full backend integration.
 
