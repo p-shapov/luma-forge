@@ -55,7 +55,27 @@ Targets:
 
 Remove `runtime_json` and `payload_json` from the target persistence contract.
 
-### Iteration 2: Application
+### Iteration 2: Bundled Catalogs
+
+Move bundled workflow and runtime catalog loading into `infra/catalogs`.
+
+Targets:
+
+- `infra/catalogs/workflows.rs`
+- `infra/catalogs/runtime_contracts.rs`
+- `infra/catalogs/execution_schemas.rs`
+- `infra/catalogs/errors.rs`
+- `infra/catalogs/mod.rs`
+
+`infra/catalogs` owns reading bundled JSON, validating catalog shape, and
+returning catalog data through a persistence-free API. Bundled JSON remains
+static app data under `bundled/**`.
+
+This iteration gets its own focused design spec before implementation planning.
+That spec must define the catalog data API, validation boundary, error shape,
+and how later application ports will consume catalog data.
+
+### Iteration 3: Application
 
 Move provider-neutral models and ports into `application`.
 
@@ -71,7 +91,7 @@ Targets:
 transitions, in-flight operation tracking, and provider-neutral ports. It does
 not import Tauri, SeaORM, SQLx, reqwest, keyring, or concrete provider clients.
 
-### Iteration 3: RunPod Runtime
+### Iteration 4: RunPod Runtime
 
 Move RunPod-specific lifecycle orchestration into `runtime/runpod`.
 
@@ -87,7 +107,7 @@ RunPod lifecycle code owns step order, cleanup order, polling behavior, and
 RunPod payload updates. It reports progress through ports and does not import
 SQLite or Tauri.
 
-### Iteration 4: Facade And Composition
+### Iteration 5: Facade And Composition
 
 Move Tauri/Specta API boundaries into `facade` and concrete dependency wiring
 into `composition`.
@@ -122,8 +142,8 @@ Layer ownership:
 - `facade`: Tauri commands/events, Specta DTOs, UI-safe errors, `traceId`.
 - `application`: provider-neutral workspace use cases and lifecycle state.
 - `runtime/runpod`: RunPod lifecycle sequence and RunPod-specific runtime data.
-- `infra`: SeaORM SQLite repositories, keyring, bundled catalogs, HTTP clients,
-  and Tauri event sink implementation.
+- `infra`: SeaORM SQLite repositories, bundled catalog readers, keyring, HTTP
+  clients, and Tauri event sink implementation.
 - `composition`: database open, diagnostics init, concrete dependency wiring,
   and `NativeAppState`.
 
@@ -279,12 +299,14 @@ Iteration 1 verifies the persistence layer only:
 - Repository transactions.
 - No `runtime_json` or `payload_json` in the target schema.
 
-Iteration 2 verifies application models, ports, and use cases with fake ports.
+Iteration 2 verifies bundled catalog loading and validation boundaries only.
 
-Iteration 3 verifies `runtime/runpod` step sequencing and provider failure
+Iteration 3 verifies application models, ports, and use cases with fake ports.
+
+Iteration 4 verifies `runtime/runpod` step sequencing and provider failure
 handling with fake provider/progress ports.
 
-Iteration 4 verifies facade, composition, codegen, and full backend integration.
+Iteration 5 verifies facade, composition, codegen, and full backend integration.
 
 Full final verification:
 
