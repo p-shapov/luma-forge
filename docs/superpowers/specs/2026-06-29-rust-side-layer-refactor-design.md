@@ -102,6 +102,7 @@ Targets:
 - `application/ports.rs`
 - `application/errors.rs`
 - `application/workspace_service.rs`
+- `application/dispatcher.rs`
 - `application/lifecycle_runner.rs`
 
 `application` owns workspace use cases, lifecycle operation creation, state
@@ -273,7 +274,9 @@ RuntimeEventSink
 
 `WorkspaceRuntimeLifecycle` is the application-owned trait used by
 `WorkspaceService` to run provision, cleanup, and delete operations without
-knowing the concrete runtime implementation.
+knowing the concrete runtime implementation. `application/dispatcher.rs`
+selects the runtime implementation by provider-neutral `RuntimeKind`; the
+dispatcher does not know RunPod lifecycle internals.
 
 RunPod runtime ports:
 
