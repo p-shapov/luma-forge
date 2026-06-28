@@ -116,18 +116,16 @@ Create a top-level `secrets` adapter layer.
 
 Targets:
 
-- `secrets/model.rs`
-- `secrets/errors.rs`
-- `secrets/runpod.rs`
-- `secrets/hugging_face.rs`
-- `secrets/mod.rs`
+- `secrets/runpod/*`
+- `secrets/hugging_face/*`
 
 `secrets` implements application credential ports by composing
 `infra/keyring` and `infra/providers/*`. It owns credential workflows such as
 setup, delete, identity lookup, trusted secret retrieval, and RunPod workspace
 bearer token issuing. RunPod workspace bearer token issuing lives in
-`secrets/runpod.rs`, not a separate module. It does not expose raw secrets to
-`facade` or React.
+`secrets/runpod/*`, not a separate top-level module. It does not define public
+models or error types; it maps infra failures into application errors. It does
+not expose raw secrets to `facade` or React.
 
 ### Iteration 6: RunPod Runtime
 
