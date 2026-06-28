@@ -75,7 +75,24 @@ This iteration gets its own focused design spec before implementation planning.
 That spec must define the catalog data API, validation boundary, error shape,
 and how later application ports will consume catalog data.
 
-### Iteration 3: Application
+### Iteration 3: Infra Keyring And Providers
+
+Move secure storage and raw provider HTTP clients into infrastructure modules.
+
+Targets:
+
+- `infra/keyring/*`
+- `infra/providers/runpod/*`
+- `infra/providers/hugging_face/*`
+
+`infra/keyring` owns technical secure storage through the platform keyring.
+`infra/providers/runpod` and `infra/providers/hugging_face` own raw HTTP
+clients, provider request/response mapping, and provider identity calls.
+
+This iteration does not implement application ports. It prepares concrete
+storage and provider primitives that later adapter layers can use.
+
+### Iteration 4: Application
 
 Move provider-neutral models and ports into `application`.
 
@@ -90,8 +107,29 @@ Targets:
 `application` owns workspace use cases, lifecycle operation creation, state
 transitions, in-flight operation tracking, and provider-neutral ports. It does
 not import Tauri, SeaORM, SQLx, reqwest, keyring, or concrete provider clients.
+Credential-facing capabilities are declared as application ports here, but
+their implementations live outside `application`.
 
-### Iteration 4: RunPod Runtime
+### Iteration 5: Secrets
+
+Create a top-level `secrets` adapter layer.
+
+Targets:
+
+- `secrets/model.rs`
+- `secrets/errors.rs`
+- `secrets/runpod.rs`
+- `secrets/hugging_face.rs`
+- `secrets/mod.rs`
+
+`secrets` implements application credential ports by composing
+`infra/keyring` and `infra/providers/*`. It owns credential workflows such as
+setup, delete, identity lookup, trusted secret retrieval, and RunPod workspace
+bearer token issuing. RunPod workspace bearer token issuing lives in
+`secrets/runpod.rs`, not a separate module. It does not expose raw secrets to
+`facade` or React.
+
+### Iteration 6: RunPod Runtime
 
 Move RunPod-specific lifecycle orchestration into `runtime/runpod`.
 
@@ -107,7 +145,7 @@ RunPod lifecycle code owns step order, cleanup order, polling behavior, and
 RunPod payload updates. It reports progress through ports and does not import
 SQLite or Tauri.
 
-### Iteration 5: Facade And Composition
+### Iteration 7: Facade And Composition
 
 Move Tauri/Specta API boundaries into `facade` and concrete dependency wiring
 into `composition`.
@@ -133,6 +171,7 @@ The final dependency direction is:
 facade -> application
 application -> models + ports
 runtime/runpod -> models + ports
+secrets -> application ports + infra/keyring + infra/providers
 infra -> models + ports
 composition -> wires all
 ```
@@ -144,6 +183,8 @@ Layer ownership:
 - `runtime/runpod`: RunPod lifecycle sequence and RunPod-specific runtime data.
 - `infra`: SeaORM SQLite repositories, bundled catalog readers, keyring, HTTP
   clients, and Tauri event sink implementation.
+- `secrets`: credential workflows that implement application ports using
+  keyring and provider infrastructure.
 - `composition`: database open, diagnostics init, concrete dependency wiring,
   and `NativeAppState`.
 
@@ -241,6 +282,10 @@ RunPod runtime ports:
 RunpodRuntimeClient
 ```
 
+Secret-related application ports are declared in `application/ports.rs` and
+implemented in the top-level `secrets` layer. Low-level keyring and provider
+clients remain in `infra`.
+
 Provision flow:
 
 ```text
@@ -283,8 +328,9 @@ but must not include secrets.
 
 Secrets remain write-only from React. Facade commands may set, delete, and
 validate credential identity, but cannot return raw secret values. Keyring
-access lives in `infra/secrets`. Trusted provider clients receive secrets only
-through infra-owned provider-call paths.
+access lives in `infra/keyring`. Credential workflows live in top-level
+`secrets`. Trusted runtime/provider paths receive secret material only through
+application ports implemented by `secrets`.
 
 ## Testing And Verification
 
@@ -301,12 +347,17 @@ Iteration 1 verifies the persistence layer only:
 
 Iteration 2 verifies bundled catalog loading and validation boundaries only.
 
-Iteration 3 verifies application models, ports, and use cases with fake ports.
+Iteration 3 verifies keyring/provider infrastructure boundaries only.
 
-Iteration 4 verifies `runtime/runpod` step sequencing and provider failure
+Iteration 4 verifies application models, ports, and use cases with fake ports.
+
+Iteration 5 verifies secrets adapters against fake keyring/provider
+infrastructure.
+
+Iteration 6 verifies `runtime/runpod` step sequencing and provider failure
 handling with fake provider/progress ports.
 
-Iteration 5 verifies facade, composition, codegen, and full backend integration.
+Iteration 7 verifies facade, composition, codegen, and full backend integration.
 
 Full final verification:
 
