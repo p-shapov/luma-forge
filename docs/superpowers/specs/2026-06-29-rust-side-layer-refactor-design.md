@@ -116,19 +116,16 @@ Create a top-level `secrets` adapter layer.
 
 Targets:
 
-- `secrets/runpod/model.rs`
+- `secrets/runpod/credentials.rs`
 - `secrets/runpod/ports.rs`
-- `secrets/runpod/storage.rs`
-- `secrets/runpod/identity.rs`
-- `secrets/hugging_face/model.rs`
+- `secrets/hugging_face/credentials.rs`
 - `secrets/hugging_face/ports.rs`
-- `secrets/hugging_face/storage.rs`
-- `secrets/hugging_face/identity.rs`
 
-It owns credential workflows such as
-setup, delete, identity lookup, trusted secret retrieval, and RunPod workspace
-bearer token issuing. It does
-not expose raw secrets to `facade` or React.
+`credentials.rs` implements the application credential ports. `ports.rs`
+defines the narrow storage and provider identity dependencies required by that
+credential workflow. `secrets` owns setup, delete, identity lookup, trusted
+secret retrieval, and RunPod workspace bearer token issuing. It does not expose
+raw secrets to `facade` or React.
 
 ### Iteration 6: RunPod Runtime
 
