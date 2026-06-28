@@ -89,29 +89,30 @@ Targets:
 `infra/providers/runpod` and `infra/providers/hugging_face` own raw HTTP
 clients, provider request/response mapping, and provider identity calls.
 
-This iteration does not implement workspace ports. It prepares concrete storage
-and provider primitives that later adapter layers can use.
+This iteration does not implement application workspace ports. It prepares
+concrete storage and provider primitives that later adapter layers can use.
 
-### Iteration 4: Workspace
+### Iteration 4: Application Workspace
 
-Move provider-neutral workspace models and ports into a new `workspace` layer.
-This target layer is not the current `src-tauri/src/workspace` module reused
-as-is; it is the replacement workspace use-case layer shaped by this spec.
+Move provider-neutral workspace models and ports into `application/workspace`.
+This target module is not the current `src-tauri/src/workspace` module reused
+as-is; it is the replacement workspace use-case module shaped by this spec.
 
 Targets:
 
-- `workspace/model.rs`
-- `workspace/ports.rs`
-- `workspace/errors.rs`
-- `workspace/service.rs`
-- `workspace/dispatcher.rs`
-- `workspace/background.rs`
+- `application/workspace/model.rs`
+- `application/workspace/ports.rs`
+- `application/workspace/errors.rs`
+- `application/workspace/service.rs`
+- `application/workspace/dispatcher.rs`
+- `application/workspace/background.rs`
+- `application/workspace/mod.rs`
 
-`workspace` owns workspace use cases, lifecycle operation creation, state
-transitions, in-flight operation tracking, and provider-neutral ports. It does
-not import Tauri, SeaORM, SQLx, reqwest, keyring, or concrete provider clients.
-Credential-facing capabilities are declared as workspace ports here, but their
-implementations live outside `workspace`.
+`application/workspace` owns workspace use cases, lifecycle operation creation,
+state transitions, in-flight operation tracking, and provider-neutral ports. It
+does not import Tauri, SeaORM, SQLx, reqwest, keyring, or concrete provider
+clients. Credential-facing capabilities are declared as application workspace
+ports here, but their implementations live outside `application`.
 
 ### Iteration 5: Secrets
 
@@ -124,7 +125,7 @@ Targets:
 - `secrets/hugging_face/credentials.rs`
 - `secrets/hugging_face/ports.rs`
 
-`credentials.rs` implements the workspace credential ports. `ports.rs`
+`credentials.rs` implements the application workspace credential ports. `ports.rs`
 defines the narrow storage and provider identity dependencies required by that
 credential workflow. `secrets` owns setup, delete, identity lookup, trusted
 secret retrieval, and RunPod workspace bearer token issuing. It does not expose
@@ -169,10 +170,10 @@ Tauri command DTOs and generated frontend bindings may change. The generated
 The final dependency direction is:
 
 ```text
-facade -> workspace
-workspace -> models + ports
+facade -> application
+application -> models + ports
 runtime/runpod -> models + ports
-secrets -> workspace ports + infra/keyring + infra/providers
+secrets -> application ports + infra/keyring + infra/providers
 infra -> models + ports
 composition -> wires all
 ```
@@ -180,17 +181,18 @@ composition -> wires all
 Layer ownership:
 
 - `facade`: Tauri commands/events, Specta DTOs, UI-safe errors, `traceId`.
-- `workspace`: provider-neutral workspace use cases and lifecycle state.
+- `application`: provider-neutral workspace use cases and lifecycle state,
+  currently through `application/workspace`.
 - `runtime/runpod`: RunPod lifecycle sequence and RunPod-specific runtime data.
 - `infra`: SeaORM SQLite repositories, bundled catalog readers, keyring, HTTP
   clients, and Tauri event sink implementation.
-- `secrets`: credential workflows that implement workspace ports using
+- `secrets`: credential workflows that implement application ports using
   keyring and provider infrastructure.
 - `composition`: database open, diagnostics init, concrete dependency wiring,
   and `NativeAppState`.
 
 There is no separate `domain` layer in the final target. Provider-neutral models
-live in `workspace/model.rs`. RunPod-specific models live in
+live in `application/workspace/model.rs`. RunPod-specific models live in
 `runtime/runpod/model.rs`.
 
 ## Persistence Contract
@@ -241,7 +243,7 @@ Rules:
 - Operation payload identity is `operation_id`.
 - SeaORM entities stay under `infra/sqlite/entities`.
 - SeaORM repositories stay under `infra/sqlite/repositories`.
-- `workspace`, `runtime/runpod`, and `facade` never import SeaORM `Entity`,
+- `application`, `runtime/runpod`, and `facade` never import SeaORM `Entity`,
   `Model`, or `ActiveModel`.
 - Transactions enforce parent and child writes for workspace/runtime rows and
   operation/payload rows.
@@ -262,7 +264,7 @@ RunpodWorkspaceRuntime { workspace_id, placement, resources }
 RunpodOperationPayload { operation_id, step }
 ```
 
-Workspace ports:
+Application workspace ports:
 
 ```text
 WorkspaceRepository
@@ -274,9 +276,9 @@ WorkspaceRuntimeLifecycle
 RuntimeEventSink
 ```
 
-`WorkspaceRuntimeLifecycle` is the workspace-owned trait used by
+`WorkspaceRuntimeLifecycle` is the application-owned trait used by
 `WorkspaceService` to run provision, cleanup, and delete operations without
-knowing the concrete runtime implementation. `workspace/dispatcher.rs`
+knowing the concrete runtime implementation. `application/workspace/dispatcher.rs`
 selects the runtime implementation by provider-neutral `RuntimeKind`; the
 dispatcher does not know RunPod lifecycle internals.
 
@@ -287,7 +289,8 @@ RunpodRuntimeClient
 RunpodRuntimeRepository
 ```
 
-Secret-related workspace ports are declared in `workspace/ports.rs` and
+Secret-related application workspace ports are declared in
+`application/workspace/ports.rs` and
 implemented in the top-level `secrets` layer. Low-level keyring and provider
 clients remain in `infra`.
 
@@ -295,19 +298,19 @@ Provision flow:
 
 ```text
 facade command
-  -> workspace service provision use case
+  -> application workspace service provision use case
   -> create lifecycle operation and set workspace Provisioning
   -> spawn lifecycle runner
-  -> runtime::runpod::provision with workspace-owned RuntimeContext
+  -> runtime::runpod::provision with application-owned RuntimeContext
   -> runtime persists RunPod runtime data through runtime-owned ports
-  -> runtime reports typed runtime facts through workspace-owned RuntimeEventSink
+  -> runtime reports typed runtime facts through application-owned RuntimeEventSink
   -> event sink emits UI-safe events
 ```
 
-Workspace owns operation terminal state and workspace state transitions.
+Application workspace owns operation terminal state and workspace state transitions.
 Runtime may persist RunPod-specific runtime data through `runtime/runpod` ports,
-but it does not emit Tauri/UI events directly. Workspace receives typed enum
-envelopes such as `RuntimeSnapshot::Runpod` and
+but it does not emit Tauri/UI events directly. Application workspace receives
+typed enum envelopes such as `RuntimeSnapshot::Runpod` and
 `RuntimeOperationPayload::Runpod`, then emits UI-safe events. Do not use opaque
 JSON payloads for runtime updates.
 
@@ -326,8 +329,8 @@ UI-safe:
 Errors are mapped at boundaries:
 
 ```text
-infra/provider errors -> workspace/runtime errors
-workspace/runtime errors -> facade CommandError { code, message, traceId }
+infra/provider errors -> application/runtime errors
+application/runtime errors -> facade CommandError { code, message, traceId }
 ```
 
 `CommandError` remains UI-safe and traceable. `traceId` is created at the
@@ -338,7 +341,7 @@ Secrets remain write-only from React. Facade commands may set, delete, and
 validate credential identity, but cannot return raw secret values. Keyring
 access lives in `infra/keyring`. Credential workflows live in top-level
 `secrets`. Trusted runtime/provider paths receive secret material only through
-workspace ports implemented by `secrets`.
+application ports implemented by `secrets`.
 
 ## Testing And Verification
 
@@ -357,7 +360,8 @@ Iteration 2 verifies bundled catalog loading and validation boundaries only.
 
 Iteration 3 verifies keyring/provider infrastructure boundaries only.
 
-Iteration 4 verifies workspace models, ports, and use cases with fake ports.
+Iteration 4 verifies application workspace models, ports, and use cases with
+fake ports.
 
 Iteration 5 verifies secrets adapters against fake keyring/provider
 infrastructure.
