@@ -14,12 +14,13 @@ impl SqliteInfraDatabase {
     pub async fn connect(path: impl AsRef<Path>) -> Result<Self, SqliteInfraError> {
         let path = path.as_ref().to_string_lossy();
         let url = format!("sqlite://{path}?mode=rwc");
-        let connection = Database::connect(&url)
-            .await
-            .map_err(|error| SqliteInfraError::ConnectFailed {
-                operation: "connect sqlite database",
-                message: error.to_string(),
-            })?;
+        let connection =
+            Database::connect(&url)
+                .await
+                .map_err(|error| SqliteInfraError::ConnectFailed {
+                    operation: "connect sqlite database",
+                    message: error.to_string(),
+                })?;
 
         connection
             .execute(Statement::from_string(
@@ -32,12 +33,12 @@ impl SqliteInfraDatabase {
                 message: error.to_string(),
             })?;
 
-        Migrator::up(&connection, None)
-            .await
-            .map_err(|error| SqliteInfraError::StatementFailed {
+        Migrator::up(&connection, None).await.map_err(|error| {
+            SqliteInfraError::StatementFailed {
                 operation: "run sqlite migrations",
                 message: error.to_string(),
-            })?;
+            }
+        })?;
 
         Ok(Self { connection })
     }
