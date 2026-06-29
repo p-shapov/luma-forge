@@ -4,6 +4,7 @@ use tauri::Manager;
 pub mod app;
 pub mod diagnostics;
 pub mod domain;
+pub mod infra;
 pub mod lifecycle_journal;
 pub mod provider;
 pub mod runtime_catalog;
