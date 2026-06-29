@@ -4,6 +4,9 @@ use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, Statemen
 
 use super::errors::SqliteInfraError;
 
+const ENTITY_REGISTRY_PREFIX: &str =
+    concat!(env!("CARGO_CRATE_NAME"), "::infra::sqlite::entities::*");
+
 #[derive(Debug, Clone)]
 pub struct SqliteInfraDatabase {
     connection: DatabaseConnection,
@@ -33,7 +36,7 @@ impl SqliteInfraDatabase {
             })?;
 
         connection
-            .get_schema_registry("luma_forge_lib::infra::sqlite::entities::*")
+            .get_schema_registry(ENTITY_REGISTRY_PREFIX)
             .sync(&connection)
             .await
             .map_err(|error| SqliteInfraError::SchemaMismatch {
