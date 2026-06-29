@@ -1,6 +1,8 @@
-use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use time::{format_description, OffsetDateTime, UtcOffset};
 
 use super::errors::SqliteInfraError;
+
+const SQLITE_TIMESTAMP_FORMAT: &str = "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:9][offset_hour sign:mandatory]:[offset_minute]";
 
 #[derive(Debug, Clone)]
 pub struct PersistedWorkspace {
@@ -53,8 +55,11 @@ pub(crate) fn format_timestamp(
     operation: &'static str,
     column: &'static str,
 ) -> Result<String, SqliteInfraError> {
+    let format = timestamp_format(operation)?;
+
     value
-        .format(&Rfc3339)
+        .to_offset(UtcOffset::UTC)
+        .format(&format)
         .map_err(|error| SqliteInfraError::StatementFailed {
             operation,
             message: format!("{column} timestamp could not be formatted: {error}"),
@@ -66,8 +71,21 @@ pub(crate) fn parse_timestamp(
     operation: &'static str,
     column: &'static str,
 ) -> Result<OffsetDateTime, SqliteInfraError> {
-    OffsetDateTime::parse(value, &Rfc3339).map_err(|error| SqliteInfraError::CorruptData {
+    let format = timestamp_format(operation)?;
+
+    OffsetDateTime::parse(value, &format).map_err(|error| SqliteInfraError::CorruptData {
         operation,
         message: format!("{column} timestamp is not RFC3339: {error}"),
+    })
+}
+
+fn timestamp_format(
+    operation: &'static str,
+) -> Result<Vec<format_description::FormatItem<'static>>, SqliteInfraError> {
+    format_description::parse(SQLITE_TIMESTAMP_FORMAT).map_err(|error| {
+        SqliteInfraError::StatementFailed {
+            operation,
+            message: format!("sqlite timestamp format is invalid: {error}"),
+        }
     })
 }
