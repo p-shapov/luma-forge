@@ -1,9 +1,8 @@
 use std::path::Path;
 
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, Statement};
-use sea_orm_migration::MigratorTrait;
 
-use super::{errors::SqliteInfraError, migrations::Migrator};
+use super::errors::SqliteInfraError;
 
 #[derive(Debug, Clone)]
 pub struct SqliteInfraDatabase {
@@ -23,7 +22,7 @@ impl SqliteInfraDatabase {
                 })?;
 
         connection
-            .execute(Statement::from_string(
+            .execute_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 "PRAGMA foreign_keys = ON",
             ))
@@ -33,12 +32,14 @@ impl SqliteInfraDatabase {
                 message: error.to_string(),
             })?;
 
-        Migrator::up(&connection, None).await.map_err(|error| {
-            SqliteInfraError::StatementFailed {
-                operation: "run sqlite migrations",
+        connection
+            .get_schema_registry("luma_forge_lib::infra::sqlite::entities::*")
+            .sync(&connection)
+            .await
+            .map_err(|error| SqliteInfraError::SchemaMismatch {
+                operation: "sync sqlite schema",
                 message: error.to_string(),
-            }
-        })?;
+            })?;
 
         Ok(Self { connection })
     }
