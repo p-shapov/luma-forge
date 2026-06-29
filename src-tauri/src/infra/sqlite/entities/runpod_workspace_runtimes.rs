@@ -1,6 +1,7 @@
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
+#[sea_orm::model]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "runpod_workspace_runtimes")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
@@ -12,24 +13,8 @@ pub struct Model {
     pub provisioner_pod_id: Option<String>,
     pub endpoint_id: Option<String>,
     pub template_id: Option<String>,
-}
-
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::workspaces::Entity",
-        from = "Column::WorkspaceId",
-        to = "super::workspaces::Column::Id",
-        on_update = "NoAction",
-        on_delete = "Cascade"
-    )]
-    Workspace,
-}
-
-impl Related<super::workspaces::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Workspace.def()
-    }
+    #[sea_orm(belongs_to, from = "workspace_id", to = "id", on_delete = "Cascade")]
+    pub workspace: HasOne<super::workspaces::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
