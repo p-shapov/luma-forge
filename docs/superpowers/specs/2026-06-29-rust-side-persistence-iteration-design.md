@@ -154,8 +154,14 @@ entities/runpod_operation_payloads.rs
 Use SeaORM 2.0 dense entity format with `#[sea_orm::model]` and relation fields
 inside `Model` wherever it can express the required relation and cascade
 metadata. Child entities declare `belongs_to` relations with `on_delete =
-"Cascade"` so schema sync creates the target foreign keys. Parent entities use
-`HasOne`/`HasMany` relation fields for ORM traversal.
+"Cascade"` so schema sync creates the target foreign keys.
+
+Generic parent entities stay provider-polymorphic and must not expose
+provider-specific `HasOne` or `HasMany` child fields. Provider-specific child
+entities own the `belongs_to` relations with cascade. `workspaces` can keep the
+generic `HasMany<lifecycle_operations>` relation because lifecycle operations
+are generic, not provider-specific. `lifecycle_operations` does not expose a
+RunPod payload reverse relation.
 
 If a dense relation field cannot express a required cascade or primary-key
 shape, keep the entity local and explicit with SeaORM 2.0-supported relation

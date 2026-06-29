@@ -12,8 +12,6 @@ pub struct Model {
     pub runtime_kind: String,
     pub created_at: String,
     pub updated_at: String,
-    #[sea_orm(has_one)]
-    pub runpod_workspace_runtime: HasOne<super::runpod_workspace_runtimes::Entity>,
     #[sea_orm(has_many)]
     pub lifecycle_operations: HasMany<super::lifecycle_operations::Entity>,
 }

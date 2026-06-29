@@ -268,7 +268,12 @@ Entity requirements:
 - Every module ends with `impl ActiveModelBehavior for ActiveModel {}`.
 - Child relation fields use `HasOne<...>` with `#[sea_orm(belongs_to, from =
   "...", to = "...", on_delete = "Cascade")]`.
-- Parent relation fields use `HasOne<...>` or `HasMany<...>`.
+- Generic parent entities stay provider-polymorphic and must not expose
+  provider-specific `HasOne<...>` or `HasMany<...>` child fields.
+- Provider-specific child entities own `belongs_to` relations with cascade.
+- `workspaces` can keep generic `HasMany<lifecycle_operations>` because
+  lifecycle operations are generic, not provider-specific.
+- `lifecycle_operations` does not expose a RunPod payload reverse relation.
 - Relation fields are ORM metadata only and are not duplicated in
   persistence-facing structs.
 
@@ -604,3 +609,6 @@ git commit -m "chore(sqlite): format persistence layer"
   instructions without concrete requirements.
 - Type consistency: repository method names and persistence model names match
   the spec; workspace/runtime and operation/payload reads stay separate.
+- Polymorphic parent coverage: generic parent entities do not expose
+  provider-specific reverse relation fields; provider-specific child entities
+  own the cascade `belongs_to` metadata.

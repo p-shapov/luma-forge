@@ -14,8 +14,6 @@ pub struct Model {
     pub finished_at: Option<String>,
     #[sea_orm(belongs_to, from = "workspace_id", to = "id", on_delete = "Cascade")]
     pub workspace: HasOne<super::workspaces::Entity>,
-    #[sea_orm(has_one)]
-    pub runpod_operation_payload: HasOne<super::runpod_operation_payloads::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
