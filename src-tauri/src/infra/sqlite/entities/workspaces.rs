@@ -10,8 +10,8 @@ pub struct Model {
     pub workflow_version: String,
     pub state: String,
     pub runtime_kind: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: TimeDateTimeWithTimeZone,
+    pub updated_at: TimeDateTimeWithTimeZone,
     #[sea_orm(has_many)]
     pub lifecycle_operations: HasMany<super::lifecycle_operations::Entity>,
 }

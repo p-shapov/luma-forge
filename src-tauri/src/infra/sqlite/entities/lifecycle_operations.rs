@@ -9,9 +9,9 @@ pub struct Model {
     pub workspace_id: String,
     pub operation_kind: String,
     pub state: String,
-    pub created_at: String,
-    pub updated_at: String,
-    pub finished_at: Option<String>,
+    pub created_at: TimeDateTimeWithTimeZone,
+    pub updated_at: TimeDateTimeWithTimeZone,
+    pub finished_at: Option<TimeDateTimeWithTimeZone>,
     #[sea_orm(belongs_to, from = "workspace_id", to = "id", on_delete = "Cascade")]
     pub workspace: HasOne<super::workspaces::Entity>,
 }

@@ -1,3 +1,5 @@
+use sea_orm::DbErr;
+
 #[derive(Debug, thiserror::Error)]
 pub enum SqliteInfraError {
     #[error("sqlite connection failed during {operation}: {message}")]
@@ -15,9 +17,27 @@ pub enum SqliteInfraError {
         operation: &'static str,
         message: String,
     },
-    #[error("corrupt sqlite data during {operation}: {message}")]
-    CorruptData {
-        operation: &'static str,
-        message: String,
-    },
+}
+
+impl SqliteInfraError {
+    pub(crate) fn connect_failed(operation: &'static str) -> impl FnOnce(DbErr) -> Self {
+        move |error| Self::ConnectFailed {
+            operation,
+            message: error.to_string(),
+        }
+    }
+
+    pub(crate) fn statement_failed(operation: &'static str) -> impl FnOnce(DbErr) -> Self {
+        move |error| Self::StatementFailed {
+            operation,
+            message: error.to_string(),
+        }
+    }
+
+    pub(crate) fn schema_mismatch(operation: &'static str) -> impl FnOnce(DbErr) -> Self {
+        move |error| Self::SchemaMismatch {
+            operation,
+            message: error.to_string(),
+        }
+    }
 }

@@ -19,7 +19,6 @@ Create an isolated persistence layer:
 src-tauri/src/infra/sqlite/database.rs
 src-tauri/src/infra/sqlite/entities/*
 src-tauri/src/infra/sqlite/repositories/*
-src-tauri/src/infra/sqlite/model.rs
 src-tauri/src/infra/sqlite/errors.rs
 src-tauri/src/infra/sqlite/mod.rs
 ```
@@ -79,7 +78,7 @@ not add compatibility glue between the two SQLx versions.
 ## Schema
 
 The canonical schema source is the SeaORM entity definitions. Database bootstrap
-enables SQLite foreign keys and runs:
+configures SQLite foreign keys through SeaORM/SQLx connect options and runs:
 
 ```rust
 connection
@@ -133,7 +132,7 @@ Rules:
 - No `runtime_json`, `payload_json`, `meta_json`, `runtime_id`, or `payload_id`.
 - Runtime identity is `workspace_id`.
 - Operation payload identity is `operation_id`.
-- Foreign keys are enabled before schema sync.
+- Foreign keys are enabled by connection options before schema sync.
 - Provider-specific child rows use parent-owned identity and are at most one
   row per parent.
 - Existing incompatible dev schemas fail through technical schema-sync or
@@ -179,7 +178,7 @@ validation, provider behavior, or UI error semantics.
 connection bootstrap:
 
 1. Connect to the SQLite file with `mode=rwc`.
-2. Execute `PRAGMA foreign_keys = ON`.
+2. Set `foreign_keys(true)` through SeaORM `ConnectOptions`.
 3. Run SeaORM 2.0 schema sync for the `infra/sqlite/entities` registry.
 4. Return the `DatabaseConnection`.
 
@@ -189,48 +188,23 @@ mechanism for old dev schemas.
 
 ## Persistence Models
 
-`infra/sqlite/model.rs` defines persistence-facing structs:
+Do not add a separate DTO mirror for rows in this module. SeaORM entity
+`Model` types are the persistence-facing row models:
 
 ```text
-PersistedWorkspace {
-  id,
-  workflow_id,
-  workflow_version,
-  state,
-  runtime_kind,
-  created_at,
-  updated_at,
-}
+workspaces::Model
+runpod_workspace_runtimes::Model
+lifecycle_operations::Model
+runpod_operation_payloads::Model
+```
 
-PersistedRunpodRuntime {
-  workspace_id,
-  datacenter_id,
-  gpu_id,
-  volume_size_gb,
-  network_volume_id,
-  provisioner_pod_id,
-  endpoint_id,
-  template_id,
-}
+Repository query filters may use small query-object structs when they are not
+row mirrors. `LifecycleOperationFilter` is such a query object:
 
-PersistedLifecycleOperation {
-  id,
-  workspace_id,
-  operation_kind,
-  state,
-  created_at,
-  updated_at,
-  finished_at,
-}
-
-PersistedLifecycleOperationFilter {
+```text
+LifecycleOperationFilter {
   workspace_id,
   states,
-}
-
-PersistedRunpodPayload {
-  operation_id,
-  step,
 }
 ```
 
@@ -238,9 +212,8 @@ Use string-backed `state`, `runtime_kind`, `operation_kind`, and `step` fields
 for this iteration. Typed application/runtime enums are designed in later
 iterations.
 
-Persist timestamp columns as canonical UTC text with fixed-width fractional
-seconds so SQLite text ordering matches chronological ordering for values
-written by this layer.
+Use SeaORM `with-time` native timestamp values (`TimeDateTimeWithTimeZone`) for
+timestamp columns. Do not add hand-written timestamp parse/format helpers.
 
 ## Repositories
 
@@ -254,10 +227,10 @@ repositories/lifecycle_operations.rs
 Workspace repository API:
 
 ```text
-list_workspaces() -> Vec<PersistedWorkspace>
-find_workspace(id) -> Option<PersistedWorkspace>
+list_workspaces() -> Vec<workspaces::Model>
+find_workspace(id) -> Option<workspaces::Model>
 insert_workspace(workspace)
-find_runpod_runtime(workspace_id) -> Option<PersistedRunpodRuntime>
+find_runpod_runtime(workspace_id) -> Option<runpod_workspace_runtimes::Model>
 insert_runpod_runtime(runpod_runtime)
 update_workspace(workspace)
 update_runpod_runtime(runpod_runtime)
@@ -269,11 +242,11 @@ Lifecycle operation repository API:
 ```text
 insert_operation(operation)
 insert_runpod_payload(payload)
-find_operation(id) -> Option<PersistedLifecycleOperation>
-list_operations(filter) -> Vec<PersistedLifecycleOperation>
-latest_operation(workspace_id) -> Option<PersistedLifecycleOperation>
+find_operation(id) -> Option<lifecycle_operations::Model>
+list_operations(filter) -> Vec<lifecycle_operations::Model>
+latest_operation(workspace_id) -> Option<lifecycle_operations::Model>
 update_operation(operation)
-find_runpod_payload(operation_id) -> Option<PersistedRunpodPayload>
+find_runpod_payload(operation_id) -> Option<runpod_operation_payloads::Model>
 update_runpod_payload(payload)
 delete_for_workspace(workspace_id)
 ```
@@ -291,7 +264,6 @@ supplied by callers; they do not decide which states are "running" or terminal.
 ConnectFailed
 StatementFailed
 SchemaMismatch
-CorruptData
 ```
 
 Repositories and database bootstrap map SeaORM/SQLite failures into these
