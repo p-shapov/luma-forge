@@ -17,6 +17,7 @@ Create an isolated persistence layer:
 ```text
 src-tauri/src/infra/sqlite/database.rs
 src-tauri/src/infra/sqlite/entities/*
+src-tauri/src/infra/sqlite/migrations/*
 src-tauri/src/infra/sqlite/repositories/*
 src-tauri/src/infra/sqlite/model.rs
 src-tauri/src/infra/sqlite/errors.rs
@@ -27,10 +28,12 @@ The new persistence API is infra-owned. It is not shaped by the old
 `WorkspaceCatalogRepository` or `LifecycleJournalRepository` traits. The next
 iteration will decide how application ports map to this persistence API.
 
-Future application ports will live in `application/ports.rs`. Their SQLite
-implementations will stay in `infra/sqlite/repositories/*`; composition will
-only construct and wire those concrete repositories. Do not create a separate
-"ports implementations" layer.
+Future application workspace ports will live in
+`application/workspace/ports.rs`. Future runtime persistence ports will live in
+`runtime/runpod/ports.rs`. This iteration's repositories are lower-level
+SeaORM-backed storage services, not those port contracts yet. Later iterations
+may add trait impls for application/runtime ports in these same repository
+modules; composition will only construct and wire the concrete repositories.
 
 The complete backend does not need to remain runnable during this iteration.
 Avoid compatibility shims whose only purpose is to keep old JSON persistence or
@@ -38,18 +41,19 @@ old repository contracts alive.
 
 Out of scope:
 
-- `application/model.rs`
-- `application/ports.rs`
+- `application/workspace/model.rs`
+- `application/workspace/ports.rs`
 - `runtime/runpod/model.rs`
+- `runtime/runpod/ports.rs`
 - Tauri/Specta facade DTO changes
 - frontend generated command bindings
 - migration from the old pre-v1 JSON-backed dev database
 
 ## Dependencies
 
-Add SeaORM dependencies needed for SQLite persistence in `src-tauri/Cargo.toml`.
-Existing SQLx dependencies may remain while old modules still exist, but new
-`infra/sqlite` code uses SeaORM only.
+Add SeaORM and SeaORM Migration dependencies needed for SQLite persistence in
+`src-tauri/Cargo.toml`. Existing SQLx dependencies may remain while old modules
+still exist, but new `infra/sqlite` code uses SeaORM only.
 
 ## Schema
 
@@ -61,15 +65,12 @@ workspaces
   workflow_id
   workflow_version
   state
+  runtime_kind
   created_at
   updated_at
 
-workspace_runtimes
-  workspace_id primary key references workspaces(id)
-  runtime_kind
-
 runpod_workspace_runtimes
-  workspace_id primary key references workspace_runtimes(workspace_id)
+  workspace_id primary key references workspaces(id)
   datacenter_id
   gpu_id
   volume_size_gb
@@ -98,9 +99,10 @@ Rules:
 - Runtime identity is `workspace_id`.
 - Operation payload identity is `operation_id`.
 - Foreign keys are enabled.
-- Child rows are strict 1:1 with parent rows.
-- Existing incompatible dev schemas fail clearly; no migration or fallback is
-  added in this iteration.
+- Provider-specific child rows use parent-owned identity and are at most one
+  row per parent.
+- Existing incompatible dev schemas fail clearly; no compatibility migration or
+  fallback for old JSON-backed schemas is added in this iteration.
 
 ## Entities
 
@@ -108,7 +110,6 @@ SeaORM entities mirror the tables directly:
 
 ```text
 entities/workspaces.rs
-entities/workspace_runtimes.rs
 entities/runpod_workspace_runtimes.rs
 entities/lifecycle_operations.rs
 entities/runpod_operation_payloads.rs
@@ -117,6 +118,13 @@ entities/runpod_operation_payloads.rs
 Entities contain relational persistence shape only. They do not encode
 workspace state transition rules, RunPod lifecycle step order, workflow catalog
 validation, provider behavior, or UI error semantics.
+
+## Migrations
+
+`infra/sqlite/migrations` defines versioned SeaORM migrations for the current
+target schema. The initial migration creates the normalized tables and foreign
+keys listed above. It is not a compatibility migration from the old JSON-backed
+development schema.
 
 ## Persistence Models
 
@@ -128,16 +136,12 @@ PersistedWorkspace {
   workflow_id,
   workflow_version,
   state,
+  runtime_kind,
   created_at,
   updated_at,
 }
 
-PersistedWorkspaceRuntime {
-  workspace_id,
-  runtime_kind,
-}
-
-PersistedRunpodWorkspaceRuntime {
+PersistedRunpodRuntime {
   workspace_id,
   datacenter_id,
   gpu_id,
@@ -158,7 +162,12 @@ PersistedLifecycleOperation {
   finished_at,
 }
 
-PersistedRunpodOperationPayload {
+PersistedLifecycleOperationFilter {
+  workspace_id,
+  states,
+}
+
+PersistedRunpodPayload {
   operation_id,
   step,
 }
@@ -170,7 +179,7 @@ iterations.
 
 ## Repositories
 
-Repository modules:
+Repository modules are concrete infra storage services over SeaORM entities:
 
 ```text
 repositories/workspaces.rs
@@ -180,31 +189,38 @@ repositories/lifecycle_operations.rs
 Workspace repository API:
 
 ```text
-list() -> Vec<(PersistedWorkspace, PersistedRunpodWorkspaceRuntime)>
-find(id) -> Option<(PersistedWorkspace, PersistedRunpodWorkspaceRuntime)>
-insert_runpod(workspace, runtime)
-update_runpod(workspace, runtime)
+list_workspaces() -> Vec<PersistedWorkspace>
+find_workspace(id) -> Option<PersistedWorkspace>
+insert_workspace(workspace)
+find_runpod_runtime(workspace_id) -> Option<PersistedRunpodRuntime>
+insert_runpod_runtime(runpod_runtime)
+update_workspace(workspace)
+update_runpod_runtime(runpod_runtime)
 delete(id)
 ```
 
 Lifecycle operation repository API:
 
 ```text
-create(operation)
-find_running_by_workspace(workspace_id)
-list_running()
-latest_for_workspace(workspace_id)
-update(operation, payload)
-mark_state(operation_id, state, payload)
+insert_operation(operation)
+insert_runpod_payload(payload)
+find_operation(id) -> Option<PersistedLifecycleOperation>
+list_operations(filter) -> Vec<PersistedLifecycleOperation>
+latest_operation(workspace_id) -> Option<PersistedLifecycleOperation>
+update_operation(operation)
+find_runpod_payload(operation_id) -> Option<PersistedRunpodPayload>
+update_runpod_payload(payload)
 delete_for_workspace(workspace_id)
 ```
 
-Repository methods should avoid business interpretation. For absence, prefer
-`Option` or affected-row counts over domain-style errors. Parent and child
-writes happen in one transaction.
+Write methods are row-level storage operations. Callers that write parent plus
+child rows must use one repository/database transaction for the full group.
+Operation filters compare exact persisted workspace IDs and state strings
+supplied by callers; they do not decide which states are "running" or terminal.
 
-Reads reconstruct parent plus RunPod child persistence records. If required
-child rows are missing, return a technical corrupt-data or schema error.
+Workspace reads return workspace rows only. RunPod runtime reads return RunPod
+runtime rows only. Lifecycle operation reads return operation rows only. RunPod
+payload reads return payload rows only.
 
 ## Errors
 
@@ -214,8 +230,6 @@ child rows are missing, return a technical corrupt-data or schema error.
 SqliteInfraError
   ConnectFailed
   StatementFailed
-  TransactionFailed
-  ConstraintViolated
   SchemaMismatch
   CorruptData
 ```
@@ -224,16 +238,14 @@ No business-shaped errors live in this iteration. Do not add `AlreadyExists`,
 `RunningOperationExists`, `InvalidState`, command error codes, or UI-safe
 facade errors here.
 
-If SQLite reports a unique, foreign key, or check constraint failure, return
-`ConstraintViolated` with technical context such as operation, table, or
-constraint name when available. Later application code can map constraints to
-business outcomes if needed.
+Do not derive error variants by parsing raw SQLite driver error strings.
+Migration and query execution failures that do not come from explicit local
+schema or stored-value parsing checks return `StatementFailed`.
 
 Validation is limited to persistence requirements:
 
 - primary and foreign key fields must be usable as storage keys,
 - timestamps must store and parse consistently,
-- parent/child rows needed to reconstruct a persistence record must exist,
 - numeric storage fields must fit their Rust persistence types.
 
 Do not validate workflow existence, workspace state transitions, RunPod step
@@ -242,23 +254,17 @@ semantics, volume sizing, provider semantics, or UI error semantics.
 
 ## Verification
 
-Iteration 1 does not require new behavioral tests. Behavior belongs in higher
-layers: application use cases, RunPod runtime sequencing, and facade
-integration. Persistence tests at this stage should not lock in unnecessary
-implementation details.
+Iteration 1 does not require application, runtime, or facade behavioral tests.
+Those belong in later layers. Do not add infra tests in this iteration; add
+them later only when persistence behavior protects a real contract.
 
 Use lightweight verification in the implementation plan:
 
 ```text
-review SeaORM entities against the approved table/column contract
-review repository methods for transaction boundaries
-review that repository methods return technical infra errors only
-review that no secret-bearing fields are introduced
-run the narrowest compile/check command that is practical after the edit
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo check --manifest-path src-tauri/Cargo.toml --all-targets
+rg "#\\[cfg\\(test\\)\\]|#\\[tokio::test\\]|#\\[test\\]" src-tauri/src/infra
 ```
-
-A small schema smoke test may be added if it is cheaper than manual inspection,
-but it is not required by this spec.
 
 Do not add tests whose purpose is to assert removed JSON schema, removed old
 repository behavior, deprecated module names, or absence of legacy

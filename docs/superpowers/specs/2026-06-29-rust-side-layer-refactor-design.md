@@ -1,376 +1,116 @@
 # Rust-Side Layer Refactor Design
 
-## Context
+## Direction
 
-LumaForge's current native backend is organized around `tauri_api`, `app`,
-`workspace`, `domain`, `provider`, catalog modules, SQLite repositories, and
-secret storage. The target architecture is the Rust-side brief in
-`.prompts/rust-side-architecture-brief.md`.
+Use a persistence-first, iterative refactor from current `tauri_api`, `app`,
+`workspace`, `domain`, `provider`, catalog, SQLite repository, and secret
+storage modules toward layered Rust backend boundaries.
 
-The current SQLite implementation stores provider-specific runtime and
-operation state as `runtime_json` and `payload_json`. The target contract
-normalizes that state into runtime-specific tables and keeps SeaORM inside the
-SQLite infrastructure layer.
+This is an umbrella spec. It defines shared target boundaries and iteration
+order only. Each iteration needs its own focused design spec before
+implementation planning, including exact contracts, files, tests, and
+verification commands.
 
-## Approved Direction
+During intermediate iterations, neighboring layers may be temporarily broken if
+the layer under change remains testable through focused tests. Full backend
+integration returns in the final iteration. No legacy bridges, compatibility
+shims, or migrations are added for the old pre-v1 JSON persistence schema.
+Incompatible existing dev DBs fail clearly.
 
-Use a persistence-first, iterative refactor.
+## Iterations
 
-The final architecture follows the full brief. This spec is an umbrella design:
-it preserves shared context, target boundaries, and iteration order. It is not
-detailed enough to implement any iteration directly.
+1. **Persistence**
+   Add SeaORM under `infra/sqlite/entities/*` and
+   `infra/sqlite/repositories/*`. Replace JSON-backed workspace/lifecycle
+   repositories with normalized relational repositories for `workspaces`,
+   `workspace_runtimes`, `runpod_workspace_runtimes`, `lifecycle_operations`,
+   and `runpod_operation_payloads`. Remove `runtime_json` and `payload_json`
+   from the target contract.
 
-Each broad iteration requires its own focused design spec before implementation
-planning. That iteration spec must define the exact layer contract, module/file
-targets, repository or port API, test scope, and verification commands for that
-iteration. Only after that focused spec is approved should an implementation
-plan be written for that iteration.
+2. **Bundled Catalogs**
+   Move bundled workflow/runtime catalog loading into `infra/bundled`:
+   `workflows.rs`, `runtime_contracts.rs`, `execution_schemas.rs`.
+   `infra/bundled` reads bundled JSON, validates catalog shape, and returns
+   catalog data through a persistence-free API. Source JSON stays under
+   `bundled/**`. The focused spec defines catalog API, validation boundary,
+   error shape, and later workspace-port consumption.
 
-Intermediate iterations do not need to keep the complete backend runnable. That
-is intentional: preserving full app behavior at every step would push the
-refactor toward legacy bridges and compatibility shims. During an iteration,
-neighboring layers may be temporarily broken if the layer being changed remains
-testable through its own focused tests. Full backend integration is restored in
-the final iteration.
+3. **Infra Keyring And Providers**
+   Move technical secure storage and raw provider HTTP clients into
+   `infra/keyring/*`, `infra/providers/runpod/*`, and
+   `infra/providers/hugging_face/*`. These modules own platform keyring access,
+   raw HTTP calls, provider request/response mapping, and provider identity
+   calls. They do not implement application workspace ports in this iteration.
 
-No migration or compatibility path is added for the old pre-v1 JSON persistence
-schema. A new database uses the target schema. An incompatible existing dev
-database should fail clearly instead of falling back to old columns.
+4. **Application Workspace**
+   Replace current workspace module with `application/workspace`: `model.rs`,
+   `ports.rs`, `errors.rs`, `service.rs`, `dispatcher.rs`, `background.rs`,
+   `mod.rs`. It owns provider-neutral workspace use cases, lifecycle operation
+   creation, state transitions, in-flight tracking, and ports.
 
-## Iteration Sequence
+5. **Secrets**
+   Create top-level `secrets` adapter layer:
+   `secrets/runpod/{credentials.rs,ports.rs}` and
+   `secrets/hugging_face/{credentials.rs,ports.rs}`. `credentials.rs`
+   implements application credential ports. `ports.rs` defines narrow storage
+   and provider identity dependencies. `secrets` owns setup, delete, identity
+   lookup, trusted secret retrieval, and RunPod workspace bearer-token issuing.
 
-### Iteration 1: Persistence
+6. **RunPod Runtime**
+   Move RunPod lifecycle orchestration into `runtime/runpod`: `model.rs`,
+   `ports.rs`, `provision.rs`, `cleanup.rs`, `delete.rs`. It owns step order,
+   cleanup order, polling behavior, RunPod payload updates, and progress
+   reporting through ports. It imports no SQLite or Tauri.
 
-Add SeaORM and introduce `infra/sqlite/entities/*` plus
-`infra/sqlite/repositories/*`. Replace the JSON-backed workspace and lifecycle
-repositories with normalized relational repositories.
+7. **Facade And Composition**
+   Move Tauri/Specta API boundary into
+   `facade/{commands/*,events.rs,types/*, errors.rs,tracing.rs}` and dependency
+   wiring into `composition/{bootstrap.rs,state.rs}`. Command DTOs/events may
+   change. `src/generated/commands.ts` is updated by codegen only.
 
-Targets:
+## Dependency Rule
 
-- `workspaces`
-- `workspace_runtimes`
-- `runpod_workspace_runtimes`
-- `lifecycle_operations`
-- `runpod_operation_payloads`
-
-Remove `runtime_json` and `payload_json` from the target persistence contract.
-
-### Iteration 2: Bundled Catalogs
-
-Move bundled workflow and runtime catalog loading into `infra/catalogs`.
-
-Targets:
-
-- `infra/catalogs/workflows.rs`
-- `infra/catalogs/runtime_contracts.rs`
-- `infra/catalogs/execution_schemas.rs`
-- `infra/catalogs/errors.rs`
-- `infra/catalogs/mod.rs`
-
-`infra/catalogs` owns reading bundled JSON, validating catalog shape, and
-returning catalog data through a persistence-free API. Bundled JSON remains
-static app data under `bundled/**`.
-
-This iteration gets its own focused design spec before implementation planning.
-That spec must define the catalog data API, validation boundary, error shape,
-and how later workspace ports will consume catalog data.
-
-### Iteration 3: Infra Keyring And Providers
-
-Move secure storage and raw provider HTTP clients into infrastructure modules.
-
-Targets:
-
-- `infra/keyring/*`
-- `infra/providers/runpod/*`
-- `infra/providers/hugging_face/*`
-
-`infra/keyring` owns technical secure storage through the platform keyring.
-`infra/providers/runpod` and `infra/providers/hugging_face` own raw HTTP
-clients, provider request/response mapping, and provider identity calls.
-
-This iteration does not implement application workspace ports. It prepares
-concrete storage and provider primitives that later adapter layers can use.
-
-### Iteration 4: Application Workspace
-
-Move provider-neutral workspace models and ports into `application/workspace`.
-This target module is not the current `src-tauri/src/workspace` module reused
-as-is; it is the replacement workspace use-case module shaped by this spec.
-
-Targets:
-
-- `application/workspace/model.rs`
-- `application/workspace/ports.rs`
-- `application/workspace/errors.rs`
-- `application/workspace/service.rs`
-- `application/workspace/dispatcher.rs`
-- `application/workspace/background.rs`
-- `application/workspace/mod.rs`
-
-`application/workspace` owns workspace use cases, lifecycle operation creation,
-state transitions, in-flight operation tracking, and provider-neutral ports. It
-does not import Tauri, SeaORM, SQLx, reqwest, keyring, or concrete provider
-clients. Credential-facing capabilities are declared as application workspace
-ports here, but their implementations live outside `application`.
-
-### Iteration 5: Secrets
-
-Create a top-level `secrets` adapter layer.
-
-Targets:
-
-- `secrets/runpod/credentials.rs`
-- `secrets/runpod/ports.rs`
-- `secrets/hugging_face/credentials.rs`
-- `secrets/hugging_face/ports.rs`
-
-`credentials.rs` implements the application workspace credential ports. `ports.rs`
-defines the narrow storage and provider identity dependencies required by that
-credential workflow. `secrets` owns setup, delete, identity lookup, trusted
-secret retrieval, and RunPod workspace bearer token issuing. It does not expose
-raw secrets to `facade` or React.
-
-### Iteration 6: RunPod Runtime
-
-Move RunPod-specific lifecycle orchestration into `runtime/runpod`.
-
-Targets:
-
-- `runtime/runpod/model.rs`
-- `runtime/runpod/ports.rs`
-- `runtime/runpod/provision.rs`
-- `runtime/runpod/cleanup.rs`
-- `runtime/runpod/delete.rs`
-
-RunPod lifecycle code owns step order, cleanup order, polling behavior, and
-RunPod payload updates. It reports progress through ports and does not import
-SQLite or Tauri.
-
-### Iteration 7: Facade And Composition
-
-Move Tauri/Specta API boundaries into `facade` and concrete dependency wiring
-into `composition`.
-
-Targets:
-
-- `facade/commands/*`
-- `facade/events.rs`
-- `facade/types/*`
-- `facade/errors.rs`
-- `facade/tracing.rs`
-- `composition/bootstrap.rs`
-- `composition/state.rs`
-
-Tauri command DTOs and generated frontend bindings may change. The generated
-`src/generated/commands.ts` file is updated through codegen, not manually.
-
-## Target Dependency Rule
-
-The final dependency direction is:
+Final dependency direction:
 
 ```text
 facade -> application
-application -> models + ports
-runtime/runpod -> models + ports
-secrets -> application ports + infra/keyring + infra/providers
-infra -> models + ports
+application -> application models + application ports
+runtime/runpod -> runtime models + runtime ports
+secrets -> application ports + secrets ports
+infra -> application/runtime models + application/runtime/secrets ports
 composition -> wires all
 ```
 
 Layer ownership:
 
 - `facade`: Tauri commands/events, Specta DTOs, UI-safe errors, `traceId`.
-- `application`: provider-neutral workspace use cases and lifecycle state,
-  currently through `application/workspace`.
+- `application`: provider-neutral workspace use cases and lifecycle state.
 - `runtime/runpod`: RunPod lifecycle sequence and RunPod-specific runtime data.
-- `infra`: SeaORM SQLite repositories, bundled catalog readers, keyring, HTTP
-  clients, and Tauri event sink implementation.
-- `secrets`: credential workflows that implement application ports using
-  keyring and provider infrastructure.
-- `composition`: database open, diagnostics init, concrete dependency wiring,
-  and `NativeAppState`.
+- `infra`: SeaORM SQLite repositories, bundled readers, keyring, HTTP clients,
+  and Tauri event sink implementation.
+- `secrets`: credential workflows using narrow secrets-owned storage and
+  provider identity ports.
+- `composition`: DB open, diagnostics init, concrete dependency wiring, and
+  `NativeAppState`.
 
-There is no separate `domain` layer in the final target. Provider-neutral models
-live in `application/workspace/model.rs`. RunPod-specific models live in
+No final `domain` layer. Provider-neutral models live in
+`application/workspace/model.rs`; RunPod-specific models live in
 `runtime/runpod/model.rs`.
 
-## Persistence Contract
+## Verification
 
-Target SQLite schema:
+Each iteration gets focused design, implementation plan, and verification
+commands.
 
-```text
-workspaces
-  id primary key
-  workflow_id
-  workflow_version
-  state
-  created_at
-  updated_at
-
-workspace_runtimes
-  workspace_id primary key references workspaces(id)
-  runtime_kind
-
-runpod_workspace_runtimes
-  workspace_id primary key references workspace_runtimes(workspace_id)
-  datacenter_id
-  gpu_id
-  volume_size_gb
-  network_volume_id
-  provisioner_pod_id
-  endpoint_id
-  template_id
-
-lifecycle_operations
-  id primary key
-  workspace_id references workspaces(id)
-  operation_kind
-  state
-  created_at
-  updated_at
-  finished_at
-
-runpod_operation_payloads
-  operation_id primary key references lifecycle_operations(id)
-  step
-```
-
-Rules:
-
-- No `runtime_json`, `payload_json`, `meta_json`, `runtime_id`, or `payload_id`.
-- Runtime identity is `workspace_id`.
-- Operation payload identity is `operation_id`.
-- SeaORM entities stay under `infra/sqlite/entities`.
-- SeaORM repositories stay under `infra/sqlite/repositories`.
-- `application`, `runtime/runpod`, and `facade` never import SeaORM `Entity`,
-  `Model`, or `ActiveModel`.
-- Transactions enforce parent and child writes for workspace/runtime rows and
-  operation/payload rows.
-
-## Workspace And Runtime Flow
-
-Provider-neutral workspace models:
-
-```text
-Workspace { id, workflow, state }
-LifecycleOperation { id, workspace_id, kind, state, timestamps }
-```
-
-RunPod runtime models:
-
-```text
-RunpodWorkspaceRuntime { workspace_id, placement, resources }
-RunpodOperationPayload { operation_id, step }
-```
-
-Application workspace ports:
-
-```text
-WorkspaceRepository
-LifecycleOperationRepository
-WorkflowCatalogRepository
-RuntimeCatalogRepository
-WorkspaceEventSink
-WorkspaceRuntimeLifecycle
-RuntimeEventSink
-```
-
-`WorkspaceRuntimeLifecycle` is the application-owned trait used by
-`WorkspaceService` to run provision, cleanup, and delete operations without
-knowing the concrete runtime implementation. `application/workspace/dispatcher.rs`
-selects the runtime implementation by provider-neutral `RuntimeKind`; the
-dispatcher does not know RunPod lifecycle internals.
-
-RunPod runtime ports:
-
-```text
-RunpodRuntimeClient
-RunpodRuntimeRepository
-```
-
-Secret-related application workspace ports are declared in
-`application/workspace/ports.rs` and
-implemented in the top-level `secrets` layer. Low-level keyring and provider
-clients remain in `infra`.
-
-Provision flow:
-
-```text
-facade command
-  -> application workspace service provision use case
-  -> create lifecycle operation and set workspace Provisioning
-  -> spawn lifecycle runner
-  -> runtime::runpod::provision with application-owned RuntimeContext
-  -> runtime persists RunPod runtime data through runtime-owned ports
-  -> runtime reports typed runtime facts through application-owned RuntimeEventSink
-  -> event sink emits UI-safe events
-```
-
-Application workspace owns operation terminal state and workspace state transitions.
-Runtime may persist RunPod-specific runtime data through `runtime/runpod` ports,
-but it does not emit Tauri/UI events directly. Application workspace receives
-typed enum envelopes such as `RuntimeSnapshot::Runpod` and
-`RuntimeOperationPayload::Runpod`, then emits UI-safe events. Do not use opaque
-JSON payloads for runtime updates.
-
-## Facade, Errors, And Secrets
-
-The facade may change command DTOs and events. React-facing data remains
-UI-safe:
-
-- no raw provider API keys
-- no bearer tokens
-- no worker tokens
-- no credential-bearing URLs
-- no raw provider payloads
-- no SQLite internals
-
-Errors are mapped at boundaries:
-
-```text
-infra/provider errors -> application/runtime errors
-application/runtime errors -> facade CommandError { code, message, traceId }
-```
-
-`CommandError` remains UI-safe and traceable. `traceId` is created at the
-command boundary or startup context. Logs may include structured diagnostics,
-but must not include secrets.
-
-Secrets remain write-only from React. Facade commands may set, delete, and
-validate credential identity, but cannot return raw secret values. Keyring
-access lives in `infra/keyring`. Credential workflows live in top-level
-`secrets`. Trusted runtime/provider paths receive secret material only through
-application ports implemented by `secrets`.
-
-## Testing And Verification
-
-Each broad iteration gets its own focused design spec, implementation plan, and
-verification commands.
-
-Iteration 1 verifies the persistence layer only:
-
-- SeaORM schema/entities bootstrap.
-- Workspace plus runtime child mapping.
-- Lifecycle operation plus RunPod payload child mapping.
-- Repository transactions.
-- No `runtime_json` or `payload_json` in the target schema.
-
-Iteration 2 verifies bundled catalog loading and validation boundaries only.
-
-Iteration 3 verifies keyring/provider infrastructure boundaries only.
-
-Iteration 4 verifies application workspace models, ports, and use cases with
-fake ports.
-
-Iteration 5 verifies secrets adapters against fake keyring/provider
-infrastructure.
-
-Iteration 6 verifies `runtime/runpod` step sequencing, provider failure
-handling, runtime persistence, and typed event reporting with fake runtime
-client/repository/event ports.
-
-Iteration 7 verifies facade, composition, codegen, and full backend integration.
+- Iteration 1: SeaORM bootstrap, workspace/runtime mapping,
+  operation/RunPod-payload mapping, repository transactions, no JSON columns.
+- Iteration 2: bundled catalog loading and validation boundaries.
+- Iteration 3: keyring/provider infrastructure boundaries.
+- Iteration 4: application workspace models, ports, and use cases with fakes.
+- Iteration 5: secrets adapters against fake keyring/provider infrastructure.
+- Iteration 6: `runtime/runpod` sequencing, provider failures, runtime
+  persistence, and typed events with fake runtime ports.
+- Iteration 7: facade, composition, codegen, and full backend integration.
 
 Full final verification:
 
