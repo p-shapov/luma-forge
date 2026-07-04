@@ -100,15 +100,3 @@ Touch only what you must.
 ### Commit Conventions
 
 All commits must follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) v1.0.0, for example `feat(scope): description`, `fix(scope): description`, or `docs(scope): description`.
-
-### Asking the User Questions
-
-**ALWAYS** use a user-input tool when asking the user questions, in any context.
-
-Tool selection depends on the runtime:
-
-- In **Codex**, use `request_user_input`.
-- In **Claude Code**, use `AskUserQuestion` if it is available.
-- If the expected tool is not available in the current runtime, do not ask the question as plain text unless there is no tool-based alternative. First check whether an equivalent user-input tool exists.
-
-If there are too many questions for a single tool call, split them into multiple calls.
