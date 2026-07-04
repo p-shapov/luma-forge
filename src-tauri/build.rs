@@ -89,12 +89,12 @@ fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) {
         return;
     }
 
-    let Ok(entries) = fs::read_dir(path) else {
-        return;
-    };
+    let entries = fs::read_dir(path)
+        .unwrap_or_else(|error| panic!("{}: directory traversal failed: {error}", path.display()));
 
     for entry in entries {
-        let entry = entry.expect("failed to read directory entry");
+        let entry = entry
+            .unwrap_or_else(|error| panic!("{}: directory entry failed: {error}", path.display()));
         collect_json_files(&entry.path(), files);
     }
 }

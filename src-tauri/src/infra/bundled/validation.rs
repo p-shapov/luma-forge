@@ -103,7 +103,7 @@ pub fn validate_bundled_catalog(
 ) -> Result<Vec<BundledAsset>, BundledValidationError> {
     let mut assets = Vec::new();
 
-    for path in sorted_json_files(root) {
+    for path in sorted_json_files(root)? {
         let relative = path
             .strip_prefix(root)
             .expect("bundled path should be under bundled root")
@@ -147,29 +147,39 @@ pub fn validate_bundled_catalog(
     Ok(assets)
 }
 
-fn sorted_json_files(root: &Path) -> Vec<PathBuf> {
+fn sorted_json_files(root: &Path) -> Result<Vec<PathBuf>, BundledValidationError> {
     let mut files = Vec::new();
-    collect_json_files(root, &mut files);
+    collect_json_files(root, &mut files)?;
     files.sort();
-    files
+    Ok(files)
 }
 
-fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) {
+fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<(), BundledValidationError> {
     if path.is_file() {
         if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
             files.push(path.to_path_buf());
         }
-        return;
+        return Ok(());
     }
 
-    let Ok(entries) = std::fs::read_dir(path) else {
-        return;
-    };
+    let path_string = path.display().to_string();
+    let entries = std::fs::read_dir(path).map_err(|error| {
+        invalid(
+            &path_string,
+            format!("bundled directory traversal failed: {error}"),
+        )
+    })?;
 
     for entry in entries {
-        let entry = entry.expect("failed to read directory entry");
-        collect_json_files(&entry.path(), files);
+        let entry = entry.map_err(|error| {
+            invalid(
+                &path_string,
+                format!("bundled directory entry failed: {error}"),
+            )
+        })?;
+        collect_json_files(&entry.path(), files)?;
     }
+    Ok(())
 }
 
 fn invalid(path: &str, message: impl Into<String>) -> BundledValidationError {
@@ -253,6 +263,19 @@ mod tests {
         let BundledValidationError::Invalid { path, message } = error;
         assert_eq!(path, "workflows/example-flow/1.0.0/metadata.json");
         assert!(message.starts_with("bundled JSON parse failed:"));
+    }
+
+    #[test]
+    fn validate_bundled_catalog_returns_err_for_missing_root() {
+        let fixture = TestFixture::new();
+        let root = fixture.path().to_path_buf();
+        drop(fixture);
+
+        let error = validate_bundled_catalog(&root, &test_schemas()).unwrap_err();
+
+        let BundledValidationError::Invalid { path, message } = error;
+        assert_eq!(path, root.display().to_string());
+        assert!(message.starts_with("bundled directory traversal failed:"));
     }
 
     fn test_schemas() -> Vec<SchemaDocument> {
