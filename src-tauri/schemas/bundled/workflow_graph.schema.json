@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "luma-forge://schemas/bundled/workflow_graph.schema.json",
+  "title": "WorkflowGraph",
+  "type": "object",
+  "required": ["$schema", "workflow_id", "revision", "graph"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "const": "luma-forge://schemas/bundled/workflow_graph.schema.json" },
+    "workflow_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+    "revision": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "graph": { "type": "object" }
+  }
+}
