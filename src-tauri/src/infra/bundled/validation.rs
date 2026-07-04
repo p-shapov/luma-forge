@@ -1,4 +1,3 @@
-#[cfg(not(test))]
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,14 +13,13 @@ pub enum BundledValidationError {
     Invalid { path: String, message: String },
 }
 
-#[cfg(not(test))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchemaDocument {
     pub id: String,
     pub json: serde_json::Value,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub fn is_safe_relative_path(path: &str) -> bool {
     let path = path.trim();
     !path.is_empty()
@@ -33,7 +31,7 @@ pub fn is_safe_relative_path(path: &str) -> bool {
             .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 pub fn is_secret_like(value: &str) -> bool {
     let value = value.to_ascii_lowercase();
     value.contains("secret")
@@ -99,7 +97,6 @@ pub fn validate_cross_file_assets(assets: &[BundledAsset]) -> Result<(), Bundled
     Ok(())
 }
 
-#[cfg(not(test))]
 pub fn validate_bundled_catalog(
     root: &Path,
     schemas: &[SchemaDocument],
@@ -119,34 +116,25 @@ pub fn validate_bundled_catalog(
             });
         }
 
-        let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-            panic!(
-                "{}: bundled read failed: {error}",
-                path.strip_prefix(root)
-                    .expect("bundled path should be under bundled root")
-                    .display()
-            )
-        });
-        let json: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|error| {
-            panic!(
-                "{}: bundled JSON parse failed: {error}",
-                path.strip_prefix(root)
-                    .expect("bundled path should be under bundled root")
-                    .display()
-            )
-        });
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| invalid(&relative, format!("bundled read failed: {error}")))?;
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|error| invalid(&relative, format!("bundled JSON parse failed: {error}")))?;
         let schema_id = json
             .get("$schema")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_else(|| panic!("{relative}: bundled JSON missing $schema"));
+            .ok_or_else(|| invalid(&relative, "bundled JSON missing $schema"))?;
         let schema = schemas
             .iter()
             .find(|schema| schema.id == schema_id)
-            .unwrap_or_else(|| panic!("{relative}: unknown bundled schema {schema_id}"));
+            .ok_or_else(|| invalid(&relative, format!("unknown bundled schema {schema_id}")))?;
         let validator = jsonschema::validator_for(&schema.json)
-            .unwrap_or_else(|error| panic!("{schema_id}: schema validator failed: {error}"));
+            .map_err(|error| invalid(&relative, format!("schema validator failed: {error}")))?;
         if let Err(error) = validator.validate(&json) {
-            panic!("{relative}: bundled schema validation failed: {error}");
+            return Err(invalid(
+                &relative,
+                format!("bundled schema validation failed: {error}"),
+            ));
         }
 
         assets.push(BundledAsset {
@@ -159,7 +147,6 @@ pub fn validate_bundled_catalog(
     Ok(assets)
 }
 
-#[cfg(not(test))]
 fn sorted_json_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     collect_json_files(root, &mut files);
@@ -167,7 +154,6 @@ fn sorted_json_files(root: &Path) -> Vec<PathBuf> {
     files
 }
 
-#[cfg(not(test))]
 fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) {
     if path.is_file() {
         if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
@@ -186,9 +172,21 @@ fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
+fn invalid(path: &str, message: impl Into<String>) -> BundledValidationError {
+    BundledValidationError::Invalid {
+        path: path.to_string(),
+        message: message.into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn safe_relative_path_rejects_absolute_parent_and_backslash_paths() {
@@ -219,5 +217,97 @@ mod tests {
         ));
         assert!(!approved_bundled_path("workflow-catalog.json"));
         assert!(!approved_bundled_path("workflows/example-flow.json"));
+    }
+
+    #[test]
+    fn validate_bundled_catalog_accepts_valid_fixture() {
+        let fixture = TestFixture::new();
+        fixture.write_json(
+            "workflows/example-flow/1.0.0/metadata.json",
+            r#"{
+              "$schema": "https://example.com/schemas/workflow-metadata.json",
+              "name": "Example Flow"
+            }"#,
+        );
+
+        let assets = validate_bundled_catalog(fixture.path(), &test_schemas()).unwrap();
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].path, "workflows/example-flow/1.0.0/metadata.json");
+        assert_eq!(
+            assets[0].schema_id,
+            "https://example.com/schemas/workflow-metadata.json"
+        );
+    }
+
+    #[test]
+    fn validate_bundled_catalog_returns_err_for_invalid_json() {
+        let fixture = TestFixture::new();
+        fixture.write_json(
+            "workflows/example-flow/1.0.0/metadata.json",
+            r#"{"$schema":"https://example.com/schemas/workflow-metadata.json""#,
+        );
+
+        let error = validate_bundled_catalog(fixture.path(), &test_schemas()).unwrap_err();
+
+        let BundledValidationError::Invalid { path, message } = error;
+        assert_eq!(path, "workflows/example-flow/1.0.0/metadata.json");
+        assert!(message.starts_with("bundled JSON parse failed:"));
+    }
+
+    fn test_schemas() -> Vec<SchemaDocument> {
+        vec![SchemaDocument {
+            id: "https://example.com/schemas/workflow-metadata.json".to_string(),
+            json: serde_json::json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "https://example.com/schemas/workflow-metadata.json",
+                "type": "object",
+                "required": ["$schema", "name"],
+                "properties": {
+                    "$schema": { "const": "https://example.com/schemas/workflow-metadata.json" },
+                    "name": { "type": "string" }
+                },
+                "additionalProperties": false
+            }),
+        }]
+    }
+
+    struct TestFixture {
+        root: PathBuf,
+    }
+
+    impl TestFixture {
+        fn new() -> Self {
+            static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+            let unique = format!(
+                "luma-forge-validation-{}-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("system time before epoch")
+                    .as_nanos(),
+                NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            );
+            let root = std::env::temp_dir().join(unique);
+            fs::create_dir_all(&root).expect("failed to create test fixture root");
+            Self { root }
+        }
+
+        fn path(&self) -> &Path {
+            &self.root
+        }
+
+        fn write_json(&self, relative: &str, contents: &str) {
+            let path = self.root.join(relative);
+            let parent = path.parent().expect("fixture file should have a parent");
+            fs::create_dir_all(parent).expect("failed to create fixture parent");
+            fs::write(path, contents).expect("failed to write fixture JSON");
+        }
+    }
+
+    impl Drop for TestFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
     }
 }
