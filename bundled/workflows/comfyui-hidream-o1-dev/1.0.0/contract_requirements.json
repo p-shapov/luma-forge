@@ -1,0 +1,18 @@
+{
+  "$schema": "luma-forge://schemas/bundled/workflow_contract_requirements.schema.json",
+  "workflow_id": "comfyui-hidream-o1-dev",
+  "revision": "1.0.0",
+  "contract_requirements": [
+    {
+      "runtime_type": "runpod",
+      "endpoint_contract": {
+        "id": "runpod-endpoint-comfyui-hidream-o1-dev",
+        "revision": "1.0.0"
+      },
+      "provisioner_contract": {
+        "id": "provisioner",
+        "revision": "1.0.0"
+      }
+    }
+  ]
+}

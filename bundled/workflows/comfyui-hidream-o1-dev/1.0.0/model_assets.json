@@ -1,0 +1,29 @@
+{
+  "$schema": "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
+  "workflow_id": "comfyui-hidream-o1-dev",
+  "revision": "1.0.0",
+  "model_assets": [
+    {
+      "id": "hidream-o1-image-dev-fp8-scaled",
+      "name": "HiDream O1 Image Dev FP8 Scaled",
+      "download_source": {
+        "source_type": "huggingface",
+        "repository_id": "Comfy-Org/HiDream-O1-Image",
+        "file_path": "checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors",
+        "revision": "e469681accde36057e32e4a3125e39929a1bcd68"
+      },
+      "install_comfyui_relative_path": "models/checkpoints/hidream_o1_image_dev_fp8_scaled.safetensors"
+    },
+    {
+      "id": "gemma4-e4b-it-fp8-scaled",
+      "name": "Gemma 4 E4B IT FP8 Scaled",
+      "download_source": {
+        "source_type": "huggingface",
+        "repository_id": "Comfy-Org/gemma-4",
+        "file_path": "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors",
+        "revision": "c8b198a1279c02c9cf8aaa08171db4e2b0d15af9"
+      },
+      "install_comfyui_relative_path": "models/text_encoders/gemma4_e4b_it_fp8_scaled.safetensors"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "luma-forge://schemas/bundled/execution_schema.schema.json",
+  "id": "text-to-image",
+  "revision": "1.0.0",
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "string",
+      "required": true,
+      "max_length": 4000
+    }
+  ],
+  "outputs": {
+    "type": "image_set"
+  }
+}
