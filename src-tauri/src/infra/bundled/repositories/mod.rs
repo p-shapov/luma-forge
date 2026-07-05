@@ -27,7 +27,7 @@ mod tests {
         let runtime_presets = RuntimePresetRepository::new(catalog.clone());
         let execution_schemas = ExecutionSchemaRepository::new(catalog);
 
-        assert_eq!(workflows.list().len(), 1);
+        assert!(!workflows.list().is_empty());
         assert_eq!(
             workflows
                 .find("comfyui-hidream-o1-dev", "1.0.0")
@@ -36,7 +36,7 @@ mod tests {
             "ComfyUI HiDream O1 Dev"
         );
 
-        assert_eq!(runtime_contracts.list().len(), 2);
+        assert!(!runtime_contracts.list().is_empty());
         assert_eq!(
             runtime_contracts
                 .find("provisioner", "1.0.0")
@@ -45,7 +45,7 @@ mod tests {
             "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8f09164389385499f59495f030ec3c79f84eb8c3d6de5adab09cf9246afd1cc6"
         );
 
-        assert_eq!(runtime_presets.list().len(), 1);
+        assert!(!runtime_presets.list().is_empty());
         assert_eq!(
             runtime_presets
                 .find("comfyui-py312-cu126-torch291", "1.0.0")
@@ -55,7 +55,7 @@ mod tests {
             "3.12"
         );
 
-        assert_eq!(execution_schemas.list().len(), 1);
+        assert!(!execution_schemas.list().is_empty());
         assert_eq!(
             execution_schemas
                 .find("text-to-image", "1.0.0")

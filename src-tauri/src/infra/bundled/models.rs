@@ -127,7 +127,7 @@ impl From<generated::ExecutionSchemaInputsItem> for ExecutionSchemaInput {
             id: value.id.into(),
             input_type: match value.type_ {
                 serde_json::Value::String(text) => text,
-                other => other.to_string(),
+                other => panic!("execution schema input type must be a string, got {other}"),
             },
             required: value.required,
             max_length: value.max_length.map(Into::into),
@@ -288,5 +288,23 @@ impl From<catalog::WorkflowEntry> for WorkflowRevision {
             execution_contract: value.execution_contract.into(),
             workflow_graph: serde_json::Value::Object(value.workflow_graph.graph),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{generated, ExecutionSchemaInput};
+
+    #[test]
+    #[should_panic(expected = "execution schema input type must be a string")]
+    fn execution_schema_input_from_panics_for_non_string_type() {
+        let value = generated::ExecutionSchemaInputsItem {
+            id: "prompt".parse().expect("input id should parse"),
+            max_length: None,
+            required: true,
+            type_: serde_json::json!({"type": "prompt"}),
+        };
+
+        let _ = ExecutionSchemaInput::from(value);
     }
 }
