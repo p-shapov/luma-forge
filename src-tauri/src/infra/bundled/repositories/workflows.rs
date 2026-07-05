@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{
-    asset_text, assets, corrupt, execution_schemas::BundledExecutionSchemaRepository, parse_asset,
+    corrupt, execution_schemas::BundledExecutionSchemaRepository, parse_asset,
     runtime_contracts::BundledRuntimeContractRepository,
     runtime_presets::BundledRuntimePresetRepository,
 };
@@ -43,7 +43,10 @@ impl BundledWorkflowRepository {
         revision: &str,
     ) -> Result<Option<BundledWorkflow>, BundledCatalogError> {
         let metadata_path = workflow_file(id, revision, "metadata.json");
-        let Some(metadata_text) = asset_text(&metadata_path) else {
+        let Some(metadata_text) = generated::BUNDLED_ASSETS
+            .iter()
+            .find_map(|(asset_path, text)| (*asset_path == metadata_path).then_some(*text))
+        else {
             return Ok(None);
         };
         Ok(Some(parse_workflow(
@@ -203,11 +206,14 @@ fn required_text(
     file: &str,
 ) -> Result<&'static str, BundledCatalogError> {
     let path = workflow_file(id, revision, file);
-    asset_text(&path).ok_or_else(|| corrupt(&path, "required workflow file is missing"))
+    generated::BUNDLED_ASSETS
+        .iter()
+        .find_map(|(asset_path, text)| (*asset_path == path).then_some(*text))
+        .ok_or_else(|| corrupt(&path, "required workflow file is missing"))
 }
 
 fn workflow_revisions() -> Vec<(String, String)> {
-    assets()
+    generated::BUNDLED_ASSETS
         .iter()
         .filter_map(|(path, _)| {
             let parts: Vec<&str> = path.split('/').collect();

@@ -1,4 +1,4 @@
-use super::{asset_text, assets, parse_asset};
+use super::parse_asset;
 use crate::infra::bundled::{
     errors::BundledCatalogError, generated, models::BundledRuntimeContract,
 };
@@ -12,7 +12,7 @@ impl BundledRuntimeContractRepository {
     }
 
     pub fn list(&self) -> Result<Vec<BundledRuntimeContract>, BundledCatalogError> {
-        assets()
+        generated::BUNDLED_ASSETS
             .iter()
             .filter(|(path, _)| path.starts_with("runtime_contracts/"))
             .map(|(path, text)| parse_runtime_contract(path, text))
@@ -25,7 +25,9 @@ impl BundledRuntimeContractRepository {
         revision: &str,
     ) -> Result<Option<BundledRuntimeContract>, BundledCatalogError> {
         let path = format!("runtime_contracts/{id}/{revision}.json");
-        asset_text(&path)
+        generated::BUNDLED_ASSETS
+            .iter()
+            .find_map(|(asset_path, text)| (*asset_path == path).then_some(*text))
             .map(|text| parse_runtime_contract(&path, text))
             .transpose()
     }

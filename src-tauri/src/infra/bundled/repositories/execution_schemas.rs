@@ -1,4 +1,4 @@
-use super::{asset_text, assets, parse_asset};
+use super::parse_asset;
 use crate::infra::bundled::{
     errors::BundledCatalogError,
     generated,
@@ -14,7 +14,7 @@ impl BundledExecutionSchemaRepository {
     }
 
     pub fn list(&self) -> Result<Vec<BundledExecutionSchema>, BundledCatalogError> {
-        assets()
+        generated::BUNDLED_ASSETS
             .iter()
             .filter(|(path, _)| path.starts_with("execution_schemas/"))
             .map(|(path, text)| parse_execution_schema(path, text))
@@ -27,7 +27,9 @@ impl BundledExecutionSchemaRepository {
         revision: &str,
     ) -> Result<Option<BundledExecutionSchema>, BundledCatalogError> {
         let path = format!("execution_schemas/{id}/{revision}.json");
-        asset_text(&path)
+        generated::BUNDLED_ASSETS
+            .iter()
+            .find_map(|(asset_path, text)| (*asset_path == path).then_some(*text))
             .map(|text| parse_execution_schema(&path, text))
             .transpose()
     }

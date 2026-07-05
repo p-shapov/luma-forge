@@ -1,4 +1,4 @@
-use super::{asset_text, assets, parse_asset};
+use super::parse_asset;
 use crate::infra::bundled::{
     errors::BundledCatalogError,
     generated,
@@ -14,7 +14,7 @@ impl BundledRuntimePresetRepository {
     }
 
     pub fn list(&self) -> Result<Vec<BundledRuntimePreset>, BundledCatalogError> {
-        assets()
+        generated::BUNDLED_ASSETS
             .iter()
             .filter(|(path, _)| path.starts_with("runtime_presets/"))
             .map(|(path, text)| parse_runtime_preset(path, text))
@@ -27,7 +27,9 @@ impl BundledRuntimePresetRepository {
         revision: &str,
     ) -> Result<Option<BundledRuntimePreset>, BundledCatalogError> {
         let path = format!("runtime_presets/{id}/{revision}.json");
-        asset_text(&path)
+        generated::BUNDLED_ASSETS
+            .iter()
+            .find_map(|(asset_path, text)| (*asset_path == path).then_some(*text))
             .map(|text| parse_runtime_preset(&path, text))
             .transpose()
     }
