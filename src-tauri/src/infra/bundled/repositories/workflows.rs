@@ -97,7 +97,14 @@ impl BundledWorkflowRepository {
             .ok_or_else(|| corrupt(&path, "workflow provisioner contract reference is missing"))?;
 
         Ok(Some(ResolvedRunpodWorkflow {
-            workflow,
+            id: workflow.id,
+            revision: workflow.revision,
+            name: workflow.name,
+            requires_hugging_face_api_key: workflow.requires_hugging_face_api_key,
+            required_volume_size_gb: workflow.required_volume_size_gb,
+            model_assets: workflow.model_assets,
+            input_bindings: workflow.execution_contract.input_bindings,
+            graph: workflow.graph,
             runtime_preset,
             execution_schema,
             endpoint_contract,

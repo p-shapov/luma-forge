@@ -99,7 +99,14 @@ pub struct BundledExecutionInput {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedRunpodWorkflow {
-    pub workflow: BundledWorkflow,
+    pub id: String,
+    pub revision: String,
+    pub name: String,
+    pub requires_hugging_face_api_key: bool,
+    pub required_volume_size_gb: u64,
+    pub model_assets: Vec<BundledModelAsset>,
+    pub input_bindings: Vec<BundledWorkflowInputBinding>,
+    pub graph: serde_json::Value,
     pub runtime_preset: BundledRuntimePreset,
     pub execution_schema: BundledExecutionSchema,
     pub endpoint_contract: BundledRuntimeContract,
