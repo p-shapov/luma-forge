@@ -20,14 +20,26 @@ pub struct ExecutionSchemaRevision {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionSchemaInput {
     pub id: String,
-    pub input_type: String,
+    pub input_type: ExecutionSchemaInputType,
     pub required: bool,
     pub max_length: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionSchemaInputType {
+    String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionSchemaOutputs {
-    pub output_type: String,
+    pub output_type: ExecutionSchemaOutputType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionSchemaOutputType {
+    ImageSet,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -123,18 +135,19 @@ impl From<generated::Reference> for Reference {
 
 impl From<generated::ExecutionSchemaInputsItem> for ExecutionSchemaInput {
     fn from(value: generated::ExecutionSchemaInputsItem) -> Self {
-        let input_type = value.type_.as_str();
-        assert!(
-            input_type.is_some(),
-            "execution schema input type must be a string, got {}",
-            value.type_
-        );
-
         Self {
             id: value.id.into(),
-            input_type: input_type.map(str::to_owned).unwrap_or_default(),
+            input_type: value.type_.into(),
             required: value.required,
             max_length: value.max_length.map(Into::into),
+        }
+    }
+}
+
+impl From<generated::ExecutionSchemaInputsItemType> for ExecutionSchemaInputType {
+    fn from(value: generated::ExecutionSchemaInputsItemType) -> Self {
+        match value {
+            generated::ExecutionSchemaInputsItemType::String => Self::String,
         }
     }
 }
@@ -143,6 +156,14 @@ impl From<generated::ExecutionSchemaOutputs> for ExecutionSchemaOutputs {
     fn from(value: generated::ExecutionSchemaOutputs) -> Self {
         Self {
             output_type: value.type_.into(),
+        }
+    }
+}
+
+impl From<generated::ExecutionSchemaOutputsType> for ExecutionSchemaOutputType {
+    fn from(value: generated::ExecutionSchemaOutputsType) -> Self {
+        match value {
+            generated::ExecutionSchemaOutputsType::ImageSet => Self::ImageSet,
         }
     }
 }
@@ -292,23 +313,5 @@ impl From<catalog::WorkflowEntry> for WorkflowRevision {
             execution_contract: value.execution_contract.into(),
             workflow_graph: serde_json::Value::Object(value.workflow_graph.graph),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{generated, ExecutionSchemaInput};
-
-    #[test]
-    #[should_panic(expected = "execution schema input type must be a string")]
-    fn execution_schema_input_from_panics_for_non_string_type() {
-        let value = generated::ExecutionSchemaInputsItem {
-            id: "prompt".parse().expect("input id should parse"),
-            max_length: None,
-            required: true,
-            type_: serde_json::json!({"type": "prompt"}),
-        };
-
-        let _ = ExecutionSchemaInput::from(value);
     }
 }

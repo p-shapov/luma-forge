@@ -13,8 +13,8 @@ mod tests {
     use std::path::Path;
 
     use crate::infra::bundled::{
-        Catalog, ExecutionSchemaRepository, RuntimeContractRepository, RuntimePresetRepository,
-        WorkflowRepository,
+        models::ExecutionSchemaOutputType, Catalog, ExecutionSchemaRepository,
+        RuntimeContractRepository, RuntimePresetRepository, WorkflowRepository,
     };
 
     #[test]
@@ -62,7 +62,7 @@ mod tests {
                 .expect("execution schema should exist")
                 .outputs
                 .output_type,
-            "image_set"
+            ExecutionSchemaOutputType::ImageSet
         );
     }
 }
