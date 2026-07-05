@@ -21,8 +21,15 @@ fn main() {
 
     let schemas = load_schema_files(&schemas_dir);
     let layouts_dir = schemas_dir.join("layouts");
-    let layouts = load_layout_files(&layouts_dir);
-    generate_types(&schemas, &out_dir);
+    let layout_schema = schemas
+        .iter()
+        .find(|schema| schema.id == "luma-forge://schemas/bundled/layout.schema.json")
+        .unwrap_or_else(|| panic!("schemas/bundled/layout.schema.json: schema missing"));
+    let layout_validator = jsonschema::validator_for(&layout_schema.json)
+        .unwrap_or_else(|error| panic!("layout schema validator failed: {error}"));
+    let layouts = load_layout_files(&layouts_dir, &layout_validator);
+    let entity_schema_ids = entity_schema_ids(&layouts);
+    generate_types(&schemas, &entity_schema_ids, &out_dir);
     let assets = validation::validate_bundled_catalog(&bundled_dir, &schemas, &layouts)
         .unwrap_or_else(|error| panic!("bundled catalog validation failed: {error}"));
     validation::validate_cross_file_assets(&assets)
@@ -86,7 +93,17 @@ fn load_schema_files(schemas_dir: &Path) -> Vec<validation::SchemaDocument> {
     schemas
 }
 
-fn load_layout_files(layouts_dir: &Path) -> Vec<validation::LayoutSpec> {
+fn entity_schema_ids(layouts: &[validation::LayoutSpec]) -> std::collections::BTreeSet<String> {
+    layouts
+        .iter()
+        .flat_map(|layout| layout.files.values().map(|file| file.schema.clone()))
+        .collect()
+}
+
+fn load_layout_files(
+    layouts_dir: &Path,
+    layout_validator: &jsonschema::Validator,
+) -> Vec<validation::LayoutSpec> {
     let mut layouts = Vec::new();
     let entries = fs::read_dir(layouts_dir).unwrap_or_else(|error| {
         panic!(
@@ -118,6 +135,12 @@ fn load_layout_files(layouts_dir: &Path) -> Vec<validation::LayoutSpec> {
             .unwrap_or_else(|error| panic!("{}: layout read failed: {error}", path.display()));
         let json: serde_json::Value = serde_json::from_str(&text)
             .unwrap_or_else(|error| panic!("{}: layout parse failed: {error}", path.display()));
+        if let Err(error) = layout_validator.validate(&json) {
+            panic!(
+                "{}: layout schema validation failed: {error}",
+                path.display()
+            );
+        }
         let relative = path
             .strip_prefix(layouts_dir.parent().unwrap_or(layouts_dir))
             .unwrap_or(&path)
@@ -132,11 +155,33 @@ fn load_layout_files(layouts_dir: &Path) -> Vec<validation::LayoutSpec> {
     layouts
 }
 
-fn generate_types(schemas: &[validation::SchemaDocument], out_dir: &Path) {
+fn generate_types(
+    schemas: &[validation::SchemaDocument],
+    entity_schema_ids: &std::collections::BTreeSet<String>,
+    out_dir: &Path,
+) {
     let mut type_space = TypeSpace::new(&TypeSpaceSettings::default());
-    for schema in schemas {
-        let root_schema: schemars::schema::RootSchema = serde_json::from_value(schema.json.clone())
-            .unwrap_or_else(|error| panic!("{}: schema decode failed: {error}", schema.id));
+    let reference_schema = schemas
+        .iter()
+        .find(|schema| schema.id == "luma-forge://schemas/bundled/reference.schema.json")
+        .unwrap_or_else(|| panic!("reference schema missing"));
+    let reference_root: schemars::schema::RootSchema =
+        serde_json::from_value(reference_schema.json.clone()).unwrap_or_else(|error| {
+            panic!("{}: schema decode failed: {error}", reference_schema.id)
+        });
+    type_space
+        .add_ref_types([(
+            "Reference",
+            schemars::schema::Schema::Object(reference_root.schema.clone()),
+        )])
+        .expect("typify failed to add bundled reference schema");
+    for schema in schemas
+        .iter()
+        .filter(|schema| entity_schema_ids.contains(&schema.id))
+    {
+        let root_schema: schemars::schema::RootSchema =
+            serde_json::from_value(typify_schema_json(schema.json.clone()))
+                .unwrap_or_else(|error| panic!("{}: schema decode failed: {error}", schema.id));
         type_space
             .add_root_schema(root_schema)
             .expect("typify failed to add bundled schema");
@@ -147,16 +192,43 @@ fn generate_types(schemas: &[validation::SchemaDocument], out_dir: &Path) {
         .expect("failed to write bundled_types.rs");
 }
 
-fn generate_manifest(assets: &[validation::BundledJsonFile], out_dir: &Path) {
+fn generate_manifest(files: &[validation::BundledJsonFile], out_dir: &Path) {
     let mut contents = String::from("pub const BUNDLED_ASSETS: &[(&str, &str)] = &[\n");
-    for asset in assets {
+    for file in files {
         contents.push_str("    (");
-        contents.push_str(&format!("{:?}", asset.path));
+        contents.push_str(&format!("{:?}", file.path));
         contents.push_str(", include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../bundled/");
-        contents.push_str(&asset.path);
+        contents.push_str(&file.path);
         contents.push_str("\"))),\n");
     }
     contents.push_str("];\n");
     fs::write(out_dir.join("bundled_manifest.rs"), contents)
         .expect("failed to write bundled_manifest.rs");
+}
+
+fn typify_schema_json(mut json: serde_json::Value) -> serde_json::Value {
+    rewrite_reference_schema_refs(&mut json);
+    json
+}
+
+fn rewrite_reference_schema_refs(json: &mut serde_json::Value) {
+    match json {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map.iter_mut() {
+                if key == "$ref"
+                    && value.as_str() == Some("luma-forge://schemas/bundled/reference.schema.json")
+                {
+                    *value = serde_json::Value::String("#/definitions/Reference".to_string());
+                    continue;
+                }
+                rewrite_reference_schema_refs(value);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                rewrite_reference_schema_refs(value);
+            }
+        }
+        _ => {}
+    }
 }

@@ -32,6 +32,23 @@ pub struct LayoutFileSpec {
     pub schema: String,
 }
 
+fn schema_registry(
+    schemas: &[SchemaDocument],
+) -> Result<jsonschema::Registry<'_>, BundledValidationError> {
+    let mut registry = jsonschema::Registry::new();
+    for schema in schemas {
+        registry = registry
+            .add(&schema.id, schema.json.clone())
+            .map_err(|error| invalid(&schema.id, format!("schema registry failed: {error}")))?;
+    }
+    registry.prepare().map_err(|error| {
+        invalid(
+            "schemas/bundled",
+            format!("schema registry failed: {error}"),
+        )
+    })
+}
+
 impl LayoutSpec {
     pub fn from_json(path: &str, json: serde_json::Value) -> Result<Self, BundledValidationError> {
         let entity = json
@@ -161,9 +178,7 @@ pub fn validate_cross_file_assets(
                 let revision = asset_revision(asset)?.to_string();
                 let file = asset_file(asset)
                     .ok_or_else(|| invalid(&asset.path, "workflow file missing path file"))?;
-                let files = workflow_files
-                    .entry((workflow_id, revision))
-                    .or_default();
+                let files = workflow_files.entry((workflow_id, revision)).or_default();
                 if !files.insert(file.to_string()) {
                     return Err(invalid(&asset.path, "duplicate workflow file identity"));
                 }
@@ -444,6 +459,7 @@ pub fn validate_bundled_catalog(
     layouts: &[LayoutSpec],
 ) -> Result<Vec<BundledJsonFile>, BundledValidationError> {
     let mut files = Vec::new();
+    let registry = schema_registry(schemas)?;
 
     for path in sorted_json_files(root)? {
         let relative = path
@@ -478,7 +494,9 @@ pub fn validate_bundled_catalog(
             .iter()
             .find(|schema| schema.id == schema_id)
             .ok_or_else(|| invalid(&relative, format!("unknown bundled schema {schema_id}")))?;
-        let validator = jsonschema::validator_for(&schema.json)
+        let validator = jsonschema::options()
+            .with_registry(&registry)
+            .build(&schema.json)
             .map_err(|error| invalid(&relative, format!("schema validator failed: {error}")))?;
         if let Err(error) = validator.validate(&json) {
             return Err(invalid(
@@ -710,6 +728,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn validate_bundled_catalog_resolves_shared_schema_references() {
+        let fixture = TestFixture::new();
+        fixture.write_json(
+            "workflows/example-flow/1.0.0/metadata.json",
+            r#"{
+              "$schema": "luma-forge://schemas/bundled/workflow_metadata.schema.json",
+              "name": "Example",
+              "runtime_preset": {
+                "id": "base",
+                "revision": "1.0.0"
+              }
+            }"#,
+        );
+
+        let assets = validate_bundled_catalog(
+            fixture.path(),
+            &schemas_with_shared_reference(),
+            &test_layouts(),
+        )
+        .unwrap();
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(
+            assets[0].schema_id,
+            "luma-forge://schemas/bundled/workflow_metadata.schema.json"
+        );
+    }
+
     fn test_schemas() -> Vec<SchemaDocument> {
         vec![
             SchemaDocument {
@@ -756,6 +803,44 @@ mod tests {
                             "const": "luma-forge://schemas/bundled/runtime_preset.schema.json"
                         },
                         "runtime": { "type": "object" }
+                    },
+                    "additionalProperties": false
+                }),
+            },
+        ]
+    }
+
+    fn schemas_with_shared_reference() -> Vec<SchemaDocument> {
+        vec![
+            SchemaDocument {
+                id: "luma-forge://schemas/bundled/reference.schema.json".to_string(),
+                json: serde_json::json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$id": "luma-forge://schemas/bundled/reference.schema.json",
+                    "type": "object",
+                    "required": ["id", "revision"],
+                    "properties": {
+                        "id": { "type": "string" },
+                        "revision": { "type": "string" }
+                    },
+                    "additionalProperties": false
+                }),
+            },
+            SchemaDocument {
+                id: "luma-forge://schemas/bundled/workflow_metadata.schema.json".to_string(),
+                json: serde_json::json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$id": "luma-forge://schemas/bundled/workflow_metadata.schema.json",
+                    "type": "object",
+                    "required": ["$schema", "name", "runtime_preset"],
+                    "properties": {
+                        "$schema": {
+                            "const": "luma-forge://schemas/bundled/workflow_metadata.schema.json"
+                        },
+                        "name": { "type": "string" },
+                        "runtime_preset": {
+                            "$ref": "luma-forge://schemas/bundled/reference.schema.json"
+                        }
                     },
                     "additionalProperties": false
                 }),
@@ -1021,7 +1106,9 @@ mod cross_file_tests {
     #[test]
     fn validation_uses_path_params_for_runtime_preset_identity() {
         let mut assets = valid_assets();
-        assets[0].path_params.insert("id".to_string(), "other-base".to_string());
+        assets[0]
+            .path_params
+            .insert("id".to_string(), "other-base".to_string());
 
         assert_eq!(
             validate_cross_file_assets(&assets),
