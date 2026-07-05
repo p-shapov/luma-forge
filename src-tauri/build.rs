@@ -5,6 +5,8 @@ use std::{
 
 use typify::{TypeSpace, TypeSpaceSettings};
 
+#[path = "src/infra/bundled/errors.rs"]
+mod errors;
 #[path = "src/infra/bundled/validation.rs"]
 mod validation;
 

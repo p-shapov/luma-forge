@@ -1,17 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use super::errors::BundledValidationError;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BundledAsset {
     pub path: String,
     pub schema_id: String,
     pub json: serde_json::Value,
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum BundledValidationError {
-    #[error("{path}: {message}")]
-    Invalid { path: String, message: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,17 +26,6 @@ pub fn is_safe_relative_path(path: &str) -> bool {
         && path
             .split('/')
             .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
-}
-
-#[allow(dead_code)]
-pub fn is_secret_like(value: &str) -> bool {
-    let value = value.to_ascii_lowercase();
-    value.contains("secret")
-        || value.contains("token")
-        || value.contains("password")
-        || value.contains("api_key")
-        || value.contains("apikey")
-        || value.contains("credential")
 }
 
 pub fn approved_bundled_path(path: &str) -> bool {
@@ -166,7 +151,6 @@ pub fn validate_cross_file_assets(assets: &[BundledAsset]) -> Result<(), Bundled
             _ => return Err(invalid(&asset.path, "unexpected bundled JSON path")),
         }
         reject_path_identity(asset, &parts)?;
-        reject_secret_like_execution_inputs(asset)?;
         reject_unsafe_model_paths(asset)?;
     }
 
@@ -239,31 +223,6 @@ fn expect_identity(
             &asset.path,
             "bundled asset identity does not match its path",
         ));
-    }
-    Ok(())
-}
-
-fn reject_secret_like_execution_inputs(asset: &BundledAsset) -> Result<(), BundledValidationError> {
-    if asset.schema_id != "luma-forge://schemas/bundled/execution_schema.schema.json" {
-        return Ok(());
-    }
-    let Some(inputs) = asset
-        .json
-        .get("inputs")
-        .and_then(serde_json::Value::as_array)
-    else {
-        return Ok(());
-    };
-    for input in inputs {
-        let Some(id) = input.get("id").and_then(serde_json::Value::as_str) else {
-            continue;
-        };
-        if is_secret_like(id) {
-            return Err(invalid(
-                &asset.path,
-                "execution schema input ID is secret-like",
-            ));
-        }
     }
     Ok(())
 }
@@ -576,13 +535,6 @@ mod tests {
     }
 
     #[test]
-    fn secret_like_rejects_credential_names() {
-        assert!(is_secret_like("api_key"));
-        assert!(is_secret_like("worker_token"));
-        assert!(!is_secret_like("prompt"));
-    }
-
-    #[test]
     fn approved_paths_accept_only_new_bundled_tree_shapes() {
         assert!(approved_bundled_path(
             "workflows/example-flow/1.0.0/metadata.json"
@@ -890,23 +842,6 @@ mod cross_file_tests {
     #[test]
     fn validation_accepts_valid_cross_file_assets() {
         assert_eq!(validate_cross_file_assets(&valid_assets()), Ok(()));
-    }
-
-    #[test]
-    fn validation_rejects_secret_like_execution_schema_inputs() {
-        let assets = vec![asset(
-            "execution_schemas/text-to-image/1.0.0.json",
-            "luma-forge://schemas/bundled/execution_schema.schema.json",
-            json!({
-                "$schema": "luma-forge://schemas/bundled/execution_schema.schema.json",
-                "id": "text-to-image",
-                "revision": "1.0.0",
-                "inputs": [{ "id": "api_key", "type": "string", "required": true }],
-                "outputs": { "type": "image_set" }
-            }),
-        )];
-
-        assert!(validate_cross_file_assets(&assets).is_err());
     }
 
     #[test]
