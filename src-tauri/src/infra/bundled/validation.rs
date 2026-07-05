@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use super::errors::BundledValidationError;
+use super::validation_errors::BundledValidationError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BundledAsset {

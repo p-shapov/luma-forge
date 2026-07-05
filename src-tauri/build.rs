@@ -5,11 +5,10 @@ use std::{
 
 use typify::{TypeSpace, TypeSpaceSettings};
 
-#[allow(dead_code)]
-#[path = "src/infra/bundled/errors.rs"]
-mod errors;
 #[path = "src/infra/bundled/validation.rs"]
 mod validation;
+#[path = "src/infra/bundled/validation_errors.rs"]
+mod validation_errors;
 
 fn main() {
     println!("cargo::rerun-if-changed=../bundled");
