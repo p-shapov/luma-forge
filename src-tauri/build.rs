@@ -29,6 +29,7 @@ fn main() {
         .unwrap_or_else(|error| panic!("layout schema validator failed: {error}"));
     let layouts = load_layout_files(&layouts_dir, &layout_validator);
     let entity_schema_ids = entity_schema_ids(&layouts);
+    validate_entity_schema_ids(&schemas, &entity_schema_ids);
     generate_types(&schemas, &entity_schema_ids, &out_dir);
     let assets = validation::validate_bundled_catalog(&bundled_dir, &schemas, &layouts)
         .unwrap_or_else(|error| panic!("bundled catalog validation failed: {error}"));
@@ -98,6 +99,20 @@ fn entity_schema_ids(layouts: &[validation::LayoutSpec]) -> std::collections::BT
         .iter()
         .flat_map(|layout| layout.files.values().map(|file| file.schema.clone()))
         .collect()
+}
+
+fn validate_entity_schema_ids(
+    schemas: &[validation::SchemaDocument],
+    entity_schema_ids: &std::collections::BTreeSet<String>,
+) {
+    let schema_ids: std::collections::BTreeSet<&str> =
+        schemas.iter().map(|schema| schema.id.as_str()).collect();
+    if let Some(missing_schema_id) = entity_schema_ids
+        .iter()
+        .find(|schema_id| !schema_ids.contains(schema_id.as_str()))
+    {
+        panic!("layout references missing schema: {missing_schema_id}");
+    }
 }
 
 fn load_layout_files(
