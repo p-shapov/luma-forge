@@ -28,12 +28,12 @@ Incompatible existing dev DBs fail clearly.
    from the target contract.
 
 2. **Bundled Catalogs**
-   Move bundled workflow/runtime catalog loading into `infra/bundled`:
-   `workflows.rs`, `runtime_contracts.rs`, `execution_schemas.rs`.
-   `infra/bundled` reads bundled JSON, validates catalog shape, and returns
-   catalog data through a persistence-free API. Source JSON stays under
-   `bundled/**`. The focused spec defines catalog API, validation boundary,
-   error shape, and later workspace-port consumption.
+   Add runtime filesystem catalog loading under `infra/bundled` for
+   `new_bundled/catalog`. `infra/bundled` reads catalog contracts, schemas, and
+   entries from an injected root path, validates entries through declared JSON
+   Schemas, resolves declarative references, and exposes persistence-free
+   repositories under `infra/bundled/repositories`. Old `bundled/**` stays
+   untouched and is not used as a fallback.
 
 3. **Infra Keyring And Providers**
    Move technical secure storage and raw provider HTTP clients into
