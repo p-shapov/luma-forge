@@ -36,6 +36,7 @@ fn load_schema_files(schemas_dir: &Path) -> Vec<validation::SchemaDocument> {
             schemas_dir.display()
         )
     });
+    let mut paths = Vec::new();
 
     for entry in entries {
         let path = entry
@@ -43,6 +44,12 @@ fn load_schema_files(schemas_dir: &Path) -> Vec<validation::SchemaDocument> {
                 panic!("{}: directory entry failed: {error}", schemas_dir.display())
             })
             .path();
+        paths.push(path);
+    }
+
+    paths.sort();
+
+    for path in paths {
         if path.is_dir() {
             panic!("{}: unexpected schema subdirectory", path.display());
         }

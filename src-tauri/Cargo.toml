@@ -24,13 +24,11 @@ async-trait = "0.1"
 fastrace = { version = "0.7", features = ["enable"] }
 hex = "0.4"
 hmac = "0.12"
-jsonschema = { version = "0.46.6", default-features = false }
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 log = { version = "0.4", features = ["kv"] }
 logforth = { version = "0.30", features = ["append-file", "bridge-log", "diagnostic-fastrace", "layout-json"] }
 luma-diagnostic = { path = "src/diagnostics/luma-diagnostic" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-regress = "0.10"
 sea-orm = { version = "=2.0.0-rc.41", default-features = false, features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "entity-registry", "schema-sync", "with-time"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }
@@ -47,3 +45,6 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde-well-known"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+jsonschema = { version = "0.46.6", default-features = false }
