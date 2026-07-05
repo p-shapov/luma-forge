@@ -98,24 +98,35 @@ pub fn validate_cross_file_assets(assets: &[BundledAsset]) -> Result<(), Bundled
                     return Err(invalid(&asset.path, "duplicate workflow file identity"));
                 }
             }
-            ["runtime_presets", id, file] => {
+            ["runtime_presets", id, file]
+            | ["runtime_contracts", id, file]
+            | ["execution_schemas", id, file] => {
                 let key = (id.to_string(), file.trim_end_matches(".json").to_string());
-                if !runtime_presets.insert(key) {
-                    return Err(invalid(&asset.path, "duplicate runtime preset identity"));
+                match asset.schema_id.as_str() {
+                    "luma-forge://schemas/bundled/runtime_preset.schema.json" => {
+                        if !runtime_presets.insert(key) {
+                            return Err(invalid(&asset.path, "duplicate runtime preset identity"));
+                        }
+                    }
+                    "luma-forge://schemas/bundled/runtime_contract.schema.json" => {
+                        if !runtime_contracts.insert(key) {
+                            return Err(invalid(
+                                &asset.path,
+                                "duplicate runtime contract identity",
+                            ));
+                        }
+                    }
+                    "luma-forge://schemas/bundled/execution_schema.schema.json" => {
+                        if !execution_schemas.insert(key.clone()) {
+                            return Err(invalid(
+                                &asset.path,
+                                "duplicate execution schema identity",
+                            ));
+                        }
+                        execution_schema_inputs.insert(key, execution_input_ids(asset));
+                    }
+                    _ => {}
                 }
-            }
-            ["runtime_contracts", id, file] => {
-                let key = (id.to_string(), file.trim_end_matches(".json").to_string());
-                if !runtime_contracts.insert(key) {
-                    return Err(invalid(&asset.path, "duplicate runtime contract identity"));
-                }
-            }
-            ["execution_schemas", id, file] => {
-                let key = (id.to_string(), file.trim_end_matches(".json").to_string());
-                if !execution_schemas.insert(key.clone()) {
-                    return Err(invalid(&asset.path, "duplicate execution schema identity"));
-                }
-                execution_schema_inputs.insert(key, execution_input_ids(asset));
             }
             _ => return Err(invalid(&asset.path, "unexpected bundled JSON path")),
         }
@@ -859,6 +870,27 @@ mod cross_file_tests {
         assets.push(assets[0].clone());
 
         assert!(validate_cross_file_assets(&assets).is_err());
+    }
+
+    #[test]
+    fn validation_rejects_runtime_contract_disguised_as_runtime_preset_path() {
+        let mut assets = valid_assets();
+        assets[0].schema_id =
+            "luma-forge://schemas/bundled/runtime_contract.schema.json".to_string();
+        assets[0].json = json!({
+            "$schema": "luma-forge://schemas/bundled/runtime_contract.schema.json",
+            "id": "base",
+            "revision": "1.0.0",
+            "image_ref": "ghcr.io/example/not-a-preset:latest"
+        });
+
+        assert_eq!(
+            validate_cross_file_assets(&assets),
+            Err(BundledValidationError::Invalid {
+                path: "workflows/example/1.0.0/metadata.json".to_string(),
+                message: "workflow metadata references an unknown runtime preset".to_string(),
+            })
+        );
     }
 
     #[test]
