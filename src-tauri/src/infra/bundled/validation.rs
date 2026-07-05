@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use super::validation_errors::BundledValidationError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BundledAsset {
+pub struct BundledJsonFile {
     pub path: String,
     pub schema_id: String,
+    pub path_params: BTreeMap<String, String>,
     pub json: serde_json::Value,
 }
 
@@ -14,6 +15,69 @@ pub struct BundledAsset {
 pub struct SchemaDocument {
     pub id: String,
     pub json: serde_json::Value,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct LayoutSpec {
+    pub path: String,
+    pub entity: String,
+    pub path_pattern: String,
+    pub path_params: Vec<String>,
+    pub files: BTreeMap<String, LayoutFileSpec>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LayoutFileSpec {
+    pub schema: String,
+}
+
+impl LayoutSpec {
+    pub fn from_json(path: &str, json: serde_json::Value) -> Result<Self, BundledValidationError> {
+        let entity = json
+            .get("entity")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid(path, "layout missing entity"))?
+            .to_string();
+        let path_pattern = json
+            .get("path_pattern")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| invalid(path, "layout missing path_pattern"))?
+            .to_string();
+        let path_params = json
+            .get("path_params")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| invalid(path, "layout missing path_params"))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| invalid(path, "layout path_params must be strings"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let files = json
+            .get("files")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| invalid(path, "layout missing files"))?
+            .iter()
+            .map(|(name, file)| {
+                let schema = file
+                    .get("schema")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| invalid(path, "layout file missing schema"))?
+                    .to_string();
+                Ok((name.clone(), LayoutFileSpec { schema }))
+            })
+            .collect::<Result<BTreeMap<_, _>, BundledValidationError>>()?;
+        Ok(Self {
+            path: path.to_string(),
+            entity,
+            path_pattern,
+            path_params,
+            files,
+        })
+    }
 }
 
 #[allow(dead_code)]
@@ -77,7 +141,9 @@ fn safe_revision_file(file: &str) -> bool {
     file.strip_suffix(".json").is_some_and(safe_revision)
 }
 
-pub fn validate_cross_file_assets(assets: &[BundledAsset]) -> Result<(), BundledValidationError> {
+pub fn validate_cross_file_assets(
+    assets: &[BundledJsonFile],
+) -> Result<(), BundledValidationError> {
     let mut workflow_files: BTreeMap<(String, String), BTreeSet<String>> = BTreeMap::new();
     let mut runtime_presets = BTreeSet::new();
     let mut runtime_contracts = BTreeSet::new();
@@ -163,7 +229,7 @@ pub fn validate_cross_file_assets(assets: &[BundledAsset]) -> Result<(), Bundled
 }
 
 fn reject_path_identity(
-    asset: &BundledAsset,
+    asset: &BundledJsonFile,
     parts: &[&str],
 ) -> Result<(), BundledValidationError> {
     match parts {
@@ -183,7 +249,7 @@ fn reject_path_identity(
 }
 
 fn expect_identity(
-    asset: &BundledAsset,
+    asset: &BundledJsonFile,
     expected_id: &str,
     expected_revision: &str,
     id_field: &str,
@@ -207,7 +273,7 @@ fn expect_identity(
     Ok(())
 }
 
-fn reject_unsafe_model_paths(asset: &BundledAsset) -> Result<(), BundledValidationError> {
+fn reject_unsafe_model_paths(asset: &BundledJsonFile) -> Result<(), BundledValidationError> {
     if asset.schema_id != "luma-forge://schemas/bundled/workflow_model_assets.schema.json" {
         return Ok(());
     }
@@ -235,7 +301,7 @@ fn reject_unsafe_model_paths(asset: &BundledAsset) -> Result<(), BundledValidati
     Ok(())
 }
 
-fn execution_input_ids(asset: &BundledAsset) -> BTreeMap<String, bool> {
+fn execution_input_ids(asset: &BundledJsonFile) -> BTreeMap<String, bool> {
     asset
         .json
         .get("inputs")
@@ -254,7 +320,7 @@ fn execution_input_ids(asset: &BundledAsset) -> BTreeMap<String, bool> {
 }
 
 fn reject_workflow_references(
-    asset: &BundledAsset,
+    asset: &BundledJsonFile,
     runtime_presets: &BTreeSet<(String, String)>,
     runtime_contracts: &BTreeSet<(String, String)>,
     execution_schemas: &BTreeSet<(String, String)>,
@@ -396,8 +462,9 @@ fn template_input_id(
 pub fn validate_bundled_catalog(
     root: &Path,
     schemas: &[SchemaDocument],
-) -> Result<Vec<BundledAsset>, BundledValidationError> {
-    let mut assets = Vec::new();
+    layouts: &[LayoutSpec],
+) -> Result<Vec<BundledJsonFile>, BundledValidationError> {
+    let mut files = Vec::new();
 
     for path in sorted_json_files(root)? {
         let relative = path
@@ -405,21 +472,29 @@ pub fn validate_bundled_catalog(
             .expect("bundled path should be under bundled root")
             .to_string_lossy()
             .replace('\\', "/");
-        if !approved_bundled_path(&relative) {
-            return Err(BundledValidationError::Invalid {
-                path: relative,
-                message: "unexpected bundled JSON path".to_string(),
-            });
-        }
 
         let text = std::fs::read_to_string(&path)
             .map_err(|error| invalid(&relative, format!("bundled read failed: {error}")))?;
         let json: serde_json::Value = serde_json::from_str(&text)
             .map_err(|error| invalid(&relative, format!("bundled JSON parse failed: {error}")))?;
+        let (layout, path_params) = match_layout(&relative, layouts)?;
+        let file_key = path_params
+            .get("file")
+            .map(String::as_str)
+            .unwrap_or("__self__");
         let schema_id = json
             .get("$schema")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| invalid(&relative, "bundled JSON missing $schema"))?;
+        let expected_schema = layout
+            .files
+            .get(file_key)
+            .ok_or_else(|| invalid(&relative, "unexpected bundled JSON path"))?
+            .schema
+            .as_str();
+        if schema_id != expected_schema {
+            return Err(invalid(&relative, "bundled schema does not match layout"));
+        }
         let schema = schemas
             .iter()
             .find(|schema| schema.id == schema_id)
@@ -433,49 +508,83 @@ pub fn validate_bundled_catalog(
             ));
         }
 
-        assets.push(BundledAsset {
+        files.push(BundledJsonFile {
             path: relative,
             schema_id: schema_id.to_string(),
+            path_params,
             json,
         });
     }
 
-    Ok(assets)
+    Ok(files)
 }
 
 fn sorted_json_files(root: &Path) -> Result<Vec<PathBuf>, BundledValidationError> {
     let mut files = Vec::new();
-    collect_json_files(root, &mut files)?;
-    files.sort();
+    for entry in walkdir::WalkDir::new(root).min_depth(1).sort_by_file_name() {
+        let entry = entry.map_err(|error| {
+            let path = error
+                .path()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| root.display().to_string());
+            invalid(
+                &path,
+                format!("bundled directory traversal failed: {error}"),
+            )
+        })?;
+        if entry.file_type().is_dir() {
+            continue;
+        }
+        if entry
+            .path()
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("json")
+        {
+            let relative = entry
+                .path()
+                .strip_prefix(root)
+                .unwrap_or(entry.path())
+                .to_string_lossy()
+                .replace('\\', "/");
+            return Err(invalid(&relative, "unexpected bundled non-JSON path"));
+        }
+        files.push(entry.into_path());
+    }
     Ok(files)
 }
 
-fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<(), BundledValidationError> {
-    if path.is_file() {
-        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
-            files.push(path.to_path_buf());
-        }
-        return Ok(());
-    }
-
-    let path_string = path.display().to_string();
-    let entries = std::fs::read_dir(path).map_err(|error| {
-        invalid(
-            &path_string,
-            format!("bundled directory traversal failed: {error}"),
-        )
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|error| {
-            invalid(
-                &path_string,
-                format!("bundled directory entry failed: {error}"),
-            )
+fn match_layout<'a>(
+    relative: &str,
+    layouts: &'a [LayoutSpec],
+) -> Result<(&'a LayoutSpec, BTreeMap<String, String>), BundledValidationError> {
+    let mut matched = None;
+    for layout in layouts {
+        let regex = regress::Regex::new(&layout.path_pattern).map_err(|error| {
+            invalid(&layout.path, format!("layout path pattern failed: {error}"))
         })?;
-        collect_json_files(&entry.path(), files)?;
+        let Some(captures) = regex.find(relative) else {
+            continue;
+        };
+        if captures.range() != (0..relative.len()) {
+            continue;
+        }
+        if matched.is_some() {
+            return Err(invalid(relative, "bundled path matches multiple layouts"));
+        }
+        let mut path_params = BTreeMap::new();
+        for param in &layout.path_params {
+            let Some(range) = captures.named_group(param) else {
+                return Err(invalid(
+                    &layout.path,
+                    format!("layout missing capture {param}"),
+                ));
+            };
+            path_params.insert(param.clone(), relative[range].to_string());
+        }
+        matched = Some((layout, path_params));
     }
-    Ok(())
+    matched.ok_or_else(|| invalid(relative, "unexpected bundled JSON path"))
 }
 
 fn invalid(path: &str, message: impl Into<String>) -> BundledValidationError {
@@ -528,24 +637,48 @@ mod tests {
     }
 
     #[test]
-    fn validate_bundled_catalog_accepts_valid_fixture() {
+    fn validate_bundled_catalog_keeps_layout_path_captures() {
         let fixture = TestFixture::new();
         fixture.write_json(
-            "workflows/example-flow/1.0.0/metadata.json",
+            "runtime_presets/base/1.0.0.json",
             r#"{
-              "$schema": "luma-forge://schemas/bundled/workflow_metadata.schema.json",
-              "name": "Example Flow"
+              "$schema": "luma-forge://schemas/bundled/runtime_preset.schema.json",
+              "runtime": {}
             }"#,
         );
 
-        let assets = validate_bundled_catalog(fixture.path(), &test_schemas()).unwrap();
+        let files =
+            validate_bundled_catalog(fixture.path(), &test_schemas(), &test_layouts()).unwrap();
 
-        assert_eq!(assets.len(), 1);
-        assert_eq!(assets[0].path, "workflows/example-flow/1.0.0/metadata.json");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "runtime_presets/base/1.0.0.json");
         assert_eq!(
-            assets[0].schema_id,
-            "luma-forge://schemas/bundled/workflow_metadata.schema.json"
+            files[0].path_params.get("id").map(String::as_str),
+            Some("base")
         );
+        assert_eq!(
+            files[0].path_params.get("revision").map(String::as_str),
+            Some("1.0.0")
+        );
+    }
+
+    #[test]
+    fn validate_bundled_catalog_rejects_schema_that_does_not_match_layout() {
+        let fixture = TestFixture::new();
+        fixture.write_json(
+            "runtime_presets/base/1.0.0.json",
+            r#"{
+              "$schema": "luma-forge://schemas/bundled/workflow_metadata.schema.json",
+              "name": "Wrong"
+            }"#,
+        );
+
+        let error =
+            validate_bundled_catalog(fixture.path(), &test_schemas(), &test_layouts()).unwrap_err();
+
+        let BundledValidationError::Invalid { path, message } = error;
+        assert_eq!(path, "runtime_presets/base/1.0.0.json");
+        assert_eq!(message, "bundled schema does not match layout");
     }
 
     #[test]
@@ -556,7 +689,8 @@ mod tests {
             r#"{"$schema":"luma-forge://schemas/bundled/workflow_metadata.schema.json""#,
         );
 
-        let error = validate_bundled_catalog(fixture.path(), &test_schemas()).unwrap_err();
+        let error =
+            validate_bundled_catalog(fixture.path(), &test_schemas(), &test_layouts()).unwrap_err();
 
         let BundledValidationError::Invalid { path, message } = error;
         assert_eq!(path, "workflows/example-flow/1.0.0/metadata.json");
@@ -569,7 +703,7 @@ mod tests {
         let root = fixture.path().to_path_buf();
         drop(fixture);
 
-        let error = validate_bundled_catalog(&root, &test_schemas()).unwrap_err();
+        let error = validate_bundled_catalog(&root, &test_schemas(), &test_layouts()).unwrap_err();
 
         let BundledValidationError::Invalid { path, message } = error;
         assert_eq!(path, root.display().to_string());
@@ -580,14 +714,15 @@ mod tests {
     fn validate_bundled_catalog_uses_json_schema_as_source_of_truth() {
         let fixture = TestFixture::new();
         fixture.write_json(
-            "workflows/example-flow/1.0.0/metadata.json",
+            "workflows/example-flow/1.0.0/model_assets.json",
             r#"{
               "$schema": "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
               "model_assets": []
             }"#,
         );
 
-        let assets = validate_bundled_catalog(fixture.path(), &test_schemas()).unwrap();
+        let assets =
+            validate_bundled_catalog(fixture.path(), &test_schemas(), &test_layouts()).unwrap();
 
         assert_eq!(assets.len(), 1);
         assert_eq!(
@@ -630,6 +765,58 @@ mod tests {
                     "additionalProperties": false
                 }),
             },
+            SchemaDocument {
+                id: "luma-forge://schemas/bundled/runtime_preset.schema.json".to_string(),
+                json: serde_json::json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$id": "luma-forge://schemas/bundled/runtime_preset.schema.json",
+                    "type": "object",
+                    "required": ["$schema", "runtime"],
+                    "properties": {
+                        "$schema": {
+                            "const": "luma-forge://schemas/bundled/runtime_preset.schema.json"
+                        },
+                        "runtime": { "type": "object" }
+                    },
+                    "additionalProperties": false
+                }),
+            },
+        ]
+    }
+
+    fn test_layouts() -> Vec<LayoutSpec> {
+        vec![
+            LayoutSpec::from_json(
+                "schemas/bundled/layouts/runtime_preset.layout.json",
+                serde_json::json!({
+                    "entity": "runtime_preset",
+                    "path_pattern": "^runtime_presets/(?<id>[a-z0-9][a-z0-9_-]*)/(?<revision>[0-9]+\\.[0-9]+\\.[0-9]+)\\.json$",
+                    "path_params": ["id", "revision"],
+                    "files": {
+                        "__self__": {
+                            "schema": "luma-forge://schemas/bundled/runtime_preset.schema.json"
+                        }
+                    }
+                }),
+            )
+            .unwrap(),
+            LayoutSpec::from_json(
+                "schemas/bundled/layouts/workflow_revision.layout.json",
+                serde_json::json!({
+                    "entity": "workflow_revision",
+                    "path_pattern": "^workflows/(?<id>[a-z0-9][a-z0-9_-]*)/(?<revision>[0-9]+\\.[0-9]+\\.[0-9]+)/(?<file>[a-z_]+\\.json)$",
+                    "path_params": ["id", "revision", "file"],
+                    "files": {
+                        "metadata.json": {
+                            "schema": "luma-forge://schemas/bundled/workflow_metadata.schema.json"
+                        },
+                        "model_assets.json": {
+                            "schema": "luma-forge://schemas/bundled/workflow_model_assets.schema.json"
+                        }
+                    }
+                }),
+            )
+            .unwrap(),
         ]
     }
 
@@ -678,15 +865,16 @@ mod cross_file_tests {
     use super::*;
     use serde_json::json;
 
-    fn asset(path: &str, schema_id: &str, json: serde_json::Value) -> BundledAsset {
-        BundledAsset {
+    fn asset(path: &str, schema_id: &str, json: serde_json::Value) -> BundledJsonFile {
+        BundledJsonFile {
             path: path.to_string(),
             schema_id: schema_id.to_string(),
+            path_params: BTreeMap::new(),
             json,
         }
     }
 
-    fn valid_assets() -> Vec<BundledAsset> {
+    fn valid_assets() -> Vec<BundledJsonFile> {
         vec![
             asset(
                 "runtime_presets/base/1.0.0.json",

@@ -20,8 +20,10 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
 
     let schemas = load_schema_files(&schemas_dir);
+    let layouts_dir = schemas_dir.join("layouts");
+    let layouts = load_layout_files(&layouts_dir);
     generate_types(&schemas, &out_dir);
-    let assets = validation::validate_bundled_catalog(&bundled_dir, &schemas)
+    let assets = validation::validate_bundled_catalog(&bundled_dir, &schemas, &layouts)
         .unwrap_or_else(|error| panic!("bundled catalog validation failed: {error}"));
     validation::validate_cross_file_assets(&assets)
         .unwrap_or_else(|error| panic!("bundled catalog validation failed: {error}"));
@@ -53,6 +55,9 @@ fn load_schema_files(schemas_dir: &Path) -> Vec<validation::SchemaDocument> {
 
     for path in paths {
         if path.is_dir() {
+            if path.file_name().and_then(|name| name.to_str()) == Some("layouts") {
+                continue;
+            }
             panic!("{}: unexpected schema subdirectory", path.display());
         }
 
@@ -81,6 +86,52 @@ fn load_schema_files(schemas_dir: &Path) -> Vec<validation::SchemaDocument> {
     schemas
 }
 
+fn load_layout_files(layouts_dir: &Path) -> Vec<validation::LayoutSpec> {
+    let mut layouts = Vec::new();
+    let entries = fs::read_dir(layouts_dir).unwrap_or_else(|error| {
+        panic!(
+            "{}: directory traversal failed: {error}",
+            layouts_dir.display()
+        )
+    });
+    let mut paths = Vec::new();
+
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|error| {
+                panic!("{}: directory entry failed: {error}", layouts_dir.display())
+            })
+            .path();
+        paths.push(path);
+    }
+
+    paths.sort();
+
+    for path in paths {
+        if path.is_dir() {
+            panic!("{}: unexpected layout subdirectory", path.display());
+        }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{}: layout read failed: {error}", path.display()));
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|error| panic!("{}: layout parse failed: {error}", path.display()));
+        let relative = path
+            .strip_prefix(layouts_dir.parent().unwrap_or(layouts_dir))
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        layouts.push(
+            validation::LayoutSpec::from_json(&relative, json)
+                .unwrap_or_else(|error| panic!("bundled layout validation failed: {error}")),
+        );
+    }
+
+    layouts
+}
+
 fn generate_types(schemas: &[validation::SchemaDocument], out_dir: &Path) {
     let mut type_space = TypeSpace::new(&TypeSpaceSettings::default());
     for schema in schemas {
@@ -96,7 +147,7 @@ fn generate_types(schemas: &[validation::SchemaDocument], out_dir: &Path) {
         .expect("failed to write bundled_types.rs");
 }
 
-fn generate_manifest(assets: &[validation::BundledAsset], out_dir: &Path) {
+fn generate_manifest(assets: &[validation::BundledJsonFile], out_dir: &Path) {
     let mut contents = String::from("pub const BUNDLED_ASSETS: &[(&str, &str)] = &[\n");
     for asset in assets {
         contents.push_str("    (");
