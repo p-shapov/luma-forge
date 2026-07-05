@@ -29,6 +29,7 @@ log = { version = "0.4", features = ["kv"] }
 logforth = { version = "0.30", features = ["append-file", "bridge-log", "diagnostic-fastrace", "layout-json"] }
 luma-diagnostic = { path = "src/diagnostics/luma-diagnostic" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regress = "0.11.1"
 sea-orm = { version = "=2.0.0-rc.41", default-features = false, features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "entity-registry", "schema-sync", "with-time"] }
 secrecy = "0.10"
 serde = { version = "1", features = ["derive"] }

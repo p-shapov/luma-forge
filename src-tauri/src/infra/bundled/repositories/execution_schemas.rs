@@ -1,4 +1,6 @@
-use super::super::{catalog::parse_asset, errors::BundledCatalogError, BundledCatalog};
+use super::super::{
+    catalog::parse_asset, errors::BundledCatalogError, generated::ExecutionSchema, BundledCatalog,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct BundledExecutionSchemaRepository {
@@ -17,7 +19,7 @@ impl BundledExecutionSchemaRepository {
         Self { catalog }
     }
 
-    pub fn list(&self) -> Result<Vec<serde_json::Value>, BundledCatalogError> {
+    pub fn list(&self) -> Result<Vec<ExecutionSchema>, BundledCatalogError> {
         self.catalog
             .assets()
             .iter()
@@ -31,7 +33,12 @@ impl BundledExecutionSchemaRepository {
 mod tests {
     use super::*;
 
-    static FIXTURE_ASSETS: &[(&str, &str)] = &[("execution_schemas/schema-a/1.0.0.json", "{}")];
+    fn assert_execution_schemas(_: &[crate::infra::bundled::generated::ExecutionSchema]) {}
+
+    static FIXTURE_ASSETS: &[(&str, &str)] = &[(
+        "execution_schemas/schema-a/1.0.0.json",
+        r#"{"$schema":"luma-forge://schemas/bundled/execution_schema.schema.json","id":"schema-a","revision":"1.0.0","inputs":[{"id":"prompt","type":"string","required":true}],"outputs":{"type":"image"}}"#,
+    )];
 
     #[test]
     fn list_returns_execution_schemas() {
@@ -39,6 +46,7 @@ mod tests {
             BundledCatalog::from_assets(FIXTURE_ASSETS),
         );
         let schemas = repository.list().expect("execution schemas should parse");
+        assert_execution_schemas(&schemas);
 
         assert_eq!(schemas.len(), 1);
     }

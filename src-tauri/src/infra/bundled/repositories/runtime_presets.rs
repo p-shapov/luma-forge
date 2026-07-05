@@ -1,4 +1,6 @@
-use super::super::{catalog::parse_asset, errors::BundledCatalogError, BundledCatalog};
+use super::super::{
+    catalog::parse_asset, errors::BundledCatalogError, generated::RuntimePreset, BundledCatalog,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct BundledRuntimePresetRepository {
@@ -17,7 +19,7 @@ impl BundledRuntimePresetRepository {
         Self { catalog }
     }
 
-    pub fn list(&self) -> Result<Vec<serde_json::Value>, BundledCatalogError> {
+    pub fn list(&self) -> Result<Vec<RuntimePreset>, BundledCatalogError> {
         self.catalog
             .assets()
             .iter()
@@ -31,7 +33,12 @@ impl BundledRuntimePresetRepository {
 mod tests {
     use super::*;
 
-    static FIXTURE_ASSETS: &[(&str, &str)] = &[("runtime_presets/base/1.0.0.json", "{}")];
+    fn assert_runtime_presets(_: &[crate::infra::bundled::generated::RuntimePreset]) {}
+
+    static FIXTURE_ASSETS: &[(&str, &str)] = &[(
+        "runtime_presets/base/1.0.0.json",
+        r#"{"$schema":"luma-forge://schemas/bundled/runtime_preset.schema.json","id":"base","revision":"1.0.0","runtime":{"python_version":"3.11","comfyui_revision":"abc123","pytorch":{"index_url":"https://example.com","packages":["torch"]}}}"#,
+    )];
 
     #[test]
     fn list_returns_runtime_presets() {
@@ -39,6 +46,7 @@ mod tests {
             FIXTURE_ASSETS,
         ));
         let presets = repository.list().expect("runtime presets should parse");
+        assert_runtime_presets(&presets);
 
         assert_eq!(presets.len(), 1);
     }

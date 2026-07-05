@@ -1,4 +1,6 @@
-use super::super::{catalog::parse_asset, errors::BundledCatalogError, BundledCatalog};
+use super::super::{
+    catalog::parse_asset, errors::BundledCatalogError, generated::RuntimeContract, BundledCatalog,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct BundledRuntimeContractRepository {
@@ -17,7 +19,7 @@ impl BundledRuntimeContractRepository {
         Self { catalog }
     }
 
-    pub fn list(&self) -> Result<Vec<serde_json::Value>, BundledCatalogError> {
+    pub fn list(&self) -> Result<Vec<RuntimeContract>, BundledCatalogError> {
         self.catalog
             .assets()
             .iter()
@@ -31,9 +33,17 @@ impl BundledRuntimeContractRepository {
 mod tests {
     use super::*;
 
+    fn assert_runtime_contracts(_: &[crate::infra::bundled::generated::RuntimeContract]) {}
+
     static FIXTURE_ASSETS: &[(&str, &str)] = &[
-        ("runtime_contracts/contract-a/1.0.0.json", "{}"),
-        ("runtime_contracts/contract-b/2.0.0.json", "{}"),
+        (
+            "runtime_contracts/contract-a/1.0.0.json",
+            r#"{"$schema":"luma-forge://schemas/bundled/runtime_contract.schema.json","id":"contract-a","revision":"1.0.0","image_ref":"image-a"}"#,
+        ),
+        (
+            "runtime_contracts/contract-b/2.0.0.json",
+            r#"{"$schema":"luma-forge://schemas/bundled/runtime_contract.schema.json","id":"contract-b","revision":"2.0.0","image_ref":"image-b"}"#,
+        ),
     ];
 
     #[test]
@@ -42,6 +52,7 @@ mod tests {
             BundledCatalog::from_assets(FIXTURE_ASSETS),
         );
         let contracts = repository.list().expect("runtime contracts should parse");
+        assert_runtime_contracts(&contracts);
 
         assert_eq!(contracts.len(), 2);
     }
