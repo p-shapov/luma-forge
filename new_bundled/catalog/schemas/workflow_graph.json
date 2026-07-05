@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "luma-forge://schema/workflow_graph",
+  "title": "WorkflowGraph",
+  "type": "object",
+  "required": ["graph"],
+  "additionalProperties": false,
+  "properties": {
+    "graph": { "type": "object" }
+  }
+}

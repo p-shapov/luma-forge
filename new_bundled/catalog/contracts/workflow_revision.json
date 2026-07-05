@@ -1,0 +1,32 @@
+{
+  "entity": "workflow_revision",
+  "path_pattern": "^workflows/(?<id>[a-z0-9][a-z0-9_-]*)/(?<revision>[0-9]+\\.[0-9]+\\.[0-9]+)$",
+  "path_params": ["id", "revision"],
+  "required_files": [
+    {
+      "name": "metadata.json",
+      "entity": "workflow_metadata",
+      "schema": "luma-forge://schema/workflow_metadata"
+    },
+    {
+      "name": "model_assets.json",
+      "entity": "workflow_model_assets",
+      "schema": "luma-forge://schema/workflow_model_assets"
+    },
+    {
+      "name": "contract_requirements.json",
+      "entity": "workflow_contract_requirements",
+      "schema": "luma-forge://schema/workflow_contract_requirements"
+    },
+    {
+      "name": "execution_contract.json",
+      "entity": "workflow_execution_contract",
+      "schema": "luma-forge://schema/workflow_execution_contract"
+    },
+    {
+      "name": "workflow.json",
+      "entity": "workflow_graph",
+      "schema": "luma-forge://schema/workflow_graph"
+    }
+  ]
+}

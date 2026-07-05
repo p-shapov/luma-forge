@@ -1,4 +1,0 @@
-{
-  "$schema": "luma-forge://schemas/bundled/runtime_contract.schema.json",
-  "image_ref": "ghcr.io/p-shapov/luma-forge/runpod-endpoint-worker@sha256:d26e2b7694ed8b56cdaabeff34478caa549d72b9f4863ba80f40a89583ee1812"
-}

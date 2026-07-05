@@ -1,0 +1,32 @@
+{
+  "schema_ref": {
+    "id": "text-to-image",
+    "revision": "1.0.0"
+  },
+  "input_bindings": [
+    {
+      "value": "{{prompt}}",
+      "node_id": "171",
+      "path": [
+        "widgets_values",
+        "0"
+      ]
+    },
+    {
+      "value": false,
+      "node_id": "154",
+      "path": [
+        "widgets_values",
+        "0"
+      ]
+    },
+    {
+      "value": false,
+      "node_id": "177",
+      "path": [
+        "widgets_values",
+        "0"
+      ]
+    }
+  ]
+}

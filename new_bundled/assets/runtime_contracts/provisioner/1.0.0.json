@@ -1,4 +1,0 @@
-{
-  "$schema": "luma-forge://schemas/bundled/runtime_contract.schema.json",
-  "image_ref": "ghcr.io/p-shapov/luma-forge/provisioner-worker@sha256:8f09164389385499f59495f030ec3c79f84eb8c3d6de5adab09cf9246afd1cc6"
-}

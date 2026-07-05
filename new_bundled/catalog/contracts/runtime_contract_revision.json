@@ -1,0 +1,12 @@
+{
+  "entity": "runtime_contract_revision",
+  "path_pattern": "^runtime_contracts/(?<id>[a-z0-9][a-z0-9_-]*)/(?<revision>[0-9]+\\.[0-9]+\\.[0-9]+)$",
+  "path_params": ["id", "revision"],
+  "required_files": [
+    {
+      "name": "runtime_contract.json",
+      "entity": "runtime_contract",
+      "schema": "luma-forge://schema/runtime_contract"
+    }
+  ]
+}
