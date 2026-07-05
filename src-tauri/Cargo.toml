@@ -18,6 +18,8 @@ syn = "2"
 tauri-build = { version = "2", features = [] }
 thiserror = "2"
 typify = "0.7.0"
+regress = "0.11.1"
+walkdir = "2.5"
 
 [dependencies]
 async-trait = "0.1"
@@ -49,3 +51,5 @@ uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 jsonschema = { version = "0.46.6", default-features = false }
+regress = "0.11.1"
+walkdir = "2.5"

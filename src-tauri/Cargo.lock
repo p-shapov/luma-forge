@@ -2972,6 +2972,7 @@ dependencies = [
  "tokio",
  "typify",
  "uuid",
+ "walkdir",
 ]
 
 [[package]]
