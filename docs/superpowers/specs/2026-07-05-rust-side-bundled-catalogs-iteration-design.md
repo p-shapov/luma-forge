@@ -38,8 +38,9 @@ The source of truth is `new_bundled/catalog`:
 
 References are declarative catalog data. `new_bundled/catalog/schemas/reference.json`
 includes `entity`, `id`, and `revision`; entry files use that shape for
-references. Rust must not infer reference target entities from field names such
-as `runtime_preset_ref` or `schema_ref`.
+references. `entity` names the revision contract from `catalog/contracts` that
+owns the referenced entry. Rust must not infer reference target entities from
+field names such as `runtime_preset_ref` or `schema_ref`.
 
 ## Module Structure
 
@@ -85,9 +86,11 @@ expose only `list` and `find(id, revision)` methods, map raw generated DTOs into
 6. Parse each required file as JSON.
 7. Validate each entry file with `jsonschema`.
 8. Deserialize validated data into typify-generated raw DTOs.
-9. Build an entity index from loaded revisions.
+9. Build an index of loaded revisions keyed by contract `entity`, `id`, and
+   `revision`.
 10. Resolve every `{ entity, id, revision }` reference found in loaded JSON
-    values against that index.
+    values by selecting the matching contract descriptor from `catalog/contracts`
+    and checking that the referenced revision exists in the loaded index.
 
 Validation is limited to:
 
