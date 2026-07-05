@@ -122,3 +122,27 @@ Results:
 - `cargo test --manifest-path src-tauri/Cargo.toml tests::production_rust_does_not_use_direct_panic_primitives -- --exact`: passed
 - `cargo test --manifest-path src-tauri/Cargo.toml infra::bundled::models::tests::execution_schema_input_from_panics_for_non_string_type -- --exact`: passed
 - `cargo fmt --manifest-path src-tauri/Cargo.toml --check`: passed
+
+## Fix: Clippy Assertion Form
+
+Date: 2026-07-05
+
+1. Replaced the constant-false assertion with an assertion against the actual generated JSON value.
+2. Kept the non-string invariant loud without direct production panic primitives.
+
+### Verification
+
+```bash
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+```
+
+Initial result:
+
+- failed on `clippy::assertions_on_constants` for `assert!(false, ...)`
+
+Final results:
+
+- `cargo test --manifest-path src-tauri/Cargo.toml tests::production_rust_does_not_use_direct_panic_primitives -- --exact`: passed
+- `cargo test --manifest-path src-tauri/Cargo.toml infra::bundled::models::tests::execution_schema_input_from_panics_for_non_string_type -- --exact`: passed
+- `cargo fmt --manifest-path src-tauri/Cargo.toml --check`: passed
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`: passed
