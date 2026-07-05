@@ -4,9 +4,19 @@
   "title": "Reference",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "revision"],
+  "required": ["entity", "id", "revision"],
   "properties": {
-    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-    "revision": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+    "entity": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    }
   }
 }

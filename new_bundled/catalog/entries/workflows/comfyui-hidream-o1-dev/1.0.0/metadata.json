@@ -1,6 +1,7 @@
 {
   "name": "ComfyUI HiDream O1 Dev",
   "runtime_preset_ref": {
+    "entity": "runtime_preset_revision",
     "id": "comfyui-py312-cu126-torch291",
     "revision": "1.0.0"
   },

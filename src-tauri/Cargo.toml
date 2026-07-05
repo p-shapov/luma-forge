@@ -23,6 +23,7 @@ walkdir = "2.5"
 
 [dependencies]
 async-trait = "0.1"
+jsonschema = { version = "0.46.6", default-features = false }
 fastrace = { version = "0.7", features = ["enable"] }
 hex = "0.4"
 hmac = "0.12"
@@ -48,6 +49,7 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "parsing", "serde-well-known"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 uuid = { version = "1", features = ["v4"] }
+walkdir = "2.5"
 
 [dev-dependencies]
 jsonschema = { version = "0.46.6", default-features = false }
