@@ -13,6 +13,11 @@ impl BundledWorkflowRepository {
         }
     }
 
+    #[cfg(test)]
+    pub fn from_catalog(catalog: BundledCatalog) -> Self {
+        Self { catalog }
+    }
+
     pub fn workflow_revision_count(&self) -> usize {
         self.catalog.workflow_revision_paths().len()
     }
@@ -30,9 +35,18 @@ impl BundledWorkflowRepository {
 mod tests {
     use super::*;
 
+    static FIXTURE_ASSETS: &[(&str, &str)] = &[
+        ("workflows/example/1.0.0/metadata.json", "{}"),
+        ("workflows/example/1.0.0/model_assets.json", "{}"),
+        ("workflows/example/1.0.0/contract_requirements.json", "{}"),
+        ("workflows/example/1.0.0/execution_contract.json", "{}"),
+        ("workflows/example/1.0.0/workflow.json", "{}"),
+    ];
+
     #[test]
     fn list_returns_grouped_workflow_revisions() {
-        let repository = BundledWorkflowRepository::new();
+        let repository =
+            BundledWorkflowRepository::from_catalog(BundledCatalog::from_assets(FIXTURE_ASSETS));
         let revisions = repository.list().expect("workflows should parse");
 
         assert_eq!(repository.workflow_revision_count(), 1);

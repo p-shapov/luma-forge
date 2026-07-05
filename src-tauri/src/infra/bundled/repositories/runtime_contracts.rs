@@ -12,6 +12,11 @@ impl BundledRuntimeContractRepository {
         }
     }
 
+    #[cfg(test)]
+    pub fn from_catalog(catalog: BundledCatalog) -> Self {
+        Self { catalog }
+    }
+
     pub fn list(&self) -> Result<Vec<serde_json::Value>, BundledCatalogError> {
         self.catalog
             .assets()
@@ -26,9 +31,16 @@ impl BundledRuntimeContractRepository {
 mod tests {
     use super::*;
 
+    static FIXTURE_ASSETS: &[(&str, &str)] = &[
+        ("runtime_contracts/contract-a/1.0.0.json", "{}"),
+        ("runtime_contracts/contract-b/2.0.0.json", "{}"),
+    ];
+
     #[test]
     fn list_returns_runtime_contracts() {
-        let repository = BundledRuntimeContractRepository::new();
+        let repository = BundledRuntimeContractRepository::from_catalog(
+            BundledCatalog::from_assets(FIXTURE_ASSETS),
+        );
         let contracts = repository.list().expect("runtime contracts should parse");
 
         assert_eq!(contracts.len(), 2);
