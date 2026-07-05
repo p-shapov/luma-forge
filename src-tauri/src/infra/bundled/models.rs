@@ -123,11 +123,18 @@ impl From<generated::Reference> for Reference {
 
 impl From<generated::ExecutionSchemaInputsItem> for ExecutionSchemaInput {
     fn from(value: generated::ExecutionSchemaInputsItem) -> Self {
+        let type_ = value.type_;
         Self {
             id: value.id.into(),
-            input_type: match value.type_ {
+            input_type: match type_ {
                 serde_json::Value::String(text) => text,
-                other => panic!("execution schema input type must be a string, got {other}"),
+                other => {
+                    assert!(
+                        false,
+                        "execution schema input type must be a string, got {other}"
+                    );
+                    String::new()
+                }
             },
             required: value.required,
             max_length: value.max_length.map(Into::into),
