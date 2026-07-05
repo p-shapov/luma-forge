@@ -32,15 +32,70 @@ impl BundledRuntimeContractRepository {
     }
 }
 
+fn identity_from_revision_path(
+    path: &str,
+    prefix: &str,
+) -> Result<(String, String), BundledCatalogError> {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        [actual_prefix, id, file] if *actual_prefix == prefix => {
+            let Some(revision) = file.strip_suffix(".json") else {
+                return Err(BundledCatalogError::corrupt_asset(
+                    path,
+                    "revision file is invalid",
+                ));
+            };
+            Ok(((*id).to_string(), revision.to_string()))
+        }
+        _ => Err(BundledCatalogError::corrupt_asset(
+            path,
+            "bundled path is invalid",
+        )),
+    }
+}
+
 fn parse_runtime_contract(
     path: &str,
     text: &str,
 ) -> Result<BundledRuntimeContract, BundledCatalogError> {
     let contract: generated::RuntimeContract = serde_json::from_str(text)
         .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))?;
+    let (id, revision) = identity_from_revision_path(path, "runtime_contracts")?;
     Ok(BundledRuntimeContract {
-        id: contract.id.into(),
-        revision: contract.revision.into(),
+        id,
+        revision,
         image_ref: contract.image_ref.into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_runtime_contract_uses_identity_from_path() {
+        let contract = parse_runtime_contract(
+            "runtime_contracts/example/1.2.3.json",
+            r#"{
+              "$schema":"luma-forge://schemas/bundled/runtime_contract.schema.json",
+              "image_ref":"ghcr.io/example/image@sha256:abc123"
+            }"#,
+        )
+        .expect("contract should parse");
+
+        assert_eq!(contract.id, "example");
+        assert_eq!(contract.revision, "1.2.3");
+    }
+
+    #[test]
+    fn get_returns_none_for_missing_runtime_contract() {
+        let repository = BundledRuntimeContractRepository::new();
+
+        assert_eq!(
+            repository
+                .get("missing-runtime-contract", "9.9.9")
+                .expect("lookup should succeed"),
+            None
+        );
+    }
 }

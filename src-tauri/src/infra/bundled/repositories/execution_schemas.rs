@@ -34,15 +34,38 @@ impl BundledExecutionSchemaRepository {
     }
 }
 
+fn identity_from_revision_path(
+    path: &str,
+    prefix: &str,
+) -> Result<(String, String), BundledCatalogError> {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        [actual_prefix, id, file] if *actual_prefix == prefix => {
+            let Some(revision) = file.strip_suffix(".json") else {
+                return Err(BundledCatalogError::corrupt_asset(
+                    path,
+                    "revision file is invalid",
+                ));
+            };
+            Ok(((*id).to_string(), revision.to_string()))
+        }
+        _ => Err(BundledCatalogError::corrupt_asset(
+            path,
+            "bundled path is invalid",
+        )),
+    }
+}
+
 fn parse_execution_schema(
     path: &str,
     text: &str,
 ) -> Result<BundledExecutionSchema, BundledCatalogError> {
     let schema: generated::ExecutionSchema = serde_json::from_str(text)
         .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))?;
+    let (id, revision) = identity_from_revision_path(path, "execution_schemas")?;
     Ok(BundledExecutionSchema {
-        id: schema.id.into(),
-        revision: schema.revision.into(),
+        id,
+        revision,
         inputs: schema
             .inputs
             .into_iter()
@@ -55,4 +78,37 @@ fn parse_execution_schema(
             .collect(),
         output_type: schema.outputs.type_.into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_execution_schema_uses_identity_from_path() {
+        let schema = parse_execution_schema(
+            "execution_schemas/example/1.2.3.json",
+            r#"{
+              "$schema":"luma-forge://schemas/bundled/execution_schema.schema.json",
+              "inputs":[{"id":"prompt","type":"string","required":true,"max_length":4000}],
+              "outputs":{"type":"image_set"}
+            }"#,
+        )
+        .expect("schema should parse");
+
+        assert_eq!(schema.id, "example");
+        assert_eq!(schema.revision, "1.2.3");
+    }
+
+    #[test]
+    fn get_returns_none_for_missing_execution_schema() {
+        let repository = BundledExecutionSchemaRepository::new();
+
+        assert_eq!(
+            repository
+                .get("missing-execution-schema", "9.9.9")
+                .expect("lookup should succeed"),
+            None
+        );
+    }
 }

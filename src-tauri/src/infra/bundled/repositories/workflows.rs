@@ -24,7 +24,7 @@ impl BundledWorkflowRepository {
     }
 
     pub fn list(&self) -> Result<Vec<BundledWorkflow>, BundledCatalogError> {
-        workflow_revisions()
+        workflow_revisions()?
             .into_iter()
             .map(|(id, revision)| {
                 self.get(&id, &revision)?.ok_or_else(|| {
@@ -166,8 +166,8 @@ fn parse_workflow(
     )?;
 
     Ok(BundledWorkflow {
-        id: metadata.id.into(),
-        revision: metadata.revision.into(),
+        id: id.to_string(),
+        revision: revision.to_string(),
         name: metadata.name.into(),
         runtime_preset: BundledReference {
             id: metadata.runtime_preset.id.into(),
@@ -247,21 +247,26 @@ fn parse_asset<T: serde::de::DeserializeOwned>(
         .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))
 }
 
-fn workflow_revisions() -> Vec<(String, String)> {
+fn workflow_identity_from_path(path: &str) -> Result<(String, String), BundledCatalogError> {
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        ["workflows", id, revision, _file] => Ok(((*id).to_string(), (*revision).to_string())),
+        _ => Err(BundledCatalogError::corrupt_asset(
+            path,
+            "workflow path is invalid",
+        )),
+    }
+}
+
+fn workflow_revisions() -> Result<Vec<(String, String)>, BundledCatalogError> {
     generated::BUNDLED_ASSETS
         .iter()
         .filter_map(|(path, _)| {
-            let parts: Vec<&str> = path.split('/').collect();
-            match parts.as_slice() {
-                ["workflows", id, revision, "metadata.json"] => {
-                    Some(((*id).to_string(), (*revision).to_string()))
-                }
-                _ => None,
-            }
+            path.ends_with("/metadata.json")
+                .then(|| workflow_identity_from_path(path))
         })
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+        .collect::<Result<BTreeSet<_>, _>>()
+        .map(|revisions| revisions.into_iter().collect())
 }
 
 fn workflow_file(id: &str, revision: &str, file: &str) -> String {
@@ -270,4 +275,29 @@ fn workflow_file(id: &str, revision: &str, file: &str) -> String {
 
 fn workflow_dir(id: &str, revision: &str) -> String {
     format!("workflows/{id}/{revision}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_uses_requested_workflow_identity() {
+        let workflow = BundledWorkflowRepository::new()
+            .get("comfyui-hidream-o1-dev", "1.0.0")
+            .expect("lookup should succeed")
+            .expect("workflow should exist");
+
+        assert_eq!(workflow.id, "comfyui-hidream-o1-dev");
+        assert_eq!(workflow.revision, "1.0.0");
+    }
+
+    #[test]
+    fn get_returns_none_for_missing_workflow() {
+        let workflow = BundledWorkflowRepository::new()
+            .get("missing-workflow", "9.9.9")
+            .expect("lookup should succeed");
+
+        assert_eq!(workflow, None);
+    }
 }
