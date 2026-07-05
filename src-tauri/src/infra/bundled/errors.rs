@@ -4,6 +4,15 @@ pub enum BundledCatalogError {
     CorruptBundledAsset { path: String, message: String },
 }
 
+impl BundledCatalogError {
+    pub(crate) fn corrupt_asset(path: &str, message: impl Into<String>) -> Self {
+        Self::CorruptBundledAsset {
+            path: path.to_string(),
+            message: message.into(),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum BundledValidationError {
     #[error("{path}: {message}")]

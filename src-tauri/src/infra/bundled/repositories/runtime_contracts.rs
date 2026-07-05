@@ -1,4 +1,3 @@
-use super::parse_asset;
 use crate::infra::bundled::{
     errors::BundledCatalogError, generated, models::BundledRuntimeContract,
 };
@@ -37,7 +36,8 @@ fn parse_runtime_contract(
     path: &str,
     text: &str,
 ) -> Result<BundledRuntimeContract, BundledCatalogError> {
-    let contract = parse_asset::<generated::RuntimeContract>(path, text)?;
+    let contract: generated::RuntimeContract = serde_json::from_str(text)
+        .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))?;
     Ok(BundledRuntimeContract {
         id: contract.id.into(),
         revision: contract.revision.into(),

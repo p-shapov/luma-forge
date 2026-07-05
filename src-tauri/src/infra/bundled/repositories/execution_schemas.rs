@@ -1,4 +1,3 @@
-use super::parse_asset;
 use crate::infra::bundled::{
     errors::BundledCatalogError,
     generated,
@@ -39,7 +38,8 @@ fn parse_execution_schema(
     path: &str,
     text: &str,
 ) -> Result<BundledExecutionSchema, BundledCatalogError> {
-    let schema = parse_asset::<generated::ExecutionSchema>(path, text)?;
+    let schema: generated::ExecutionSchema = serde_json::from_str(text)
+        .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))?;
     Ok(BundledExecutionSchema {
         id: schema.id.into(),
         revision: schema.revision.into(),

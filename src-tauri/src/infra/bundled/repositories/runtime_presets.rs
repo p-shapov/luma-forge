@@ -1,4 +1,3 @@
-use super::parse_asset;
 use crate::infra::bundled::{
     errors::BundledCatalogError,
     generated,
@@ -39,7 +38,8 @@ fn parse_runtime_preset(
     path: &str,
     text: &str,
 ) -> Result<BundledRuntimePreset, BundledCatalogError> {
-    let preset = parse_asset::<generated::RuntimePreset>(path, text)?;
+    let preset: generated::RuntimePreset = serde_json::from_str(text)
+        .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))?;
     Ok(BundledRuntimePreset {
         id: preset.id.into(),
         revision: preset.revision.into(),

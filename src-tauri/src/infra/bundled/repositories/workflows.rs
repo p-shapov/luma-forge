@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use super::{
-    corrupt, execution_schemas::BundledExecutionSchemaRepository, parse_asset,
+    execution_schemas::BundledExecutionSchemaRepository,
     runtime_contracts::BundledRuntimeContractRepository,
     runtime_presets::BundledRuntimePresetRepository,
 };
@@ -28,7 +28,7 @@ impl BundledWorkflowRepository {
             .into_iter()
             .map(|(id, revision)| {
                 self.get(&id, &revision)?.ok_or_else(|| {
-                    corrupt(
+                    BundledCatalogError::corrupt_asset(
                         &workflow_dir(&id, &revision),
                         "workflow revision disappeared",
                     )
@@ -74,30 +74,55 @@ impl BundledWorkflowRepository {
                 &workflow.runtime_preset.id,
                 &workflow.runtime_preset.revision,
             )?
-            .ok_or_else(|| corrupt(&path, "workflow runtime preset reference is missing"))?;
+            .ok_or_else(|| {
+                BundledCatalogError::corrupt_asset(
+                    &path,
+                    "workflow runtime preset reference is missing",
+                )
+            })?;
         let execution_schema = execution_schemas
             .get(
                 &workflow.execution_contract.schema_ref.id,
                 &workflow.execution_contract.schema_ref.revision,
             )?
-            .ok_or_else(|| corrupt(&path, "workflow execution schema reference is missing"))?;
+            .ok_or_else(|| {
+                BundledCatalogError::corrupt_asset(
+                    &path,
+                    "workflow execution schema reference is missing",
+                )
+            })?;
         let runpod = workflow
             .contract_requirements
             .iter()
             .find(|requirement| requirement.runtime_type == "runpod")
-            .ok_or_else(|| corrupt(&path, "workflow has no RunPod contract requirement"))?;
+            .ok_or_else(|| {
+                BundledCatalogError::corrupt_asset(
+                    &path,
+                    "workflow has no RunPod contract requirement",
+                )
+            })?;
         let endpoint_contract = runtime_contracts
             .get(
                 &runpod.endpoint_contract.id,
                 &runpod.endpoint_contract.revision,
             )?
-            .ok_or_else(|| corrupt(&path, "workflow endpoint contract reference is missing"))?;
+            .ok_or_else(|| {
+                BundledCatalogError::corrupt_asset(
+                    &path,
+                    "workflow endpoint contract reference is missing",
+                )
+            })?;
         let provisioner_contract = runtime_contracts
             .get(
                 &runpod.provisioner_contract.id,
                 &runpod.provisioner_contract.revision,
             )?
-            .ok_or_else(|| corrupt(&path, "workflow provisioner contract reference is missing"))?;
+            .ok_or_else(|| {
+                BundledCatalogError::corrupt_asset(
+                    &path,
+                    "workflow provisioner contract reference is missing",
+                )
+            })?;
 
         Ok(Some(ResolvedRunpodWorkflow {
             id: workflow.id,
@@ -209,7 +234,17 @@ fn required_text(
     generated::BUNDLED_ASSETS
         .iter()
         .find_map(|(asset_path, text)| (*asset_path == path).then_some(*text))
-        .ok_or_else(|| corrupt(&path, "required workflow file is missing"))
+        .ok_or_else(|| {
+            BundledCatalogError::corrupt_asset(&path, "required workflow file is missing")
+        })
+}
+
+fn parse_asset<T: serde::de::DeserializeOwned>(
+    path: &str,
+    text: &str,
+) -> Result<T, BundledCatalogError> {
+    serde_json::from_str(text)
+        .map_err(|error| BundledCatalogError::corrupt_asset(path, error.to_string()))
 }
 
 fn workflow_revisions() -> Vec<(String, String)> {
