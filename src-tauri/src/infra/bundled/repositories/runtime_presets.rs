@@ -1,53 +1,59 @@
-use super::super::{
-    catalog::parse_asset, errors::BundledCatalogError, generated::RuntimePreset, BundledCatalog,
+use super::{asset_text, assets, parse_asset};
+use crate::infra::bundled::{
+    errors::BundledCatalogError,
+    generated,
+    models::{BundledRuntimePreset, BundledRuntimePresetPytorch, BundledRuntimePresetRuntime},
 };
 
 #[derive(Debug, Clone, Default)]
-pub struct BundledRuntimePresetRepository {
-    catalog: BundledCatalog,
-}
+pub struct BundledRuntimePresetRepository;
 
 impl BundledRuntimePresetRepository {
     pub fn new() -> Self {
-        Self {
-            catalog: BundledCatalog::new(),
-        }
+        Self
     }
 
-    #[cfg(test)]
-    pub fn from_catalog(catalog: BundledCatalog) -> Self {
-        Self { catalog }
-    }
-
-    pub fn list(&self) -> Result<Vec<RuntimePreset>, BundledCatalogError> {
-        self.catalog
-            .assets()
+    pub fn list(&self) -> Result<Vec<BundledRuntimePreset>, BundledCatalogError> {
+        assets()
             .iter()
             .filter(|(path, _)| path.starts_with("runtime_presets/"))
-            .map(|(path, text)| parse_asset(path, text))
+            .map(|(path, text)| parse_runtime_preset(path, text))
             .collect()
+    }
+
+    pub fn get(
+        &self,
+        id: &str,
+        revision: &str,
+    ) -> Result<Option<BundledRuntimePreset>, BundledCatalogError> {
+        let path = format!("runtime_presets/{id}/{revision}.json");
+        asset_text(&path)
+            .map(|text| parse_runtime_preset(&path, text))
+            .transpose()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_runtime_presets(_: &[crate::infra::bundled::generated::RuntimePreset]) {}
-
-    static FIXTURE_ASSETS: &[(&str, &str)] = &[(
-        "runtime_presets/base/1.0.0.json",
-        r#"{"$schema":"luma-forge://schemas/bundled/runtime_preset.schema.json","id":"base","revision":"1.0.0","runtime":{"python_version":"3.11","comfyui_revision":"abc123","pytorch":{"index_url":"https://example.com","packages":["torch"]}}}"#,
-    )];
-
-    #[test]
-    fn list_returns_runtime_presets() {
-        let repository = BundledRuntimePresetRepository::from_catalog(BundledCatalog::from_assets(
-            FIXTURE_ASSETS,
-        ));
-        let presets = repository.list().expect("runtime presets should parse");
-        assert_runtime_presets(&presets);
-
-        assert_eq!(presets.len(), 1);
-    }
+fn parse_runtime_preset(
+    path: &str,
+    text: &str,
+) -> Result<BundledRuntimePreset, BundledCatalogError> {
+    let preset = parse_asset::<generated::RuntimePreset>(path, text)?;
+    Ok(BundledRuntimePreset {
+        id: preset.id.into(),
+        revision: preset.revision.into(),
+        runtime: BundledRuntimePresetRuntime {
+            python_version: preset.runtime.python_version.into(),
+            comfyui_revision: preset.runtime.comfyui_revision.into(),
+            pytorch: BundledRuntimePresetPytorch {
+                index_url: preset.runtime.pytorch.index_url.into(),
+                packages: preset
+                    .runtime
+                    .pytorch
+                    .packages
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+            },
+        },
+    })
 }

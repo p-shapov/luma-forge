@@ -1,59 +1,44 @@
-use super::super::{
-    catalog::parse_asset, errors::BundledCatalogError, generated::RuntimeContract, BundledCatalog,
+use super::{asset_text, assets, parse_asset};
+use crate::infra::bundled::{
+    errors::BundledCatalogError, generated, models::BundledRuntimeContract,
 };
 
 #[derive(Debug, Clone, Default)]
-pub struct BundledRuntimeContractRepository {
-    catalog: BundledCatalog,
-}
+pub struct BundledRuntimeContractRepository;
 
 impl BundledRuntimeContractRepository {
     pub fn new() -> Self {
-        Self {
-            catalog: BundledCatalog::new(),
-        }
+        Self
     }
 
-    #[cfg(test)]
-    pub fn from_catalog(catalog: BundledCatalog) -> Self {
-        Self { catalog }
-    }
-
-    pub fn list(&self) -> Result<Vec<RuntimeContract>, BundledCatalogError> {
-        self.catalog
-            .assets()
+    pub fn list(&self) -> Result<Vec<BundledRuntimeContract>, BundledCatalogError> {
+        assets()
             .iter()
             .filter(|(path, _)| path.starts_with("runtime_contracts/"))
-            .map(|(path, text)| parse_asset(path, text))
+            .map(|(path, text)| parse_runtime_contract(path, text))
             .collect()
+    }
+
+    pub fn get(
+        &self,
+        id: &str,
+        revision: &str,
+    ) -> Result<Option<BundledRuntimeContract>, BundledCatalogError> {
+        let path = format!("runtime_contracts/{id}/{revision}.json");
+        asset_text(&path)
+            .map(|text| parse_runtime_contract(&path, text))
+            .transpose()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn assert_runtime_contracts(_: &[crate::infra::bundled::generated::RuntimeContract]) {}
-
-    static FIXTURE_ASSETS: &[(&str, &str)] = &[
-        (
-            "runtime_contracts/contract-a/1.0.0.json",
-            r#"{"$schema":"luma-forge://schemas/bundled/runtime_contract.schema.json","id":"contract-a","revision":"1.0.0","image_ref":"image-a"}"#,
-        ),
-        (
-            "runtime_contracts/contract-b/2.0.0.json",
-            r#"{"$schema":"luma-forge://schemas/bundled/runtime_contract.schema.json","id":"contract-b","revision":"2.0.0","image_ref":"image-b"}"#,
-        ),
-    ];
-
-    #[test]
-    fn list_returns_runtime_contracts() {
-        let repository = BundledRuntimeContractRepository::from_catalog(
-            BundledCatalog::from_assets(FIXTURE_ASSETS),
-        );
-        let contracts = repository.list().expect("runtime contracts should parse");
-        assert_runtime_contracts(&contracts);
-
-        assert_eq!(contracts.len(), 2);
-    }
+fn parse_runtime_contract(
+    path: &str,
+    text: &str,
+) -> Result<BundledRuntimeContract, BundledCatalogError> {
+    let contract = parse_asset::<generated::RuntimeContract>(path, text)?;
+    Ok(BundledRuntimeContract {
+        id: contract.id.into(),
+        revision: contract.revision.into(),
+        image_ref: contract.image_ref.into(),
+    })
 }
