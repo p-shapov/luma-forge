@@ -1,7 +1,5 @@
 {
   "$schema": "luma-forge://schemas/bundled/execution_schema.schema.json",
-  "id": "text-to-image",
-  "revision": "1.0.0",
   "inputs": [
     {
       "id": "prompt",

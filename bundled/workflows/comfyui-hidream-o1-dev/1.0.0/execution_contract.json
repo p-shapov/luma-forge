@@ -1,7 +1,5 @@
 {
   "$schema": "luma-forge://schemas/bundled/workflow_execution_contract.schema.json",
-  "workflow_id": "comfyui-hidream-o1-dev",
-  "revision": "1.0.0",
   "schema_ref": {
     "id": "text-to-image",
     "revision": "1.0.0"

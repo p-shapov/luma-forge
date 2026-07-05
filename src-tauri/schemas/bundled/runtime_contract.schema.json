@@ -4,11 +4,9 @@
   "title": "RuntimeContract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "id", "revision", "image_ref"],
+  "required": ["$schema", "image_ref"],
   "properties": {
     "$schema": { "const": "luma-forge://schemas/bundled/runtime_contract.schema.json" },
-    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-    "revision": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "image_ref": { "type": "string", "minLength": 1 }
   }
 }

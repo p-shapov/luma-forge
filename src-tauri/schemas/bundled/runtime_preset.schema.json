@@ -4,11 +4,9 @@
   "title": "RuntimePreset",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "id", "revision", "runtime"],
+  "required": ["$schema", "runtime"],
   "properties": {
     "$schema": { "const": "luma-forge://schemas/bundled/runtime_preset.schema.json" },
-    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
-    "revision": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "runtime": {
       "type": "object",
       "additionalProperties": false,

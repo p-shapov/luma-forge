@@ -1,7 +1,5 @@
 {
   "$schema": "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
-  "workflow_id": "comfyui-hidream-o1-dev",
-  "revision": "1.0.0",
   "model_assets": [
     {
       "id": "hidream-o1-image-dev-fp8-scaled",

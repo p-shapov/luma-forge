@@ -1,7 +1,5 @@
 {
   "$schema": "luma-forge://schemas/bundled/runtime_preset.schema.json",
-  "id": "comfyui-py312-cu126-torch291",
-  "revision": "1.0.0",
   "runtime": {
     "python_version": "3.12",
     "comfyui_revision": "ea62dc11c9a10dae52186fdcc3da033eb46018a1",

@@ -1,7 +1,5 @@
 {
   "$schema": "luma-forge://schemas/bundled/workflow_metadata.schema.json",
-  "id": "comfyui-hidream-o1-dev",
-  "revision": "1.0.0",
   "name": "ComfyUI HiDream O1 Dev",
   "runtime_preset": {
     "id": "comfyui-py312-cu126-torch291",

@@ -156,18 +156,23 @@ pub fn validate_cross_file_assets(
         }
         let parts: Vec<&str> = asset.path.split('/').collect();
         match parts.as_slice() {
-            ["workflows", workflow_id, revision, file] => {
+            ["workflows", ..] => {
+                let workflow_id = asset_id(asset)?.to_string();
+                let revision = asset_revision(asset)?.to_string();
+                let file = asset_file(asset)
+                    .ok_or_else(|| invalid(&asset.path, "workflow file missing path file"))?;
                 let files = workflow_files
-                    .entry((workflow_id.to_string(), revision.to_string()))
+                    .entry((workflow_id, revision))
                     .or_default();
                 if !files.insert(file.to_string()) {
                     return Err(invalid(&asset.path, "duplicate workflow file identity"));
                 }
             }
-            ["runtime_presets", id, file]
-            | ["runtime_contracts", id, file]
-            | ["execution_schemas", id, file] => {
-                let key = (id.to_string(), file.trim_end_matches(".json").to_string());
+            ["runtime_presets", ..] | ["runtime_contracts", ..] | ["execution_schemas", ..] => {
+                let key = (
+                    asset_id(asset)?.to_string(),
+                    asset_revision(asset)?.to_string(),
+                );
                 match asset.schema_id.as_str() {
                     "luma-forge://schemas/bundled/runtime_preset.schema.json" => {
                         if !runtime_presets.insert(key) {
@@ -196,7 +201,6 @@ pub fn validate_cross_file_assets(
             }
             _ => return Err(invalid(&asset.path, "unexpected bundled JSON path")),
         }
-        reject_path_identity(asset, &parts)?;
         reject_unsafe_model_paths(asset)?;
     }
 
@@ -228,49 +232,24 @@ pub fn validate_cross_file_assets(
     Ok(())
 }
 
-fn reject_path_identity(
-    asset: &BundledJsonFile,
-    parts: &[&str],
-) -> Result<(), BundledValidationError> {
-    match parts {
-        ["workflows", workflow_id, revision, "metadata.json"] => {
-            expect_identity(asset, workflow_id, revision, "id")
-        }
-        ["workflows", workflow_id, revision, _] => {
-            expect_identity(asset, workflow_id, revision, "workflow_id")
-        }
-        ["runtime_presets", id, file]
-        | ["runtime_contracts", id, file]
-        | ["execution_schemas", id, file] => {
-            expect_identity(asset, id, file.trim_end_matches(".json"), "id")
-        }
-        _ => Err(invalid(&asset.path, "unexpected bundled JSON path")),
-    }
+fn asset_id(asset: &BundledJsonFile) -> Result<&str, BundledValidationError> {
+    asset
+        .path_params
+        .get("id")
+        .map(String::as_str)
+        .ok_or_else(|| invalid(&asset.path, "bundled path missing id"))
 }
 
-fn expect_identity(
-    asset: &BundledJsonFile,
-    expected_id: &str,
-    expected_revision: &str,
-    id_field: &str,
-) -> Result<(), BundledValidationError> {
-    let actual_id = asset
-        .json
-        .get(id_field)
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    let actual_revision = asset
-        .json
+fn asset_revision(asset: &BundledJsonFile) -> Result<&str, BundledValidationError> {
+    asset
+        .path_params
         .get("revision")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("");
-    if actual_id != expected_id || actual_revision != expected_revision {
-        return Err(invalid(
-            &asset.path,
-            "bundled asset identity does not match its path",
-        ));
-    }
-    Ok(())
+        .map(String::as_str)
+        .ok_or_else(|| invalid(&asset.path, "bundled path missing revision"))
+}
+
+fn asset_file(asset: &BundledJsonFile) -> Option<&str> {
+    asset.path_params.get("file").map(String::as_str)
 }
 
 fn reject_unsafe_model_paths(asset: &BundledJsonFile) -> Result<(), BundledValidationError> {
@@ -865,11 +844,34 @@ mod cross_file_tests {
     use super::*;
     use serde_json::json;
 
+    fn path_params(path: &str) -> BTreeMap<String, String> {
+        let parts: Vec<&str> = path.split('/').collect();
+        let mut params = BTreeMap::new();
+        match parts.as_slice() {
+            ["workflows", id, revision, file] => {
+                params.insert("id".to_string(), (*id).to_string());
+                params.insert("revision".to_string(), (*revision).to_string());
+                params.insert("file".to_string(), (*file).to_string());
+            }
+            ["runtime_presets", id, file]
+            | ["runtime_contracts", id, file]
+            | ["execution_schemas", id, file] => {
+                params.insert("id".to_string(), (*id).to_string());
+                params.insert(
+                    "revision".to_string(),
+                    file.trim_end_matches(".json").to_string(),
+                );
+            }
+            _ => {}
+        }
+        params
+    }
+
     fn asset(path: &str, schema_id: &str, json: serde_json::Value) -> BundledJsonFile {
         BundledJsonFile {
             path: path.to_string(),
             schema_id: schema_id.to_string(),
-            path_params: BTreeMap::new(),
+            path_params: path_params(path),
             json,
         }
     }
@@ -881,8 +883,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/runtime_preset.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/runtime_preset.schema.json",
-                    "id": "base",
-                    "revision": "1.0.0",
                     "runtime": {
                         "python_version": "3.12",
                         "comfyui_revision": "abc123",
@@ -898,8 +898,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/runtime_contract.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/runtime_contract.schema.json",
-                    "id": "endpoint",
-                    "revision": "1.0.0",
                     "image_ref": "ghcr.io/example/endpoint:latest"
                 }),
             ),
@@ -908,8 +906,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/runtime_contract.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/runtime_contract.schema.json",
-                    "id": "provisioner",
-                    "revision": "1.0.0",
                     "image_ref": "ghcr.io/example/provisioner:latest"
                 }),
             ),
@@ -918,8 +914,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/execution_schema.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/execution_schema.schema.json",
-                    "id": "text-to-image",
-                    "revision": "1.0.0",
                     "inputs": [{ "id": "prompt", "type": "string", "required": true }],
                     "outputs": { "type": "image_set" }
                 }),
@@ -929,8 +923,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/workflow_metadata.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/workflow_metadata.schema.json",
-                    "id": "example",
-                    "revision": "1.0.0",
                     "name": "Example",
                     "runtime_preset": { "id": "base", "revision": "1.0.0" },
                     "requires_hugging_face_api_key": false,
@@ -942,8 +934,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
-                    "workflow_id": "example",
-                    "revision": "1.0.0",
                     "model_assets": [{
                         "id": "asset",
                         "name": "Asset",
@@ -962,8 +952,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/workflow_contract_requirements.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/workflow_contract_requirements.schema.json",
-                    "workflow_id": "example",
-                    "revision": "1.0.0",
                     "contract_requirements": [{
                         "runtime_type": "runpod",
                         "endpoint_contract": { "id": "endpoint", "revision": "1.0.0" },
@@ -976,8 +964,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/workflow_execution_contract.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/workflow_execution_contract.schema.json",
-                    "workflow_id": "example",
-                    "revision": "1.0.0",
                     "schema_ref": { "id": "text-to-image", "revision": "1.0.0" },
                     "input_bindings": [{
                         "value": "{{prompt}}",
@@ -991,8 +977,6 @@ mod cross_file_tests {
                 "luma-forge://schemas/bundled/workflow_graph.schema.json",
                 json!({
                     "$schema": "luma-forge://schemas/bundled/workflow_graph.schema.json",
-                    "workflow_id": "example",
-                    "revision": "1.0.0",
                     "graph": {}
                 }),
             ),
@@ -1011,8 +995,6 @@ mod cross_file_tests {
             "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
             json!({
                 "$schema": "luma-forge://schemas/bundled/workflow_model_assets.schema.json",
-                "workflow_id": "example",
-                "revision": "1.0.0",
                 "model_assets": [{
                     "id": "asset",
                     "name": "Asset",
@@ -1037,11 +1019,17 @@ mod cross_file_tests {
     }
 
     #[test]
-    fn validation_rejects_workflow_path_identity_mismatches() {
+    fn validation_uses_path_params_for_runtime_preset_identity() {
         let mut assets = valid_assets();
-        assets[4].json["id"] = json!("other");
+        assets[0].path_params.insert("id".to_string(), "other-base".to_string());
 
-        assert!(validate_cross_file_assets(&assets).is_err());
+        assert_eq!(
+            validate_cross_file_assets(&assets),
+            Err(BundledValidationError::Invalid {
+                path: "workflows/example/1.0.0/metadata.json".to_string(),
+                message: "workflow metadata references an unknown runtime preset".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -1067,8 +1055,6 @@ mod cross_file_tests {
             "luma-forge://schemas/bundled/runtime_contract.schema.json".to_string();
         assets[0].json = json!({
             "$schema": "luma-forge://schemas/bundled/runtime_contract.schema.json",
-            "id": "base",
-            "revision": "1.0.0",
             "image_ref": "ghcr.io/example/not-a-preset:latest"
         });
 
