@@ -54,37 +54,6 @@ pub fn approved_bundled_path(path: &str) -> bool {
     }
 }
 
-fn expected_schema_id_for_path(path: &str) -> Option<&'static str> {
-    let parts: Vec<&str> = path.split('/').collect();
-    match parts.as_slice() {
-        ["workflows", _, _, "metadata.json"] => {
-            Some("luma-forge://schemas/bundled/workflow_metadata.schema.json")
-        }
-        ["workflows", _, _, "model_assets.json"] => {
-            Some("luma-forge://schemas/bundled/workflow_model_assets.schema.json")
-        }
-        ["workflows", _, _, "contract_requirements.json"] => {
-            Some("luma-forge://schemas/bundled/workflow_contract_requirements.schema.json")
-        }
-        ["workflows", _, _, "execution_contract.json"] => {
-            Some("luma-forge://schemas/bundled/workflow_execution_contract.schema.json")
-        }
-        ["workflows", _, _, "workflow.json"] => {
-            Some("luma-forge://schemas/bundled/workflow_graph.schema.json")
-        }
-        ["runtime_presets", _, _] => {
-            Some("luma-forge://schemas/bundled/runtime_preset.schema.json")
-        }
-        ["runtime_contracts", _, _] => {
-            Some("luma-forge://schemas/bundled/runtime_contract.schema.json")
-        }
-        ["execution_schemas", _, _] => {
-            Some("luma-forge://schemas/bundled/execution_schema.schema.json")
-        }
-        _ => None,
-    }
-}
-
 fn safe_id(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -440,14 +409,6 @@ pub fn validate_bundled_catalog(
             .get("$schema")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| invalid(&relative, "bundled JSON missing $schema"))?;
-        let expected_schema_id = expected_schema_id_for_path(&relative)
-            .ok_or_else(|| invalid(&relative, "unexpected bundled JSON path"))?;
-        if schema_id != expected_schema_id {
-            return Err(invalid(
-                &relative,
-                format!("bundled schema {schema_id} does not match approved path"),
-            ));
-        }
         let schema = schemas
             .iter()
             .find(|schema| schema.id == schema_id)
@@ -605,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_bundled_catalog_returns_err_for_schema_path_mismatch() {
+    fn validate_bundled_catalog_uses_json_schema_as_source_of_truth() {
         let fixture = TestFixture::new();
         fixture.write_json(
             "workflows/example-flow/1.0.0/metadata.json",
@@ -615,12 +576,12 @@ mod tests {
             }"#,
         );
 
+        let assets = validate_bundled_catalog(fixture.path(), &test_schemas()).unwrap();
+
+        assert_eq!(assets.len(), 1);
         assert_eq!(
-            validate_bundled_catalog(fixture.path(), &test_schemas()),
-            Err(BundledValidationError::Invalid {
-                path: "workflows/example-flow/1.0.0/metadata.json".to_string(),
-                message: "bundled schema luma-forge://schemas/bundled/workflow_model_assets.schema.json does not match approved path".to_string(),
-            })
+            assets[0].schema_id,
+            "luma-forge://schemas/bundled/workflow_model_assets.schema.json"
         );
     }
 
