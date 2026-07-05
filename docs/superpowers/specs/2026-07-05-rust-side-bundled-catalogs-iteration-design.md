@@ -104,16 +104,16 @@ semantic validation unless it is first represented declaratively in
 
 ## Errors
 
-Errors stay small:
+Errors stay small and carry enough context for diagnostics:
 
-- `Io`
-- `JsonParse`
-- `Schema`
-- `Contract`
-- `UnresolvedReference`
+- `Io { path, message }`
+- `JsonParse { path, message }`
+- `Schema { path, message }`
+- `Contract { path, message }`
+- `UnresolvedReference { path, entity, id, revision }`
 
-Every error includes a relative catalog path when available.
-`UnresolvedReference` also includes `{ entity, id, revision }`.
+`path` is relative to the injected catalog root when available. `message` is a
+short implementation-owned diagnostic string, not a nested error taxonomy.
 
 ## Verification
 
