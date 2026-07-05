@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 
-use super::{errors::BundledCatalogError, generated};
+use super::errors::BundledCatalogError;
 
 pub mod execution_schemas;
 pub mod runtime_contracts;
