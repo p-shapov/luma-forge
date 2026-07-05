@@ -188,30 +188,25 @@ pub fn validate_cross_file_assets(
                     asset_id(asset)?.to_string(),
                     asset_revision(asset)?.to_string(),
                 );
-                match asset.schema_id.as_str() {
-                    "luma-forge://schemas/bundled/runtime_preset.schema.json" => {
-                        if !runtime_presets.insert(key) {
-                            return Err(invalid(&asset.path, "duplicate runtime preset identity"));
-                        }
-                    }
+                let duplicate = match asset.schema_id.as_str() {
+                    "luma-forge://schemas/bundled/runtime_preset.schema.json" => (!runtime_presets
+                        .insert(key))
+                    .then_some("duplicate runtime preset identity"),
                     "luma-forge://schemas/bundled/runtime_contract.schema.json" => {
-                        if !runtime_contracts.insert(key) {
-                            return Err(invalid(
-                                &asset.path,
-                                "duplicate runtime contract identity",
-                            ));
-                        }
+                        (!runtime_contracts.insert(key))
+                            .then_some("duplicate runtime contract identity")
                     }
                     "luma-forge://schemas/bundled/execution_schema.schema.json" => {
-                        if !execution_schemas.insert(key.clone()) {
-                            return Err(invalid(
-                                &asset.path,
-                                "duplicate execution schema identity",
-                            ));
+                        let duplicate = !execution_schemas.insert(key.clone());
+                        if !duplicate {
+                            execution_schema_inputs.insert(key, execution_input_ids(asset));
                         }
-                        execution_schema_inputs.insert(key, execution_input_ids(asset));
+                        duplicate.then_some("duplicate execution schema identity")
                     }
-                    _ => {}
+                    _ => None,
+                };
+                if let Some(message) = duplicate {
+                    return Err(invalid(&asset.path, message));
                 }
             }
             _ => return Err(invalid(&asset.path, "unexpected bundled JSON path")),
