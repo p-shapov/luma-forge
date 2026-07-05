@@ -21,8 +21,15 @@ fn generate_bundled_types() {
 
     let mut schemas = fs::read_dir(&schema_dir)
         .expect("bundled schema dir should be readable")
-        .map(|entry| entry.expect("bundled schema entry should be readable").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .map(|entry| {
+            entry
+                .expect("bundled schema entry should be readable")
+                .path()
+        })
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .collect::<Vec<_>>();
     schemas.sort();
 
@@ -44,7 +51,8 @@ fn generate_bundled_types() {
         let mut schema_value =
             serde_json::to_value(root_schema.schema).expect("schema should serialize");
         rewrite_reference_refs(&mut schema_value);
-        let schema: Schema = serde_json::from_value(schema_value).expect("schema should deserialize");
+        let schema: Schema =
+            serde_json::from_value(schema_value).expect("schema should deserialize");
         let title = match &schema {
             Schema::Object(schema) => schema
                 .metadata
@@ -64,7 +72,8 @@ fn generate_bundled_types() {
     let generated = type_space.to_stream().to_string();
     let syntax = syn::parse_file(&generated).expect("generated Rust should parse");
     let formatted = prettyplease::unparse(&syntax);
-    let out_path = PathBuf::from(env::var("OUT_DIR").expect("out dir")).join("bundled_generated.rs");
+    let out_path =
+        PathBuf::from(env::var("OUT_DIR").expect("out dir")).join("bundled_generated.rs");
     fs::write(out_path, formatted).expect("generated bundled DTOs should write");
 }
 

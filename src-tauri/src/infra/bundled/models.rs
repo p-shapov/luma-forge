@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::{catalog, generated};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reference {
     pub entity: String,
@@ -107,4 +109,184 @@ pub struct InputBinding {
     pub value: serde_json::Value,
     pub node_id: String,
     pub path: Vec<String>,
+}
+
+impl From<generated::Reference> for Reference {
+    fn from(value: generated::Reference) -> Self {
+        Self {
+            entity: value.entity.into(),
+            id: value.id.into(),
+            revision: value.revision.into(),
+        }
+    }
+}
+
+impl From<generated::ExecutionSchemaInputsItem> for ExecutionSchemaInput {
+    fn from(value: generated::ExecutionSchemaInputsItem) -> Self {
+        Self {
+            id: value.id.into(),
+            input_type: match value.type_ {
+                serde_json::Value::String(text) => text,
+                other => other.to_string(),
+            },
+            required: value.required,
+            max_length: value.max_length.map(Into::into),
+        }
+    }
+}
+
+impl From<generated::ExecutionSchemaOutputs> for ExecutionSchemaOutputs {
+    fn from(value: generated::ExecutionSchemaOutputs) -> Self {
+        Self {
+            output_type: value.type_.into(),
+        }
+    }
+}
+
+impl From<catalog::ExecutionSchemaEntry> for ExecutionSchemaRevision {
+    fn from(value: catalog::ExecutionSchemaEntry) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            inputs: value
+                .execution_schema
+                .inputs
+                .into_iter()
+                .map(ExecutionSchemaInput::from)
+                .collect(),
+            outputs: value.execution_schema.outputs.into(),
+        }
+    }
+}
+
+impl From<catalog::RuntimeContractEntry> for RuntimeContractRevision {
+    fn from(value: catalog::RuntimeContractEntry) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            image_ref: value.runtime_contract.image_ref.into(),
+        }
+    }
+}
+
+impl From<generated::RuntimePresetRuntimePytorch> for RuntimePresetPytorch {
+    fn from(value: generated::RuntimePresetRuntimePytorch) -> Self {
+        Self {
+            index_url: value.index_url.into(),
+            packages: value.packages.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<generated::RuntimePresetRuntime> for RuntimePresetRuntime {
+    fn from(value: generated::RuntimePresetRuntime) -> Self {
+        Self {
+            python_version: value.python_version.into(),
+            comfyui_revision: value.comfyui_revision.into(),
+            pytorch: value.pytorch.into(),
+        }
+    }
+}
+
+impl From<catalog::RuntimePresetEntry> for RuntimePresetRevision {
+    fn from(value: catalog::RuntimePresetEntry) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            runtime: value.runtime_preset.runtime.into(),
+        }
+    }
+}
+
+impl From<generated::WorkflowModelAssetsModelAssetsItemDownloadSource> for ModelAssetSource {
+    fn from(value: generated::WorkflowModelAssetsModelAssetsItemDownloadSource) -> Self {
+        match value {
+            generated::WorkflowModelAssetsModelAssetsItemDownloadSource::Huggingface {
+                repository_id,
+                file_path,
+                revision,
+            } => Self::Huggingface {
+                repository_id: repository_id.into(),
+                file_path: file_path.into(),
+                revision: revision.into(),
+            },
+        }
+    }
+}
+
+impl From<generated::WorkflowModelAssetsModelAssetsItem> for ModelAsset {
+    fn from(value: generated::WorkflowModelAssetsModelAssetsItem) -> Self {
+        Self {
+            id: value.id.into(),
+            name: value.name.into(),
+            download_source: value.download_source.into(),
+            install_comfyui_relative_path: value.install_comfyui_relative_path.into(),
+        }
+    }
+}
+
+impl From<generated::WorkflowContractRequirementsContractRequirementsItem>
+    for WorkflowContractRequirement
+{
+    fn from(value: generated::WorkflowContractRequirementsContractRequirementsItem) -> Self {
+        match value {
+            generated::WorkflowContractRequirementsContractRequirementsItem::Runpod {
+                endpoint_contract_ref,
+                provisioner_contract_ref,
+            } => Self::Runpod {
+                endpoint_contract_ref: endpoint_contract_ref.into(),
+                provisioner_contract_ref: provisioner_contract_ref.into(),
+            },
+        }
+    }
+}
+
+impl From<generated::WorkflowExecutionContractInputBindingsItem> for InputBinding {
+    fn from(value: generated::WorkflowExecutionContractInputBindingsItem) -> Self {
+        Self {
+            value: value.value,
+            node_id: value.node_id.into(),
+            path: value.path.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<generated::WorkflowExecutionContract> for WorkflowExecutionContract {
+    fn from(value: generated::WorkflowExecutionContract) -> Self {
+        Self {
+            schema_ref: value.schema_ref.into(),
+            input_bindings: value
+                .input_bindings
+                .into_iter()
+                .map(InputBinding::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<catalog::WorkflowEntry> for WorkflowRevision {
+    fn from(value: catalog::WorkflowEntry) -> Self {
+        Self {
+            id: value.id,
+            revision: value.revision,
+            name: value.metadata.name.into(),
+            runtime_preset_ref: value.metadata.runtime_preset_ref.into(),
+            requires_hugging_face_api_key: value.metadata.requires_hugging_face_api_key,
+            required_volume_size_gb: value.metadata.required_volume_size_gb.into(),
+            model_assets: value
+                .model_assets
+                .model_assets
+                .into_iter()
+                .map(ModelAsset::from)
+                .collect(),
+            contract_requirements: value
+                .contract_requirements
+                .contract_requirements
+                .into_iter()
+                .map(WorkflowContractRequirement::from)
+                .collect(),
+            execution_contract: value.execution_contract.into(),
+            workflow_graph: serde_json::Value::Object(value.workflow_graph.graph),
+        }
+    }
 }
