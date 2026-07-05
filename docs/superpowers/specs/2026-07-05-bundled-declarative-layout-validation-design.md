@@ -23,7 +23,7 @@ In scope:
 - add a JSON Schema for validating those layout specs
 - add a shared bundled reference schema
 - remove top-level entity identity fields from bundled JSON files
-- derive bundled entity identity from directory paths
+- derive `id` and `revision` values from directory paths
 - update build-time validation to use `walkdir` and layout specs
 - update runtime repositories to return identities derived from paths
 - keep existing cross-file reference validation in Rust
@@ -61,7 +61,8 @@ for:
 - `workflow_contract_requirements[].endpoint_contract`
 - `workflow_contract_requirements[].provisioner_contract`
 
-Layout specs describe filesystem shape and path-derived identity. Add:
+Layout specs describe filesystem shape and path-derived `id` and `revision`
+values. Add:
 
 ```text
 src-tauri/schemas/bundled/layout.schema.json
@@ -74,7 +75,7 @@ src-tauri/schemas/bundled/layouts/execution_schema.layout.json
 Each layout spec defines:
 
 - accepted path pattern
-- named captures for entity `id` and `revision`
+- named captures for `id` and `revision`
 - expected JSON files for that entity kind
 - expected `$schema` for each JSON file
 
@@ -98,9 +99,9 @@ The new validation flow:
    - read `$schema`
    - require `$schema` to match the layout rule's expected schema
    - validate JSON with that entity schema
-   - derive entity identity from layout path captures
-   - push a `BundledAsset`
-8. Run Rust cross-file validation over enriched assets.
+   - keep the layout path captures with the validated file
+   - push a `BundledJsonFile`
+8. Run Rust cross-file validation over validated files.
 9. Generate `OUT_DIR/bundled_manifest.rs`.
 
 Only schemas referenced by layout file rules are bundled entity schemas. Shared
@@ -117,29 +118,30 @@ rather than duplicating reference definitions.
 `validation.rs` remains the build-time validation boundary. It no longer owns
 hardcoded bundled path shapes or path-to-schema mappings.
 
-`BundledAsset` carries identity derived from the matching layout:
+`BundledJsonFile` is a build-time envelope around one validated JSON file. It
+is not the JSON entity itself, and the generated JSON entity DTO does not know
+where it is stored.
 
 ```rust
-pub struct BundledAsset {
+pub struct BundledJsonFile {
     pub path: String,
     pub schema_id: String,
-    pub identity: BundledIdentity,
+    pub path_params: BTreeMap<String, String>,
     pub json: serde_json::Value,
-}
-
-pub struct BundledIdentity {
-    pub kind: BundledIdentityKind,
-    pub id: String,
-    pub revision: String,
 }
 ```
 
-Implementation can adjust the Rust enum names to match local style. The
-identity source must be the path, not JSON entity fields.
+For the current layouts, `path_params` includes `id` and `revision`, and
+workflow file layouts also expose the file name. These values come from the
+path, not JSON entity fields.
+
+Generated DTOs remain clean JSON entity shapes. For example, a runtime preset
+DTO contains `runtime`, not `id`, `revision`, `path`, or `path_params`.
 
 Keep these relationship and content checks in Rust:
 
-- duplicate identities
+- duplicate runtime preset, runtime contract, execution schema, and workflow
+  revision identities
 - workflow revision has all required files
 - runtime preset references resolve
 - runtime contract references resolve
@@ -148,6 +150,11 @@ Keep these relationship and content checks in Rust:
 - model asset install and source paths are safe relative paths
 - execution contract input binding templates are well formed
 
+Relationship validation builds local indexes from `schema_id` plus
+`path_params`, for example `runtime_presets: set((id, revision))` or
+`workflow_files: map((id, revision) -> files)`. There is no shared
+catalog-wide identity type.
+
 Delete the path identity matching check because the identity no longer exists
 inside entity JSON.
 
@@ -155,8 +162,8 @@ inside entity JSON.
 
 `generated::BUNDLED_ASSETS` remains `&[(&str, &str)]`.
 
-Runtime repositories parse identity from manifest paths and inject that identity
-into consumer models:
+Runtime repositories parse `id` and `revision` from manifest paths and inject
+those values into consumer models:
 
 - `BundledWorkflow.id`
 - `BundledWorkflow.revision`
@@ -169,6 +176,9 @@ into consumer models:
 
 Generated DTOs no longer expose the removed top-level identity fields because
 the entity schemas no longer define them.
+
+Generated DTOs also do not expose file paths or `path_params`; those belong to
+the build-time envelope and repository assembly logic.
 
 Repository `get(id, revision)` remains path-addressed. Lookup misses still
 return `Ok(None)`.
@@ -206,7 +216,7 @@ Add or update only focused tests:
 - layout specs validate against `layout.schema.json`
 - validation rejects unknown paths
 - validation rejects paths whose `$schema` does not match the layout rule
-- validation derives identity from paths
+- validation derives `id` and `revision` from paths
 - real bundled JSON no longer contains removed top-level identity fields
 - runtime repository models use path-derived identities
 - existing reference validation still rejects missing references
