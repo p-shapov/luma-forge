@@ -58,10 +58,12 @@ pub fn approved_bundled_path(path: &str) -> bool {
                 )
         }
         ["runtime_presets", runtime_preset_id, file] => {
-            safe_id(runtime_preset_id) && file.ends_with(".json")
+            safe_id(runtime_preset_id) && safe_revision_file(file)
         }
-        ["runtime_contracts", contract_id, file] => safe_id(contract_id) && file.ends_with(".json"),
-        ["execution_schemas", schema_id, file] => safe_id(schema_id) && file.ends_with(".json"),
+        ["runtime_contracts", contract_id, file] => {
+            safe_id(contract_id) && safe_revision_file(file)
+        }
+        ["execution_schemas", schema_id, file] => safe_id(schema_id) && safe_revision_file(file),
         _ => false,
     }
 }
@@ -83,6 +85,10 @@ fn safe_revision(value: &str) -> bool {
         && parts
             .iter()
             .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+}
+
+fn safe_revision_file(file: &str) -> bool {
+    file.strip_suffix(".json").is_some_and(safe_revision)
 }
 
 pub fn validate_cross_file_assets(assets: &[BundledAsset]) -> Result<(), BundledValidationError> {
@@ -225,6 +231,15 @@ mod tests {
         assert!(approved_bundled_path(
             "runtime_presets/comfyui-py312-cu126-torch291/1.0.0.json"
         ));
+        assert!(approved_bundled_path(
+            "runtime_contracts/contract-a/2.3.4.json"
+        ));
+        assert!(approved_bundled_path(
+            "execution_schemas/schema-a/9.8.7.json"
+        ));
+        assert!(!approved_bundled_path("runtime_presets/foo/catalog.json"));
+        assert!(!approved_bundled_path("runtime_contracts/foo/catalog.json"));
+        assert!(!approved_bundled_path("execution_schemas/foo/catalog.json"));
         assert!(!approved_bundled_path("workflow-catalog.json"));
         assert!(!approved_bundled_path("workflows/example-flow.json"));
     }

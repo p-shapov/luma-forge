@@ -30,7 +30,34 @@ fn main() {
 
 fn load_schema_files(schemas_dir: &Path) -> Vec<validation::SchemaDocument> {
     let mut schemas = Vec::new();
-    for path in sorted_json_files(schemas_dir) {
+    let entries = fs::read_dir(schemas_dir).unwrap_or_else(|error| {
+        panic!(
+            "{}: directory traversal failed: {error}",
+            schemas_dir.display()
+        )
+    });
+
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|error| {
+                panic!("{}: directory entry failed: {error}", schemas_dir.display())
+            })
+            .path();
+        if path.is_dir() {
+            panic!("{}: unexpected schema subdirectory", path.display());
+        }
+
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        if !path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".schema.json"))
+        {
+            panic!("{}: unexpected schema JSON file", path.display());
+        }
+
         let text = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("{}: schema read failed: {error}", path.display()));
         let json: serde_json::Value = serde_json::from_str(&text)
@@ -72,29 +99,4 @@ fn generate_manifest(assets: &[validation::BundledAsset], out_dir: &Path) {
     contents.push_str("];\n");
     fs::write(out_dir.join("bundled_manifest.rs"), contents)
         .expect("failed to write bundled_manifest.rs");
-}
-
-fn sorted_json_files(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    collect_json_files(root, &mut files);
-    files.sort();
-    files
-}
-
-fn collect_json_files(path: &Path, files: &mut Vec<PathBuf>) {
-    if path.is_file() {
-        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
-            files.push(path.to_path_buf());
-        }
-        return;
-    }
-
-    let entries = fs::read_dir(path)
-        .unwrap_or_else(|error| panic!("{}: directory traversal failed: {error}", path.display()));
-
-    for entry in entries {
-        let entry = entry
-            .unwrap_or_else(|error| panic!("{}: directory entry failed: {error}", path.display()));
-        collect_json_files(&entry.path(), files);
-    }
 }
