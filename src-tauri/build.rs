@@ -5,6 +5,7 @@ use std::{
 
 use typify::{TypeSpace, TypeSpaceSettings};
 
+#[allow(dead_code)]
 #[path = "src/infra/bundled/errors.rs"]
 mod errors;
 #[path = "src/infra/bundled/validation.rs"]
