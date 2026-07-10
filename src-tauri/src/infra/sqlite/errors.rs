@@ -7,11 +7,6 @@ pub enum SqliteInfraError {
         operation: &'static str,
         message: String,
     },
-    #[error("sqlite statement failed during {operation}: {message}")]
-    StatementFailed {
-        operation: &'static str,
-        message: String,
-    },
     #[error("sqlite schema mismatch during {operation}: {message}")]
     SchemaMismatch {
         operation: &'static str,
@@ -22,13 +17,6 @@ pub enum SqliteInfraError {
 impl SqliteInfraError {
     pub(crate) fn connect_failed(operation: &'static str) -> impl FnOnce(DbErr) -> Self {
         move |error| Self::ConnectFailed {
-            operation,
-            message: error.to_string(),
-        }
-    }
-
-    pub(crate) fn statement_failed(operation: &'static str) -> impl FnOnce(DbErr) -> Self {
-        move |error| Self::StatementFailed {
             operation,
             message: error.to_string(),
         }
