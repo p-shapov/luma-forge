@@ -1,5 +1,5 @@
 mod client;
-mod errors;
+mod types;
 
-pub use client::{HuggingFaceClient, HuggingFaceIdentity};
-pub use errors::HuggingFaceError;
+pub use client::HuggingFaceClient;
+pub use types::HuggingFaceIdentity;
