@@ -99,4 +99,6 @@ Touch only what you must.
 
 ### Commit Conventions
 
+Never commit git ignored files.
+
 All commits must follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) v1.0.0, for example `feat(scope): description`, `fix(scope): description`, or `docs(scope): description`.
