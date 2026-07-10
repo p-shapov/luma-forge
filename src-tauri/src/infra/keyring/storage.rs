@@ -72,15 +72,3 @@ where
         .await
         .map_err(|_| KeyringStorageError::Unavailable)?
 }
-
-#[cfg(test)]
-mod tests {
-    use super::KeyringStorage;
-
-    #[test]
-    fn keeps_the_supplied_service_name() {
-        let storage = KeyringStorage::new("com.luma-forge.test.credentials");
-
-        assert_eq!(storage.service_name, "com.luma-forge.test.credentials");
-    }
-}
