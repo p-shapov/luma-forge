@@ -246,7 +246,18 @@ There is no separate entity identifier.
 
 An object with exactly the string fields `contract`, `id`, and `revision` is a catalog reference value. The shared reference JSON Schema defines this reserved shape.
 
-References are not checked by ordinary reads. Full reference integrity is checked only by `Catalog::validate`.
+References are not checked or hydrated by ordinary reads. An entry model retains the typed reference value exactly as stored. Full reference integrity is checked only by `Catalog::validate`.
+
+A port implementation explicitly loads a referenced model through its known target entry type when a use case needs it:
+
+```rust
+let runtime = runtime_contracts::Entry::get(
+    &catalog,
+    (&reference.id, &reference.revision),
+).await?;
+```
+
+The consumer is responsible for requiring the expected `reference.contract` before using a concrete target entry type. The catalog does not perform runtime dispatch from contract paths to Rust entry types, recursively hydrate object graphs, or hide additional filesystem reads behind model decoding.
 
 ## Read Data Flow
 
@@ -374,6 +385,7 @@ The refactor deletes rather than preserves:
 - `RevisionDescriptor.entity`;
 - global index construction during ordinary reads;
 - query-time reference validation;
+- automatic reference hydration and runtime entry dispatch;
 - runtime schema loading, dependency resolution, compilation, and validation;
 - `Select`, `PhantomData`, `find`, `find_by_id`, `all/one` builder composition;
 - the combined mapping-and-data `Entry` type;
@@ -388,6 +400,7 @@ The refactor deletes rather than preserves:
 - caching, refresh, or filesystem watching;
 - concurrent bulk reads;
 - runtime entry registration or plugins;
+- automatic relationship loading;
 - arbitrary entry path layouts;
 - domain validation of IDs or revisions;
 - generating composite entry models from contracts;
