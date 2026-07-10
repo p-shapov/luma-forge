@@ -10,7 +10,7 @@ The design treats each Rust entry module like a SeaORM entity module:
 - `Model` contains owned, typed data loaded from storage;
 - a JSON contract describes the physical layout and required documents;
 - `Catalog` provides generic runtime I/O without knowing concrete entry modules;
-- a test-only validation module audits the complete packaged catalog in CI.
+- a module owned by the bundled catalog integration-test target audits the complete packaged catalog in CI.
 
 The design is intentionally incompatible with the current implementation. There are no legacy aliases, fallback paths, or compatibility tests.
 
@@ -198,7 +198,7 @@ The `<name>` suffix must be one safe, normal path component. The loaded schema's
 
 Ordinary `Entry::get` and `Entry::all` reads do not access `catalog/schemas` and do not perform JSON Schema validation. They still parse JSON and deserialize it into generated Rust types, so missing files, malformed JSON, and incompatible document shapes remain runtime errors.
 
-Schema and reference integrity for the trusted bundled data is enforced by a `#[cfg(test)]` validation module in CI. The module is not part of the production build or public API. During its audit, one operation-local schema set owns the loaded schemas and compiled validators:
+Schema and reference integrity for the trusted bundled data is enforced by a validation module compiled only as part of the `bundled_catalog` integration-test target. The module is not part of the production build or public API. During its audit, one operation-local schema set owns the loaded schemas and compiled validators:
 
 ```rust
 struct Schemas {
@@ -277,7 +277,7 @@ An ordinary read does not load schemas or other contracts, traverse other entrie
 
 ## Test-Only Full Catalog Audit
 
-`validation.rs` contains a private asynchronous fail-fast audit function used only by tests:
+`src-tauri/tests/bundled_catalog/validation.rs` contains an integration-test-private asynchronous fail-fast audit function:
 
 ```rust
 async fn validate(root: &Path) -> Result<(), ValidationError>;
@@ -294,7 +294,7 @@ async fn validate(root: &Path) -> Result<(), ValidationError>;
 9. require every referenced `(contract_path, id, revision)` tuple to exist in the index;
 10. return the first error or `Ok(())`, then drop all audit state.
 
-The module is declared as `#[cfg(test)] mod validation;` and contains the audit tests, including a test against the packaged `new_bundled` tree. Runtime startup and production builds do not contain or invoke the audit. Runtime read integration tests remain under `src-tauri/tests` and do not access the validation module.
+`src-tauri/tests/bundled_catalog.rs` declares the module with `#[path = "bundled_catalog/validation.rs"] mod validation;` and keeps both runtime-read and audit tests in the same integration-test target, including a test against the packaged `new_bundled` tree. Runtime startup and production builds do not contain or invoke the audit.
 
 ## Error Model
 
@@ -309,7 +309,7 @@ pub enum BundledCatalogError {
 }
 ```
 
-Schema and reference audit failures use a private `ValidationError` in `validation.rs`; shared runtime I/O, JSON, and contract failures can be wrapped from `BundledCatalogError` without adding audit-only variants to the public API.
+Schema, reference, I/O, JSON, and contract audit failures use a private `ValidationError` in the integration-test validation module, without adding audit-only variants or support hooks to the public API.
 
 Only paths relative to the bundled root appear in errors. Absolute host paths are never exposed.
 
@@ -339,18 +339,23 @@ src-tauri/src/infra/bundled/
 │   └── workflows.rs
 ├── errors.rs
 ├── generated.rs
-├── mod.rs
-└── validation.rs
+└── mod.rs
+
+src-tauri/tests/
+├── bundled_catalog.rs
+└── bundled_catalog/
+    └── validation.rs
 ```
 
 Responsibilities:
 
-- `catalog.rs`: root-bound engine, contract and document loading, generic runtime reads, and shared storage invariants;
+- `catalog.rs`: root-bound engine, contract and document loading, generic runtime reads, and storage invariants;
 - `entries/mod.rs`: internal `CatalogEntry` contract and `Documents`;
 - concrete entry modules: `Entry`, `Model`, direct public reads, explicit decoding;
 - `codegen.rs` and `generated.rs`: schema-derived raw document types;
 - `errors.rs`: the path-aware public runtime error type;
-- `validation.rs`: test-only schema loading, descriptor indexing, reference collection, and full audit tests.
+- `tests/bundled_catalog.rs`: all observable bundled read and audit tests;
+- `tests/bundled_catalog/validation.rs`: integration-test-only contract/schema loading, descriptor indexing, reference collection, and full audit implementation.
 
 `catalog.rs` may depend on the generic `CatalogEntry` contract but must not import or match on concrete entry modules. Adding a new entry type requires a contract, schemas/documents, and one entry module; it does not require editing `catalog.rs`.
 
@@ -366,7 +371,7 @@ Keep tests at observable boundaries:
 - ordinary reads do not require the schemas directory;
 - a missing or invalid selected document fails at read time;
 - one compact test exercises mappings for the four existing entry modules;
-- one internal validation test audits the real `new_bundled` tree;
+- one `bundled_catalog` integration test audits the real `new_bundled` tree;
 - the audit rejects one dangling contract reference;
 - unsafe relative paths are rejected.
 
