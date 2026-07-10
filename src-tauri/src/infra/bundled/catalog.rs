@@ -19,12 +19,14 @@ pub struct Catalog {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CatalogContract {
     entries_path: String,
     required_files: Vec<RequiredFile>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RequiredFile {
     name: String,
     schema: String,
@@ -331,6 +333,8 @@ impl Catalog {
         revision: &str,
     ) -> Result<Option<RevisionDescriptor>, BundledCatalogError> {
         let entries_root = self.root.join(&contract.entries_path);
+        let path = entries_root.join(id).join(revision);
+        reject_symlinks(&self.root, &path).await?;
         let entries_metadata =
             fs::metadata(&entries_root)
                 .await
@@ -345,7 +349,6 @@ impl Catalog {
             });
         }
 
-        let path = entries_root.join(id).join(revision);
         match fs::metadata(&path).await {
             Ok(metadata) if metadata.is_dir() => Ok(Some(RevisionDescriptor {
                 id: id.to_string(),
@@ -540,6 +543,7 @@ async fn read_directories(
     directory: &Path,
 ) -> Result<Vec<(String, PathBuf)>, BundledCatalogError> {
     let relative = relative_to_root(root, directory);
+    reject_symlinks(root, directory).await?;
     let mut directories = Vec::new();
     let mut entries = fs::read_dir(directory)
         .await
@@ -558,15 +562,17 @@ async fn read_directories(
             })?
     {
         let path = entry.path();
-        if !entry
+        let file_type = entry
             .file_type()
             .await
             .map_err(|source| BundledCatalogError::Io {
                 path: relative_to_root(root, &path),
                 source,
-            })?
-            .is_dir()
-        {
+            })?;
+        if file_type.is_symlink() {
+            return Err(symlink_error(root, &path));
+        }
+        if !file_type.is_dir() {
             continue;
         }
         let name = entry
@@ -587,6 +593,7 @@ async fn read_direct_files(
     directory: &Path,
 ) -> Result<Vec<PathBuf>, BundledCatalogError> {
     let relative = relative_to_root(root, directory);
+    reject_symlinks(root, directory).await?;
     let mut files = Vec::new();
     let mut entries = fs::read_dir(directory)
         .await
@@ -605,15 +612,17 @@ async fn read_direct_files(
             })?
     {
         let path = entry.path();
-        if entry
+        let file_type = entry
             .file_type()
             .await
             .map_err(|source| BundledCatalogError::Io {
                 path: relative_to_root(root, &path),
                 source,
-            })?
-            .is_file()
-        {
+            })?;
+        if file_type.is_symlink() {
+            return Err(symlink_error(root, &path));
+        }
+        if file_type.is_file() {
             files.push(path);
         }
     }
@@ -624,6 +633,7 @@ async fn read_direct_files(
 
 async fn read_required_json(root: &Path, path: &Path) -> Result<Value, BundledCatalogError> {
     let relative = relative_to_root(root, path);
+    reject_symlinks(root, path).await?;
     let bytes = match fs::read(path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -647,6 +657,7 @@ async fn read_required_json(root: &Path, path: &Path) -> Result<Value, BundledCa
 
 async fn read_json_value(root: &Path, path: &Path) -> Result<Value, BundledCatalogError> {
     let relative = relative_to_root(root, path);
+    reject_symlinks(root, path).await?;
     let bytes = fs::read(path)
         .await
         .map_err(|source| BundledCatalogError::Io {
@@ -657,6 +668,34 @@ async fn read_json_value(root: &Path, path: &Path) -> Result<Value, BundledCatal
         path: relative,
         source,
     })
+}
+
+async fn reject_symlinks(root: &Path, path: &Path) -> Result<(), BundledCatalogError> {
+    let mut current = root.to_path_buf();
+    for component in path.strip_prefix(root).unwrap_or(path).components() {
+        current.push(component);
+        match fs::symlink_metadata(&current).await {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(symlink_error(root, &current));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => {
+                return Err(BundledCatalogError::Io {
+                    path: relative_to_root(root, &current),
+                    source,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn symlink_error(root: &Path, path: &Path) -> BundledCatalogError {
+    BundledCatalogError::Contract {
+        path: relative_to_root(root, path),
+        message: "symbolic links are not allowed".to_string(),
+    }
 }
 
 fn relative_to_root(root: &Path, path: &Path) -> String {

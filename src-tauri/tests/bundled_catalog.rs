@@ -164,6 +164,90 @@ async fn audit_rejects_a_missing_contract_schema_without_revisions() {
 }
 
 #[tokio::test]
+async fn reads_reject_a_retired_contract_field() {
+    let temp_root = copy_catalog_fixture();
+    let path = temp_root.join("catalog/contracts/workflow_revision");
+    let value = fs::read_to_string(&path).unwrap().replacen(
+        '{',
+        "{\n  \"entity\": \"workflow_revision\",",
+        1,
+    );
+    fs::write(&path, value).unwrap();
+
+    assert!(matches!(
+        workflows::Entry::all(&Catalog::new(&temp_root)).await,
+        Err(BundledCatalogError::Contract { path, .. })
+            if path == "catalog/contracts/workflow_revision"
+    ));
+
+    fs::remove_dir_all(temp_root).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn audit_and_reads_reject_a_symlinked_contract() {
+    let temp_root = copy_catalog_fixture();
+    let path = temp_root.join("catalog/contracts/workflow_revision");
+    fs::remove_file(&path).unwrap();
+    std::os::unix::fs::symlink(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../new_bundled/catalog/contracts/workflow_revision"),
+        &path,
+    )
+    .unwrap();
+
+    let read = workflows::Entry::all(&Catalog::new(&temp_root)).await;
+    let audit = Catalog::new(&temp_root).validate().await;
+
+    assert!(matches!(
+        read,
+        Err(BundledCatalogError::Contract { path, .. })
+            if path == "catalog/contracts/workflow_revision"
+    ));
+    assert!(matches!(
+        audit,
+        Err(BundledCatalogError::Contract { path, .. })
+            if path == "catalog/contracts/workflow_revision"
+    ));
+
+    fs::remove_dir_all(temp_root).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn audit_and_reads_reject_a_symlinked_revision() {
+    let temp_root = copy_catalog_fixture();
+    let path = temp_root.join("catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0");
+    fs::remove_dir_all(&path).unwrap();
+    std::os::unix::fs::symlink(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../new_bundled/catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0"),
+        &path,
+    )
+    .unwrap();
+
+    let read = workflows::Entry::get(
+        &Catalog::new(&temp_root),
+        ("comfyui-hidream-o1-dev", "1.0.0"),
+    )
+    .await;
+    let audit = Catalog::new(&temp_root).validate().await;
+
+    assert!(matches!(
+        read,
+        Err(BundledCatalogError::Contract { path, .. })
+            if path == "catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0"
+    ));
+    assert!(matches!(
+        audit,
+        Err(BundledCatalogError::Contract { path, .. })
+            if path == "catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0"
+    ));
+
+    fs::remove_dir_all(temp_root).unwrap();
+}
+
+#[tokio::test]
 async fn reads_reject_an_entries_path_outside_catalog_entries() {
     let temp_root = copy_catalog_fixture();
     let path = temp_root.join("catalog/contracts/workflow_revision");
