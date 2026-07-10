@@ -1,9 +1,9 @@
 mod client;
-mod errors;
+mod types;
 
-pub use client::{
+pub use client::RunpodClient;
+pub use types::{
     CreateEndpointRequest, CreateNetworkVolumeRequest, CreatePodRequest, CreateTemplateRequest,
-    RunpodClient, RunpodComputeType, RunpodDatacenter, RunpodGpuAvailability, RunpodGpuType,
-    RunpodIdentity, RunpodPlacementOptions,
+    RunpodComputeType, RunpodDatacenter, RunpodGpuAvailability, RunpodGpuType, RunpodIdentity,
+    RunpodPlacementOptions,
 };
-pub use errors::RunpodError;

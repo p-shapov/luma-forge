@@ -1,0 +1,18 @@
+query LumaForgeRunpodPlacement {
+  gpuTypes {
+    id
+    displayName
+    memoryInGb
+  }
+  myself {
+    datacenters {
+      id
+      name
+      gpuAvailability {
+        gpuTypeId
+        available
+        stockStatus
+      }
+    }
+  }
+}
