@@ -294,6 +294,8 @@ async fn validate(root: &Path) -> Result<(), ValidationError>;
 9. require every referenced `(contract_path, id, revision)` tuple to exist in the index;
 10. return the first error or `Ok(())`, then drop all audit state.
 
+Each direct contract filename must be one safe UTF-8 component; its stable identity is constructed as `catalog/contracts/<name>` without lossy path conversion.
+
 `src-tauri/tests/bundled_catalog.rs` declares the module with `#[path = "bundled_catalog/validation.rs"] mod validation;` and keeps both runtime-read and audit tests in the same integration-test target, including a test against the packaged `new_bundled` tree. Runtime startup and production builds do not contain or invoke the audit.
 
 ## Error Model
@@ -373,6 +375,7 @@ Keep tests at observable boundaries:
 - one compact test exercises mappings for the four existing entry modules;
 - one `bundled_catalog` integration test audits the real `new_bundled` tree;
 - the audit rejects one dangling contract reference;
+- the audit rejects a contract filename that cannot form a safe UTF-8 contract identity;
 - unsafe relative paths are rejected.
 
 Do not add tests for removed vocabulary or APIs, ignored extra content, private helpers, exact error prose, or identical cases repeated for every entry module.

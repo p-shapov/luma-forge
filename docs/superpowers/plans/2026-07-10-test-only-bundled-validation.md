@@ -12,7 +12,7 @@
 
 - `Catalog` stores only the bundled root and exposes no validation method or audit lifecycle.
 - Declare validation with `#[path = "bundled_catalog/validation.rs"] mod validation;` from the integration test target.
-- Keep all 12 observable read and audit tests in `src-tauri/tests/bundled_catalog.rs`.
+- Keep all 13 observable read and audit tests in `src-tauri/tests/bundled_catalog.rs`.
 - Keep ordinary reads unchanged, including contract validation, safe paths, symlink rejection, sequential I/O, and relative errors.
 - Keep schema values, compiled validators, descriptors, and reference indexes local to one audit.
 - Use integration-test-private `ValidationError`; remove `Schema` and `UnresolvedReference` from public `BundledCatalogError`.
@@ -124,6 +124,10 @@ Create `src-tauri/tests/bundled_catalog/validation.rs`. Its externally used boun
 
 ```rust
 pub(super) async fn validate(root: &Path) -> Result<(), ValidationError>;
+pub(super) fn contract_identity(
+    root: &Path,
+    path: &Path,
+) -> Result<String, ValidationError>;
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ValidationError {
@@ -205,7 +209,7 @@ fn validate_references(
 
 The audit sequence remains exact:
 
-1. Load sorted direct contracts and reject duplicate `entries_path` values.
+1. Load sorted direct contracts, require a safe UTF-8 filename, construct `catalog/contracts/<name>` without lossy conversion, and reject duplicate `entries_path` values.
 2. Load every schema once, require filename/`$id` identity, and compile each validator once with one retriever.
 3. Require every contract schema before entry traversal, including contracts with zero revisions.
 4. Traverse exactly `<entries_path>/<id>/<revision>` sequentially and build the contract-path index.
@@ -257,7 +261,7 @@ Err(ValidationError::UnresolvedReference {
 Err(ValidationError::Contract { path, .. })
 ```
 
-Keep these 12 test names in `src-tauri/tests/bundled_catalog.rs`:
+Keep these 13 test names in `src-tauri/tests/bundled_catalog.rs`:
 
 ```text
 catalog_construction_performs_no_io
@@ -268,6 +272,7 @@ get_rejects_a_missing_selected_document
 get_rejects_unsafe_keys_as_catalog_contract_errors
 audit_rejects_a_dangling_reference
 audit_rejects_a_missing_contract_schema_without_revisions
+audit_rejects_a_non_utf8_contract_filename
 reads_reject_a_retired_contract_field
 audit_and_reads_reject_a_symlinked_contract
 audit_and_reads_reject_a_symlinked_revision
@@ -309,7 +314,7 @@ cargo tree --manifest-path src-tauri/Cargo.toml --edges normal | rg 'jsonschema'
 
 Expected:
 
-- 12/12 bundled catalog integration tests pass;
+- 13/13 bundled catalog integration tests pass;
 - the production library compiles without validation code;
 - both `rg` commands print no matches (exit 1 expected).
 

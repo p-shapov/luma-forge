@@ -206,7 +206,7 @@ async fn read_all_contracts(root: &Path) -> Result<Vec<LocatedContract>, Validat
     let mut entries_paths = HashSet::with_capacity(files.len());
 
     for path in files {
-        let contract_path = relative_to_root(root, &path);
+        let contract_path = contract_identity(root, &path)?;
         let value = read_json_value(root, &path).await?;
         let contract = serde_json::from_value::<CatalogContract>(value).map_err(|error| {
             ValidationError::Contract {
@@ -228,6 +228,19 @@ async fn read_all_contracts(root: &Path) -> Result<Vec<LocatedContract>, Validat
     }
 
     Ok(contracts)
+}
+
+pub(super) fn contract_identity(root: &Path, path: &Path) -> Result<String, ValidationError> {
+    let relative = relative_to_root(root, path);
+    let name = path
+        .file_name()
+        .and_then(OsStr::to_str)
+        .filter(|name| is_safe_component(name))
+        .ok_or_else(|| ValidationError::Contract {
+            path: relative,
+            message: "contract filename must be a safe UTF-8 component".to_string(),
+        })?;
+    Ok(format!("catalog/contracts/{name}"))
 }
 
 async fn audit_descriptors(

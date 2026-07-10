@@ -4,6 +4,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
+
 use luma_forge_lib::infra::bundled::{
     entries::{execution_schemas, runtime_contracts, runtime_presets, workflows},
     BundledCatalogError, Catalog,
@@ -168,6 +171,20 @@ async fn audit_rejects_a_missing_contract_schema_without_revisions() {
     ));
 
     fs::remove_dir_all(temp_root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn audit_rejects_a_non_utf8_contract_filename() {
+    let root = Path::new("bundled-root");
+    let path = root
+        .join("catalog/contracts")
+        .join(std::ffi::OsString::from_vec(vec![0xff]));
+
+    assert!(matches!(
+        validation::contract_identity(root, &path),
+        Err(ValidationError::Contract { .. })
+    ));
 }
 
 #[tokio::test]
