@@ -1,17 +1,27 @@
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum BundledCatalogError {
-    #[error("bundled catalog io error at {path}: {message}")]
-    Io { path: String, message: String },
-    #[error("bundled catalog json parse error at {path}: {message}")]
-    JsonParse { path: String, message: String },
-    #[error("bundled catalog schema error at {path}: {message}")]
-    Schema { path: String, message: String },
+    #[error("bundled catalog io error at {path}: {source}")]
+    Io {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("bundled catalog json error at {path}: {source}")]
+    Json {
+        path: String,
+        #[source]
+        source: serde_json::Error,
+    },
     #[error("bundled catalog contract error at {path}: {message}")]
     Contract { path: String, message: String },
-    #[error("bundled catalog unresolved reference at {path}: {entity}/{id}/{revision}")]
+    #[error("bundled catalog schema error at {path}: {message}")]
+    Schema { path: String, message: String },
+    #[error("bundled catalog entry error at {path}: {message}")]
+    Entry { path: String, message: String },
+    #[error("bundled catalog unresolved reference at {path}: {contract}/{id}/{revision}")]
     UnresolvedReference {
         path: String,
-        entity: String,
+        contract: String,
         id: String,
         revision: String,
     },
