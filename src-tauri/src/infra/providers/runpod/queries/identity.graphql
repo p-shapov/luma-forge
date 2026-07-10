@@ -1,6 +1,1 @@
-query LumaForgeRunpodIdentity {
-  myself {
-    id
-    email
-  }
-}
+query LumaForgeRunpodIdentity { myself { id email } }
