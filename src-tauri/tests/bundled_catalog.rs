@@ -9,6 +9,11 @@ use luma_forge_lib::infra::bundled::{
     BundledCatalogError, Catalog,
 };
 
+#[path = "bundled_catalog/validation.rs"]
+mod validation;
+
+use validation::{validate, ValidationError};
+
 fn catalog() -> Catalog {
     Catalog::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("../new_bundled"))
 }
@@ -22,7 +27,9 @@ fn catalog_construction_performs_no_io() {
 
 #[tokio::test]
 async fn packaged_catalog_passes_full_audit() {
-    catalog().validate().await.unwrap();
+    validate(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../new_bundled"))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -129,8 +136,8 @@ async fn audit_rejects_a_dangling_reference() {
     fs::write(&path, value).unwrap();
 
     assert!(matches!(
-        Catalog::new(&temp_root).validate().await,
-        Err(BundledCatalogError::UnresolvedReference {
+        validate(&temp_root).await,
+        Err(ValidationError::UnresolvedReference {
             contract,
             id,
             revision,
@@ -155,8 +162,8 @@ async fn audit_rejects_a_missing_contract_schema_without_revisions() {
     fs::write(&path, value).unwrap();
 
     assert!(matches!(
-        Catalog::new(&temp_root).validate().await,
-        Err(BundledCatalogError::Schema { path, .. })
+        validate(&temp_root).await,
+        Err(ValidationError::Schema { path, .. })
             if path == "catalog/contracts/workflow_revision"
     ));
 
@@ -197,8 +204,7 @@ async fn audit_and_reads_reject_a_symlinked_contract() {
     .unwrap();
 
     let read = workflows::Entry::all(&Catalog::new(&temp_root)).await;
-    let audit = Catalog::new(&temp_root).validate().await;
-
+    let audit = validate(&temp_root).await;
     assert!(matches!(
         read,
         Err(BundledCatalogError::Contract { path, .. })
@@ -206,7 +212,7 @@ async fn audit_and_reads_reject_a_symlinked_contract() {
     ));
     assert!(matches!(
         audit,
-        Err(BundledCatalogError::Contract { path, .. })
+        Err(ValidationError::Contract { path, .. })
             if path == "catalog/contracts/workflow_revision"
     ));
 
@@ -231,8 +237,7 @@ async fn audit_and_reads_reject_a_symlinked_revision() {
         ("comfyui-hidream-o1-dev", "1.0.0"),
     )
     .await;
-    let audit = Catalog::new(&temp_root).validate().await;
-
+    let audit = validate(&temp_root).await;
     assert!(matches!(
         read,
         Err(BundledCatalogError::Contract { path, .. })
@@ -240,7 +245,7 @@ async fn audit_and_reads_reject_a_symlinked_revision() {
     ));
     assert!(matches!(
         audit,
-        Err(BundledCatalogError::Contract { path, .. })
+        Err(ValidationError::Contract { path, .. })
             if path == "catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0"
     ));
 

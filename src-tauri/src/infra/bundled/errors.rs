@@ -14,15 +14,6 @@ pub enum BundledCatalogError {
     },
     #[error("bundled catalog contract error at {path}: {message}")]
     Contract { path: String, message: String },
-    #[error("bundled catalog schema error at {path}: {message}")]
-    Schema { path: String, message: String },
     #[error("bundled catalog entry error at {path}: {message}")]
     Entry { path: String, message: String },
-    #[error("bundled catalog unresolved reference at {path}: {contract}/{id}/{revision}")]
-    UnresolvedReference {
-        path: String,
-        contract: String,
-        id: String,
-        revision: String,
-    },
 }
