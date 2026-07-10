@@ -95,6 +95,19 @@ async fn get_rejects_a_missing_selected_document() {
     fs::remove_dir_all(temp_root).unwrap();
 }
 
+#[tokio::test]
+async fn get_rejects_unsafe_keys_as_catalog_contract_errors() {
+    for key in [
+        ("../comfyui-hidream-o1-dev", "1.0.0"),
+        ("comfyui-hidream-o1-dev", "../1.0.0"),
+    ] {
+        assert!(matches!(
+            workflows::Entry::get(&catalog(), key).await,
+            Err(BundledCatalogError::Contract { path, .. }) if path == "catalog/entries"
+        ));
+    }
+}
+
 fn copy_catalog_fixture() -> PathBuf {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../new_bundled");
     let target = std::env::temp_dir().join(format!(

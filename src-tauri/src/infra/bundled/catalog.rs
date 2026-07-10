@@ -270,8 +270,8 @@ fn require_safe_component(value: &str, label: &str) -> Result<(), BundledCatalog
     if is_safe_component(value) {
         Ok(())
     } else {
-        Err(BundledCatalogError::Entry {
-            path: label.to_string(),
+        Err(BundledCatalogError::Contract {
+            path: "catalog/entries".to_string(),
             message: format!("{label} must be a safe path component"),
         })
     }
@@ -320,7 +320,7 @@ async fn read_directories(
         let name = entry
             .file_name()
             .into_string()
-            .map_err(|_| BundledCatalogError::Entry {
+            .map_err(|_| BundledCatalogError::Contract {
                 path: relative_to_root(root, &path),
                 message: "entry directory name is not valid UTF-8".to_string(),
             })?;
