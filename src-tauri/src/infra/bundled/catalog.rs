@@ -151,6 +151,16 @@ impl Catalog {
     pub async fn validate(&self) -> Result<(), BundledCatalogError> {
         let contracts = self.read_all_contracts().await?;
         let schemas = Schemas::load(&self.root).await?;
+        for located in &contracts {
+            for required in &located.contract.required_files {
+                if !schemas.values.contains_key(&required.schema) {
+                    return Err(BundledCatalogError::Schema {
+                        path: located.path.clone(),
+                        message: format!("schema not found: {}", required.schema),
+                    });
+                }
+            }
+        }
         let descriptors = self.audit_descriptors(&contracts).await?;
         let index = descriptors
             .iter()
@@ -270,18 +280,7 @@ impl Catalog {
             let path = descriptor.path.join(&required.name);
             let relative = relative_to_root(&self.root, &path);
             let value = read_required_json(&self.root, &path).await?;
-            if !schemas.values.contains_key(&required.schema) {
-                return Err(BundledCatalogError::Schema {
-                    path: relative,
-                    message: format!("schema not found: {}", required.schema),
-                });
-            }
-            let validator = schemas.validators.get(&required.schema).ok_or_else(|| {
-                BundledCatalogError::Schema {
-                    path: relative.clone(),
-                    message: format!("validator not found: {}", required.schema),
-                }
-            })?;
+            let validator = &schemas.validators[&required.schema];
             validator
                 .validate(&value)
                 .map_err(|error| BundledCatalogError::Schema {

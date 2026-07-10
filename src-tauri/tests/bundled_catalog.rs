@@ -144,6 +144,26 @@ async fn audit_rejects_a_dangling_reference() {
 }
 
 #[tokio::test]
+async fn audit_rejects_a_missing_contract_schema_without_revisions() {
+    let temp_root = copy_catalog_fixture();
+    fs::remove_dir_all(temp_root.join("catalog/entries/workflows/comfyui-hidream-o1-dev")).unwrap();
+    let path = temp_root.join("catalog/contracts/workflow_revision");
+    let value = fs::read_to_string(&path).unwrap().replace(
+        "luma-forge://schema/workflow_metadata",
+        "luma-forge://schema/missing",
+    );
+    fs::write(&path, value).unwrap();
+
+    assert!(matches!(
+        Catalog::new(&temp_root).validate().await,
+        Err(BundledCatalogError::Schema { path, .. })
+            if path == "catalog/contracts/workflow_revision"
+    ));
+
+    fs::remove_dir_all(temp_root).unwrap();
+}
+
+#[tokio::test]
 async fn reads_reject_an_entries_path_outside_catalog_entries() {
     let temp_root = copy_catalog_fixture();
     let path = temp_root.join("catalog/contracts/workflow_revision");
