@@ -4,7 +4,7 @@
 
 **Goal:** Remove the production `Catalog::validate` API and compile the complete catalog audit only as part of the `bundled_catalog` integration-test target.
 
-**Architecture:** `catalog.rs` remains a private production storage engine with no validation or test-support API. `src-tauri/tests/bundled_catalog/validation.rs` independently owns contract/schema parsing, descriptor/reference auditing, path safety, and private audit errors. All observable read and audit tests remain in `src-tauri/tests/bundled_catalog.rs`.
+**Architecture:** `catalog.rs` remains a private production storage engine and tests it with a fake `CatalogEntry` plus temporary trees. `src-tauri/tests/bundled_catalog/validation.rs` owns audit implementation and audit unit fixtures. `src-tauri/tests/bundled_catalog.rs` keeps only a packaged audit smoke and a concrete-entry mapping test backed by a small static fixture.
 
 **Tech Stack:** Rust 2021, Tokio filesystem APIs, serde/serde_json, thiserror, jsonschema 0.46.6 as a dev-dependency.
 
@@ -12,7 +12,7 @@
 
 - `Catalog` stores only the bundled root and exposes no validation method or audit lifecycle.
 - Declare validation with `#[path = "bundled_catalog/validation.rs"] mod validation;` from the integration test target.
-- Keep all 13 observable read and audit tests in `src-tauri/tests/bundled_catalog.rs`.
+- Keep only two integration tests in `src-tauri/tests/bundled_catalog.rs`; move storage and audit behavior to their owning modules.
 - Keep ordinary reads unchanged, including contract validation, safe paths, symlink rejection, sequential I/O, and relative errors.
 - Keep schema values, compiled validators, descriptors, and reference indexes local to one audit.
 - Use integration-test-private `ValidationError`; remove `Schema` and `UnresolvedReference` from public `BundledCatalogError`.
@@ -354,4 +354,258 @@ Add `src-tauri/Cargo.lock` only if changed. Commit:
 
 ```bash
 git commit -m "refactor(bundled): make catalog validation test-only"
+```
+
+---
+
+### Task 2: Decouple Behavioral Tests from the Packaged Catalog
+
+**Files:**
+- Modify: `src-tauri/src/infra/bundled/catalog.rs`
+- Modify: `src-tauri/tests/bundled_catalog.rs`
+- Modify: `src-tauri/tests/bundled_catalog/validation.rs`
+- Create: `src-tauri/tests/fixtures/bundled_catalog/catalog/contracts/*`
+- Create: `src-tauri/tests/fixtures/bundled_catalog/catalog/entries/**/*`
+
+**Interfaces:**
+- Produces: fake `CatalogEntry` unit coverage for the storage engine, minimal audit fixture coverage, and stable concrete-entry integration coverage.
+- Keeps: exactly one test that reads the real `../new_bundled` tree: `packaged_catalog_passes_full_audit`.
+- Avoids: filesystem mocks, new dependencies, and copies of packaged workflow/preset inventory.
+
+- [ ] **Step 1: Point concrete mapping coverage at a missing independent fixture and verify RED**
+
+Replace the mapping test catalog root with:
+
+```rust
+fn mapping_fixture() -> Catalog {
+    Catalog::new(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bundled_catalog"))
+}
+```
+
+Use stable fixture identities:
+
+```text
+workflow: test-workflow/1.0.0
+runtime contract: test-runtime/1.0.0
+runtime preset: test-preset/1.0.0
+execution schema: test-schema/1.0.0
+```
+
+Run:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --test bundled_catalog entry_mappings_read_owned_models
+```
+
+Expected: FAIL with an I/O error because `tests/fixtures/bundled_catalog` does not exist.
+
+- [ ] **Step 2: Create the minimal concrete-entry fixture**
+
+Create the four extensionless contracts under `tests/fixtures/bundled_catalog/catalog/contracts` with the same required-file mappings as the packaged contracts.
+
+Create one revision per concrete entry type. Use these minimal document bodies:
+
+```json
+// workflows/test-workflow/1.0.0/metadata
+{
+  "name": "Test workflow",
+  "runtime_preset_ref": {
+    "contract": "catalog/contracts/runtime_preset_revision",
+    "id": "test-preset",
+    "revision": "1.0.0"
+  },
+  "requires_hugging_face_api_key": false,
+  "required_volume_size_gb": 1
+}
+```
+
+```json
+// workflows/test-workflow/1.0.0/model_assets
+{ "model_assets": [] }
+```
+
+```json
+// workflows/test-workflow/1.0.0/contract_requirements
+{
+  "contract_requirements": [{
+    "runtime_type": "runpod",
+    "endpoint_contract_ref": {
+      "contract": "catalog/contracts/runtime_contract_revision",
+      "id": "test-runtime",
+      "revision": "1.0.0"
+    },
+    "provisioner_contract_ref": {
+      "contract": "catalog/contracts/runtime_contract_revision",
+      "id": "test-runtime",
+      "revision": "1.0.0"
+    }
+  }]
+}
+```
+
+```json
+// workflows/test-workflow/1.0.0/execution_contract
+{
+  "schema_ref": {
+    "contract": "catalog/contracts/execution_schema_revision",
+    "id": "test-schema",
+    "revision": "1.0.0"
+  },
+  "input_bindings": [{
+    "value": "test",
+    "node_id": "1",
+    "path": ["inputs", "text"]
+  }]
+}
+```
+
+```json
+// workflows/test-workflow/1.0.0/workflow
+{ "graph": {} }
+```
+
+```json
+// runtime_contracts/test-runtime/1.0.0/runtime_contract
+{ "image_ref": "example:test" }
+```
+
+```json
+// runtime_presets/test-preset/1.0.0/runtime_preset
+{
+  "runtime": {
+    "python_version": "3.12",
+    "comfyui_revision": "test",
+    "pytorch": {
+      "index_url": "https://example.invalid/simple",
+      "packages": ["torch"]
+    }
+  }
+}
+```
+
+```json
+// execution_schemas/test-schema/1.0.0/execution_schema
+{
+  "inputs": [{ "id": "prompt", "type": "string", "required": true }],
+  "outputs": { "type": "image_set" }
+}
+```
+
+Do not add schemas to this fixture; ordinary reads must remain schema-independent.
+
+- [ ] **Step 3: Add storage-engine unit tests in `catalog.rs`**
+
+Add `#[cfg(test)] mod tests` using a fake entry:
+
+```rust
+struct TestEntry;
+
+#[derive(Debug, serde::Deserialize, PartialEq)]
+struct TestDocument {
+    value: String,
+}
+
+#[derive(Debug, PartialEq)]
+struct TestModel {
+    id: String,
+    revision: String,
+    document: TestDocument,
+}
+
+impl CatalogEntry for TestEntry {
+    type Model = TestModel;
+    const CONTRACT: &'static str = "catalog/contracts/test_revision";
+
+    fn decode(
+        id: String,
+        revision: String,
+        mut documents: Documents,
+    ) -> Result<TestModel, BundledCatalogError> {
+        Ok(TestModel {
+            id,
+            revision,
+            document: documents.take("document")?,
+        })
+    }
+}
+```
+
+Use a standard-library temporary fixture that writes only:
+
+```text
+catalog/contracts/test_revision
+catalog/entries/tests/item/1.0.0/document
+```
+
+The contract declares `entries_path: catalog/entries/tests`, required file `document`, and schema ID `luma-forge://schema/test`; no schema file is created.
+
+Move these behaviors from the integration target into focused unit tests:
+
+```text
+construction performs no I/O
+all/get return owned models and missing get returns None
+selected get ignores a broken sibling and absent schemas
+missing selected document returns Contract
+unsafe id and revision return Contract
+retired contract fields are rejected
+entries_path traversal is rejected
+symlinked contract and revision are rejected on Unix
+```
+
+- [ ] **Step 4: Move audit behavior beside `validation.rs`**
+
+Add tests directly in the test-only validation module and a small `AuditFixture` that creates:
+
+```text
+catalog/schemas/document
+catalog/contracts/source_revision
+catalog/contracts/target_revision
+catalog/entries/sources/source/1/document
+catalog/entries/targets/target/1/document
+```
+
+The schema uses `$id: luma-forge://schema/document` and accepts an object. The source document contains one exact `{ contract, id, revision }` reference to the target revision.
+
+Move these audit cases out of `bundled_catalog.rs`:
+
+```text
+dangling reference
+missing contract schema with zero revisions
+unsafe UTF-8 contract identity
+symlinked contract on Unix
+symlinked revision on Unix
+```
+
+Keep `packaged_catalog_passes_full_audit` in `bundled_catalog.rs` as the only test that reads `../new_bundled`.
+
+- [ ] **Step 5: Verify the new test boundaries**
+
+Run:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --lib infra::bundled::catalog::tests
+cargo test --manifest-path src-tauri/Cargo.toml --test bundled_catalog
+rg -n '\.\./new_bundled' src-tauri/tests
+```
+
+Expected:
+
+- storage units pass using only fake temporary trees;
+- the integration target passes with one packaged smoke, one static mapping fixture test, and audit-unit tests owned by `validation.rs`;
+- `rg` prints exactly one source occurrence in `packaged_catalog_passes_full_audit`.
+
+- [ ] **Step 6: Run complete native verification and commit**
+
+Run:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+```
+
+If strict Clippy fails only on unchanged SQLite dead code, run the approved `-A dead-code` fallback. Stage only `catalog.rs`, the bundled catalog test files, fixture files, and synchronized docs. Commit:
+
+```bash
+git commit -m "test(bundled): decouple catalog tests from packaged data"
 ```

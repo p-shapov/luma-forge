@@ -296,7 +296,7 @@ async fn validate(root: &Path) -> Result<(), ValidationError>;
 
 Each direct contract filename must be one safe UTF-8 component; its stable identity is constructed as `catalog/contracts/<name>` without lossy path conversion.
 
-`src-tauri/tests/bundled_catalog.rs` declares the module with `#[path = "bundled_catalog/validation.rs"] mod validation;` and keeps both runtime-read and audit tests in the same integration-test target, including a test against the packaged `new_bundled` tree. Runtime startup and production builds do not contain or invoke the audit.
+`src-tauri/tests/bundled_catalog.rs` declares the module with `#[path = "bundled_catalog/validation.rs"] mod validation;`. The integration target contains one smoke test against the packaged `new_bundled` tree; all other audit behavior uses purpose-built temporary fixtures. Runtime startup and production builds do not contain or invoke the audit.
 
 ## Error Model
 
@@ -345,38 +345,35 @@ src-tauri/src/infra/bundled/
 
 src-tauri/tests/
 ├── bundled_catalog.rs
-└── bundled_catalog/
-    └── validation.rs
+├── bundled_catalog/
+│   └── validation.rs
+└── fixtures/
+    └── bundled_catalog/
+        └── catalog/
 ```
 
 Responsibilities:
 
-- `catalog.rs`: root-bound engine, contract and document loading, generic runtime reads, and storage invariants;
+- `catalog.rs`: root-bound engine, contract and document loading, generic runtime reads, storage invariants, and unit tests through a fake `CatalogEntry`;
 - `entries/mod.rs`: internal `CatalogEntry` contract and `Documents`;
 - concrete entry modules: `Entry`, `Model`, direct public reads, explicit decoding;
 - `codegen.rs` and `generated.rs`: schema-derived raw document types;
 - `errors.rs`: the path-aware public runtime error type;
-- `tests/bundled_catalog.rs`: all observable bundled read and audit tests;
-- `tests/bundled_catalog/validation.rs`: integration-test-only contract/schema loading, descriptor indexing, reference collection, and full audit implementation.
+- `tests/bundled_catalog.rs`: one packaged-catalog audit smoke and one public concrete-entry mapping test;
+- `tests/bundled_catalog/validation.rs`: integration-test-only audit implementation plus audit unit tests using minimal temporary catalog trees;
+- `tests/fixtures/bundled_catalog`: stable minimal documents for the four concrete public entry mappings, independent of packaged workflow and preset inventory.
 
 `catalog.rs` may depend on the generic `CatalogEntry` contract but must not import or match on concrete entry modules. Adding a new entry type requires a contract, schemas/documents, and one entry module; it does not require editing `catalog.rs`.
 
 ## Tests
 
-Keep tests at observable boundaries:
+Use three test layers:
 
-- constructing `Catalog` performs no I/O;
-- `Entry::all` returns owned models for one entry type;
-- `Entry::get` returns the selected model;
-- `Entry::get` returns `None` for an absent revision;
-- a broken sibling revision does not affect `Entry::get`;
-- ordinary reads do not require the schemas directory;
-- a missing or invalid selected document fails at read time;
-- one compact test exercises mappings for the four existing entry modules;
-- one `bundled_catalog` integration test audits the real `new_bundled` tree;
-- the audit rejects one dangling contract reference;
-- the audit rejects a contract filename that cannot form a safe UTF-8 contract identity;
-- unsafe relative paths are rejected.
+- `catalog.rs` unit tests use a fake `CatalogEntry` and programmatically-created temporary trees for construction, `all`/`get`, absent revisions, selected-read isolation, missing documents, unsafe keys/paths, retired contract fields, and symlink rejection;
+- audit unit tests live beside the test-only validation implementation and use a minimal temporary contract/schema/reference fixture for dangling references, missing schemas, unsafe contract identities, and symlinks;
+- `bundled_catalog.rs` keeps exactly one smoke audit against the real `new_bundled` tree and one concrete-entry mapping test against the stable test fixture.
+
+Do not copy the packaged catalog into behavioral fixtures. Do not mock the filesystem or add a filesystem abstraction; path and symlink behavior must use real temporary directories. Changes to packaged workflow, preset, contract, or entry inventory must affect only the one explicit packaged-catalog smoke test.
 
 Do not add tests for removed vocabulary or APIs, ignored extra content, private helpers, exact error prose, or identical cases repeated for every entry module.
 
