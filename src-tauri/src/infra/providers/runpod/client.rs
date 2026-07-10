@@ -1,12 +1,13 @@
 use std::time::Duration;
 
-use reqwest::StatusCode;
+use reqwest::{StatusCode, Url};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::RunpodError;
 
 const GRAPHQL_URL: &str = "https://api.runpod.io/graphql";
+const REST_BASE_URL: &str = "https://rest.runpod.io/v1";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const IDENTITY_QUERY: &str = "query LumaForgeRunpodIdentity { myself { id email } }";
@@ -62,6 +63,66 @@ pub struct RunpodGpuAvailability {
     pub stock_status: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct CreateNetworkVolumeRequest {
+    #[serde(rename = "dataCenterId")]
+    pub datacenter_id: String,
+    pub name: String,
+    #[serde(rename = "size")]
+    pub size_gb: u64,
+}
+
+#[derive(Clone, Copy, Serialize)]
+pub enum RunpodComputeType {
+    #[serde(rename = "CPU")]
+    Cpu,
+    #[serde(rename = "GPU")]
+    Gpu,
+}
+
+#[derive(Serialize)]
+pub struct CreatePodRequest {
+    #[serde(rename = "dataCenterIds")]
+    pub datacenter_ids: Vec<String>,
+    #[serde(rename = "computeType")]
+    pub compute_type: RunpodComputeType,
+    #[serde(rename = "gpuTypeIds")]
+    pub gpu_type_ids: Vec<String>,
+    #[serde(rename = "imageName")]
+    pub image_name: String,
+    #[serde(rename = "networkVolumeId")]
+    pub network_volume_id: String,
+    pub name: String,
+    pub ports: Vec<String>,
+    pub env: std::collections::HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+pub struct CreateTemplateRequest {
+    #[serde(rename = "imageName")]
+    pub image_name: String,
+    pub name: String,
+    #[serde(rename = "isServerless")]
+    pub is_serverless: bool,
+}
+
+#[derive(Serialize)]
+pub struct CreateEndpointRequest {
+    #[serde(rename = "dataCenterIds")]
+    pub datacenter_ids: Vec<String>,
+    #[serde(rename = "gpuTypeIds")]
+    pub gpu_type_ids: Vec<String>,
+    pub name: String,
+    #[serde(rename = "networkVolumeId")]
+    pub network_volume_id: String,
+    #[serde(rename = "templateId")]
+    pub template_id: String,
+    #[serde(rename = "workersMin")]
+    pub workers_min: u32,
+    #[serde(rename = "workersMax")]
+    pub workers_max: u32,
+}
+
 #[derive(Clone)]
 pub struct RunpodClient {
     http: reqwest::Client,
@@ -87,6 +148,67 @@ impl RunpodClient {
         api_key: &SecretString,
     ) -> Result<RunpodPlacementOptions, RunpodError> {
         map_placement(self.graphql(api_key, PLACEMENT_QUERY).await?)
+    }
+
+    pub async fn create_network_volume(
+        &self,
+        api_key: &SecretString,
+        request: CreateNetworkVolumeRequest,
+    ) -> Result<String, RunpodError> {
+        self.create_resource(api_key, "networkvolumes", &request)
+            .await
+    }
+
+    pub async fn delete_network_volume(
+        &self,
+        api_key: &SecretString,
+        id: &str,
+    ) -> Result<(), RunpodError> {
+        self.delete_resource(api_key, "networkvolumes", id).await
+    }
+
+    pub async fn create_pod(
+        &self,
+        api_key: &SecretString,
+        request: CreatePodRequest,
+    ) -> Result<String, RunpodError> {
+        self.create_resource(api_key, "pods", &request).await
+    }
+
+    pub async fn delete_pod(&self, api_key: &SecretString, id: &str) -> Result<(), RunpodError> {
+        self.delete_resource(api_key, "pods", id).await
+    }
+
+    pub async fn create_template(
+        &self,
+        api_key: &SecretString,
+        request: CreateTemplateRequest,
+    ) -> Result<String, RunpodError> {
+        self.create_resource(api_key, "templates", &request).await
+    }
+
+    pub async fn delete_template(
+        &self,
+        api_key: &SecretString,
+        id: &str,
+    ) -> Result<(), RunpodError> {
+        self.delete_resource(api_key, "templates", id).await
+    }
+
+    pub async fn create_endpoint(
+        &self,
+        api_key: &SecretString,
+        request: CreateEndpointRequest,
+    ) -> Result<String, RunpodError> {
+        self.create_resource(api_key, "endpoints", &request).await
+    }
+
+    pub async fn delete_endpoint(
+        &self,
+        api_key: &SecretString,
+        id: &str,
+    ) -> Result<(), RunpodError> {
+        self.delete_resource(api_key, "endpoints", id).await
     }
 
     async fn graphql<T>(
@@ -117,6 +239,57 @@ impl RunpodClient {
 
         graphql_data(response)
     }
+
+    async fn create_resource<B>(
+        &self,
+        api_key: &SecretString,
+        collection: &str,
+        body: &B,
+    ) -> Result<String, RunpodError>
+    where
+        B: Serialize + ?Sized,
+    {
+        let response = self
+            .http
+            .post(collection_url(collection)?)
+            .bearer_auth(api_key.expose_secret())
+            .json(body)
+            .send()
+            .await
+            .map_err(transport_error)?;
+
+        if let Some(error) = status_error(response.status()) {
+            return Err(error);
+        }
+
+        let response = response
+            .json::<ResourceResponse>()
+            .await
+            .map_err(|_| RunpodError::InvalidResponse)?;
+
+        map_resource_response(response)
+    }
+
+    async fn delete_resource(
+        &self,
+        api_key: &SecretString,
+        collection: &str,
+        id: &str,
+    ) -> Result<(), RunpodError> {
+        let response = self
+            .http
+            .delete(resource_url(collection, id)?)
+            .bearer_auth(api_key.expose_secret())
+            .send()
+            .await
+            .map_err(transport_error)?;
+
+        if let Some(error) = status_error(response.status()) {
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -129,6 +302,11 @@ struct GraphqlResponse<T> {
     data: Option<T>,
     #[serde(default)]
     errors: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct ResourceResponse {
+    id: String,
 }
 
 #[derive(Deserialize)]
@@ -255,6 +433,29 @@ fn normalized(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn collection_url(collection: &str) -> Result<Url, RunpodError> {
+    let mut url = Url::parse(REST_BASE_URL).map_err(|_| RunpodError::RequestFailed)?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| RunpodError::RequestFailed)?;
+        segments.push(collection);
+    }
+    Ok(url)
+}
+
+fn resource_url(collection: &str, id: &str) -> Result<Url, RunpodError> {
+    let mut url = collection_url(collection)?;
+    url.path_segments_mut()
+        .map_err(|_| RunpodError::RequestFailed)?
+        .push(id);
+    Ok(url)
+}
+
+fn map_resource_response(response: ResourceResponse) -> Result<String, RunpodError> {
+    required(response.id)
+}
+
 fn transport_error(error: reqwest::Error) -> RunpodError {
     if error.is_timeout() {
         RunpodError::Timeout
@@ -373,6 +574,109 @@ mod tests {
         assert_eq!(
             status_error(StatusCode::BAD_GATEWAY),
             Some(RunpodError::RequestFailed)
+        );
+    }
+
+    #[test]
+    fn serializes_provider_native_create_requests() {
+        assert_eq!(
+            serde_json::to_value(CreateNetworkVolumeRequest {
+                datacenter_id: "dc-1".to_string(),
+                name: "volume-name".to_string(),
+                size_gb: 50,
+            })
+            .expect("network volume request json"),
+            json!({
+                "dataCenterId": "dc-1",
+                "name": "volume-name",
+                "size": 50
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(CreatePodRequest {
+                datacenter_ids: vec!["dc-1".to_string()],
+                compute_type: RunpodComputeType::Cpu,
+                gpu_type_ids: Vec::new(),
+                image_name: "image:tag".to_string(),
+                network_volume_id: "volume-1".to_string(),
+                name: "pod-name".to_string(),
+                ports: vec!["8000/http".to_string()],
+                env: std::collections::HashMap::from([("MODE".to_string(), "test".to_string(),)]),
+            })
+            .expect("pod request json"),
+            json!({
+                "dataCenterIds": ["dc-1"],
+                "computeType": "CPU",
+                "gpuTypeIds": [],
+                "imageName": "image:tag",
+                "networkVolumeId": "volume-1",
+                "name": "pod-name",
+                "ports": ["8000/http"],
+                "env": { "MODE": "test" }
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(CreateTemplateRequest {
+                image_name: "image:tag".to_string(),
+                name: "template-name".to_string(),
+                is_serverless: true,
+            })
+            .expect("template request json"),
+            json!({
+                "imageName": "image:tag",
+                "name": "template-name",
+                "isServerless": true
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(CreateEndpointRequest {
+                datacenter_ids: vec!["dc-1".to_string()],
+                gpu_type_ids: vec!["gpu-1".to_string()],
+                name: "endpoint-name".to_string(),
+                network_volume_id: "volume-1".to_string(),
+                template_id: "template-1".to_string(),
+                workers_min: 0,
+                workers_max: 1,
+            })
+            .expect("endpoint request json"),
+            json!({
+                "dataCenterIds": ["dc-1"],
+                "gpuTypeIds": ["gpu-1"],
+                "name": "endpoint-name",
+                "networkVolumeId": "volume-1",
+                "templateId": "template-1",
+                "workersMin": 0,
+                "workersMax": 1
+            })
+        );
+    }
+
+    #[test]
+    fn encodes_resource_ids_as_one_path_segment() {
+        assert_eq!(
+            resource_url("pods", "pod/a?b")
+                .expect("resource url")
+                .as_str(),
+            "https://rest.runpod.io/v1/pods/pod%2Fa%3Fb"
+        );
+    }
+
+    #[test]
+    fn validates_created_resource_ids() {
+        assert_eq!(
+            map_resource_response(ResourceResponse {
+                id: " resource-1 ".to_string(),
+            }),
+            Ok("resource-1".to_string())
+        );
+        assert_eq!(
+            map_resource_response(ResourceResponse {
+                id: " ".to_string(),
+            }),
+            Err(RunpodError::InvalidResponse)
         );
     }
 }
