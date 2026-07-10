@@ -1,4 +1,5 @@
 mod errors;
+mod graphql;
 mod http;
 
 pub mod hugging_face;

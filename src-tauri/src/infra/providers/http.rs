@@ -1,11 +1,41 @@
 use std::time::Duration;
 
-use reqwest::StatusCode;
+use reqwest::{Response, StatusCode};
+use serde::de::DeserializeOwned;
 
 use super::ProviderError;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+
+pub(super) trait ResponseExt {
+    fn provider_response(self) -> Result<Response, ProviderError>;
+
+    async fn provider_json<T>(self) -> Result<T, ProviderError>
+    where
+        T: DeserializeOwned;
+}
+
+impl ResponseExt for Result<Response, reqwest::Error> {
+    fn provider_response(self) -> Result<Response, ProviderError> {
+        let response = self.map_err(transport_error)?;
+        if let Some(error) = status_error(response.status()) {
+            Err(error)
+        } else {
+            Ok(response)
+        }
+    }
+
+    async fn provider_json<T>(self) -> Result<T, ProviderError>
+    where
+        T: DeserializeOwned,
+    {
+        self.provider_response()?
+            .json()
+            .await
+            .map_err(|_| ProviderError::InvalidResponse)
+    }
+}
 
 pub(super) fn client() -> Result<reqwest::Client, ProviderError> {
     reqwest::Client::builder()
@@ -15,7 +45,7 @@ pub(super) fn client() -> Result<reqwest::Client, ProviderError> {
         .map_err(|_| ProviderError::RequestFailed)
 }
 
-pub(super) fn transport_error(error: reqwest::Error) -> ProviderError {
+fn transport_error(error: reqwest::Error) -> ProviderError {
     if error.is_timeout() {
         ProviderError::Timeout
     } else {
@@ -23,7 +53,7 @@ pub(super) fn transport_error(error: reqwest::Error) -> ProviderError {
     }
 }
 
-pub(super) fn status_error(status: StatusCode) -> Option<ProviderError> {
+fn status_error(status: StatusCode) -> Option<ProviderError> {
     if status.is_success() {
         return None;
     }

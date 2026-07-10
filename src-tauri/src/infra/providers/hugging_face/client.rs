@@ -1,7 +1,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 
-use crate::infra::providers::{http, ProviderError};
+use crate::infra::providers::{http, http::ResponseExt, ProviderError};
 
 use super::HuggingFaceIdentity;
 
@@ -29,16 +29,8 @@ impl HuggingFaceClient {
             .bearer_auth(token.expose_secret())
             .send()
             .await
-            .map_err(http::transport_error)?;
-
-        if let Some(error) = http::status_error(response.status()) {
-            return Err(error);
-        }
-
-        let response = response
-            .json::<WhoamiResponse>()
-            .await
-            .map_err(|_| ProviderError::InvalidResponse)?;
+            .provider_json::<WhoamiResponse>()
+            .await?;
 
         map_identity(response)
     }
