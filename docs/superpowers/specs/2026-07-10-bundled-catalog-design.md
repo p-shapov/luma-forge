@@ -115,7 +115,7 @@ impl CatalogEntry for workflows::Entry {
 }
 ```
 
-`Documents` owns schema-validated JSON values and the relative revision path used for errors. Its typed `take` operation deserializes one named document into an existing generated schema type.
+`Documents` owns parsed JSON values and the relative revision path used for errors. Its typed `take` operation deserializes one named document into an existing generated schema type.
 
 The entry module does not repeat an entity identifier, entries root, required-file list, or schema identifiers.
 
@@ -186,7 +186,7 @@ Contract invariants:
 - required schema values are canonical `luma-forge://schema/<name>` JSON Schema `$id` URIs;
 - two loaded contracts cannot declare the same `entries_path`.
 
-## Schema Registry
+## Schema Validation
 
 Schema files remain standard JSON Schemas with canonical string `$id` values. Cross-schema `$ref` values resolve through those IDs.
 
@@ -199,18 +199,9 @@ luma-forge://schema/workflow_metadata
 
 The `<name>` suffix must be one safe, normal path component. The loaded schema's root `$id` must equal the URI used to address it.
 
-An ordinary read loads only the schema dependency closure needed by its selected contract:
+Ordinary `Entry::get` and `Entry::all` reads do not access `catalog/schemas` and do not perform JSON Schema validation. They still parse JSON and deserialize it into generated Rust types, so missing files, malformed JSON, and incompatible document shapes remain runtime errors.
 
-1. start with schema IDs named by the contract's required files;
-2. load each corresponding schema file;
-3. recursively collect non-local `$ref` URI bases from the loaded schema;
-4. load unseen referenced schemas until the closure is complete;
-5. reject unsupported external schema namespaces;
-6. build an in-memory retriever from the resulting closure.
-
-Local fragment references beginning with `#` do not load another file. Cycles terminate through a set of already loaded schema IDs.
-
-Each operation owns one query-local schema set:
+Schema and reference integrity for the trusted bundled data is enforced by `Catalog::validate` in CI. During that audit, one operation-local schema set owns the loaded schemas and compiled validators:
 
 ```rust
 struct Schemas {
@@ -219,16 +210,14 @@ struct Schemas {
 }
 ```
 
-Within one `get`, `all`, or `validate` operation:
+Within one `validate` operation:
 
-- each schema `$id` in the dependency closure is read and parsed at most once;
+- each schema `$id` is read and parsed at most once;
 - each schema required for document validation is compiled at most once;
 - every revision using the same schema reuses the compiled validator;
-- schema values, retriever state, and validators are dropped when the operation completes.
+- schema values, retriever state, and validators are dropped when the audit completes.
 
-This reuse is operation-local only. It does not introduce state into `Catalog` or create a cache lifecycle.
-
-The full audit loads every direct schema file and validates its identity, then uses the same dependency rules. An invalid unrelated schema therefore fails `Catalog::validate` but does not affect an ordinary read.
+This reuse is audit-local only. It does not introduce state into `Catalog` or create a cache lifecycle. An invalid schema fails `Catalog::validate` but does not affect an ordinary read.
 
 No schema cache, watcher, refresh API, or interior mutability is introduced.
 
@@ -236,7 +225,7 @@ Registry invariants:
 
 - every schema has a canonical string `$id` whose `<name>` suffix matches its filename;
 - `$id` values are unique;
-- every schema directly or transitively referenced by a selected contract exists;
+- every schema directly or transitively referenced by a contract exists;
 - schema compilation and document validation errors include the relative document or schema path.
 
 The existing schema type generation remains separate from runtime reading. Entry models compose the generated document types explicitly; contract-driven model code generation and macros are out of scope.
@@ -265,27 +254,25 @@ References are not checked by ordinary reads. Full reference integrity is checke
 
 1. validate that `Entry::CONTRACT` is a safe relative path and that `id` and `revision` are safe single components;
 2. load and parse the exact contract named by `Entry::CONTRACT`;
-3. load the query-local schema dependency closure required by that contract;
-4. verify that the contract's entries root exists;
-5. address `<entries_path>/<id>/<revision>` directly;
-6. return `Ok(None)` when that revision directory does not exist;
-7. read only the selected contract's required documents;
-8. parse and schema-validate each document;
-9. pass the owned validated documents to `Entry::decode`;
-10. return an owned model and drop all query-local metadata and JSON values.
+3. verify that the contract's entries root exists;
+4. address `<entries_path>/<id>/<revision>` directly;
+5. return `Ok(None)` when that revision directory does not exist;
+6. read and parse only the selected contract's required documents;
+7. pass the owned documents to `Entry::decode` for typed deserialization;
+8. return an owned model and drop all query-local metadata and JSON values.
 
 `Entry::all` performs the same work but enumerates directory entries exactly two levels below the selected contract's `entries_path`. It considers directory entries only, ignores extra files, and sorts revision descriptors by `id` then `revision` before reading and returning their models.
 
 Required files are read directly. There is no preliminary metadata/existence call. A read returning `NotFound` becomes a missing-required-file contract error; other filesystem failures remain I/O errors.
 
-An ordinary read does not load other contracts, traverse other entries roots, build a global revision index, validate references, or retain any cache.
+An ordinary read does not load schemas or other contracts, traverse other entries roots, build a global revision index, validate references, or retain any cache.
 
 ## Full Catalog Audit
 
 `Catalog::validate` is an explicit asynchronous fail-fast operation:
 
 1. load every direct file in `catalog/contracts` and record its relative contract path;
-2. load every direct schema file and validate its complete dependency closure;
+2. load every direct schema file and build the audit-local schema registry;
 3. validate every contract and reject duplicate `entries_path` values;
 4. enumerate each declared `<entries_path>/<id>/<revision>` directory;
 5. build a query-local index keyed by `(contract_path, id, revision)`;
@@ -324,7 +311,7 @@ Error semantics:
 - an absent revision requested through `get` is `Ok(None)`;
 - an absent required document is a `Contract` error;
 - invalid JSON is a `Json` error;
-- schema loading, reference resolution, compilation, and document validation failures are `Schema` errors;
+- schema loading, reference resolution, compilation, and document validation failures during `Catalog::validate` are `Schema` errors;
 - typed document/model decoding failures are `Entry` errors;
 - unsafe storage paths and malformed contracts are `Contract` errors;
 - dangling references are `UnresolvedReference` errors.
@@ -367,7 +354,7 @@ Keep tests at observable boundaries:
 - `Entry::get` returns the selected model;
 - `Entry::get` returns `None` for an absent revision;
 - a broken sibling revision does not affect `Entry::get`;
-- an invalid unrelated schema does not affect `Entry::get`;
+- ordinary reads do not require the schemas directory;
 - a missing or invalid selected document fails at read time;
 - one compact test exercises mappings for the four existing entry modules;
 - one integration test runs `Catalog::validate` against the real `new_bundled` tree;
@@ -387,6 +374,7 @@ The refactor deletes rather than preserves:
 - `RevisionDescriptor.entity`;
 - global index construction during ordinary reads;
 - query-time reference validation;
+- runtime schema loading, dependency resolution, compilation, and validation;
 - `Select`, `PhantomData`, `find`, `find_by_id`, `all/one` builder composition;
 - the combined mapping-and-data `Entry` type;
 - `.json` filename extensions under `new_bundled/catalog`;
@@ -402,4 +390,5 @@ The refactor deletes rather than preserves:
 - runtime entry registration or plugins;
 - arbitrary entry path layouts;
 - domain validation of IDs or revisions;
-- generating composite entry models from contracts.
+- generating composite entry models from contracts;
+- user-authored presets, external catalogs, and their import-time validation boundary.
