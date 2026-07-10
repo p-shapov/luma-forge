@@ -39,10 +39,7 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
     ) -> Result<RunpodPlacementOptions, ProviderError> {
-        map_placement(
-            self.graphql::<PlacementOptionsResponse>(api_key, PLACEMENT_QUERY)
-                .await?,
-        )
+        self.get_placement_options(api_key).await
     }
 
     pub async fn create_network_volume(
