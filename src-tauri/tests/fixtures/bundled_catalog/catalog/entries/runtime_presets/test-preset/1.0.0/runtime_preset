@@ -1,0 +1,10 @@
+{
+  "runtime": {
+    "python_version": "3.12",
+    "comfyui_revision": "test",
+    "pytorch": {
+      "index_url": "https://example.invalid/simple",
+      "packages": ["torch"]
+    }
+  }
+}

@@ -1,8 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
+    fs as stdfs,
     path::{Component, Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
+
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -230,7 +235,7 @@ async fn read_all_contracts(root: &Path) -> Result<Vec<LocatedContract>, Validat
     Ok(contracts)
 }
 
-pub(super) fn contract_identity(root: &Path, path: &Path) -> Result<String, ValidationError> {
+fn contract_identity(root: &Path, path: &Path) -> Result<String, ValidationError> {
     let relative = relative_to_root(root, path);
     let name = path
         .file_name()
@@ -600,4 +605,163 @@ fn relative_to_root(root: &Path, path: &Path) -> String {
                 .join("/")
         })
         .unwrap_or_else(|_| "<bundled-root>".to_string())
+}
+
+static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
+
+struct AuditFixture {
+    root: PathBuf,
+}
+
+impl AuditFixture {
+    fn new() -> Self {
+        let root = std::env::temp_dir().join(format!(
+            "luma-forge-audit-unit-{}-{}",
+            std::process::id(),
+            NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed),
+        ));
+        let fixture = Self { root };
+
+        fixture.write(
+            "catalog/schemas/document",
+            r#"{
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "luma-forge://schema/document",
+                "type": "object"
+            }"#,
+        );
+        fixture.write(
+            "catalog/contracts/source_revision",
+            r#"{
+                "entries_path": "catalog/entries/sources",
+                "required_files": [
+                    { "name": "document", "schema": "luma-forge://schema/document" }
+                ]
+            }"#,
+        );
+        fixture.write(
+            "catalog/contracts/target_revision",
+            r#"{
+                "entries_path": "catalog/entries/targets",
+                "required_files": [
+                    { "name": "document", "schema": "luma-forge://schema/document" }
+                ]
+            }"#,
+        );
+        fixture.write(
+            "catalog/entries/sources/source/1/document",
+            r#"{
+                "reference": {
+                    "contract": "catalog/contracts/target_revision",
+                    "id": "target",
+                    "revision": "1"
+                }
+            }"#,
+        );
+        fixture.write("catalog/entries/targets/target/1/document", "{}");
+
+        fixture
+    }
+
+    fn path(&self, relative: &str) -> PathBuf {
+        self.root.join(relative)
+    }
+
+    fn write(&self, relative: &str, value: &str) {
+        let path = self.path(relative);
+        stdfs::create_dir_all(path.parent().unwrap()).unwrap();
+        stdfs::write(path, value).unwrap();
+    }
+}
+
+impl Drop for AuditFixture {
+    fn drop(&mut self) {
+        let _ = stdfs::remove_dir_all(&self.root);
+    }
+}
+
+#[tokio::test]
+async fn rejects_a_dangling_reference() {
+    let fixture = AuditFixture::new();
+    let path = fixture.path("catalog/entries/sources/source/1/document");
+    let value = stdfs::read_to_string(&path)
+        .unwrap()
+        .replace(r#""id": "target""#, r#""id": "missing""#);
+    stdfs::write(path, value).unwrap();
+
+    assert!(matches!(
+        validate(&fixture.root).await,
+        Err(ValidationError::UnresolvedReference {
+            contract,
+            id,
+            revision,
+            ..
+        }) if contract == "catalog/contracts/target_revision"
+            && id == "missing"
+            && revision == "1"
+    ));
+}
+
+#[tokio::test]
+async fn rejects_a_missing_contract_schema_without_revisions() {
+    let fixture = AuditFixture::new();
+    stdfs::remove_dir_all(fixture.path("catalog/entries/sources/source")).unwrap();
+    let path = fixture.path("catalog/contracts/source_revision");
+    let value = stdfs::read_to_string(&path).unwrap().replace(
+        "luma-forge://schema/document",
+        "luma-forge://schema/missing",
+    );
+    stdfs::write(path, value).unwrap();
+
+    assert!(matches!(
+        validate(&fixture.root).await,
+        Err(ValidationError::Schema { path, .. })
+            if path == "catalog/contracts/source_revision"
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_a_non_utf8_contract_filename() {
+    let root = Path::new("bundled-root");
+    let path = root
+        .join("catalog/contracts")
+        .join(std::ffi::OsString::from_vec(vec![0xff]));
+
+    assert!(matches!(
+        contract_identity(root, &path),
+        Err(ValidationError::Contract { .. })
+    ));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rejects_a_symlinked_contract() {
+    let fixture = AuditFixture::new();
+    let path = fixture.path("catalog/contracts/source_revision");
+    let target = fixture.path("outside-contract");
+    stdfs::rename(&path, &target).unwrap();
+    std::os::unix::fs::symlink(target, &path).unwrap();
+
+    assert!(matches!(
+        validate(&fixture.root).await,
+        Err(ValidationError::Contract { path, .. })
+            if path == "catalog/contracts/source_revision"
+    ));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn rejects_a_symlinked_revision() {
+    let fixture = AuditFixture::new();
+    let path = fixture.path("catalog/entries/sources/source/1");
+    let target = fixture.path("outside-revision");
+    stdfs::rename(&path, &target).unwrap();
+    std::os::unix::fs::symlink(target, &path).unwrap();
+
+    assert!(matches!(
+        validate(&fixture.root).await,
+        Err(ValidationError::Contract { path, .. })
+            if path == "catalog/entries/sources/source/1"
+    ));
 }

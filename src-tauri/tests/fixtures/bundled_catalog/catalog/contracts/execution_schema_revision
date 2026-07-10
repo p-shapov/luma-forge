@@ -1,0 +1,6 @@
+{
+  "entries_path": "catalog/entries/execution_schemas",
+  "required_files": [
+    { "name": "execution_schema", "schema": "luma-forge://schema/execution_schema" }
+  ]
+}

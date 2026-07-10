@@ -1,0 +1,10 @@
+{
+  "entries_path": "catalog/entries/workflows",
+  "required_files": [
+    { "name": "metadata", "schema": "luma-forge://schema/workflow_metadata" },
+    { "name": "model_assets", "schema": "luma-forge://schema/workflow_model_assets" },
+    { "name": "contract_requirements", "schema": "luma-forge://schema/workflow_contract_requirements" },
+    { "name": "execution_contract", "schema": "luma-forge://schema/workflow_execution_contract" },
+    { "name": "workflow", "schema": "luma-forge://schema/workflow_graph" }
+  ]
+}

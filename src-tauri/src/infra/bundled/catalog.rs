@@ -394,3 +394,253 @@ fn relative_to_root(root: &Path, path: &Path) -> String {
         })
         .unwrap_or_else(|_| "<bundled-root>".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs as stdfs,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    use serde::Deserialize;
+
+    use super::*;
+
+    static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
+
+    struct TestEntry;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct TestDocument {
+        value: String,
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct TestModel {
+        id: String,
+        revision: String,
+        document: TestDocument,
+    }
+
+    impl CatalogEntry for TestEntry {
+        type Model = TestModel;
+
+        const CONTRACT: &'static str = "catalog/contracts/test_revision";
+
+        fn decode(
+            id: String,
+            revision: String,
+            mut documents: Documents,
+        ) -> Result<TestModel, BundledCatalogError> {
+            Ok(TestModel {
+                id,
+                revision,
+                document: documents.take("document")?,
+            })
+        }
+    }
+
+    struct Fixture {
+        root: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "luma-forge-catalog-unit-{}-{}",
+                std::process::id(),
+                NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed),
+            ));
+            let fixture = Self { root };
+            fixture.write_contract(
+                r#"{
+                    "entries_path": "catalog/entries/tests",
+                    "required_files": [
+                        { "name": "document", "schema": "luma-forge://schema/test" }
+                    ]
+                }"#,
+            );
+            fixture.write_document("item", "1.0.0", "selected");
+            fixture
+        }
+
+        fn catalog(&self) -> Catalog {
+            Catalog::new(&self.root)
+        }
+
+        fn contract_path(&self) -> PathBuf {
+            self.root.join("catalog/contracts/test_revision")
+        }
+
+        fn revision_path(&self, id: &str, revision: &str) -> PathBuf {
+            self.root
+                .join("catalog/entries/tests")
+                .join(id)
+                .join(revision)
+        }
+
+        fn write_contract(&self, value: &str) {
+            let path = self.contract_path();
+            stdfs::create_dir_all(path.parent().unwrap()).unwrap();
+            stdfs::write(path, value).unwrap();
+        }
+
+        fn write_document(&self, id: &str, revision: &str, value: &str) {
+            let path = self.revision_path(id, revision).join("document");
+            stdfs::create_dir_all(path.parent().unwrap()).unwrap();
+            stdfs::write(path, format!(r#"{{"value":"{value}"}}"#)).unwrap();
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = stdfs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn construction_performs_no_io() {
+        let _catalog = Catalog::new("missing-bundled-root");
+    }
+
+    #[tokio::test]
+    async fn all_and_get_read_owned_models() {
+        let fixture = Fixture::new();
+        let catalog = fixture.catalog();
+
+        assert_eq!(
+            catalog.all::<TestEntry>().await.unwrap(),
+            vec![TestModel {
+                id: "item".to_string(),
+                revision: "1.0.0".to_string(),
+                document: TestDocument {
+                    value: "selected".to_string(),
+                },
+            }]
+        );
+        assert_eq!(
+            catalog.get::<TestEntry>(("item", "1.0.0")).await.unwrap(),
+            Some(TestModel {
+                id: "item".to_string(),
+                revision: "1.0.0".to_string(),
+                document: TestDocument {
+                    value: "selected".to_string(),
+                },
+            })
+        );
+        assert!(catalog
+            .get::<TestEntry>(("missing", "1.0.0"))
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn get_reads_only_the_selected_revision_without_schemas() {
+        let fixture = Fixture::new();
+        fixture.write_document("selected", "1.0.0", "isolated");
+        stdfs::write(fixture.revision_path("item", "1.0.0").join("document"), "{").unwrap();
+
+        let model = fixture
+            .catalog()
+            .get::<TestEntry>(("selected", "1.0.0"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(model.document.value, "isolated");
+    }
+
+    #[tokio::test]
+    async fn get_rejects_a_missing_selected_document() {
+        let fixture = Fixture::new();
+        stdfs::remove_file(fixture.revision_path("item", "1.0.0").join("document")).unwrap();
+
+        assert!(matches!(
+            fixture.catalog().get::<TestEntry>(("item", "1.0.0")).await,
+            Err(BundledCatalogError::Contract { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn get_rejects_unsafe_keys() {
+        let fixture = Fixture::new();
+        let catalog = fixture.catalog();
+
+        for key in [("../outside", "1.0.0"), ("item", "../1.0.0")] {
+            assert!(matches!(
+                catalog.get::<TestEntry>(key).await,
+                Err(BundledCatalogError::Contract { path, .. }) if path == "catalog/entries"
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn reads_reject_retired_contract_fields() {
+        let fixture = Fixture::new();
+        fixture.write_contract(
+            r#"{
+                "entity": "test",
+                "entries_path": "catalog/entries/tests",
+                "required_files": [
+                    { "name": "document", "schema": "luma-forge://schema/test" }
+                ]
+            }"#,
+        );
+
+        assert!(matches!(
+            fixture.catalog().all::<TestEntry>().await,
+            Err(BundledCatalogError::Contract { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn reads_reject_entries_path_traversal() {
+        let fixture = Fixture::new();
+        fixture.write_contract(
+            r#"{
+                "entries_path": "catalog/entries/../outside",
+                "required_files": [
+                    { "name": "document", "schema": "luma-forge://schema/test" }
+                ]
+            }"#,
+        );
+
+        assert!(matches!(
+            fixture.catalog().all::<TestEntry>().await,
+            Err(BundledCatalogError::Contract { .. })
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reads_reject_a_symlinked_contract() {
+        let fixture = Fixture::new();
+        let path = fixture.contract_path();
+        let target = fixture.root.join("outside-contract");
+        stdfs::rename(&path, &target).unwrap();
+        std::os::unix::fs::symlink(target, path).unwrap();
+
+        assert!(matches!(
+            fixture.catalog().all::<TestEntry>().await,
+            Err(BundledCatalogError::Contract { path, .. })
+                if path == "catalog/contracts/test_revision"
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn get_rejects_a_symlinked_revision() {
+        let fixture = Fixture::new();
+        let path = fixture.revision_path("item", "1.0.0");
+        let target = fixture.root.join("outside-revision");
+        stdfs::rename(&path, &target).unwrap();
+        std::os::unix::fs::symlink(target, &path).unwrap();
+
+        assert!(matches!(
+            fixture.catalog().get::<TestEntry>(("item", "1.0.0")).await,
+            Err(BundledCatalogError::Contract { path, .. })
+                if path == "catalog/entries/tests/item/1.0.0"
+        ));
+    }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Test workflow",
+  "runtime_preset_ref": {
+    "contract": "catalog/contracts/runtime_preset_revision",
+    "id": "test-preset",
+    "revision": "1.0.0"
+  },
+  "requires_hugging_face_api_key": false,
+  "required_volume_size_gb": 1
+}
