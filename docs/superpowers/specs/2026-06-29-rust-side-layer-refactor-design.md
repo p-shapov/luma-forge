@@ -43,24 +43,15 @@ Incompatible existing dev DBs fail clearly.
    calls. They do not implement application workspace ports in this iteration.
 
 4. **Application Workspace**
-   Replace current workspace module with `application/workspace`: `model.rs`,
-   `ports.rs`, `errors.rs`, `service.rs`, `dispatcher.rs`, `background.rs`,
-   `mod.rs`. It owns provider-neutral workspace use cases, lifecycle operation
-   creation, state transitions, in-flight tracking, and ports.
+   Replace current workspace module with `application/workspace`: `model.rs`, `ports/{runtime.rs, repository.rs, catalog.rs}`, `errors.rs`, `service.rs`, `background.rs`, `mod.rs`. It owns provider-neutral workspace and lifecycle operation creation, state transitions and in-flight tracking.
 
-5. **Secrets**
-   Create top-level `secrets` adapter layer:
-   `secrets/runpod/{credentials.rs,ports.rs}` and
-   `secrets/hugging_face/{credentials.rs,ports.rs}`. `credentials.rs`
-   implements application credential ports. `ports.rs` defines narrow storage
-   and provider identity dependencies. `secrets` owns setup, delete, identity
-   lookup, trusted secret retrieval, and RunPod workspace bearer-token issuing.
+5. **RunPod Runtime**
+   Move RunPod lifecycle orchestration into `runtime/runpod`: `model.rs`,`ports/{secrets.rs, provider.rs,repository.rs, catalog.rs}`, `provision.rs`, `cleanup.rs`, `delete.rs`, `runtime.rs`, `mod.rs, errors.rs`. It owns step order, provisioning/cleanup order, provisioner polling behavior, RunPod payload and runtime persistense, and progress reporting through workspace's port.
 
-6. **RunPod Runtime**
-   Move RunPod lifecycle orchestration into `runtime/runpod`: `model.rs`,
-   `ports.rs`, `provision.rs`, `cleanup.rs`, `delete.rs`. It owns step order,
-   cleanup order, polling behavior, RunPod payload updates, and progress
-   reporting through ports. It imports no SQLite or Tauri.
+6. **Adapters for Workspace and RunPod Runtime**
+   We should to define layer(s) for adapters with
+
+   `sectets/{runpod,hugging_face}`: `adapters/{runpod}`
 
 7. **Facade And Composition**
    Move Tauri/Specta API boundary into
@@ -107,9 +98,8 @@ commands.
 - Iteration 2: bundled catalog loading and validation boundaries.
 - Iteration 3: keyring/provider infrastructure boundaries.
 - Iteration 4: application workspace models, ports, and use cases with fakes.
-- Iteration 5: secrets adapters against fake keyring/provider infrastructure.
-- Iteration 6: `runtime/runpod` sequencing, provider failures, runtime
-  persistence, and typed events with fake runtime ports.
+- Iteration 5: `runtime/runpod` sequencing, provider failures, runtime persistence, and typed events with fake runtime ports.
+- Iteration 6: secrets adapters against fake keyring/provider infrastructure.
 - Iteration 7: facade, composition, codegen, and full backend integration.
 
 Full final verification:

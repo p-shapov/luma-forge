@@ -1,7 +1,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 
-use crate::infra::providers::{http, http::ResponseExt, ProviderError};
+use crate::infra::clients::{http, http::ResponseExt, NetworkError};
 
 use super::HuggingFaceIdentity;
 
@@ -13,23 +13,23 @@ pub struct HuggingFaceClient {
 }
 
 impl HuggingFaceClient {
-    pub fn new() -> Result<Self, ProviderError> {
+    pub fn new() -> Result<Self, NetworkError> {
         Ok(Self {
             http: http::client()?,
         })
     }
 
-    pub async fn identity(
+    pub async fn get_identity(
         &self,
         token: &SecretString,
-    ) -> Result<HuggingFaceIdentity, ProviderError> {
+    ) -> Result<HuggingFaceIdentity, NetworkError> {
         let response = self
             .http
             .get(WHOAMI_URL)
             .bearer_auth(token.expose_secret())
             .send()
             .await
-            .provider_json::<WhoamiResponse>()
+            .into_json::<WhoamiResponse>()
             .await?;
 
         map_identity(response)
@@ -55,10 +55,10 @@ struct WhoamiAccessToken {
     display_name: Option<String>,
 }
 
-fn map_identity(response: WhoamiResponse) -> Result<HuggingFaceIdentity, ProviderError> {
+fn map_identity(response: WhoamiResponse) -> Result<HuggingFaceIdentity, NetworkError> {
     let username = response.name.trim();
     if username.is_empty() {
-        return Err(ProviderError::InvalidResponse);
+        return Err(NetworkError::InvalidResponse);
     }
 
     Ok(HuggingFaceIdentity {

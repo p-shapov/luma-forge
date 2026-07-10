@@ -1,13 +1,13 @@
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{json, Value};
 
-use super::{http::ResponseExt, ProviderError};
+use super::{http::ResponseExt, NetworkError};
 
-pub(super) struct Gql<'a> {
+pub(super) struct GraphqlRequest<'a> {
     query: &'a str,
 }
 
-impl<'a> Gql<'a> {
+impl<'a> GraphqlRequest<'a> {
     pub(super) fn new(query: &'a str) -> Self {
         Self { query }
     }
@@ -17,24 +17,24 @@ impl<'a> Gql<'a> {
     }
 }
 
-pub(super) trait GqlResponseExt {
-    async fn provider_gql_json<T>(self) -> Result<T, ProviderError>
+pub(super) trait GraphqlResponseExt {
+    async fn into_graphql_data<T>(self) -> Result<T, NetworkError>
     where
         T: DeserializeOwned;
 }
 
-impl GqlResponseExt for Result<reqwest::Response, reqwest::Error> {
-    async fn provider_gql_json<T>(self) -> Result<T, ProviderError>
+impl GraphqlResponseExt for Result<reqwest::Response, reqwest::Error> {
+    async fn into_graphql_data<T>(self) -> Result<T, NetworkError>
     where
         T: DeserializeOwned,
     {
-        let response = self.provider_json::<GraphqlResponse<T>>().await?;
+        let response = self.into_json::<GraphqlResponse<T>>().await?;
 
         if !response.errors.is_empty() {
-            return Err(ProviderError::RequestFailed);
+            return Err(NetworkError::RequestFailed);
         }
 
-        response.data.ok_or(ProviderError::InvalidResponse)
+        response.data.ok_or(NetworkError::InvalidResponse)
     }
 }
 

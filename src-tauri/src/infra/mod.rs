@@ -1,4 +1,4 @@
 pub mod bundled;
+pub mod clients;
 pub mod keyring;
-pub mod providers;
 pub mod sqlite;

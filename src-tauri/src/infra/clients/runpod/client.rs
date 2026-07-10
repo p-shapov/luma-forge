@@ -3,11 +3,11 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 
-use crate::infra::providers::{
-    graphql::{Gql, GqlResponseExt},
+use crate::infra::clients::{
+    graphql::{GraphqlRequest, GraphqlResponseExt},
     http,
     http::ResponseExt,
-    ProviderError,
+    NetworkError,
 };
 
 use super::types::{
@@ -25,28 +25,37 @@ pub struct RunpodClient {
 }
 
 impl RunpodClient {
-    pub fn new() -> Result<Self, ProviderError> {
+    pub fn new() -> Result<Self, NetworkError> {
         Ok(Self {
             http: http::client()?,
         })
     }
 
-    pub async fn identity(&self, api_key: &SecretString) -> Result<RunpodIdentity, ProviderError> {
-        self.get_identity(api_key).await
-    }
-
-    pub async fn placement_options(
+    pub async fn get_identity(
         &self,
         api_key: &SecretString,
-    ) -> Result<RunpodPlacementOptions, ProviderError> {
-        self.get_placement_options(api_key).await
+    ) -> Result<RunpodIdentity, NetworkError> {
+        map_identity(
+            self.graphql::<IdentityResponse>(api_key, IDENTITY_QUERY)
+                .await?,
+        )
+    }
+
+    pub async fn get_placement_options(
+        &self,
+        api_key: &SecretString,
+    ) -> Result<RunpodPlacementOptions, NetworkError> {
+        map_placement(
+            self.graphql::<PlacementOptionsResponse>(api_key, PLACEMENT_QUERY)
+                .await?,
+        )
     }
 
     pub async fn create_network_volume(
         &self,
         api_key: &SecretString,
         request: CreateNetworkVolumeRequest,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<String, NetworkError> {
         let response = self
             .create_resource::<_, CreateNetworkVolumeResponse>(api_key, "networkvolumes", &request)
             .await?;
@@ -57,7 +66,7 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
         id: &str,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<(), NetworkError> {
         self.delete_resource(api_key, "networkvolumes", id).await
     }
 
@@ -65,7 +74,7 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
         request: CreatePodRequest,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<String, NetworkError> {
         let response = self
             .create_resource::<_, CreatePodResponse>(api_key, "pods", &request)
             .await?;
@@ -76,7 +85,7 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
         request: CreateEndpointRequest,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<String, NetworkError> {
         let response = self
             .create_resource::<_, CreateEndpointResponse>(api_key, "endpoints", &request)
             .await?;
@@ -87,14 +96,14 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
         request: CreateTemplateRequest,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<String, NetworkError> {
         let response = self
             .create_resource::<_, CreateTemplateResponse>(api_key, "templates", &request)
             .await?;
         Ok(response.id)
     }
 
-    pub async fn delete_pod(&self, api_key: &SecretString, id: &str) -> Result<(), ProviderError> {
+    pub async fn delete_pod(&self, api_key: &SecretString, id: &str) -> Result<(), NetworkError> {
         self.delete_resource(api_key, "pods", id).await
     }
 
@@ -102,7 +111,7 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
         id: &str,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<(), NetworkError> {
         self.delete_resource(api_key, "templates", id).await
     }
 
@@ -110,29 +119,15 @@ impl RunpodClient {
         &self,
         api_key: &SecretString,
         id: &str,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<(), NetworkError> {
         self.delete_resource(api_key, "endpoints", id).await
-    }
-
-    async fn get_placement_options(
-        &self,
-        api_key: &SecretString,
-    ) -> Result<RunpodPlacementOptions, ProviderError> {
-        map_placement(self.graphql::<PlacementOptionsResponse>(api_key, PLACEMENT_QUERY).await?)
-    }
-
-    async fn get_identity(
-        &self,
-        api_key: &SecretString,
-    ) -> Result<RunpodIdentity, ProviderError> {
-        map_identity(self.graphql::<IdentityResponse>(api_key, IDENTITY_QUERY).await?)
     }
 
     async fn graphql<T>(
         &self,
         api_key: &SecretString,
         query: &'static str,
-    ) -> Result<T, ProviderError>
+    ) -> Result<T, NetworkError>
     where
         T: DeserializeOwned,
     {
@@ -141,11 +136,11 @@ impl RunpodClient {
             .post(GRAPHQL_URL)
             .bearer_auth(api_key.expose_secret())
             .header(CONTENT_TYPE, "application/json")
-            .body(Gql::new(query).build(json!({})))
+            .body(GraphqlRequest::new(query).build(json!({})))
             .send()
             .await;
 
-        response.provider_gql_json::<T>().await
+        response.into_graphql_data::<T>().await
     }
 
     async fn create_resource<B, R>(
@@ -153,7 +148,7 @@ impl RunpodClient {
         api_key: &SecretString,
         collection: &str,
         body: &B,
-    ) -> Result<R, ProviderError>
+    ) -> Result<R, NetworkError>
     where
         B: Serialize + ?Sized,
         R: DeserializeOwned,
@@ -164,7 +159,7 @@ impl RunpodClient {
             .json(body)
             .send()
             .await
-            .provider_json::<R>()
+            .into_json::<R>()
             .await
     }
 
@@ -173,13 +168,13 @@ impl RunpodClient {
         api_key: &SecretString,
         collection: &str,
         id: &str,
-    ) -> Result<(), ProviderError> {
+    ) -> Result<(), NetworkError> {
         self.http
             .delete(format!("{REST_BASE_URL}/{collection}/{id}"))
             .bearer_auth(api_key.expose_secret())
             .send()
             .await
-            .provider_response()?;
+            .into_response()?;
         Ok(())
     }
 }
@@ -199,7 +194,7 @@ struct CreateNetworkVolumeResponse {
 }
 
 #[derive(Clone, Copy, Serialize)]
-pub enum CreatePodComputeType {
+pub enum PodComputeType {
     #[serde(rename = "CPU")]
     Cpu,
     #[serde(rename = "GPU")]
@@ -211,7 +206,7 @@ pub struct CreatePodRequest {
     #[serde(rename = "dataCenterIds")]
     pub datacenter_ids: Vec<String>,
     #[serde(rename = "computeType")]
-    pub compute_type: CreatePodComputeType,
+    pub compute_type: PodComputeType,
     #[serde(rename = "gpuTypeIds")]
     pub gpu_type_ids: Vec<String>,
     #[serde(rename = "imageName")]
@@ -313,8 +308,8 @@ struct PlacementOptionsGpuAvailabilityResponse {
     stock_status: Option<String>,
 }
 
-fn map_identity(data: IdentityResponse) -> Result<RunpodIdentity, ProviderError> {
-    let identity = data.myself.ok_or(ProviderError::InvalidResponse)?;
+fn map_identity(data: IdentityResponse) -> Result<RunpodIdentity, NetworkError> {
+    let identity = data.myself.ok_or(NetworkError::InvalidResponse)?;
 
     Ok(RunpodIdentity {
         user_id: identity.id,
@@ -322,8 +317,8 @@ fn map_identity(data: IdentityResponse) -> Result<RunpodIdentity, ProviderError>
     })
 }
 
-fn map_placement(data: PlacementOptionsResponse) -> Result<RunpodPlacementOptions, ProviderError> {
-    let user = data.myself.ok_or(ProviderError::InvalidResponse)?;
+fn map_placement(data: PlacementOptionsResponse) -> Result<RunpodPlacementOptions, NetworkError> {
+    let user = data.myself.ok_or(NetworkError::InvalidResponse)?;
     let gpu_types = data
         .gpu_types
         .into_iter()
