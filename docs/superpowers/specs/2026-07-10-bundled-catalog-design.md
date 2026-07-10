@@ -9,7 +9,8 @@ The design treats each Rust entry module like a SeaORM entity module:
 - `Entry` describes how a record type maps to bundled storage;
 - `Model` contains owned, typed data loaded from storage;
 - a JSON contract describes the physical layout and required documents;
-- `Catalog` provides generic I/O, schema validation, and full-catalog auditing without knowing concrete entry modules.
+- `Catalog` provides generic runtime I/O without knowing concrete entry modules;
+- a test-only validation module audits the complete packaged catalog in CI.
 
 The design is intentionally incompatible with the current implementation. There are no legacy aliases, fallback paths, or compatibility tests.
 
@@ -24,10 +25,6 @@ pub struct Catalog {
 
 impl Catalog {
     pub fn new(root: impl Into<PathBuf>) -> Self;
-
-    pub async fn validate(
-        &self,
-    ) -> Result<(), BundledCatalogError>;
 }
 ```
 
@@ -201,7 +198,7 @@ The `<name>` suffix must be one safe, normal path component. The loaded schema's
 
 Ordinary `Entry::get` and `Entry::all` reads do not access `catalog/schemas` and do not perform JSON Schema validation. They still parse JSON and deserialize it into generated Rust types, so missing files, malformed JSON, and incompatible document shapes remain runtime errors.
 
-Schema and reference integrity for the trusted bundled data is enforced by `Catalog::validate` in CI. During that audit, one operation-local schema set owns the loaded schemas and compiled validators:
+Schema and reference integrity for the trusted bundled data is enforced by a `#[cfg(test)]` validation module in CI. The module is not part of the production build or public API. During its audit, one operation-local schema set owns the loaded schemas and compiled validators:
 
 ```rust
 struct Schemas {
@@ -210,14 +207,14 @@ struct Schemas {
 }
 ```
 
-Within one `validate` operation:
+Within one audit:
 
 - each schema `$id` is read and parsed at most once;
 - each schema required for document validation is compiled at most once;
 - every revision using the same schema reuses the compiled validator;
 - schema values, retriever state, and validators are dropped when the audit completes.
 
-This reuse is audit-local only. It does not introduce state into `Catalog` or create a cache lifecycle. An invalid schema fails `Catalog::validate` but does not affect an ordinary read.
+This reuse is audit-local only. It does not introduce state into `Catalog` or create a cache lifecycle. An invalid schema fails the CI audit but does not affect an ordinary read.
 
 No schema cache, watcher, refresh API, or interior mutability is introduced.
 
@@ -228,7 +225,7 @@ Registry invariants:
 - every schema directly or transitively referenced by a contract exists;
 - schema compilation and document validation errors include the relative document or schema path.
 
-The existing schema type generation remains separate from runtime reading. Entry models compose the generated document types explicitly; contract-driven model code generation and macros are out of scope.
+The existing schema type generation remains separate from runtime reading. Entry models compose the generated document types explicitly; contract-driven model code generation and macros are out of scope. The `jsonschema` crate is a dev-dependency because only the test-only audit uses it.
 
 ## References
 
@@ -246,7 +243,7 @@ There is no separate entity identifier.
 
 An object with exactly the string fields `contract`, `id`, and `revision` is a catalog reference value. The shared reference JSON Schema defines this reserved shape.
 
-References are not checked or hydrated by ordinary reads. An entry model retains the typed reference value exactly as stored. Full reference integrity is checked only by `Catalog::validate`.
+References are not checked or hydrated by ordinary reads. An entry model retains the typed reference value exactly as stored. Full reference integrity is checked only by the test-only CI audit.
 
 A port implementation explicitly loads a referenced model through its known target entry type when a use case needs it:
 
@@ -278,9 +275,13 @@ Required files are read directly. There is no preliminary metadata/existence cal
 
 An ordinary read does not load schemas or other contracts, traverse other entries roots, build a global revision index, validate references, or retain any cache.
 
-## Full Catalog Audit
+## Test-Only Full Catalog Audit
 
-`Catalog::validate` is an explicit asynchronous fail-fast operation:
+`validation.rs` contains a private asynchronous fail-fast audit function used only by tests:
+
+```rust
+async fn validate(root: &Path) -> Result<(), ValidationError>;
+```
 
 1. load every direct file in `catalog/contracts` and record its relative contract path;
 2. load every direct schema file and build the audit-local schema registry;
@@ -293,7 +294,7 @@ An ordinary read does not load schemas or other contracts, traverse other entrie
 9. require every referenced `(contract_path, id, revision)` tuple to exist in the index;
 10. return the first error or `Ok(())`, then drop all audit state.
 
-The packaged `new_bundled` catalog is audited by one integration test in CI. Runtime startup and ordinary reads do not invoke the full audit automatically.
+The module is declared as `#[cfg(test)] mod validation;` and contains the audit tests, including a test against the packaged `new_bundled` tree. Runtime startup and production builds do not contain or invoke the audit. Runtime read integration tests remain under `src-tauri/tests` and do not access the validation module.
 
 ## Error Model
 
@@ -304,16 +305,11 @@ pub enum BundledCatalogError {
     Io { path: String, source: std::io::Error },
     Json { path: String, source: serde_json::Error },
     Contract { path: String, message: String },
-    Schema { path: String, message: String },
     Entry { path: String, message: String },
-    UnresolvedReference {
-        path: String,
-        contract: String,
-        id: String,
-        revision: String,
-    },
 }
 ```
+
+Schema and reference audit failures use a private `ValidationError` in `validation.rs`; shared runtime I/O, JSON, and contract failures can be wrapped from `BundledCatalogError` without adding audit-only variants to the public API.
 
 Only paths relative to the bundled root appear in errors. Absolute host paths are never exposed.
 
@@ -322,10 +318,10 @@ Error semantics:
 - an absent revision requested through `get` is `Ok(None)`;
 - an absent required document is a `Contract` error;
 - invalid JSON is a `Json` error;
-- schema loading, reference resolution, compilation, and document validation failures during `Catalog::validate` are `Schema` errors;
 - typed document/model decoding failures are `Entry` errors;
 - unsafe storage paths and malformed contracts are `Contract` errors;
-- dangling references are `UnresolvedReference` errors.
+
+The private validation error distinguishes schema failures from unresolved references for focused audit assertions.
 
 There are no fallback paths or aggregate error-reporting mode.
 
@@ -343,16 +339,18 @@ src-tauri/src/infra/bundled/
 │   └── workflows.rs
 ├── errors.rs
 ├── generated.rs
-└── mod.rs
+├── mod.rs
+└── validation.rs
 ```
 
 Responsibilities:
 
-- `catalog.rs`: root-bound engine, contract/schema loading, generic reads, full audit;
+- `catalog.rs`: root-bound engine, contract and document loading, generic runtime reads, and shared storage invariants;
 - `entries/mod.rs`: internal `CatalogEntry` contract and `Documents`;
 - concrete entry modules: `Entry`, `Model`, direct public reads, explicit decoding;
 - `codegen.rs` and `generated.rs`: schema-derived raw document types;
-- `errors.rs`: the path-aware public error type.
+- `errors.rs`: the path-aware public runtime error type;
+- `validation.rs`: test-only schema loading, descriptor indexing, reference collection, and full audit tests.
 
 `catalog.rs` may depend on the generic `CatalogEntry` contract but must not import or match on concrete entry modules. Adding a new entry type requires a contract, schemas/documents, and one entry module; it does not require editing `catalog.rs`.
 
@@ -368,7 +366,7 @@ Keep tests at observable boundaries:
 - ordinary reads do not require the schemas directory;
 - a missing or invalid selected document fails at read time;
 - one compact test exercises mappings for the four existing entry modules;
-- one integration test runs `Catalog::validate` against the real `new_bundled` tree;
+- one internal validation test audits the real `new_bundled` tree;
 - the audit rejects one dangling contract reference;
 - unsafe relative paths are rejected.
 
@@ -387,6 +385,7 @@ The refactor deletes rather than preserves:
 - query-time reference validation;
 - automatic reference hydration and runtime entry dispatch;
 - runtime schema loading, dependency resolution, compilation, and validation;
+- the public `Catalog::validate` audit API;
 - `Select`, `PhantomData`, `find`, `find_by_id`, `all/one` builder composition;
 - the combined mapping-and-data `Entry` type;
 - `.json` filename extensions under `new_bundled/catalog`;
