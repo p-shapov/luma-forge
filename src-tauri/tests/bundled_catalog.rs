@@ -21,6 +21,11 @@ fn catalog_construction_performs_no_io() {
 }
 
 #[tokio::test]
+async fn packaged_catalog_passes_full_audit() {
+    catalog().validate().await.unwrap();
+}
+
+#[tokio::test]
 async fn entry_mappings_read_owned_models() {
     let catalog = catalog();
 
@@ -97,6 +102,11 @@ async fn get_rejects_a_missing_selected_document() {
 
 #[tokio::test]
 async fn get_rejects_unsafe_keys_as_catalog_contract_errors() {
+    assert!(matches!(
+        workflows::Entry::get(&catalog(), ("../outside", "1.0.0")).await,
+        Err(BundledCatalogError::Contract { .. })
+    ));
+
     for key in [
         ("../comfyui-hidream-o1-dev", "1.0.0"),
         ("comfyui-hidream-o1-dev", "../1.0.0"),
@@ -106,6 +116,48 @@ async fn get_rejects_unsafe_keys_as_catalog_contract_errors() {
             Err(BundledCatalogError::Contract { path, .. }) if path == "catalog/entries"
         ));
     }
+}
+
+#[tokio::test]
+async fn audit_rejects_a_dangling_reference() {
+    let temp_root = copy_catalog_fixture();
+    let path = temp_root
+        .join("catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0/contract_requirements");
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .replace("\"id\": \"provisioner\"", "\"id\": \"missing\"");
+    fs::write(&path, value).unwrap();
+
+    assert!(matches!(
+        Catalog::new(&temp_root).validate().await,
+        Err(BundledCatalogError::UnresolvedReference {
+            contract,
+            id,
+            revision,
+            ..
+        }) if contract == "catalog/contracts/runtime_contract_revision"
+            && id == "missing"
+            && revision == "1.0.0"
+    ));
+
+    fs::remove_dir_all(temp_root).unwrap();
+}
+
+#[tokio::test]
+async fn reads_reject_an_entries_path_outside_catalog_entries() {
+    let temp_root = copy_catalog_fixture();
+    let path = temp_root.join("catalog/contracts/workflow_revision");
+    let value = fs::read_to_string(&path)
+        .unwrap()
+        .replace("catalog/entries/workflows", "catalog/entries/../outside");
+    fs::write(&path, value).unwrap();
+
+    assert!(matches!(
+        workflows::Entry::all(&Catalog::new(&temp_root)).await,
+        Err(BundledCatalogError::Contract { .. })
+    ));
+
+    fs::remove_dir_all(temp_root).unwrap();
 }
 
 fn copy_catalog_fixture() -> PathBuf {

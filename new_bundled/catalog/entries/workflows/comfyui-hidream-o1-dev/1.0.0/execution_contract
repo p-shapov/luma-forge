@@ -1,6 +1,6 @@
 {
   "schema_ref": {
-    "entity": "execution_schema_revision",
+    "contract": "catalog/contracts/execution_schema_revision",
     "id": "text-to-image",
     "revision": "1.0.0"
   },
