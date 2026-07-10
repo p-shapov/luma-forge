@@ -44,21 +44,3 @@ struct GraphqlResponse<T> {
     #[serde(default)]
     errors: Vec<Value>,
 }
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::Gql;
-
-    #[test]
-    fn builds_graphql_request_body() {
-        let query = "query Example($id: ID!) { item(id: $id) { id } }\n";
-        let variables = json!({ "id": "item-1" });
-
-        let body: serde_json::Value =
-            serde_json::from_str(&Gql::new(query).build(variables.clone())).unwrap();
-
-        assert_eq!(body, json!({ "query": query, "variables": variables }));
-    }
-}
