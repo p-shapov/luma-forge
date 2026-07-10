@@ -22,10 +22,7 @@ pub fn generate() -> CodegenResult<()> {
     let mut schemas = Vec::new();
     for entry in fs::read_dir(&schema_dir)? {
         let path = entry?.path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "json")
-        {
+        if path.is_file() {
             schemas.push(path);
         }
     }
