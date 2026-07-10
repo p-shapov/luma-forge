@@ -210,6 +210,24 @@ An ordinary read loads only the schema dependency closure needed by its selected
 
 Local fragment references beginning with `#` do not load another file. Cycles terminate through a set of already loaded schema IDs.
 
+Each operation owns one query-local schema set:
+
+```rust
+struct Schemas {
+    values: HashMap<String, Value>,
+    validators: HashMap<String, jsonschema::Validator>,
+}
+```
+
+Within one `get`, `all`, or `validate` operation:
+
+- each schema `$id` in the dependency closure is read and parsed at most once;
+- each schema required for document validation is compiled at most once;
+- every revision using the same schema reuses the compiled validator;
+- schema values, retriever state, and validators are dropped when the operation completes.
+
+This reuse is operation-local only. It does not introduce state into `Catalog` or create a cache lifecycle.
+
 The full audit loads every direct schema file and validates its identity, then uses the same dependency rules. An invalid unrelated schema therefore fails `Catalog::validate` but does not affect an ordinary read.
 
 No schema cache, watcher, refresh API, or interior mutability is introduced.
