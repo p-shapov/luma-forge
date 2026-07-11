@@ -1,4 +1,3 @@
-pub mod catalog;
 pub mod events;
 pub mod runtimes;
 pub mod secrets;

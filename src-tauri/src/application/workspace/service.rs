@@ -1,9 +1,8 @@
 use time::OffsetDateTime;
 
 use crate::application::{
-    catalog::CatalogRef,
     events::{ApplicationEvent, ApplicationEventSink},
-    runtimes::ports::RuntimeOperationRepository,
+    runtimes::{ports::RuntimeOperationRepository, CatalogRef},
     workspace::{
         ports::{WorkflowCatalog, WorkspaceRepository, WorkspaceRepositoryError},
         Workspace, WorkspaceError,
@@ -117,14 +116,12 @@ mod tests {
 
     use super::{WorkspaceError, WorkspaceService};
     use crate::application::{
-        catalog::{
-            CatalogRef, RunpodContractRequirements, RuntimeContractRequirements,
-            WorkflowDefinition, WorkflowSummary,
-        },
         events::{ApplicationEvent, ApplicationEventSink},
         runtimes::{
             ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
-            RuntimeKind, RuntimeOperation,
+            runpod::RunpodContractRequirements,
+            CatalogRef, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
+            WorkflowDefinition, WorkflowSummary,
         },
         workspace::{
             ports::{

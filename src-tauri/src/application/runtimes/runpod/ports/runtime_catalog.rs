@@ -1,6 +1,6 @@
-use crate::application::catalog::{
-    CatalogRef, RunpodContractRequirements, RunpodRuntimeDefinition,
-};
+use crate::application::runtimes::CatalogRef;
+
+use super::super::{RunpodContractRequirements, RunpodRuntimeDefinition};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeCatalogError {

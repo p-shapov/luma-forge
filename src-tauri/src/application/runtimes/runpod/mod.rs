@@ -1,3 +1,4 @@
+mod catalog;
 mod errors;
 mod model;
 pub mod ports;
@@ -6,6 +7,7 @@ mod service;
 #[cfg(test)]
 mod test_support;
 
+pub use catalog::{RunpodContractRequirements, RunpodRuntimeDefinition};
 pub use errors::RunpodRuntimeError;
 pub use model::{RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources, RunpodRuntimeState};
 pub use ports::{

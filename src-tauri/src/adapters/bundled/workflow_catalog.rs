@@ -1,7 +1,7 @@
 use crate::{
     application::{
-        catalog::{
-            CatalogRef, RunpodContractRequirements, RuntimeContractRequirements,
+        runtimes::{
+            runpod::RunpodContractRequirements, CatalogRef, RuntimeContractRequirements,
             WorkflowDefinition, WorkflowSummary,
         },
         workspace::ports::{WorkflowCatalog, WorkflowCatalogError},

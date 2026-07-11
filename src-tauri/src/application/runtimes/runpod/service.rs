@@ -4,11 +4,11 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::{
-    catalog::{RunpodRuntimeDefinition, WorkflowDefinition},
     events::ApplicationEventSink,
     runtimes::{
-        ports::RuntimeOperationRepository, RuntimeKind, RuntimeOperation, RuntimeOperationKind,
-        RuntimeProgress, RuntimeTransitionContext,
+        ports::RuntimeOperationRepository, RuntimeContractRequirements, RuntimeKind,
+        RuntimeOperation, RuntimeOperationKind, RuntimeProgress, RuntimeTransitionContext,
+        WorkflowDefinition,
     },
     secrets::{SecretKind, SecretStore},
     workspace::ports::{WorkflowCatalog, WorkspaceRepository},
@@ -17,7 +17,8 @@ use crate::application::{
 use super::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProgress,
     RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
-    RunpodRuntimeError, RunpodRuntimeProvider, RunpodRuntimeRepository, StartProvisionerPod,
+    RunpodRuntimeDefinition, RunpodRuntimeError, RunpodRuntimeProvider, RunpodRuntimeRepository,
+    StartProvisionerPod,
 };
 
 pub struct ProvisionRunpodRuntime {
@@ -247,7 +248,12 @@ impl RunpodRuntimeService {
             .await
             .map_err(|_| RunpodRuntimeError::CatalogUnavailable)?
             .ok_or(RunpodRuntimeError::WorkflowNotFound)?;
-        let requirements = WorkflowDefinition::runpod_requirements(&workflow.contract_requirements)
+        let requirements = workflow
+            .contract_requirements
+            .first()
+            .map(|requirements| match requirements {
+                RuntimeContractRequirements::Runpod(value) => value,
+            })
             .ok_or(RunpodRuntimeError::CatalogUnavailable)?;
         let definition = self
             .runtime_catalog
@@ -359,7 +365,7 @@ impl RunpodRuntimeService {
                     workspace_id: command.workspace_id.clone(),
                     datacenter_id: command.datacenter_id.clone(),
                     network_volume_id: volume_id.clone(),
-                    provisioner_image_ref: definition.provisioner_contract.image_ref,
+                    provisioner_image_ref: definition.provisioner_image_ref,
                     required_model_assets: workflow.model_assets,
                     hugging_face_api_key,
                 },
@@ -438,7 +444,7 @@ impl RunpodRuntimeService {
                 &runpod_key,
                 CreateTemplate {
                     workspace_id: command.workspace_id.clone(),
-                    image_ref: definition.endpoint_contract.image_ref,
+                    image_ref: definition.endpoint_image_ref,
                 },
             )
             .await

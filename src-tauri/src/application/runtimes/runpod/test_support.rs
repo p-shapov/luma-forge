@@ -10,18 +10,15 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::{
-    catalog::{
-        CatalogRef, RunpodContractRequirements, RunpodRuntimeDefinition, RuntimeContract,
-        RuntimeContractRequirements, RuntimePreset, WorkflowDefinition, WorkflowSummary,
-    },
     events::{ApplicationEvent, ApplicationEventSink},
     runtimes::{
         ports::{
             RuntimeOperationRepository, RuntimeOperationRepositoryError,
             RuntimeTransitionRepository, RuntimeTransitionRepositoryError,
         },
-        RuntimeKind, RuntimeOperation, RuntimeOperationKind, RuntimeOperationState,
-        RuntimeProgress,
+        CatalogRef, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
+        RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, WorkflowDefinition,
+        WorkflowSummary,
     },
     secrets::{SecretKind, SecretStore, SecretStoreError},
     workspace::{
@@ -33,12 +30,12 @@ use crate::application::{
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProgress,
-    RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeCatalogError,
-    RunpodRuntimeConfig, RunpodRuntimeProvider, RunpodRuntimeProviderError,
-    RunpodRuntimeRepository, RunpodRuntimeRepositoryError, RunpodRuntimeResources,
-    RunpodRuntimeService, RunpodRuntimeServiceDependencies, RunpodRuntimeState,
-    StartProvisionerPod,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
+    RunpodContractRequirements, RunpodProgress, RunpodProvisionStep, RunpodRuntime,
+    RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeConfig, RunpodRuntimeDefinition,
+    RunpodRuntimeProvider, RunpodRuntimeProviderError, RunpodRuntimeRepository,
+    RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeService,
+    RunpodRuntimeServiceDependencies, RunpodRuntimeState, StartProvisionerPod,
 };
 
 pub(super) struct ProvisionFakes {
@@ -313,13 +310,8 @@ fn workflow() -> WorkflowDefinition {
 
 fn runtime_definition() -> RunpodRuntimeDefinition {
     RunpodRuntimeDefinition {
-        runtime_preset: RuntimePreset(serde_json::json!({})),
-        provisioner_contract: RuntimeContract {
-            image_ref: "provisioner:1".into(),
-        },
-        endpoint_contract: RuntimeContract {
-            image_ref: "endpoint:1".into(),
-        },
+        provisioner_image_ref: "provisioner-image".into(),
+        endpoint_image_ref: "endpoint-image".into(),
     }
 }
 

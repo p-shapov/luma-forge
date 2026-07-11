@@ -128,7 +128,6 @@ mod tests {
     use uuid::Uuid;
 
     use crate::application::{
-        catalog::CatalogRef,
         events::{ApplicationEvent, ApplicationEventSink},
         runtimes::{
             ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
@@ -136,7 +135,8 @@ mod tests {
                 RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
                 RunpodRuntimeResources, RunpodRuntimeState,
             },
-            Runtime, RuntimeKind, RuntimeOperation, RuntimeOperationKind, RuntimeProgress,
+            CatalogRef, Runtime, RuntimeKind, RuntimeOperation, RuntimeOperationKind,
+            RuntimeProgress,
         },
         workspace::{
             ports::{WorkspaceRepository, WorkspaceRepositoryError},

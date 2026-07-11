@@ -1,10 +1,10 @@
 use crate::{
-    application::{
-        catalog::{
-            CatalogRef, RunpodContractRequirements, RunpodRuntimeDefinition, RuntimeContract,
-            RuntimePreset,
+    application::runtimes::{
+        runpod::{
+            RunpodContractRequirements, RunpodRuntimeCatalog, RunpodRuntimeCatalogError,
+            RunpodRuntimeDefinition,
         },
-        runtimes::runpod::{RunpodRuntimeCatalog, RunpodRuntimeCatalogError},
+        CatalogRef,
     },
     infra::bundled::{
         entries::{runtime_contracts, runtime_presets},
@@ -21,7 +21,7 @@ impl RunpodRuntimeCatalog for BundledCatalogAdapter {
         preset: &CatalogRef,
         requirements: &RunpodContractRequirements,
     ) -> Result<RunpodRuntimeDefinition, RunpodRuntimeCatalogError> {
-        let preset = runtime_presets::Entry::get(&self.catalog, (&preset.id, &preset.revision))
+        runtime_presets::Entry::get(&self.catalog, (&preset.id, &preset.revision))
             .await
             .map_err(map_catalog_error)?
             .ok_or(RunpodRuntimeCatalogError::InvalidCatalog)?;
@@ -47,16 +47,8 @@ impl RunpodRuntimeCatalog for BundledCatalogAdapter {
         .ok_or(RunpodRuntimeCatalogError::InvalidCatalog)?;
 
         Ok(RunpodRuntimeDefinition {
-            runtime_preset: RuntimePreset(
-                serde_json::to_value(preset.runtime_preset)
-                    .map_err(|_| RunpodRuntimeCatalogError::InvalidCatalog)?,
-            ),
-            provisioner_contract: RuntimeContract {
-                image_ref: String::from(provisioner.runtime_contract.image_ref),
-            },
-            endpoint_contract: RuntimeContract {
-                image_ref: String::from(endpoint.runtime_contract.image_ref),
-            },
+            provisioner_image_ref: String::from(provisioner.runtime_contract.image_ref),
+            endpoint_image_ref: String::from(endpoint.runtime_contract.image_ref),
         })
     }
 }

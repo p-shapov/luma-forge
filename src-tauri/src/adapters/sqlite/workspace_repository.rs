@@ -2,8 +2,7 @@ use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrai
 
 use crate::{
     application::{
-        catalog::CatalogRef,
-        runtimes::RuntimeKind,
+        runtimes::{CatalogRef, RuntimeKind},
         workspace::{
             ports::{WorkspaceRepository, WorkspaceRepositoryError},
             Workspace,

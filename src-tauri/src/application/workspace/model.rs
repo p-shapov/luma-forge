@@ -1,7 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::application::catalog::CatalogRef;
-use crate::application::runtimes::RuntimeKind;
+use crate::application::runtimes::{CatalogRef, RuntimeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Workspace {
