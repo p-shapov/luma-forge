@@ -18,6 +18,8 @@ where
     transitions: Arc<P>,
     workspaces: Arc<dyn WorkspaceRepository>,
     events: Arc<dyn ApplicationEventSink>,
+    // ponytail: one global transition lane; use per-workspace locks if throughput matters.
+    coordinator: Arc<tokio::sync::Mutex<()>>,
     runtime: std::marker::PhantomData<R>,
 }
 
@@ -31,6 +33,7 @@ where
             transitions: self.transitions.clone(),
             workspaces: self.workspaces.clone(),
             events: self.events.clone(),
+            coordinator: self.coordinator.clone(),
             runtime: std::marker::PhantomData,
         }
     }
@@ -50,6 +53,7 @@ where
             transitions,
             workspaces,
             events,
+            coordinator: Arc::new(tokio::sync::Mutex::new(())),
             runtime: std::marker::PhantomData,
         }
     }
@@ -63,6 +67,7 @@ where
         runtime: &R,
         operation: &LifecycleOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
+        let _guard = self.coordinator.lock().await;
         self.transitions.save_transition(runtime, operation).await?;
         self.events.emit(ApplicationEvent::RuntimeChanged(
             runtime.clone().into_runtime(),
@@ -79,6 +84,7 @@ where
         runtime: &R,
         operation: &LifecycleOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
+        let _guard = self.coordinator.lock().await;
         self.transitions.save_transition(runtime, operation).await?;
         self.emit_workspace_projection(runtime.workspace_id()).await;
         self.events.emit(ApplicationEvent::RuntimeChanged(
@@ -96,6 +102,7 @@ where
         runtime: &R,
         operation: &LifecycleOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
+        let _guard = self.coordinator.lock().await;
         self.transitions.save_transition(runtime, operation).await?;
         self.emit_workspace_projection(runtime.workspace_id()).await;
         self.events.emit(ApplicationEvent::RuntimeDeleted {
@@ -120,11 +127,12 @@ where
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     };
 
     use time::OffsetDateTime;
+    use tokio::sync::oneshot;
     use uuid::Uuid;
 
     use crate::application::{
@@ -221,6 +229,65 @@ mod tests {
             Err(RuntimeTransitionRepositoryError::Unavailable),
         );
         assert!(fakes.events.events().is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cleanup_events_complete_before_reprovision_events() {
+        let fakes = Fakes::detached();
+        let (projection_entered_tx, projection_entered_rx) = oneshot::channel();
+        let (release_projection_tx, release_projection_rx) = oneshot::channel();
+        let workspaces = Arc::new(BlockingWorkspaceRepository {
+            workspace: fakes.workspace.clone(),
+            gets: AtomicUsize::new(0),
+            projection_entered: Mutex::new(Some(projection_entered_tx)),
+            release_projection: Mutex::new(Some(release_projection_rx)),
+        });
+        let context = RuntimeTransitionContext::new(
+            fakes.transitions.clone(),
+            workspaces,
+            fakes.events.clone(),
+        );
+
+        let cleanup_context = context.clone();
+        let cleanup_runtime = fakes.runtime.clone();
+        let cleanup_operation = fakes.operation.clone();
+        let cleanup = tokio::spawn(async move {
+            cleanup_context
+                .save_deleted(&cleanup_runtime, &cleanup_operation)
+                .await
+        });
+        projection_entered_rx.await.unwrap();
+
+        let (reprovision_started_tx, reprovision_started_rx) = oneshot::channel();
+        let reprovision_runtime = fakes.runtime.clone();
+        let reprovision_operation = fakes.operation.clone();
+        let reprovision = tokio::spawn(async move {
+            reprovision_started_tx.send(()).unwrap();
+            context
+                .save_attached(&reprovision_runtime, &reprovision_operation)
+                .await
+        });
+        reprovision_started_rx.await.unwrap();
+
+        assert!(fakes.events.events().is_empty());
+        release_projection_tx.send(()).unwrap();
+        cleanup.await.unwrap().unwrap();
+        reprovision.await.unwrap().unwrap();
+
+        assert_eq!(
+            fakes.events.events(),
+            vec![
+                ApplicationEvent::WorkspaceChanged(fakes.workspace.clone()),
+                ApplicationEvent::RuntimeDeleted {
+                    workspace_id: "workspace-1".into(),
+                    kind: RuntimeKind::Runpod,
+                },
+                ApplicationEvent::LifecycleOperationChanged(fakes.operation.clone()),
+                ApplicationEvent::WorkspaceChanged(fakes.workspace.clone()),
+                ApplicationEvent::RuntimeChanged(Runtime::Runpod(fakes.runtime.clone())),
+                ApplicationEvent::LifecycleOperationChanged(fakes.operation.clone()),
+            ]
+        );
     }
 
     struct Fakes {
@@ -356,6 +423,43 @@ mod tests {
 
         async fn get(&self, id: &str) -> Result<Option<Workspace>, WorkspaceRepositoryError> {
             Ok((self.0.id == id).then(|| self.0.clone()))
+        }
+
+        async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
+            unreachable!()
+        }
+
+        async fn delete(&self, _: &str) -> Result<bool, WorkspaceRepositoryError> {
+            unreachable!()
+        }
+    }
+
+    struct BlockingWorkspaceRepository {
+        workspace: Workspace,
+        gets: AtomicUsize,
+        projection_entered: Mutex<Option<oneshot::Sender<()>>>,
+        release_projection: Mutex<Option<oneshot::Receiver<()>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl WorkspaceRepository for BlockingWorkspaceRepository {
+        async fn create(&self, _: Workspace) -> Result<Workspace, WorkspaceRepositoryError> {
+            unreachable!()
+        }
+
+        async fn get(&self, id: &str) -> Result<Option<Workspace>, WorkspaceRepositoryError> {
+            if self.gets.fetch_add(1, Ordering::SeqCst) == 0 {
+                self.projection_entered
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap()
+                    .send(())
+                    .unwrap();
+                let release = self.release_projection.lock().unwrap().take().unwrap();
+                release.await.unwrap();
+            }
+            Ok((self.workspace.id == id).then(|| self.workspace.clone()))
         }
 
         async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
