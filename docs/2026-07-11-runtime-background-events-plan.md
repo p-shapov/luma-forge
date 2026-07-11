@@ -4,7 +4,7 @@
 
 **Goal:** Start RunPod provision and cleanup as detached application tasks after a durable initial transition, and publish provider-neutral application events after every committed workspace/runtime/lifecycle change.
 
-**Architecture:** Application-owned `Runtime`, `ApplicationEvent`, `RuntimeTransitionContext`, and `LifecycleBackgroundRunner` provide reusable runtime transition, event, and spawn mechanics. RunPod retains provider-specific sequencing but calls the generic transition context before every provider operation; SQLite remains authoritative and event delivery is best-effort after commit.
+**Architecture:** Application-owned `Runtime`, `ApplicationEvent`, and `RuntimeTransitionContext` provide reusable runtime transition and event mechanics. RunPod retains provider-specific sequencing, starts detached work directly with `tokio::spawn`, and calls the generic transition context before every provider operation; SQLite remains authoritative and event delivery is best-effort after commit.
 
 **Tech Stack:** Rust 2021, Tokio multi-thread runtime and synchronization primitives, `async-trait`, SeaORM SQLite, existing application models/ports/adapters.
 
@@ -20,10 +20,10 @@
 - The operation UUID is the background handle; do not add a job ID, task registry, cancellation API, retry, resume, reconciliation, outbox, or polling event pump.
 - Initial provision/cleanup transitions commit before `tokio::spawn`; no provider API call occurs before the detached task begins.
 - Every durable runtime transition emits a runtime event followed by a lifecycle event. Runtime attach/detach additionally emits the workspace projection first.
-- Keep background and event mechanics provider-neutral. A future provider adds a runtime model/enum variant/repository/workflow, not a new runner, context, or sink.
+- Keep transition and event mechanics provider-neutral. Provider workflows start their detached Tokio tasks directly; a future provider adds a runtime model/enum variant/repository/workflow, not a new context or sink.
 - Keep provider resource IDs inside provider-specific application models; this scope adds no public DTO.
 - Add behavioral tests only under `application`; do not add adapter, SQLite integration, Tauri, Specta, generated-contract, or frontend tests.
-- Use Tokio synchronization primitives in detached-runner tests; do not use timing sleeps.
+- Use Tokio synchronization primitives in detached-task tests; do not use timing sleeps.
 - Run focused RED/GREEN tests for each task. Every task ends with `cargo fmt --manifest-path src-tauri/Cargo.toml --check` and an appropriate native test/check gate.
 - Commit only the files listed in each task. Use Conventional Commits.
 
@@ -38,7 +38,6 @@
 - `src-tauri/src/application/runtimes/ports/mod.rs`: generic runtime port exports.
 - `src-tauri/src/application/runtimes/ports/runtime_transition_repository.rs`: generic transition write port and typed errors.
 - `src-tauri/src/application/runtimes/transition.rs`: commit-then-event transition context.
-- `src-tauri/src/application/lifecycle/background.rs`: provider-neutral Tokio runner.
 
 ### Existing application files
 
@@ -728,11 +727,9 @@ git commit -m "feat(workspace): publish workspace events"
 
 ---
 
-### Task 4: Provider-Neutral Background Runner and Arc-Owned RunPod Service
+### Task 4: Arc-Owned RunPod Service
 
 **Files:**
-- Create: `src-tauri/src/application/lifecycle/background.rs`
-- Modify: `src-tauri/src/application/lifecycle/mod.rs`
 - Modify: `src-tauri/src/application/runtimes/runpod/mod.rs`
 - Modify: `src-tauri/src/application/runtimes/runpod/service.rs`
 - Modify: `src-tauri/src/application/runtimes/runpod/test_support.rs`
@@ -740,50 +737,9 @@ git commit -m "feat(workspace): publish workspace events"
 
 **Interfaces:**
 - Consumes: Tokio runtime and Task 2 `RuntimeTransitionContext`.
-- Produces: cloneable `LifecycleBackgroundRunner` and cloneable Arc-owned `RunpodRuntimeService` ready for detached entry methods.
+- Produces: cloneable Arc-owned `RunpodRuntimeService` ready for detached entry methods.
 
-- [ ] **Step 1: Add the failing background runner test**
-
-Create `application/lifecycle/background.rs`:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use super::LifecycleBackgroundRunner;
-
-    #[tokio::test]
-    async fn spawn_returns_while_the_task_waits_for_release() {
-        let runner = LifecycleBackgroundRunner;
-        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
-        let (completed_tx, mut completed_rx) = tokio::sync::oneshot::channel();
-
-        runner.spawn(async move {
-            let _ = started_tx.send(());
-            let _ = release_rx.await;
-            let _ = completed_tx.send(());
-        });
-
-        started_rx.await.unwrap();
-        assert_eq!(
-            completed_rx.try_recv(),
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty),
-        );
-        release_tx.send(()).unwrap();
-        completed_rx.await.unwrap();
-    }
-}
-```
-
-- [ ] **Step 2: Run RED**
-
-```bash
-cargo test --manifest-path src-tauri/Cargo.toml application::lifecycle::background::tests::spawn_returns_while_the_task_waits_for_release -- --exact
-```
-
-Expected: compilation fails because `LifecycleBackgroundRunner` and/or Tokio synchronization support does not exist.
-
-- [ ] **Step 3: Implement the runner and enable explicit Tokio sync support**
+- [ ] **Step 1: Enable explicit Tokio sync support**
 
 In `Cargo.toml` change Tokio features to:
 
@@ -791,23 +747,7 @@ In `Cargo.toml` change Tokio features to:
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync", "time"] }
 ```
 
-Implement and export:
-
-```rust
-#[derive(Debug, Clone, Copy, Default)]
-pub struct LifecycleBackgroundRunner;
-
-impl LifecycleBackgroundRunner {
-    pub fn spawn<F>(&self, task: F)
-    where
-        F: std::future::Future<Output = ()> + Send + 'static,
-    {
-        tokio::spawn(task);
-    }
-}
-```
-
-- [ ] **Step 4: Convert `RunpodRuntimeService` dependencies to Arc**
+- [ ] **Step 2: Convert `RunpodRuntimeService` dependencies to Arc**
 
 Replace borrowed public fields with private Arc-owned dependencies and a constructor dependency struct:
 
@@ -822,7 +762,6 @@ pub struct RunpodRuntimeService {
     secrets: Arc<dyn SecretStore>,
     provider: Arc<dyn RunpodRuntimeProvider>,
     transitions: RuntimeTransitionContext<RunpodRuntime, dyn RunpodRuntimeRepository>,
-    background: LifecycleBackgroundRunner,
 }
 
 pub struct RunpodRuntimeServiceDependencies {
@@ -837,7 +776,7 @@ pub struct RunpodRuntimeServiceDependencies {
 }
 ```
 
-`RunpodRuntimeService::new` constructs `RuntimeTransitionContext` from cloned runtime/workspace/event dependencies and uses `LifecycleBackgroundRunner::default()`.
+`RunpodRuntimeService::new` constructs `RuntimeTransitionContext` from cloned runtime/workspace/event dependencies.
 
 ```rust
 impl RunpodRuntimeService {
@@ -856,7 +795,6 @@ impl RunpodRuntimeService {
             secrets: dependencies.secrets,
             provider: dependencies.provider,
             transitions,
-            background: LifecycleBackgroundRunner,
         }
     }
 }
@@ -897,20 +835,19 @@ impl RecordingApplicationEventSink {
 Store it as `Arc<RecordingApplicationEventSink>` in the RunPod fakes and pass a
 clone through `RunpodRuntimeServiceDependencies.events`.
 
-- [ ] **Step 5: Run GREEN and the existing service suite**
+- [ ] **Step 3: Run the existing service suite**
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml application::lifecycle::background::tests -- --nocapture
 cargo test --manifest-path src-tauri/Cargo.toml application::runtimes::runpod::service::tests -- --nocapture
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 ```
 
-Expected: the background runner test and all existing RunPod service tests pass after Arc ownership conversion.
+Expected: all existing RunPod service tests pass after Arc ownership conversion.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src-tauri/Cargo.toml src-tauri/src/application/lifecycle src-tauri/src/application/runtimes/runpod/mod.rs src-tauri/src/application/runtimes/runpod/service.rs src-tauri/src/application/runtimes/runpod/test_support.rs
+git add src-tauri/Cargo.toml src-tauri/src/application/runtimes/runpod/mod.rs src-tauri/src/application/runtimes/runpod/service.rs src-tauri/src/application/runtimes/runpod/test_support.rs
 git commit -m "refactor(runpod): prepare detached lifecycle execution"
 ```
 
@@ -923,7 +860,7 @@ git commit -m "refactor(runpod): prepare detached lifecycle execution"
 - Modify: `src-tauri/src/application/runtimes/runpod/test_support.rs`
 
 **Interfaces:**
-- Consumes: Task 2 transition context and Task 4 background runner/Arc service.
+- Consumes: Task 2 transition context and Task 4 Arc-owned service.
 - Produces: `RunpodRuntimeService::start_provision(...) -> Result<(RunpodRuntime, LifecycleOperation), RunpodRuntimeError>` with detached six-step execution.
 
 - [ ] **Step 1: Add a deterministic provider gate and the failing detached-start test**
@@ -1117,7 +1054,7 @@ self.transitions.save_attached(&runtime, &operation).await?;
 let initial_runtime = runtime.clone();
 let initial_operation = operation.clone();
 let service = self.clone();
-self.background.spawn(async move {
+tokio::spawn(async move {
     service
         .run_provision(command, definition, workflow, runpod_key, hugging_face_api_key, runtime, operation)
         .await;
@@ -1187,7 +1124,7 @@ git commit -m "feat(runpod): provision in background with events"
 - Modify: `src-tauri/src/application/runtimes/runpod/test_support.rs`
 
 **Interfaces:**
-- Consumes: Tasks 2/4 generic transition and background facilities.
+- Consumes: Tasks 2/4 generic transition and Arc-owned service facilities.
 - Produces: `start_cleanup(...) -> Result<(RunpodRuntime, LifecycleOperation), RunpodRuntimeError>` plus event-producing interrupted recovery.
 
 - [ ] **Step 1: Write the failing detached cleanup test**
@@ -1251,7 +1188,7 @@ let initial_runtime = runtime.clone();
 let initial_operation = operation.clone();
 let service = self.clone();
 let workspace_id = workspace_id.to_owned();
-self.background.spawn(async move {
+tokio::spawn(async move {
     service
         .run_cleanup(workspace_id, runpod_key, runtime, operation)
         .await;
@@ -1342,7 +1279,7 @@ Expected: all tests, formatting, and strict Clippy pass.
 ```bash
 rg -n "tauri|specta|serde::|#\[serde|crate::(infra|adapters)" src-tauri/src/application
 rg -n "ApplicationEvent|ApplicationEventSink" src-tauri/src/adapters src-tauri/src/infra
-rg -n "tokio::spawn" src-tauri/src/application
+rg -n "tokio::spawn" src-tauri/src/application/runtimes
 git diff --name-only 0ca01b98..HEAD -- src src/generated/commands.ts
 ```
 
@@ -1350,7 +1287,7 @@ Expected:
 
 - application has no Tauri/Specta/serde facade or infra/adapter dependency;
 - adapters/infra contain no concrete event sink or event mapping;
-- `tokio::spawn` appears only in `application/lifecycle/background.rs`;
+- production `tokio::spawn` calls appear only in the RunPod service detached entry methods; transition tests may use it for deterministic concurrent futures;
 - no frontend or generated command file changed.
 
 - [ ] **Step 4: Verify background and event requirements mechanically**
@@ -1358,7 +1295,7 @@ Expected:
 ```bash
 rg -n "save_(changed|attached|deleted)" src-tauri/src/application/runtimes/runpod/service.rs
 rg -n "ApplicationEvent::" src-tauri/src/application
-rg -n "sleep\(" src-tauri/src/application/runtimes/runpod src-tauri/src/application/lifecycle/background.rs
+rg -n "sleep\(" src-tauri/src/application/runtimes
 ```
 
 Expected:
@@ -1390,8 +1327,8 @@ Confirm `src-tauri/src/main.rs`, `src-tauri/src/lib.rs`, and all files under `sr
 - Commit-before-event ordering and attach/detach semantics: Task 2.
 - Generic persistence contract reusable by future providers: Task 2.
 - Workspace create/delete events: Task 3.
-- Provider-neutral detached Tokio runner: Task 4.
 - Arc-owned service dependencies suitable for `'static` futures: Task 4.
+- Direct detached Tokio execution after durable starts: Tasks 5-6.
 - Durable initial provision transition, immediate snapshots, detached provider work: Task 5.
 - Event on every provision transition and terminal failure/success: Task 5.
 - Durable initial cleanup transition, detached cleanup, runtime deletion events: Task 6.
