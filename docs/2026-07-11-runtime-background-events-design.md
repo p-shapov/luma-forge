@@ -11,8 +11,8 @@ models and ports:
 - run provider work in a detached Tokio task;
 - publish application events after every durable runtime/lifecycle transition;
 - publish workspace projection events when a runtime is attached or detached;
-- keep background execution and event publication reusable when another runtime
-  provider is added.
+- keep runtime transition and event publication mechanics reusable when another
+  runtime provider is added.
 
 This iteration ends at the application boundary. Tauri, inbound DTOs, Specta,
 generated frontend contracts, frontend state, and a concrete event sink are not
@@ -24,7 +24,8 @@ part of the scope.
 - Application models are not Tauri or UI transport contracts.
 - A future inbound adapter decides which application fields are exposed.
 - SQLite is authoritative. Events are best-effort notifications after commit.
-- Provider-specific code owns provider steps, not background or event mechanics.
+- Provider-specific workflows own provider steps and detached task startup;
+  runtime transition and event mechanics remain provider-neutral.
 - The initial `LifecycleOperation` UUID is the background operation handle; no
   separate job ID exists.
 - No cancellation, retry framework, resume, reconciliation, outbox, polling
@@ -162,29 +163,21 @@ reimplement the transition context.
 Workspace reloads happen only after persistence succeeds, so emitted workspace
 models reflect the committed runtime anchor relation.
 
-## Background Runner
+## Background Execution
 
-The background runner is provider-neutral and contains no Tauri, repository,
-event, runtime-model, or provider API knowledge:
+Provider workflows start detached work directly with `tokio::spawn`. A wrapper
+that only forwards a future to Tokio adds no policy or test seam, so the
+application does not define one.
 
-```rust
-#[derive(Clone)]
-pub struct LifecycleBackgroundRunner;
+The initial operation and runtime transition must commit before
+`tokio::spawn` is called. Only the caller that successfully commits the initial
+transition starts the task. The SQLite one-running-operation invariant rejects
+concurrent starts, so no separate in-memory registry is required.
 
-impl LifecycleBackgroundRunner {
-    pub fn spawn<F>(&self, task: F)
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        tokio::spawn(task);
-    }
-}
-```
-
-The initial operation and runtime transition must commit before `spawn` is
-called. Only the caller that successfully commits the initial transition starts
-the task. The SQLite one-running-operation invariant rejects concurrent starts,
-so no separate in-memory registry is required.
+If detached task startup later needs a real shared policy, such as explicit
+diagnostic context or shutdown behavior, that policy can introduce an
+abstraction when it exists. This scope adds no tracing or task-management
+policy.
 
 If the process stops or the task panics after the initial commit, the existing
 startup recovery finds the remaining `Running` operation and atomically marks it
@@ -321,11 +314,9 @@ Adding a runtime provider requires:
 
 It does not require changes to:
 
-- `LifecycleBackgroundRunner`;
 - `RuntimeTransitionContext` persistence/event ordering;
 - `ApplicationEventSink`;
-- workspace attach/detach event semantics;
-- generic background error behavior.
+- workspace attach/detach event semantics.
 
 ## Explicitly Out of Scope
 
