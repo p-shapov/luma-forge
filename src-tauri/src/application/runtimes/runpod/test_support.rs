@@ -431,8 +431,7 @@ impl RunpodRuntimeRepository for FakeRunpodRuntimeRepository {
             .lock()
             .unwrap()
             .iter()
-            .filter(|runtime| runtime.workspace_id == workspace_id)
-            .next()
+            .find(|runtime| runtime.workspace_id == workspace_id)
             .cloned())
     }
 
