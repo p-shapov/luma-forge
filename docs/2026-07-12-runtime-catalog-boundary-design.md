@@ -2,11 +2,11 @@
 
 ## Goal
 
-Remove the standalone `application/catalog.rs` module. Its models describe workflow inputs to runtime provisioning, and its provider-specific models belong to RunPod.
+Remove the standalone `application/catalog.rs` module. Its models describe workflow inputs to runtime provisioning, and its provider-specific models belong to RunPod. Keep these small data types in the existing runtime model modules instead of creating catalog- or progress-specific model files.
 
 ## Runtime catalog ownership
 
-`application/runtimes/catalog.rs` owns the provider-neutral catalog models:
+`application/runtimes/model.rs` owns the provider-neutral catalog models alongside the existing runtime dispatch models:
 
 - `CatalogRef`;
 - `WorkflowSummary`;
@@ -15,14 +15,20 @@ Remove the standalone `application/catalog.rs` module. Its models describe workf
 
 Workspace continues to store `CatalogRef` for its selected workflow and to use `WorkflowDefinition` through `WorkflowCatalog`. This creates no new aggregate: workspace consumes the runtime catalog projection required to validate and provision its runtime.
 
-`application/catalog.rs` is deleted and `application/mod.rs` no longer exports a top-level catalog module.
+`application/catalog.rs` is deleted and `application/mod.rs` no longer exports a top-level catalog module. There is no separate `application/runtimes/catalog.rs`.
 
 ## RunPod catalog ownership
 
-`application/runtimes/runpod/catalog.rs` owns:
+`application/runtimes/runpod/model.rs` owns all RunPod application models, including:
 
 - `RunpodContractRequirements`;
-- `RunpodRuntimeDefinition`.
+- `RunpodRuntimeDefinition`;
+- `RunpodProvisionStep`;
+- `RunpodCleanupStep`;
+- `RunpodProgress`;
+- the existing RunPod runtime state, config, resources, and aggregate.
+
+There are no separate `application/runtimes/runpod/catalog.rs` or `application/runtimes/runpod/progress.rs` files. The combined model remains small enough to read as one provider domain model.
 
 `RuntimeContractRequirements::Runpod` remains the provider-neutral dispatch variant. RunPod workflow code matches that variant directly. The provider-neutral `WorkflowDefinition` exposes no `runpod_*` method.
 
@@ -62,4 +68,4 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
-A final source audit confirms that `application::catalog`, `RuntimePreset`, `RuntimeContract`, and `runpod_requirements` are absent from active Rust code.
+A final source audit confirms that `application::catalog`, `RuntimePreset`, `RuntimeContract`, and `runpod_requirements` are absent from the affected application and adapter code. It also confirms that the redundant runtime catalog and RunPod catalog/progress model files do not exist.
