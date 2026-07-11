@@ -23,6 +23,8 @@ The design does not include Tauri commands, facade DTOs, Specta/codegen, operati
 
 The source-tree cutover is already complete and must not appear in the implementation plan. Before application work begins, the active crate retains a minimal `src-tauri/src/lib.rs` that declares `pub mod infra;`, and `src-tauri/Cargo.toml` contains no path dependency on files that exist only in ignored `old_src`.
 
+Tauri command codegen is intentionally not run during this application-layer refactor. Existing generated frontend contracts are not updated or preserved. The frontend may fail to build or run while its Tauri surface is absent; this is an expected transitional state and must not be repaired as part of this implementation plan. No compatibility command, generated-type fallback, or temporary frontend shim is added.
+
 ## Dependency Direction
 
 The three layers have distinct responsibilities:
@@ -412,7 +414,7 @@ Only application behavioral tests are in scope. They use fake ports and cover:
 - explicit failure when deleting a missing secret;
 - startup conversion of interrupted `Running` operations and runtimes to `Failed`.
 
-Adapter, infra, SQLite integration, Tauri, Specta, and generated contract tests are outside this scope.
+Adapter, infra, SQLite integration, Tauri, Specta, generated contract, and frontend tests are outside this scope. Frontend verification is intentionally skipped because its Tauri contract is expected to be unavailable during this refactor stage.
 
 ## Deferred Work
 
@@ -424,4 +426,5 @@ The following work is explicitly deferred until a concrete requirement exists:
 - secret overwrite/update operations;
 - a second compute provider implementation;
 - Tauri commands, facade DTOs, Specta derives, and frontend codegen;
+- frontend build or runtime repair while the Tauri surface is absent;
 - adapter and infra integration tests.
