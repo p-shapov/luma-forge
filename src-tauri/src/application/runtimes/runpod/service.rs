@@ -7,7 +7,6 @@ use crate::application::{
     catalog::{RunpodRuntimeDefinition, WorkflowDefinition},
     events::ApplicationEventSink,
     lifecycle::{
-        background::LifecycleBackgroundRunner,
         ports::LifecycleOperationRepository,
         progress::runpod::{RunpodCleanupStep, RunpodProvisionStep},
         LifecycleOperation, LifecycleProgress,
@@ -43,7 +42,6 @@ pub struct RunpodRuntimeService {
     secrets: Arc<dyn SecretStore>,
     provider: Arc<dyn RunpodRuntimeProvider>,
     transitions: RuntimeTransitionContext<RunpodRuntime, dyn RunpodRuntimeRepository>,
-    background: LifecycleBackgroundRunner,
 }
 
 pub struct RunpodRuntimeServiceDependencies {
@@ -73,7 +71,6 @@ impl RunpodRuntimeService {
             secrets: dependencies.secrets,
             provider: dependencies.provider,
             transitions,
-            background: LifecycleBackgroundRunner,
         }
     }
 
@@ -106,7 +103,7 @@ impl RunpodRuntimeService {
         let initial_operation = operation.clone();
         let service = self.clone();
         let workspace_id = workspace_id.to_owned();
-        self.background.spawn(async move {
+        tokio::spawn(async move {
             service
                 .run_cleanup(workspace_id, runpod_key, runtime, operation)
                 .await;
@@ -296,7 +293,7 @@ impl RunpodRuntimeService {
         let initial_runtime = runtime.clone();
         let initial_operation = operation.clone();
         let service = self.clone();
-        self.background.spawn(async move {
+        tokio::spawn(async move {
             service
                 .run_provision(
                     command,
