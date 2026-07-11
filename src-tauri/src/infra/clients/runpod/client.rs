@@ -13,6 +13,18 @@ use super::{
 const GRAPHQL_URL: &str = "https://api.runpod.io/graphql";
 const REST_BASE_URL: &str = "https://rest.runpod.io/v1";
 
+#[derive(serde::Deserialize)]
+pub struct ProvisionerStatusResponse {
+    pub status: String,
+    pub error: Option<ProvisionerFailure>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ProvisionerFailure {
+    pub code: String,
+    pub message: String,
+}
+
 #[derive(Clone)]
 pub struct RunpodClient {
     http: reqwest::Client,
@@ -90,6 +102,20 @@ impl RunpodClient {
             .post(format!("{REST_BASE_URL}/pods"))
             .bearer_auth(api_key.expose_secret())
             .json(&request)
+            .send()
+            .await
+            .into_json()
+            .await
+    }
+
+    pub async fn provisioner_status(
+        &self,
+        bearer_token: &SecretString,
+        pod_id: &str,
+    ) -> Result<ProvisionerStatusResponse, NetworkError> {
+        self.http
+            .get(format!("https://{pod_id}-8000.proxy.runpod.net/status"))
+            .bearer_auth(bearer_token.expose_secret())
             .send()
             .await
             .into_json()

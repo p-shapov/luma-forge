@@ -1,5 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum NetworkError {
+    #[error("network resource was not found")]
+    NotFound,
     #[error("network request was unauthorized")]
     Unauthorized,
     #[error("network request has insufficient permissions")]

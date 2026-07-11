@@ -59,6 +59,7 @@ fn status_error(status: StatusCode) -> Option<NetworkError> {
     }
 
     Some(match status {
+        StatusCode::NOT_FOUND => NetworkError::NotFound,
         StatusCode::UNAUTHORIZED => NetworkError::Unauthorized,
         StatusCode::FORBIDDEN => NetworkError::InsufficientPermissions,
         StatusCode::TOO_MANY_REQUESTS => NetworkError::RateLimited,
