@@ -9,7 +9,7 @@ use crate::{
         runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
         RuntimeOperation, RuntimeOperationKind, RuntimeOperationState, RuntimeProgress,
     },
-    infra::sqlite::entities::{lifecycle_operations, runpod_lifecycle_progress},
+    infra::sqlite::entities::{runpod_runtime_operation_progress, runtime_operations},
 };
 
 pub struct SqliteRuntimeOperationRepository {
@@ -23,15 +23,15 @@ impl SqliteRuntimeOperationRepository {
 
     async fn load(
         &self,
-        query: sea_orm::Select<lifecycle_operations::Entity>,
+        query: sea_orm::Select<runtime_operations::Entity>,
     ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         let operations = query
             .all(&self.connection)
             .await
             .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?;
-        let progress = runpod_lifecycle_progress::Entity::find()
+        let progress = runpod_runtime_operation_progress::Entity::find()
             .filter(
-                runpod_lifecycle_progress::Column::OperationId
+                runpod_runtime_operation_progress::Column::OperationId
                     .is_in(operations.iter().map(|operation| operation.id.clone())),
             )
             .all(&self.connection)
@@ -60,8 +60,8 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
         limit: u64,
     ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
-            lifecycle_operations::Entity::find()
-                .order_by_desc(lifecycle_operations::Column::CreatedAt)
+            runtime_operations::Entity::find()
+                .order_by_desc(runtime_operations::Column::CreatedAt)
                 .limit(limit),
         )
         .await
@@ -73,9 +73,9 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
         limit: u64,
     ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
-            lifecycle_operations::Entity::find()
-                .filter(lifecycle_operations::Column::WorkspaceId.eq(workspace_id))
-                .order_by_desc(lifecycle_operations::Column::CreatedAt)
+            runtime_operations::Entity::find()
+                .filter(runtime_operations::Column::WorkspaceId.eq(workspace_id))
+                .order_by_desc(runtime_operations::Column::CreatedAt)
                 .limit(limit),
         )
         .await
@@ -83,8 +83,8 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
 
     async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
-            lifecycle_operations::Entity::find()
-                .filter(lifecycle_operations::Column::RunningWorkspaceId.is_not_null()),
+            runtime_operations::Entity::find()
+                .filter(runtime_operations::Column::RunningWorkspaceId.is_not_null()),
         )
         .await
     }
@@ -93,9 +93,9 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
         &self,
         workspace_id: &str,
     ) -> Result<bool, RuntimeOperationRepositoryError> {
-        Ok(lifecycle_operations::Entity::find()
-            .filter(lifecycle_operations::Column::WorkspaceId.eq(workspace_id))
-            .filter(lifecycle_operations::Column::RunningWorkspaceId.is_not_null())
+        Ok(runtime_operations::Entity::find()
+            .filter(runtime_operations::Column::WorkspaceId.eq(workspace_id))
+            .filter(runtime_operations::Column::RunningWorkspaceId.is_not_null())
             .one(&self.connection)
             .await
             .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
@@ -104,7 +104,7 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
 }
 
 fn map_operation(
-    model: lifecycle_operations::Model,
+    model: runtime_operations::Model,
     step: &str,
 ) -> Result<RuntimeOperation, RuntimeOperationRepositoryError> {
     let kind = match model.operation_kind.as_str() {

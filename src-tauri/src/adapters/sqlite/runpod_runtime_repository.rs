@@ -13,7 +13,7 @@ use crate::{
         RuntimeOperation, RuntimeOperationState,
     },
     infra::sqlite::entities::{
-        lifecycle_operations, runpod_lifecycle_progress, runpod_workspace_runtimes,
+        runpod_runtime_operation_progress, runpod_workspace_runtimes, runtime_operations,
         workspace_runtimes,
     },
 };
@@ -84,7 +84,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
             .one(&transaction)
             .await
             .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
-        let stored_operation = lifecycle_operations::Entity::find_by_id(operation.id.to_string())
+        let stored_operation = runtime_operations::Entity::find_by_id(operation.id.to_string())
             .one(&transaction)
             .await
             .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
@@ -137,13 +137,14 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
                 Some(model) => {
                     update_operation(model, operation, &transaction).await?;
                     if operation.state == RuntimeOperationState::Running {
-                        let mut progress =
-                            runpod_lifecycle_progress::Entity::find_by_id(operation.id.to_string())
-                                .one(&transaction)
-                                .await
-                                .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?
-                                .ok_or(RuntimeTransitionRepositoryError::CorruptData)?
-                                .into_active_model();
+                        let mut progress = runpod_runtime_operation_progress::Entity::find_by_id(
+                            operation.id.to_string(),
+                        )
+                        .one(&transaction)
+                        .await
+                        .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?
+                        .ok_or(RuntimeTransitionRepositoryError::CorruptData)?
+                        .into_active_model();
                         progress.step =
                             Set(runtime_operation_progress_value(operation.progress).to_owned());
                         progress
@@ -214,7 +215,7 @@ async fn insert_operation(
     operation: &RuntimeOperation,
     connection: &sea_orm::DatabaseTransaction,
 ) -> Result<(), RuntimeTransitionRepositoryError> {
-    lifecycle_operations::ActiveModel {
+    runtime_operations::ActiveModel {
         id: Set(operation.id.to_string()),
         workspace_id: Set(operation.workspace_id.clone()),
         running_workspace_id: Set((operation.state == RuntimeOperationState::Running)
@@ -234,7 +235,7 @@ async fn insert_operation(
         }
         _ => RuntimeTransitionRepositoryError::Unavailable,
     })?;
-    runpod_lifecycle_progress::ActiveModel {
+    runpod_runtime_operation_progress::ActiveModel {
         operation_id: Set(operation.id.to_string()),
         step: Set(runtime_operation_progress_value(operation.progress).to_owned()),
     }
@@ -245,7 +246,7 @@ async fn insert_operation(
 }
 
 async fn update_operation(
-    model: lifecycle_operations::Model,
+    model: runtime_operations::Model,
     operation: &RuntimeOperation,
     connection: &sea_orm::DatabaseTransaction,
 ) -> Result<(), RuntimeTransitionRepositoryError> {
