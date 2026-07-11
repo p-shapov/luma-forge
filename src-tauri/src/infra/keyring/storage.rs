@@ -15,6 +15,20 @@ impl KeyringStorage {
         }
     }
 
+    pub async fn exists(&self, account: &str) -> Result<bool, KeyringStorageError> {
+        let service_name = self.service_name.clone();
+        let account = account.to_owned();
+
+        run_blocking(
+            move || match entry(&service_name, &account)?.get_password() {
+                Ok(_) => Ok(true),
+                Err(PlatformKeyringError::NoEntry) => Ok(false),
+                Err(_) => Err(KeyringStorageError::Unavailable),
+            },
+        )
+        .await
+    }
+
     pub async fn get(&self, account: &str) -> Result<Option<SecretString>, KeyringStorageError> {
         let service_name = self.service_name.clone();
         let account = account.to_owned();
