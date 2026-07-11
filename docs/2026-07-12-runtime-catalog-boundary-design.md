@@ -2,7 +2,7 @@
 
 ## Goal
 
-Remove the standalone `application/catalog.rs` module. Its models describe workflow inputs to runtime provisioning, and its provider-specific models belong to RunPod. Keep these small data types in the existing runtime model modules instead of creating catalog- or progress-specific model files.
+Remove the standalone `application/catalog.rs` module. Its models describe workflow inputs to runtime provisioning, and its provider-specific models belong to RunPod. Keep the runtime domain types in the existing provider-neutral and RunPod model modules instead of creating catalog-, operation-, or progress-specific model files.
 
 ## Runtime catalog ownership
 
@@ -13,9 +13,17 @@ Remove the standalone `application/catalog.rs` module. Its models describe workf
 - `WorkflowDefinition`;
 - `RuntimeContractRequirements` as the runtime-provider dispatch enum.
 
+It also owns the provider-neutral runtime operation model:
+
+- `RuntimeOperation`;
+- `RuntimeOperationKind`;
+- `RuntimeOperationState`;
+- `RuntimeOperationError`;
+- the operation transition behavior and its unit tests.
+
 Workspace continues to store `CatalogRef` for its selected workflow and to use `WorkflowDefinition` through `WorkflowCatalog`. This creates no new aggregate: workspace consumes the runtime catalog projection required to validate and provision its runtime.
 
-`application/catalog.rs` is deleted and `application/mod.rs` no longer exports a top-level catalog module. There is no separate `application/runtimes/catalog.rs`.
+`application/catalog.rs` is deleted and `application/mod.rs` no longer exports a top-level catalog module. There are no separate `application/runtimes/catalog.rs` or `application/runtimes/operation.rs` files.
 
 ## RunPod catalog ownership
 
@@ -68,4 +76,4 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 ```
 
-A final source audit confirms that `application::catalog`, `RuntimePreset`, `RuntimeContract`, and `runpod_requirements` are absent from the affected application and adapter code. It also confirms that the redundant runtime catalog and RunPod catalog/progress model files do not exist.
+A final source audit confirms that `application::catalog`, `RuntimePreset`, `RuntimeContract`, and `runpod_requirements` are absent from the affected application and adapter code. It also confirms that the redundant runtime catalog/operation and RunPod catalog/progress model files do not exist.
