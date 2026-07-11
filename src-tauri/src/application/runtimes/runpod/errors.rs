@@ -1,6 +1,8 @@
 use crate::application::{
-    lifecycle::{ports::LifecycleOperationRepositoryError, LifecycleError},
-    runtimes::ports::RuntimeTransitionRepositoryError,
+    runtimes::{
+        ports::{RuntimeOperationRepositoryError, RuntimeTransitionRepositoryError},
+        RuntimeOperationError,
+    },
     secrets::SecretStoreError,
 };
 
@@ -64,8 +66,8 @@ impl From<RuntimeTransitionRepositoryError> for RunpodRuntimeError {
     }
 }
 
-impl From<LifecycleOperationRepositoryError> for RunpodRuntimeError {
-    fn from(_: LifecycleOperationRepositoryError) -> Self {
+impl From<RuntimeOperationRepositoryError> for RunpodRuntimeError {
+    fn from(_: RuntimeOperationRepositoryError) -> Self {
         Self::PersistenceUnavailable
     }
 }
@@ -76,11 +78,8 @@ impl From<SecretStoreError> for RunpodRuntimeError {
     }
 }
 
-impl From<LifecycleError> for RunpodRuntimeError {
-    fn from(error: LifecycleError) -> Self {
-        match error {
-            LifecycleError::InvalidTransition => Self::InvalidTransition,
-            LifecycleError::OperationAlreadyRunning => Self::OperationInProgress,
-        }
+impl From<RuntimeOperationError> for RunpodRuntimeError {
+    fn from(_: RuntimeOperationError) -> Self {
+        Self::InvalidTransition
     }
 }

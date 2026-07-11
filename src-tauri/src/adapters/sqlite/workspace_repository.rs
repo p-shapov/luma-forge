@@ -77,7 +77,7 @@ fn map_workspace(
     model: workspaces::Model,
     runtime: Option<workspace_runtimes::Model>,
 ) -> Result<Workspace, WorkspaceRepositoryError> {
-    let attached_runtime = runtime
+    let runtime = runtime
         .map(|runtime| match runtime.provider_kind.as_str() {
             "runpod" => Ok(RuntimeKind::Runpod),
             _ => Err(WorkspaceRepositoryError::CorruptData),
@@ -87,6 +87,6 @@ fn map_workspace(
         id: model.id,
         workflow: CatalogRef::new(model.workflow_id, model.workflow_revision),
         created_at: model.created_at,
-        attached_runtime,
+        runtime,
     })
 }

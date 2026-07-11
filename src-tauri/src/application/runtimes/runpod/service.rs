@@ -6,8 +6,10 @@ use uuid::Uuid;
 use crate::application::{
     catalog::{RunpodRuntimeDefinition, WorkflowDefinition},
     events::ApplicationEventSink,
-    lifecycle::{ports::LifecycleOperationRepository, LifecycleOperation, LifecycleOperationKind},
-    runtimes::{RuntimeKind, RuntimeProgress, RuntimeTransitionContext},
+    runtimes::{
+        ports::RuntimeOperationRepository, RuntimeKind, RuntimeOperation, RuntimeOperationKind,
+        RuntimeProgress, RuntimeTransitionContext,
+    },
     secrets::{SecretKind, SecretStore},
     workspace::ports::{WorkflowCatalog, WorkspaceRepository},
 };
@@ -31,7 +33,7 @@ pub struct RunpodRuntimeService {
     workflows: Arc<dyn WorkflowCatalog>,
     runtimes: Arc<dyn RunpodRuntimeRepository>,
     runtime_catalog: Arc<dyn RunpodRuntimeCatalog>,
-    lifecycle: Arc<dyn LifecycleOperationRepository>,
+    operations: Arc<dyn RuntimeOperationRepository>,
     secrets: Arc<dyn SecretStore>,
     provider: Arc<dyn RunpodRuntimeProvider>,
     transitions: RuntimeTransitionContext<RunpodRuntime, dyn RunpodRuntimeRepository>,
@@ -42,7 +44,7 @@ pub struct RunpodRuntimeServiceDependencies {
     pub workflows: Arc<dyn WorkflowCatalog>,
     pub runtimes: Arc<dyn RunpodRuntimeRepository>,
     pub runtime_catalog: Arc<dyn RunpodRuntimeCatalog>,
-    pub lifecycle: Arc<dyn LifecycleOperationRepository>,
+    pub operations: Arc<dyn RuntimeOperationRepository>,
     pub secrets: Arc<dyn SecretStore>,
     pub provider: Arc<dyn RunpodRuntimeProvider>,
     pub events: Arc<dyn ApplicationEventSink>,
@@ -60,7 +62,7 @@ impl RunpodRuntimeService {
             workflows: dependencies.workflows,
             runtimes: dependencies.runtimes,
             runtime_catalog: dependencies.runtime_catalog,
-            lifecycle: dependencies.lifecycle,
+            operations: dependencies.operations,
             secrets: dependencies.secrets,
             provider: dependencies.provider,
             transitions,
@@ -70,7 +72,7 @@ impl RunpodRuntimeService {
     pub async fn start_cleanup(
         &self,
         workspace_id: &str,
-    ) -> Result<(RunpodRuntime, LifecycleOperation), RunpodRuntimeError> {
+    ) -> Result<(RunpodRuntime, RuntimeOperation), RunpodRuntimeError> {
         let mut runtime = self
             .runtimes
             .get(workspace_id)
@@ -83,11 +85,11 @@ impl RunpodRuntimeService {
             .ok_or(RunpodRuntimeError::CredentialMissing)?;
         runtime.begin_cleanup()?;
 
-        let operation = LifecycleOperation::running(
+        let operation = RuntimeOperation::running(
             Uuid::new_v4(),
             workspace_id,
             Uuid::new_v4(),
-            LifecycleOperationKind::Cleanup,
+            RuntimeOperationKind::Cleanup,
             RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint)),
             OffsetDateTime::now_utc(),
         );
@@ -111,7 +113,7 @@ impl RunpodRuntimeService {
         _workspace_id: String,
         runpod_key: secrecy::SecretString,
         mut runtime: RunpodRuntime,
-        mut operation: LifecycleOperation,
+        mut operation: RuntimeOperation,
     ) {
         if let Some(id) = runtime.resources.endpoint_id.clone() {
             if self
@@ -201,7 +203,7 @@ impl RunpodRuntimeService {
     }
 
     pub async fn fail_interrupted(&self) -> Result<(), RunpodRuntimeError> {
-        for mut operation in self.lifecycle.running().await? {
+        for mut operation in self.operations.running().await? {
             let RuntimeProgress::Runpod(_) = operation.progress;
             let mut runtime = self
                 .runtimes
@@ -218,7 +220,7 @@ impl RunpodRuntimeService {
     pub async fn start_provision(
         &self,
         command: ProvisionRunpodRuntime,
-    ) -> Result<(RunpodRuntime, LifecycleOperation), RunpodRuntimeError> {
+    ) -> Result<(RunpodRuntime, RuntimeOperation), RunpodRuntimeError> {
         let workspace = self
             .workspaces
             .get(&command.workspace_id)
@@ -226,7 +228,7 @@ impl RunpodRuntimeService {
             .map_err(|_| RunpodRuntimeError::PersistenceUnavailable)?
             .ok_or(RunpodRuntimeError::WorkspaceNotFound)?;
 
-        if workspace.attached_runtime == Some(RuntimeKind::Runpod) {
+        if workspace.runtime == Some(RuntimeKind::Runpod) {
             let mut runtime = self
                 .runtimes
                 .get(&command.workspace_id)
@@ -235,7 +237,7 @@ impl RunpodRuntimeService {
             runtime.begin_provision()?;
         }
 
-        if self.lifecycle.has_running(&command.workspace_id).await? {
+        if self.operations.has_running(&command.workspace_id).await? {
             return Err(RunpodRuntimeError::OperationInProgress);
         }
 
@@ -275,11 +277,11 @@ impl RunpodRuntimeService {
                 volume_size_gb: command.volume_size_gb,
             },
         );
-        let operation = LifecycleOperation::running(
+        let operation = RuntimeOperation::running(
             Uuid::new_v4(),
             &command.workspace_id,
             Uuid::new_v4(),
-            LifecycleOperationKind::Provision,
+            RuntimeOperationKind::Provision,
             RuntimeProgress::Runpod(RunpodProgress::Provision(
                 RunpodProvisionStep::CreateNetworkVolume,
             )),
@@ -316,7 +318,7 @@ impl RunpodRuntimeService {
         runpod_key: secrecy::SecretString,
         hugging_face_api_key: Option<secrecy::SecretString>,
         mut runtime: RunpodRuntime,
-        mut operation: LifecycleOperation,
+        mut operation: RuntimeOperation,
     ) {
         let volume_id = match self
             .provider
@@ -491,7 +493,7 @@ impl RunpodRuntimeService {
     async fn set_provision_step(
         &self,
         runtime: &RunpodRuntime,
-        operation: &mut LifecycleOperation,
+        operation: &mut RuntimeOperation,
         step: RunpodProvisionStep,
     ) -> Result<(), RunpodRuntimeError> {
         operation.set_progress(
@@ -507,7 +509,7 @@ impl RunpodRuntimeService {
     async fn set_cleanup_step(
         &self,
         runtime: &RunpodRuntime,
-        operation: &mut LifecycleOperation,
+        operation: &mut RuntimeOperation,
         step: RunpodCleanupStep,
     ) -> Result<(), RunpodRuntimeError> {
         operation.set_progress(
@@ -523,7 +525,7 @@ impl RunpodRuntimeService {
     async fn fail_transition(
         &self,
         runtime: &mut RunpodRuntime,
-        operation: &mut LifecycleOperation,
+        operation: &mut RuntimeOperation,
     ) -> Result<(), RunpodRuntimeError> {
         runtime.mark_failed()?;
         operation.fail(OffsetDateTime::now_utc())?;
@@ -538,10 +540,9 @@ impl RunpodRuntimeService {
 mod tests {
     use crate::application::{
         events::ApplicationEvent,
-        lifecycle::LifecycleOperationState,
         runtimes::{
             runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-            Runtime, RuntimeKind, RuntimeProgress,
+            Runtime, RuntimeKind, RuntimeOperationState, RuntimeProgress,
         },
     };
     use uuid::Uuid;
@@ -568,7 +569,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(runtime.state, RunpodRuntimeState::Provisioning);
-        assert_eq!(operation.state, LifecycleOperationState::Running);
+        assert_eq!(operation.state, RuntimeOperationState::Running);
         assert_eq!(
             runpod_progress(operation.progress).provision_step(),
             Some(RunpodProvisionStep::CreateNetworkVolume)
@@ -582,21 +583,21 @@ mod tests {
             vec![
                 ApplicationEvent::WorkspaceChanged(fakes.workspace_snapshot()),
                 ApplicationEvent::RuntimeChanged(Runtime::Runpod(runtime.clone())),
-                ApplicationEvent::LifecycleOperationChanged(operation.clone()),
+                ApplicationEvent::RuntimeOperationChanged(operation.clone()),
             ]
         );
 
         fakes.provider.wait_until_first_call().await;
         assert_eq!(
             fakes.repository.last_operation_state(),
-            LifecycleOperationState::Running
+            RuntimeOperationState::Running
         );
 
         fakes.provider.release_first_call();
         fakes.events.wait_for_terminal_operation(operation.id).await;
         assert_eq!(
             fakes.repository.last_operation_state(),
-            LifecycleOperationState::Succeeded
+            RuntimeOperationState::Succeeded
         );
     }
 
@@ -635,10 +636,10 @@ mod tests {
         );
         assert_eq!(
             fakes.repository.last_operation_state(),
-            LifecycleOperationState::Succeeded
+            RuntimeOperationState::Succeeded
         );
         assert_eq!(fakes.events.runtime_changed_count(), 7);
-        assert_eq!(fakes.events.lifecycle_event_count(), 7);
+        assert_eq!(fakes.events.runtime_operation_event_count(), 7);
         assert_eq!(fakes.events.workspace_event_count(), 1);
     }
 
@@ -721,7 +722,7 @@ mod tests {
             let (runtime, operation) = fakes.repository.last_snapshot();
             assert_eq!(runtime.state, RunpodRuntimeState::Failed, "{method}");
             assert_eq!(runtime.resources, resources, "{method}");
-            assert_eq!(operation.state, LifecycleOperationState::Failed, "{method}");
+            assert_eq!(operation.state, RuntimeOperationState::Failed, "{method}");
             assert_eq!(
                 runpod_progress(operation.progress).provision_step(),
                 Some(step),
@@ -732,7 +733,7 @@ mod tests {
                 &events[events.len() - 2..],
                 [
                     ApplicationEvent::RuntimeChanged(Runtime::Runpod(runtime)),
-                    ApplicationEvent::LifecycleOperationChanged(operation),
+                    ApplicationEvent::RuntimeOperationChanged(operation),
                 ],
                 "{method}"
             );
@@ -774,14 +775,14 @@ mod tests {
         );
         assert_eq!(
             fakes.repository.last_operation_state(),
-            LifecycleOperationState::Running
+            RuntimeOperationState::Running
         );
         assert_eq!(
             runpod_progress(operation.progress).provision_step(),
             Some(RunpodProvisionStep::CreateNetworkVolume)
         );
         assert_eq!(fakes.events.runtime_changed_count(), 1);
-        assert_eq!(fakes.events.lifecycle_event_count(), 1);
+        assert_eq!(fakes.events.runtime_operation_event_count(), 1);
         assert_eq!(fakes.events.workspace_event_count(), 1);
     }
 
@@ -793,7 +794,7 @@ mod tests {
         let (runtime, operation) = fakes.service().start_cleanup("workspace-1").await.unwrap();
 
         assert_eq!(runtime.state, RunpodRuntimeState::CleaningUp);
-        assert_eq!(operation.state, LifecycleOperationState::Running);
+        assert_eq!(operation.state, RuntimeOperationState::Running);
         assert_eq!(
             runpod_progress(operation.progress).cleanup_step(),
             Some(RunpodCleanupStep::DeleteEndpoint)
@@ -802,7 +803,7 @@ mod tests {
             fakes.events.events(),
             vec![
                 ApplicationEvent::RuntimeChanged(Runtime::Runpod(runtime.clone())),
-                ApplicationEvent::LifecycleOperationChanged(operation.clone()),
+                ApplicationEvent::RuntimeOperationChanged(operation.clone()),
             ]
         );
 
@@ -845,7 +846,7 @@ mod tests {
         assert!(fakes.repository.runtime_was_removed());
         assert_eq!(fakes.events.runtime_changed_count(), 4);
         assert_eq!(fakes.events.runtime_deleted_count(), 1);
-        assert_eq!(fakes.events.lifecycle_event_count(), 5);
+        assert_eq!(fakes.events.runtime_operation_event_count(), 5);
         assert_eq!(fakes.events.workspace_event_count(), 1);
 
         let detached_workspace = fakes.workspace_snapshot();
@@ -859,7 +860,7 @@ mod tests {
                     workspace_id: "workspace-1".into(),
                     kind: RuntimeKind::Runpod,
                 },
-                ApplicationEvent::LifecycleOperationChanged(succeeded_operation),
+                ApplicationEvent::RuntimeOperationChanged(succeeded_operation),
             ]
         );
     }
@@ -919,7 +920,7 @@ mod tests {
         assert_eq!(runtime.state, RunpodRuntimeState::Failed);
         assert_eq!(runtime.resources.endpoint_id, None);
         assert_eq!(runtime.resources.template_id.as_deref(), Some("template-1"));
-        assert_eq!(operation.state, LifecycleOperationState::Failed);
+        assert_eq!(operation.state, RuntimeOperationState::Failed);
         assert_eq!(
             runpod_progress(operation.progress).cleanup_step(),
             Some(RunpodCleanupStep::DeleteTemplate)
@@ -929,7 +930,7 @@ mod tests {
             &events[events.len() - 2..],
             [
                 ApplicationEvent::RuntimeChanged(Runtime::Runpod(runtime)),
-                ApplicationEvent::LifecycleOperationChanged(operation),
+                ApplicationEvent::RuntimeOperationChanged(operation),
             ]
         );
     }
@@ -943,8 +944,8 @@ mod tests {
         assert_eq!(
             fakes.repository.saved_states(),
             vec![
-                (RunpodRuntimeState::Failed, LifecycleOperationState::Failed),
-                (RunpodRuntimeState::Failed, LifecycleOperationState::Failed),
+                (RunpodRuntimeState::Failed, RuntimeOperationState::Failed),
+                (RunpodRuntimeState::Failed, RuntimeOperationState::Failed),
             ]
         );
         assert_eq!(
@@ -961,8 +962,8 @@ mod tests {
         ));
         assert!(matches!(
             &events[1],
-            ApplicationEvent::LifecycleOperationChanged(operation)
-                if operation.state == LifecycleOperationState::Failed
+            ApplicationEvent::RuntimeOperationChanged(operation)
+                if operation.state == RuntimeOperationState::Failed
                     && operation.trace_id == Uuid::from_u128(2)
                     && runpod_progress(operation.progress).provision_step()
                         == Some(RunpodProvisionStep::CreateEndpoint)
@@ -975,14 +976,14 @@ mod tests {
         ));
         assert!(matches!(
             &events[3],
-            ApplicationEvent::LifecycleOperationChanged(operation)
-                if operation.state == LifecycleOperationState::Failed
+            ApplicationEvent::RuntimeOperationChanged(operation)
+                if operation.state == RuntimeOperationState::Failed
                     && operation.trace_id == Uuid::from_u128(4)
                     && runpod_progress(operation.progress).cleanup_step()
                         == Some(RunpodCleanupStep::DeleteEndpoint)
         ));
         assert_eq!(fakes.events.runtime_changed_count(), 2);
-        assert_eq!(fakes.events.lifecycle_event_count(), 2);
+        assert_eq!(fakes.events.runtime_operation_event_count(), 2);
         assert_eq!(fakes.events.workspace_event_count(), 0);
         assert!(fakes.provider.calls().is_empty());
     }

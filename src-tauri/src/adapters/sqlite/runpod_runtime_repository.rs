@@ -4,15 +4,13 @@ use sea_orm::{
 };
 
 use crate::{
-    application::{
-        lifecycle::{LifecycleOperation, LifecycleOperationState},
-        runtimes::{
-            ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
-            runpod::{
-                RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeRepository,
-                RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeState,
-            },
+    application::runtimes::{
+        ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
+        runpod::{
+            RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeRepository,
+            RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeState,
         },
+        RuntimeOperation, RuntimeOperationState,
     },
     infra::sqlite::entities::{
         lifecycle_operations, runpod_lifecycle_progress, runpod_workspace_runtimes,
@@ -20,8 +18,8 @@ use crate::{
     },
 };
 
-use super::lifecycle_operation_repository::{
-    operation_kind_value, operation_state_value, progress_value,
+use super::runtime_operation_repository::{
+    runtime_operation_kind_value, runtime_operation_progress_value, runtime_operation_state_value,
 };
 
 pub struct SqliteRunpodRuntimeRepository {
@@ -61,7 +59,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
     async fn save_transition(
         &self,
         runtime: &RunpodRuntime,
-        operation: &LifecycleOperation,
+        operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
         if runtime.workspace_id != operation.workspace_id {
             return Err(RuntimeTransitionRepositoryError::CorruptData);
@@ -91,7 +89,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
             .await
             .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
 
-        if operation.state == LifecycleOperationState::Failed {
+        if operation.state == RuntimeOperationState::Failed {
             let mut model = stored_runtime
                 .ok_or(RuntimeTransitionRepositoryError::NotFound)?
                 .into_active_model();
@@ -107,7 +105,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
             )
             .await?;
         } else if runtime.state == RunpodRuntimeState::CleaningUp
-            && operation.state == LifecycleOperationState::Succeeded
+            && operation.state == RuntimeOperationState::Succeeded
         {
             if runpod_workspace_runtimes::Entity::delete_by_id(&runtime.workspace_id)
                 .exec(&transaction)
@@ -138,7 +136,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
             match stored_operation {
                 Some(model) => {
                     update_operation(model, operation, &transaction).await?;
-                    if operation.state == LifecycleOperationState::Running {
+                    if operation.state == RuntimeOperationState::Running {
                         let mut progress =
                             runpod_lifecycle_progress::Entity::find_by_id(operation.id.to_string())
                                 .one(&transaction)
@@ -146,7 +144,8 @@ impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepositor
                                 .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?
                                 .ok_or(RuntimeTransitionRepositoryError::CorruptData)?
                                 .into_active_model();
-                        progress.step = Set(progress_value(operation.progress).to_owned());
+                        progress.step =
+                            Set(runtime_operation_progress_value(operation.progress).to_owned());
                         progress
                             .update(&transaction)
                             .await
@@ -212,16 +211,16 @@ async fn update_runtime(
 }
 
 async fn insert_operation(
-    operation: &LifecycleOperation,
+    operation: &RuntimeOperation,
     connection: &sea_orm::DatabaseTransaction,
 ) -> Result<(), RuntimeTransitionRepositoryError> {
     lifecycle_operations::ActiveModel {
         id: Set(operation.id.to_string()),
         workspace_id: Set(operation.workspace_id.clone()),
-        running_workspace_id: Set((operation.state == LifecycleOperationState::Running)
+        running_workspace_id: Set((operation.state == RuntimeOperationState::Running)
             .then(|| operation.workspace_id.clone())),
-        operation_kind: Set(operation_kind_value(operation.kind).to_owned()),
-        state: Set(operation_state_value(operation.state).to_owned()),
+        operation_kind: Set(runtime_operation_kind_value(operation.kind).to_owned()),
+        state: Set(runtime_operation_state_value(operation.state).to_owned()),
         trace_id: Set(operation.trace_id.to_string()),
         created_at: Set(operation.created_at),
         updated_at: Set(operation.updated_at),
@@ -237,7 +236,7 @@ async fn insert_operation(
     })?;
     runpod_lifecycle_progress::ActiveModel {
         operation_id: Set(operation.id.to_string()),
-        step: Set(progress_value(operation.progress).to_owned()),
+        step: Set(runtime_operation_progress_value(operation.progress).to_owned()),
     }
     .insert(connection)
     .await
@@ -247,13 +246,14 @@ async fn insert_operation(
 
 async fn update_operation(
     model: lifecycle_operations::Model,
-    operation: &LifecycleOperation,
+    operation: &RuntimeOperation,
     connection: &sea_orm::DatabaseTransaction,
 ) -> Result<(), RuntimeTransitionRepositoryError> {
     let mut model = model.into_active_model();
-    model.state = Set(operation_state_value(operation.state).to_owned());
-    model.running_workspace_id = Set((operation.state == LifecycleOperationState::Running)
-        .then(|| operation.workspace_id.clone()));
+    model.state = Set(runtime_operation_state_value(operation.state).to_owned());
+    model.running_workspace_id =
+        Set((operation.state == RuntimeOperationState::Running)
+            .then(|| operation.workspace_id.clone()));
     model.updated_at = Set(operation.updated_at);
     model.finished_at = Set(operation.finished_at);
     model

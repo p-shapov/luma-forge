@@ -4,24 +4,19 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOr
 use uuid::Uuid;
 
 use crate::{
-    application::{
-        lifecycle::{
-            ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-            LifecycleOperation, LifecycleOperationKind, LifecycleOperationState,
-        },
-        runtimes::{
-            runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-            RuntimeProgress,
-        },
+    application::runtimes::{
+        ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
+        runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
+        RuntimeOperation, RuntimeOperationKind, RuntimeOperationState, RuntimeProgress,
     },
     infra::sqlite::entities::{lifecycle_operations, runpod_lifecycle_progress},
 };
 
-pub struct SqliteLifecycleOperationRepository {
+pub struct SqliteRuntimeOperationRepository {
     connection: DatabaseConnection,
 }
 
-impl SqliteLifecycleOperationRepository {
+impl SqliteRuntimeOperationRepository {
     pub fn new(connection: DatabaseConnection) -> Self {
         Self { connection }
     }
@@ -29,11 +24,11 @@ impl SqliteLifecycleOperationRepository {
     async fn load(
         &self,
         query: sea_orm::Select<lifecycle_operations::Entity>,
-    ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         let operations = query
             .all(&self.connection)
             .await
-            .map_err(|_| LifecycleOperationRepositoryError::Unavailable)?;
+            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?;
         let progress = runpod_lifecycle_progress::Entity::find()
             .filter(
                 runpod_lifecycle_progress::Column::OperationId
@@ -41,7 +36,7 @@ impl SqliteLifecycleOperationRepository {
             )
             .all(&self.connection)
             .await
-            .map_err(|_| LifecycleOperationRepositoryError::Unavailable)?
+            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
             .into_iter()
             .map(|progress| (progress.operation_id, progress.step))
             .collect::<HashMap<_, _>>();
@@ -51,7 +46,7 @@ impl SqliteLifecycleOperationRepository {
             .map(|operation| {
                 let step = progress
                     .get(&operation.id)
-                    .ok_or(LifecycleOperationRepositoryError::CorruptData)?;
+                    .ok_or(RuntimeOperationRepositoryError::CorruptData)?;
                 map_operation(operation, step)
             })
             .collect()
@@ -59,11 +54,11 @@ impl SqliteLifecycleOperationRepository {
 }
 
 #[async_trait::async_trait]
-impl LifecycleOperationRepository for SqliteLifecycleOperationRepository {
+impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
     async fn recent(
         &self,
         limit: u64,
-    ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             lifecycle_operations::Entity::find()
                 .order_by_desc(lifecycle_operations::Column::CreatedAt)
@@ -76,7 +71,7 @@ impl LifecycleOperationRepository for SqliteLifecycleOperationRepository {
         &self,
         workspace_id: &str,
         limit: u64,
-    ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             lifecycle_operations::Entity::find()
                 .filter(lifecycle_operations::Column::WorkspaceId.eq(workspace_id))
@@ -86,7 +81,7 @@ impl LifecycleOperationRepository for SqliteLifecycleOperationRepository {
         .await
     }
 
-    async fn running(&self) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             lifecycle_operations::Entity::find()
                 .filter(lifecycle_operations::Column::RunningWorkspaceId.is_not_null()),
@@ -97,13 +92,13 @@ impl LifecycleOperationRepository for SqliteLifecycleOperationRepository {
     async fn has_running(
         &self,
         workspace_id: &str,
-    ) -> Result<bool, LifecycleOperationRepositoryError> {
+    ) -> Result<bool, RuntimeOperationRepositoryError> {
         Ok(lifecycle_operations::Entity::find()
             .filter(lifecycle_operations::Column::WorkspaceId.eq(workspace_id))
             .filter(lifecycle_operations::Column::RunningWorkspaceId.is_not_null())
             .one(&self.connection)
             .await
-            .map_err(|_| LifecycleOperationRepositoryError::Unavailable)?
+            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
             .is_some())
     }
 }
@@ -111,20 +106,20 @@ impl LifecycleOperationRepository for SqliteLifecycleOperationRepository {
 fn map_operation(
     model: lifecycle_operations::Model,
     step: &str,
-) -> Result<LifecycleOperation, LifecycleOperationRepositoryError> {
+) -> Result<RuntimeOperation, RuntimeOperationRepositoryError> {
     let kind = match model.operation_kind.as_str() {
-        "provision" => LifecycleOperationKind::Provision,
-        "cleanup" => LifecycleOperationKind::Cleanup,
-        _ => return Err(LifecycleOperationRepositoryError::CorruptData),
+        "provision" => RuntimeOperationKind::Provision,
+        "cleanup" => RuntimeOperationKind::Cleanup,
+        _ => return Err(RuntimeOperationRepositoryError::CorruptData),
     };
     let state = match model.state.as_str() {
-        "running" => LifecycleOperationState::Running,
-        "succeeded" => LifecycleOperationState::Succeeded,
-        "failed" => LifecycleOperationState::Failed,
-        _ => return Err(LifecycleOperationRepositoryError::CorruptData),
+        "running" => RuntimeOperationState::Running,
+        "succeeded" => RuntimeOperationState::Succeeded,
+        "failed" => RuntimeOperationState::Failed,
+        _ => return Err(RuntimeOperationRepositoryError::CorruptData),
     };
     let progress = match kind {
-        LifecycleOperationKind::Provision => {
+        RuntimeOperationKind::Provision => {
             RuntimeProgress::Runpod(RunpodProgress::Provision(match step {
                 "create_network_volume" => RunpodProvisionStep::CreateNetworkVolume,
                 "start_provisioner_pod" => RunpodProvisionStep::StartProvisionerPod,
@@ -132,28 +127,27 @@ fn map_operation(
                 "terminate_provisioner_pod" => RunpodProvisionStep::TerminateProvisionerPod,
                 "create_template" => RunpodProvisionStep::CreateTemplate,
                 "create_endpoint" => RunpodProvisionStep::CreateEndpoint,
-                _ => return Err(LifecycleOperationRepositoryError::CorruptData),
+                _ => return Err(RuntimeOperationRepositoryError::CorruptData),
             }))
         }
-        LifecycleOperationKind::Cleanup => {
+        RuntimeOperationKind::Cleanup => {
             RuntimeProgress::Runpod(RunpodProgress::Cleanup(match step {
                 "delete_endpoint" => RunpodCleanupStep::DeleteEndpoint,
                 "delete_template" => RunpodCleanupStep::DeleteTemplate,
                 "terminate_provisioner_pod" => RunpodCleanupStep::TerminateProvisionerPod,
                 "delete_network_volume" => RunpodCleanupStep::DeleteNetworkVolume,
-                _ => return Err(LifecycleOperationRepositoryError::CorruptData),
+                _ => return Err(RuntimeOperationRepositoryError::CorruptData),
             }))
         }
     };
 
-    Ok(LifecycleOperation {
-        id: Uuid::parse_str(&model.id)
-            .map_err(|_| LifecycleOperationRepositoryError::CorruptData)?,
+    Ok(RuntimeOperation {
+        id: Uuid::parse_str(&model.id).map_err(|_| RuntimeOperationRepositoryError::CorruptData)?,
         workspace_id: model.workspace_id,
         kind,
         state,
         trace_id: Uuid::parse_str(&model.trace_id)
-            .map_err(|_| LifecycleOperationRepositoryError::CorruptData)?,
+            .map_err(|_| RuntimeOperationRepositoryError::CorruptData)?,
         progress,
         created_at: model.created_at,
         updated_at: model.updated_at,
@@ -161,22 +155,22 @@ fn map_operation(
     })
 }
 
-pub(super) fn operation_kind_value(kind: LifecycleOperationKind) -> &'static str {
+pub(super) fn runtime_operation_kind_value(kind: RuntimeOperationKind) -> &'static str {
     match kind {
-        LifecycleOperationKind::Provision => "provision",
-        LifecycleOperationKind::Cleanup => "cleanup",
+        RuntimeOperationKind::Provision => "provision",
+        RuntimeOperationKind::Cleanup => "cleanup",
     }
 }
 
-pub(super) fn operation_state_value(state: LifecycleOperationState) -> &'static str {
+pub(super) fn runtime_operation_state_value(state: RuntimeOperationState) -> &'static str {
     match state {
-        LifecycleOperationState::Running => "running",
-        LifecycleOperationState::Succeeded => "succeeded",
-        LifecycleOperationState::Failed => "failed",
+        RuntimeOperationState::Running => "running",
+        RuntimeOperationState::Succeeded => "succeeded",
+        RuntimeOperationState::Failed => "failed",
     }
 }
 
-pub(super) fn progress_value(progress: RuntimeProgress) -> &'static str {
+pub(super) fn runtime_operation_progress_value(progress: RuntimeProgress) -> &'static str {
     match progress {
         RuntimeProgress::Runpod(RunpodProgress::Provision(step)) => match step {
             RunpodProvisionStep::CreateNetworkVolume => "create_network_volume",

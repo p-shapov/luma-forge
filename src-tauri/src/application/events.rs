@@ -1,6 +1,5 @@
 use crate::application::{
-    lifecycle::LifecycleOperation,
-    runtimes::{Runtime, RuntimeKind},
+    runtimes::{Runtime, RuntimeKind, RuntimeOperation},
     workspace::Workspace,
 };
 
@@ -15,7 +14,7 @@ pub enum ApplicationEvent {
         workspace_id: String,
         kind: RuntimeKind,
     },
-    LifecycleOperationChanged(LifecycleOperation),
+    RuntimeOperationChanged(RuntimeOperation),
 }
 
 pub trait ApplicationEventSink: Send + Sync {

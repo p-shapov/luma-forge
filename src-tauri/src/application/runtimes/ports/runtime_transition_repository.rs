@@ -1,4 +1,4 @@
-use crate::application::{lifecycle::LifecycleOperation, runtimes::RuntimeModel};
+use crate::application::runtimes::{RuntimeModel, RuntimeOperation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimeTransitionRepositoryError {
@@ -19,6 +19,6 @@ pub trait RuntimeTransitionRepository<R: RuntimeModel>: Send + Sync {
     async fn save_transition(
         &self,
         runtime: &R,
-        operation: &LifecycleOperation,
+        operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError>;
 }

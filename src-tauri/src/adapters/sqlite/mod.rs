@@ -1,7 +1,7 @@
-mod lifecycle_operation_repository;
 mod runpod_runtime_repository;
+mod runtime_operation_repository;
 mod workspace_repository;
 
-pub use lifecycle_operation_repository::SqliteLifecycleOperationRepository;
 pub use runpod_runtime_repository::SqliteRunpodRuntimeRepository;
+pub use runtime_operation_repository::SqliteRuntimeOperationRepository;
 pub use workspace_repository::SqliteWorkspaceRepository;

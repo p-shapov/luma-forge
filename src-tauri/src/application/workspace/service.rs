@@ -3,7 +3,7 @@ use time::OffsetDateTime;
 use crate::application::{
     catalog::CatalogRef,
     events::{ApplicationEvent, ApplicationEventSink},
-    lifecycle::ports::LifecycleOperationRepository,
+    runtimes::ports::RuntimeOperationRepository,
     workspace::{
         ports::{WorkflowCatalog, WorkspaceRepository, WorkspaceRepositoryError},
         Workspace, WorkspaceError,
@@ -12,7 +12,7 @@ use crate::application::{
 
 pub struct WorkspaceService<'a> {
     workspaces: &'a dyn WorkspaceRepository,
-    lifecycle: &'a dyn LifecycleOperationRepository,
+    operations: &'a dyn RuntimeOperationRepository,
     workflows: &'a dyn WorkflowCatalog,
     events: &'a dyn ApplicationEventSink,
 }
@@ -20,13 +20,13 @@ pub struct WorkspaceService<'a> {
 impl<'a> WorkspaceService<'a> {
     pub fn new(
         workspaces: &'a dyn WorkspaceRepository,
-        lifecycle: &'a dyn LifecycleOperationRepository,
+        operations: &'a dyn RuntimeOperationRepository,
         workflows: &'a dyn WorkflowCatalog,
         events: &'a dyn ApplicationEventSink,
     ) -> Self {
         Self {
             workspaces,
-            lifecycle,
+            operations,
             workflows,
             events,
         }
@@ -53,7 +53,7 @@ impl<'a> WorkspaceService<'a> {
                 id: id.to_owned(),
                 workflow,
                 created_at: OffsetDateTime::now_utc(),
-                attached_runtime: None,
+                runtime: None,
             })
             .await
             .map_err(|error| match error {
@@ -69,11 +69,11 @@ impl<'a> WorkspaceService<'a> {
 
     pub async fn delete(&self, id: &str) -> Result<(), WorkspaceError> {
         let workspace = self.get(id).await?;
-        if workspace.attached_runtime.is_some() {
+        if workspace.runtime.is_some() {
             return Err(WorkspaceError::RuntimeAttached);
         }
         if self
-            .lifecycle
+            .operations
             .has_running(id)
             .await
             .map_err(|_| WorkspaceError::PersistenceUnavailable)?
@@ -122,11 +122,10 @@ mod tests {
             WorkflowDefinition, WorkflowSummary,
         },
         events::{ApplicationEvent, ApplicationEventSink},
-        lifecycle::{
-            ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-            LifecycleOperation,
+        runtimes::{
+            ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
+            RuntimeKind, RuntimeOperation,
         },
-        runtimes::RuntimeKind,
         workspace::{
             ports::{
                 WorkflowCatalog, WorkflowCatalogError, WorkspaceRepository,
@@ -236,17 +235,17 @@ mod tests {
         }
     }
 
-    struct FakeLifecycleOperationRepository {
+    struct FakeRuntimeOperationRepository {
         has_running: bool,
         running_checks: Mutex<Vec<String>>,
     }
 
     #[async_trait::async_trait]
-    impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
+    impl RuntimeOperationRepository for FakeRuntimeOperationRepository {
         async fn recent(
             &self,
             _limit: u64,
-        ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+        ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
             Ok(Vec::new())
         }
 
@@ -254,20 +253,18 @@ mod tests {
             &self,
             _workspace_id: &str,
             _limit: u64,
-        ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+        ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
             Ok(Vec::new())
         }
 
-        async fn running(
-            &self,
-        ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+        async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
             Ok(Vec::new())
         }
 
         async fn has_running(
             &self,
             workspace_id: &str,
-        ) -> Result<bool, LifecycleOperationRepositoryError> {
+        ) -> Result<bool, RuntimeOperationRepositoryError> {
             self.running_checks
                 .lock()
                 .unwrap()
@@ -279,7 +276,7 @@ mod tests {
     struct Fakes {
         workspaces: FakeWorkspaceRepository,
         workflows: FakeWorkflowCatalog,
-        lifecycle: FakeLifecycleOperationRepository,
+        operations: FakeRuntimeOperationRepository,
         events: RecordingApplicationEventSink,
     }
 
@@ -298,7 +295,7 @@ mod tests {
                     id: "workspace-1".into(),
                     workflow: CatalogRef::new("workflow", "1.0.0"),
                     created_at: OffsetDateTime::UNIX_EPOCH,
-                    attached_runtime: None,
+                    runtime: None,
                 }],
                 false,
                 None,
@@ -315,7 +312,7 @@ mod tests {
                     id: "workspace-1".into(),
                     workflow: CatalogRef::new("workflow", "1.0.0"),
                     created_at: OffsetDateTime::UNIX_EPOCH,
-                    attached_runtime: None,
+                    runtime: None,
                 }],
                 true,
                 None,
@@ -333,7 +330,7 @@ mod tests {
                     gets: Mutex::new(Vec::new()),
                     workflow,
                 },
-                lifecycle: FakeLifecycleOperationRepository {
+                operations: FakeRuntimeOperationRepository {
                     has_running,
                     running_checks: Mutex::new(Vec::new()),
                 },
@@ -344,7 +341,7 @@ mod tests {
         fn service(&self) -> WorkspaceService<'_> {
             WorkspaceService::new(
                 &self.workspaces,
-                &self.lifecycle,
+                &self.operations,
                 &self.workflows,
                 &self.events,
             )
@@ -420,12 +417,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_rejects_an_attached_runtime() {
+    async fn delete_rejects_a_runtime() {
         let fakes = Fakes::with_workspace(Workspace {
             id: "workspace-1".into(),
             workflow: CatalogRef::new("workflow", "1.0.0"),
             created_at: OffsetDateTime::UNIX_EPOCH,
-            attached_runtime: Some(RuntimeKind::Runpod),
+            runtime: Some(RuntimeKind::Runpod),
         });
 
         assert_eq!(

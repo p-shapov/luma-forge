@@ -8,5 +8,5 @@ pub struct Workspace {
     pub id: String,
     pub workflow: CatalogRef,
     pub created_at: OffsetDateTime,
-    pub attached_runtime: Option<RuntimeKind>,
+    pub runtime: Option<RuntimeKind>,
 }

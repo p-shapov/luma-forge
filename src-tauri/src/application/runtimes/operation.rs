@@ -1,29 +1,27 @@
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::application::runtimes::RuntimeProgress;
-
-use super::errors::LifecycleError;
+use super::RuntimeProgress;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LifecycleOperationState {
+pub enum RuntimeOperationState {
     Running,
     Succeeded,
     Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LifecycleOperationKind {
+pub enum RuntimeOperationKind {
     Provision,
     Cleanup,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LifecycleOperation {
+pub struct RuntimeOperation {
     pub id: Uuid,
     pub workspace_id: String,
-    pub kind: LifecycleOperationKind,
-    pub state: LifecycleOperationState,
+    pub kind: RuntimeOperationKind,
+    pub state: RuntimeOperationState,
     pub trace_id: Uuid,
     pub progress: RuntimeProgress,
     pub created_at: OffsetDateTime,
@@ -31,12 +29,18 @@ pub struct LifecycleOperation {
     pub finished_at: Option<OffsetDateTime>,
 }
 
-impl LifecycleOperation {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum RuntimeOperationError {
+    #[error("runtime operation transition is invalid")]
+    InvalidTransition,
+}
+
+impl RuntimeOperation {
     pub fn running(
         id: Uuid,
         workspace_id: &str,
         trace_id: Uuid,
-        kind: LifecycleOperationKind,
+        kind: RuntimeOperationKind,
         progress: RuntimeProgress,
         now: OffsetDateTime,
     ) -> Self {
@@ -44,7 +48,7 @@ impl LifecycleOperation {
             id,
             workspace_id: workspace_id.to_owned(),
             kind,
-            state: LifecycleOperationState::Running,
+            state: RuntimeOperationState::Running,
             trace_id,
             progress,
             created_at: now,
@@ -57,26 +61,26 @@ impl LifecycleOperation {
         &mut self,
         progress: RuntimeProgress,
         now: OffsetDateTime,
-    ) -> Result<(), LifecycleError> {
+    ) -> Result<(), RuntimeOperationError> {
         self.ensure_running()?;
         self.progress = progress;
         self.updated_at = now;
         Ok(())
     }
 
-    pub fn succeed(&mut self, now: OffsetDateTime) -> Result<(), LifecycleError> {
-        self.finish(LifecycleOperationState::Succeeded, now)
+    pub fn succeed(&mut self, now: OffsetDateTime) -> Result<(), RuntimeOperationError> {
+        self.finish(RuntimeOperationState::Succeeded, now)
     }
 
-    pub fn fail(&mut self, now: OffsetDateTime) -> Result<(), LifecycleError> {
-        self.finish(LifecycleOperationState::Failed, now)
+    pub fn fail(&mut self, now: OffsetDateTime) -> Result<(), RuntimeOperationError> {
+        self.finish(RuntimeOperationState::Failed, now)
     }
 
     fn finish(
         &mut self,
-        state: LifecycleOperationState,
+        state: RuntimeOperationState,
         now: OffsetDateTime,
-    ) -> Result<(), LifecycleError> {
+    ) -> Result<(), RuntimeOperationError> {
         self.ensure_running()?;
         self.state = state;
         self.updated_at = now;
@@ -84,10 +88,10 @@ impl LifecycleOperation {
         Ok(())
     }
 
-    fn ensure_running(&self) -> Result<(), LifecycleError> {
-        (self.state == LifecycleOperationState::Running)
+    fn ensure_running(&self) -> Result<(), RuntimeOperationError> {
+        (self.state == RuntimeOperationState::Running)
             .then_some(())
-            .ok_or(LifecycleError::InvalidTransition)
+            .ok_or(RuntimeOperationError::InvalidTransition)
     }
 }
 
@@ -100,42 +104,42 @@ mod tests {
     #[test]
     fn running_operation_can_succeed_once_and_retains_its_step() {
         let progress = progress_fixture();
-        let mut operation = LifecycleOperation::running(
+        let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
             Uuid::from_u128(2),
-            LifecycleOperationKind::Provision,
+            RuntimeOperationKind::Provision,
             progress,
             OffsetDateTime::UNIX_EPOCH,
         );
 
         operation.succeed(OffsetDateTime::UNIX_EPOCH).unwrap();
 
-        assert_eq!(operation.kind, LifecycleOperationKind::Provision);
-        assert_eq!(operation.state, LifecycleOperationState::Succeeded);
+        assert_eq!(operation.kind, RuntimeOperationKind::Provision);
+        assert_eq!(operation.state, RuntimeOperationState::Succeeded);
         assert_eq!(operation.progress, progress);
         assert_eq!(
             operation.succeed(OffsetDateTime::UNIX_EPOCH),
-            Err(LifecycleError::InvalidTransition)
+            Err(RuntimeOperationError::InvalidTransition)
         );
     }
 
     #[test]
     fn interrupted_operation_fails_without_changing_progress_or_trace() {
         let progress = progress_fixture();
-        let mut operation = LifecycleOperation::running(
+        let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
             Uuid::from_u128(2),
-            LifecycleOperationKind::Cleanup,
+            RuntimeOperationKind::Cleanup,
             progress,
             OffsetDateTime::UNIX_EPOCH,
         );
 
         operation.fail(OffsetDateTime::UNIX_EPOCH).unwrap();
 
-        assert_eq!(operation.state, LifecycleOperationState::Failed);
-        assert_eq!(operation.kind, LifecycleOperationKind::Cleanup);
+        assert_eq!(operation.state, RuntimeOperationState::Failed);
+        assert_eq!(operation.kind, RuntimeOperationKind::Cleanup);
         assert_eq!(operation.trace_id, Uuid::from_u128(2));
         assert_eq!(operation.progress, progress);
     }

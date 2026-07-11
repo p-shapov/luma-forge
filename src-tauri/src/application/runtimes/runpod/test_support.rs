@@ -15,13 +15,13 @@ use crate::application::{
         RuntimeContractRequirements, RuntimePreset, WorkflowDefinition, WorkflowSummary,
     },
     events::{ApplicationEvent, ApplicationEventSink},
-    lifecycle::{
-        ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-        LifecycleOperation, LifecycleOperationKind, LifecycleOperationState,
-    },
     runtimes::{
-        ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
-        RuntimeKind, RuntimeProgress,
+        ports::{
+            RuntimeOperationRepository, RuntimeOperationRepositoryError,
+            RuntimeTransitionRepository, RuntimeTransitionRepositoryError,
+        },
+        RuntimeKind, RuntimeOperation, RuntimeOperationKind, RuntimeOperationState,
+        RuntimeProgress,
     },
     secrets::{SecretKind, SecretStore, SecretStoreError},
     workspace::{
@@ -47,7 +47,7 @@ pub(super) struct ProvisionFakes {
     workspaces: Arc<FakeWorkspaceRepository>,
     workflows: Arc<FakeWorkflowCatalog>,
     runtime_catalog: Arc<FakeRunpodRuntimeCatalog>,
-    lifecycle: Arc<FakeLifecycleOperationRepository>,
+    operations: Arc<FakeRuntimeOperationRepository>,
     secrets: Arc<FakeSecretStore>,
     pub events: Arc<RecordingApplicationEventSink>,
     workspace_rows: Arc<Mutex<Vec<Workspace>>>,
@@ -113,21 +113,21 @@ impl ProvisionFakes {
             workspace(Some(RuntimeKind::Runpod)),
             Some(runtime(RunpodRuntimeState::Provisioning)),
             vec![
-                LifecycleOperation::running(
+                RuntimeOperation::running(
                     Uuid::from_u128(1),
                     "workspace-1",
                     Uuid::from_u128(2),
-                    LifecycleOperationKind::Provision,
+                    RuntimeOperationKind::Provision,
                     RuntimeProgress::Runpod(RunpodProgress::Provision(
                         RunpodProvisionStep::CreateEndpoint,
                     )),
                     now,
                 ),
-                LifecycleOperation::running(
+                RuntimeOperation::running(
                     Uuid::from_u128(3),
                     "workspace-2",
                     Uuid::from_u128(4),
-                    LifecycleOperationKind::Cleanup,
+                    RuntimeOperationKind::Cleanup,
                     RuntimeProgress::Runpod(RunpodProgress::Cleanup(
                         RunpodCleanupStep::DeleteEndpoint,
                     )),
@@ -152,7 +152,7 @@ impl ProvisionFakes {
             workflows: self.workflows.clone(),
             runtimes: self.repository.clone(),
             runtime_catalog: self.runtime_catalog.clone(),
-            lifecycle: self.lifecycle.clone(),
+            operations: self.operations.clone(),
             secrets: self.secrets.clone(),
             provider: self.provider.clone(),
             events: self.events.clone(),
@@ -172,7 +172,7 @@ impl ProvisionFakes {
     fn new(
         workspace: Workspace,
         runtime: Option<RunpodRuntime>,
-        operations: Vec<LifecycleOperation>,
+        operations: Vec<RuntimeOperation>,
     ) -> Self {
         let workspace_rows = Arc::new(Mutex::new(vec![workspace]));
         Self {
@@ -184,7 +184,7 @@ impl ProvisionFakes {
             workspaces: Arc::new(FakeWorkspaceRepository(workspace_rows.clone())),
             workflows: Arc::new(FakeWorkflowCatalog(workflow())),
             runtime_catalog: Arc::new(FakeRunpodRuntimeCatalog(runtime_definition())),
-            lifecycle: Arc::new(FakeLifecycleOperationRepository(Mutex::new(operations))),
+            operations: Arc::new(FakeRuntimeOperationRepository(Mutex::new(operations))),
             secrets: Arc::new(FakeSecretStore {
                 runpod: AtomicBool::new(true),
                 hugging_face: true,
@@ -221,9 +221,9 @@ impl RecordingApplicationEventSink {
             let found = self.events.lock().unwrap().iter().any(|event| {
                 matches!(
                     event,
-                    ApplicationEvent::LifecycleOperationChanged(operation)
+                    ApplicationEvent::RuntimeOperationChanged(operation)
                         if operation.id == id
-                            && operation.state != LifecycleOperationState::Running
+                            && operation.state != RuntimeOperationState::Running
                 )
             });
             if found {
@@ -251,12 +251,12 @@ impl RecordingApplicationEventSink {
             .count()
     }
 
-    pub fn lifecycle_event_count(&self) -> usize {
+    pub fn runtime_operation_event_count(&self) -> usize {
         self.events
             .lock()
             .unwrap()
             .iter()
-            .filter(|event| matches!(event, ApplicationEvent::LifecycleOperationChanged(_)))
+            .filter(|event| matches!(event, ApplicationEvent::RuntimeOperationChanged(_)))
             .count()
     }
 
@@ -279,12 +279,12 @@ pub fn provision_command() -> super::ProvisionRunpodRuntime {
     }
 }
 
-fn workspace(attached_runtime: Option<RuntimeKind>) -> Workspace {
+fn workspace(runtime: Option<RuntimeKind>) -> Workspace {
     Workspace {
         id: "workspace-1".into(),
         workflow: CatalogRef::new("workflow-1", "1"),
         created_at: OffsetDateTime::UNIX_EPOCH,
-        attached_runtime,
+        runtime,
     }
 }
 
@@ -400,14 +400,14 @@ impl RunpodRuntimeCatalog for FakeRunpodRuntimeCatalog {
     }
 }
 
-struct FakeLifecycleOperationRepository(Mutex<Vec<LifecycleOperation>>);
+struct FakeRuntimeOperationRepository(Mutex<Vec<RuntimeOperation>>);
 
 #[async_trait::async_trait]
-impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
+impl RuntimeOperationRepository for FakeRuntimeOperationRepository {
     async fn recent(
         &self,
         limit: u64,
-    ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         Ok(self
             .0
             .lock()
@@ -422,7 +422,7 @@ impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
         &self,
         workspace_id: &str,
         limit: u64,
-    ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         Ok(self
             .0
             .lock()
@@ -434,13 +434,13 @@ impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
             .collect())
     }
 
-    async fn running(&self) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
+    async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         Ok(self
             .0
             .lock()
             .unwrap()
             .iter()
-            .filter(|operation| operation.state == LifecycleOperationState::Running)
+            .filter(|operation| operation.state == RuntimeOperationState::Running)
             .cloned()
             .collect())
     }
@@ -448,10 +448,10 @@ impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
     async fn has_running(
         &self,
         workspace_id: &str,
-    ) -> Result<bool, LifecycleOperationRepositoryError> {
+    ) -> Result<bool, RuntimeOperationRepositoryError> {
         Ok(self.0.lock().unwrap().iter().any(|operation| {
             operation.workspace_id == workspace_id
-                && operation.state == LifecycleOperationState::Running
+                && operation.state == RuntimeOperationState::Running
         }))
     }
 }
@@ -488,7 +488,7 @@ impl SecretStore for FakeSecretStore {
 
 pub(super) struct FakeRunpodRuntimeRepository {
     runtimes: Mutex<Vec<RunpodRuntime>>,
-    snapshots: Mutex<Vec<(RunpodRuntime, LifecycleOperation)>>,
+    snapshots: Mutex<Vec<(RunpodRuntime, RuntimeOperation)>>,
     workspace_rows: Arc<Mutex<Vec<Workspace>>>,
     save_count: AtomicUsize,
     fail_on_save: AtomicUsize,
@@ -530,7 +530,7 @@ impl FakeRunpodRuntimeRepository {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, operation)| operation.state == LifecycleOperationState::Running)
+            .filter(|(_, operation)| operation.state == RuntimeOperationState::Running)
             .filter_map(|(_, operation)| {
                 let RuntimeProgress::Runpod(progress) = operation.progress;
                 progress.provision_step()
@@ -543,7 +543,7 @@ impl FakeRunpodRuntimeRepository {
             .lock()
             .unwrap()
             .iter()
-            .filter(|(_, operation)| operation.state == LifecycleOperationState::Running)
+            .filter(|(_, operation)| operation.state == RuntimeOperationState::Running)
             .filter_map(|(_, operation)| {
                 let RuntimeProgress::Runpod(progress) = operation.progress;
                 progress.cleanup_step()
@@ -564,7 +564,7 @@ impl FakeRunpodRuntimeRepository {
             .map(|runtime| runtime.state)
     }
 
-    pub fn saved_states(&self) -> Vec<(RunpodRuntimeState, LifecycleOperationState)> {
+    pub fn saved_states(&self) -> Vec<(RunpodRuntimeState, RuntimeOperationState)> {
         self.snapshots
             .lock()
             .unwrap()
@@ -582,11 +582,11 @@ impl FakeRunpodRuntimeRepository {
             .collect()
     }
 
-    pub fn last_operation_state(&self) -> LifecycleOperationState {
+    pub fn last_operation_state(&self) -> RuntimeOperationState {
         self.snapshots.lock().unwrap().last().unwrap().1.state
     }
 
-    pub fn last_snapshot(&self) -> (RunpodRuntime, LifecycleOperation) {
+    pub fn last_snapshot(&self) -> (RunpodRuntime, RuntimeOperation) {
         self.snapshots.lock().unwrap().last().unwrap().clone()
     }
 }
@@ -612,7 +612,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
     async fn save_transition(
         &self,
         runtime: &RunpodRuntime,
-        operation: &LifecycleOperation,
+        operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
         let save_number = self.save_count.fetch_add(1, Ordering::SeqCst) + 1;
         if save_number == self.fail_on_save.load(Ordering::SeqCst) {
@@ -622,7 +622,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
         }
         let mut runtimes = self.runtimes.lock().unwrap();
         if runtime.state == RunpodRuntimeState::CleaningUp
-            && operation.state == LifecycleOperationState::Succeeded
+            && operation.state == RuntimeOperationState::Succeeded
         {
             runtimes.retain(|item| item.workspace_id != runtime.workspace_id);
             if let Some(workspace) = self
@@ -632,7 +632,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
                 .iter_mut()
                 .find(|workspace| workspace.id == runtime.workspace_id)
             {
-                workspace.attached_runtime = None;
+                workspace.runtime = None;
             }
         } else if let Some(saved) = runtimes
             .iter_mut()
@@ -648,7 +648,7 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
                 .iter_mut()
                 .find(|workspace| workspace.id == runtime.workspace_id)
             {
-                workspace.attached_runtime = Some(RuntimeKind::Runpod);
+                workspace.runtime = Some(RuntimeKind::Runpod);
             }
         }
         self.snapshots
