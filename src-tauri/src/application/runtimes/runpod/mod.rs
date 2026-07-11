@@ -12,4 +12,4 @@ pub use ports::{
     RunpodRuntimeCatalogError, RunpodRuntimeProvider, RunpodRuntimeProviderError,
     RunpodRuntimeRepository, RunpodRuntimeRepositoryError, StartProvisionerPod,
 };
-pub use service::{ProvisionRunpodRuntime, RunpodRuntimeService};
+pub use service::{ProvisionRunpodRuntime, RunpodRuntimeService, RunpodRuntimeServiceDependencies};

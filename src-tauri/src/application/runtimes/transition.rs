@@ -10,7 +10,6 @@ use crate::application::{
     workspace::ports::WorkspaceRepository,
 };
 
-#[derive(Clone)]
 pub struct RuntimeTransitionContext<R, P>
 where
     R: RuntimeModel,
@@ -20,6 +19,21 @@ where
     workspaces: Arc<dyn WorkspaceRepository>,
     events: Arc<dyn ApplicationEventSink>,
     runtime: std::marker::PhantomData<R>,
+}
+
+impl<R, P> Clone for RuntimeTransitionContext<R, P>
+where
+    R: RuntimeModel,
+    P: RuntimeTransitionRepository<R> + ?Sized,
+{
+    fn clone(&self) -> Self {
+        Self {
+            transitions: self.transitions.clone(),
+            workspaces: self.workspaces.clone(),
+            events: self.events.clone(),
+            runtime: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<R, P> RuntimeTransitionContext<R, P>

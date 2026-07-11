@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use secrecy::SecretString;
 use time::OffsetDateTime;
@@ -11,6 +14,7 @@ use crate::application::{
         CatalogRef, RunpodContractRequirements, RunpodRuntimeDefinition, RuntimeContract,
         RuntimeContractRequirements, RuntimePreset, WorkflowDefinition, WorkflowSummary,
     },
+    events::{ApplicationEvent, ApplicationEventSink},
     lifecycle::{
         ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
         progress::runpod::{RunpodCleanupStep, RunpodProvisionStep},
@@ -30,17 +34,19 @@ use super::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntime, RunpodRuntimeCatalog,
     RunpodRuntimeCatalogError, RunpodRuntimeConfig, RunpodRuntimeProvider,
     RunpodRuntimeProviderError, RunpodRuntimeRepository, RunpodRuntimeRepositoryError,
-    RunpodRuntimeResources, RunpodRuntimeService, RunpodRuntimeState, StartProvisionerPod,
+    RunpodRuntimeResources, RunpodRuntimeService, RunpodRuntimeServiceDependencies,
+    RunpodRuntimeState, StartProvisionerPod,
 };
 
 pub(super) struct ProvisionFakes {
-    pub provider: FakeRunpodRuntimeProvider,
-    pub repository: FakeRunpodRuntimeRepository,
-    workspaces: FakeWorkspaceRepository,
-    workflows: FakeWorkflowCatalog,
-    runtime_catalog: FakeRunpodRuntimeCatalog,
-    lifecycle: FakeLifecycleOperationRepository,
-    secrets: FakeSecretStore,
+    pub provider: Arc<FakeRunpodRuntimeProvider>,
+    pub repository: Arc<FakeRunpodRuntimeRepository>,
+    workspaces: Arc<FakeWorkspaceRepository>,
+    workflows: Arc<FakeWorkflowCatalog>,
+    runtime_catalog: Arc<FakeRunpodRuntimeCatalog>,
+    lifecycle: Arc<FakeLifecycleOperationRepository>,
+    secrets: Arc<FakeSecretStore>,
+    events: Arc<RecordingApplicationEventSink>,
 }
 
 pub(super) type CleanupFakes = ProvisionFakes;
@@ -67,8 +73,8 @@ impl ProvisionFakes {
     }
 
     pub fn ready_runtime_without_runpod_credential() -> Self {
-        let mut fakes = Self::ready_runtime();
-        fakes.secrets.runpod = false;
+        let fakes = Self::ready_runtime();
+        fakes.secrets.runpod.store(false, Ordering::Relaxed);
         fakes
     }
 
@@ -93,7 +99,7 @@ impl ProvisionFakes {
 
     pub fn with_running_provision_and_cleanup() -> Self {
         let now = OffsetDateTime::UNIX_EPOCH;
-        let mut fakes = Self::new(
+        let fakes = Self::new(
             workspace(Some(RuntimeKind::Runpod)),
             Some(runtime(RunpodRuntimeState::Provisioning)),
             vec![
@@ -118,22 +124,23 @@ impl ProvisionFakes {
         fakes
             .repository
             .runtimes
-            .get_mut()
+            .lock()
             .unwrap()
             .push(cleanup_runtime);
         fakes
     }
 
-    pub fn service(&self) -> RunpodRuntimeService<'_> {
-        RunpodRuntimeService {
-            workspaces: &self.workspaces,
-            workflows: &self.workflows,
-            runtimes: &self.repository,
-            runtime_catalog: &self.runtime_catalog,
-            lifecycle: &self.lifecycle,
-            secrets: &self.secrets,
-            provider: &self.provider,
-        }
+    pub fn service(&self) -> RunpodRuntimeService {
+        RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
+            workspaces: self.workspaces.clone(),
+            workflows: self.workflows.clone(),
+            runtimes: self.repository.clone(),
+            runtime_catalog: self.runtime_catalog.clone(),
+            lifecycle: self.lifecycle.clone(),
+            secrets: self.secrets.clone(),
+            provider: self.provider.clone(),
+            events: self.events.clone(),
+        })
     }
 
     fn new(
@@ -142,17 +149,37 @@ impl ProvisionFakes {
         operations: Vec<LifecycleOperation>,
     ) -> Self {
         Self {
-            provider: FakeRunpodRuntimeProvider::default(),
-            repository: FakeRunpodRuntimeRepository::new(runtime),
-            workspaces: FakeWorkspaceRepository(Mutex::new(vec![workspace])),
-            workflows: FakeWorkflowCatalog(workflow()),
-            runtime_catalog: FakeRunpodRuntimeCatalog(runtime_definition()),
-            lifecycle: FakeLifecycleOperationRepository(Mutex::new(operations)),
-            secrets: FakeSecretStore {
-                runpod: true,
+            provider: Arc::new(FakeRunpodRuntimeProvider::default()),
+            repository: Arc::new(FakeRunpodRuntimeRepository::new(runtime)),
+            workspaces: Arc::new(FakeWorkspaceRepository(Mutex::new(vec![workspace]))),
+            workflows: Arc::new(FakeWorkflowCatalog(workflow())),
+            runtime_catalog: Arc::new(FakeRunpodRuntimeCatalog(runtime_definition())),
+            lifecycle: Arc::new(FakeLifecycleOperationRepository(Mutex::new(operations))),
+            secrets: Arc::new(FakeSecretStore {
+                runpod: AtomicBool::new(true),
                 hugging_face: true,
-            },
+            }),
+            events: Arc::new(RecordingApplicationEventSink::default()),
         }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct RecordingApplicationEventSink {
+    events: Mutex<Vec<ApplicationEvent>>,
+    changed: tokio::sync::Notify,
+}
+
+impl ApplicationEventSink for RecordingApplicationEventSink {
+    fn emit(&self, event: ApplicationEvent) {
+        self.events.lock().unwrap().push(event);
+        self.changed.notify_waiters();
+    }
+}
+
+impl RecordingApplicationEventSink {
+    pub fn events(&self) -> Vec<ApplicationEvent> {
+        self.events.lock().unwrap().clone()
     }
 }
 
@@ -334,7 +361,7 @@ impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
 }
 
 struct FakeSecretStore {
-    runpod: bool,
+    runpod: AtomicBool,
     hugging_face: bool,
 }
 
@@ -342,7 +369,7 @@ struct FakeSecretStore {
 impl SecretStore for FakeSecretStore {
     async fn exists(&self, kind: SecretKind) -> Result<bool, SecretStoreError> {
         Ok(match kind {
-            SecretKind::RunpodApiKey => self.runpod,
+            SecretKind::RunpodApiKey => self.runpod.load(Ordering::Relaxed),
             SecretKind::HuggingFaceApiKey => self.hugging_face,
         })
     }

@@ -1,13 +1,18 @@
+use std::sync::Arc;
+
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::application::{
     catalog::WorkflowDefinition,
+    events::ApplicationEventSink,
     lifecycle::{
+        background::LifecycleBackgroundRunner,
         ports::LifecycleOperationRepository,
         progress::runpod::{RunpodCleanupStep, RunpodProvisionStep},
         LifecycleOperation, LifecycleProgress,
     },
+    runtimes::RuntimeTransitionContext,
     secrets::{SecretKind, SecretStore},
     workspace::{
         ports::{WorkflowCatalog, WorkspaceRepository},
@@ -28,17 +33,52 @@ pub struct ProvisionRunpodRuntime {
     pub volume_size_gb: u64,
 }
 
-pub struct RunpodRuntimeService<'a> {
-    pub workspaces: &'a dyn WorkspaceRepository,
-    pub workflows: &'a dyn WorkflowCatalog,
-    pub runtimes: &'a dyn RunpodRuntimeRepository,
-    pub runtime_catalog: &'a dyn RunpodRuntimeCatalog,
-    pub lifecycle: &'a dyn LifecycleOperationRepository,
-    pub secrets: &'a dyn SecretStore,
-    pub provider: &'a dyn RunpodRuntimeProvider,
+#[derive(Clone)]
+pub struct RunpodRuntimeService {
+    workspaces: Arc<dyn WorkspaceRepository>,
+    workflows: Arc<dyn WorkflowCatalog>,
+    runtimes: Arc<dyn RunpodRuntimeRepository>,
+    runtime_catalog: Arc<dyn RunpodRuntimeCatalog>,
+    lifecycle: Arc<dyn LifecycleOperationRepository>,
+    secrets: Arc<dyn SecretStore>,
+    provider: Arc<dyn RunpodRuntimeProvider>,
+    #[allow(dead_code)]
+    transitions: RuntimeTransitionContext<RunpodRuntime, dyn RunpodRuntimeRepository>,
+    #[allow(dead_code)]
+    background: LifecycleBackgroundRunner,
 }
 
-impl RunpodRuntimeService<'_> {
+pub struct RunpodRuntimeServiceDependencies {
+    pub workspaces: Arc<dyn WorkspaceRepository>,
+    pub workflows: Arc<dyn WorkflowCatalog>,
+    pub runtimes: Arc<dyn RunpodRuntimeRepository>,
+    pub runtime_catalog: Arc<dyn RunpodRuntimeCatalog>,
+    pub lifecycle: Arc<dyn LifecycleOperationRepository>,
+    pub secrets: Arc<dyn SecretStore>,
+    pub provider: Arc<dyn RunpodRuntimeProvider>,
+    pub events: Arc<dyn ApplicationEventSink>,
+}
+
+impl RunpodRuntimeService {
+    pub fn new(dependencies: RunpodRuntimeServiceDependencies) -> Self {
+        let transitions = RuntimeTransitionContext::new(
+            dependencies.runtimes.clone(),
+            dependencies.workspaces.clone(),
+            dependencies.events,
+        );
+        Self {
+            workspaces: dependencies.workspaces,
+            workflows: dependencies.workflows,
+            runtimes: dependencies.runtimes,
+            runtime_catalog: dependencies.runtime_catalog,
+            lifecycle: dependencies.lifecycle,
+            secrets: dependencies.secrets,
+            provider: dependencies.provider,
+            transitions,
+            background: LifecycleBackgroundRunner,
+        }
+    }
+
     pub async fn cleanup(&self, workspace_id: &str) -> Result<(), RunpodRuntimeError> {
         let mut runtime = self
             .runtimes
