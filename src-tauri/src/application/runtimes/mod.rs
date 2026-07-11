@@ -1,15 +1,15 @@
-mod catalog;
+mod errors;
 mod model;
-mod operation;
 pub mod ports;
 pub mod runpod;
 mod transition;
 
-pub use catalog::{CatalogRef, RuntimeContractRequirements, WorkflowDefinition, WorkflowSummary};
+pub use errors::RuntimeOperationError;
 #[cfg(test)]
 pub(crate) use model::progress_fixture;
-pub use model::{Runtime, RuntimeKind, RuntimeModel, RuntimeProgress};
-pub use operation::{
-    RuntimeOperation, RuntimeOperationError, RuntimeOperationKind, RuntimeOperationState,
+pub use model::{
+    CatalogRef, Runtime, RuntimeContractRequirements, RuntimeKind, RuntimeModel, RuntimeOperation,
+    RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, WorkflowDefinition,
+    WorkflowSummary,
 };
 pub use transition::RuntimeTransitionContext;
