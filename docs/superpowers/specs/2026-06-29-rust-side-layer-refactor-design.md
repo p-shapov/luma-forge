@@ -42,22 +42,53 @@ Incompatible existing dev DBs fail clearly.
    raw HTTP calls, provider request/response mapping, and provider identity
    calls. They do not implement application workspace ports in this iteration.
 
-4. **Application Workspace**
-   Replace current workspace module with `application/workspace`: `model.rs`, `ports/{runtime.rs, repository.rs, catalog.rs}`, `errors.rs`, `service.rs`, `background.rs`, `mod.rs`. It owns provider-neutral workspace and lifecycle operation creation, state transitions and in-flight tracking.
+**Application Layer**
 
-5. **RunPod Runtime**
-   Move RunPod lifecycle orchestration into `runtime/runpod`: `model.rs`,`ports/{secrets.rs, provider.rs,repository.rs, catalog.rs}`, `provision.rs`, `cleanup.rs`, `delete.rs`, `runtime.rs`, `mod.rs, errors.rs`. It owns step order, provisioning/cleanup order, provisioner polling behavior, RunPod payload and runtime persistense, and progress reporting through workspace's port.
+`application/workspace`:
+It owns provider-neutral workspace state transitions.
 
-6. **Adapters for Workspace and RunPod Runtime**
-   We should to define layer(s) for adapters with
+`application/workspace/runtimes`:
+It owns provider-specific state transitions.
 
-   `sectets/{runpod,hugging_face}`: `adapters/{runpod}`
+`application/secrets`:
+It owns secrets management and validation.
 
-7. **Facade And Composition**
-   Move Tauri/Specta API boundary into
-   `facade/{commands/*,events.rs,types/*, errors.rs,tracing.rs}` and dependency
-   wiring into `composition/{bootstrap.rs,state.rs}`. Command DTOs/events may
-   change. `src/generated/commands.ts` is updated by codegen only.
+`application/lifecycle`:
+It owns provider-neutral lifecycle state transitions.
+
+`application/lifecycle/payloads`:
+It owns provider specific lifecycle operation payloads.
+
+**Ports:**
+
+- workspace: `WorkspaceCatalog.rs`, `WorkspaceRepository.rs`
+- RunPod runtime: `RunpodRuntimeProvider`, `RunpodRuntimeRepository.rs`, `RunpodRuntimeCatalog.rs`
+- secrets: `SecretsIdentityProvider`, `SecretsKeysStorage`
+- lifecycle: `LifecycleOperationsRepository.rs`
+- RunPod payload: `RunpodLifecyclePayloadsRepository.rs`
+
+**Adapters for Application Layer**
+We should to define layer(s) for application ports adapters:
+
+`adapters/providers`:
+Implements ports for `RunpodRuntimeProvider`, `SecretsIdentityProvider`.
+
+Expected modules: `runpod_runtime/**`, `hugging_face_identity/**`, `runpod_identity/**`.
+
+`adapters/catalogs`:
+Implement ports for `WorkspaceCatalog`, `RunpodRuntimeCatalog`.
+
+Expected modules: `workspace/**`, `runpod_runtime/**`.
+
+`adapters/repositiories`:
+Implement ports for `WorkspaceRepository`, `RunpodRuntimeRepository`, `LifecycleOperationsRepository`, `RunpodLifecyclePayloadsRepository`.
+
+Expected modules: `workspace/**`, `runpod_runtime/**`, `lifecycle_operations/**`, `runpod_lifecycle_payloads/**`.
+
+`adapters/storages`:
+Implements ports for `SecretsKeyStorage`.
+
+Expected modules: `secrets/**`.
 
 ## Dependency Rule
 

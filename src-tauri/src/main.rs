@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    luma_forge_lib::run()
+    println!("Hello, world!");
 }
