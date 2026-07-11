@@ -1,7 +1,4 @@
-use crate::application::{
-    runtimes::{Runtime, RuntimeKind, RuntimeModel},
-    workspace::WorkspaceStatus,
-};
+use crate::application::runtimes::{Runtime, RuntimeKind, RuntimeModel};
 
 use super::RunpodRuntimeError;
 
@@ -99,17 +96,6 @@ impl RunpodRuntime {
             RunpodRuntimeState::Ready | RunpodRuntimeState::Failed => {
                 Err(RunpodRuntimeError::InvalidTransition)
             }
-        }
-    }
-}
-
-impl From<RunpodRuntimeState> for WorkspaceStatus {
-    fn from(state: RunpodRuntimeState) -> Self {
-        match state {
-            RunpodRuntimeState::Provisioning => Self::Provisioning,
-            RunpodRuntimeState::Ready => Self::Ready,
-            RunpodRuntimeState::CleaningUp => Self::CleaningUp,
-            RunpodRuntimeState::Failed => Self::Failed,
         }
     }
 }

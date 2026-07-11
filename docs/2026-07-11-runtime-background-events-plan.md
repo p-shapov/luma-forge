@@ -155,10 +155,7 @@ pub trait RuntimeModel: Clone + Send + Sync + 'static {
 Implement it in `application/runtimes/runpod/model.rs`:
 
 ```rust
-use crate::application::{
-    runtimes::{Runtime, RuntimeKind, RuntimeModel},
-    workspace::WorkspaceStatus,
-};
+use crate::application::runtimes::{Runtime, RuntimeKind, RuntimeModel};
 
 impl RuntimeModel for RunpodRuntime {
     fn workspace_id(&self) -> &str {
@@ -174,8 +171,6 @@ impl RuntimeModel for RunpodRuntime {
     }
 }
 ```
-
-Keep the existing `From<RunpodRuntimeState> for WorkspaceStatus` implementation unchanged.
 
 - [ ] **Step 4: Add application event contracts**
 
