@@ -303,7 +303,9 @@ get(id, revision) -> Option<WorkflowDefinition>
 - ID;
 - revision;
 - name;
-- description.
+- description;
+- `required_volume_size_gb: u64`;
+- `requires_hugging_face_api_key: bool`.
 
 Summaries form a flat list with deterministic ordering by ID and revision. Pagination is unnecessary for the bundled catalog. The application contract stays lightweight even if the first adapter implementation reads a full bundled workflow entry before projecting its summary.
 
