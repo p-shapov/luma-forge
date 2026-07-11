@@ -6,6 +6,7 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub workspace_id: String,
+    pub state: String,
     pub datacenter_id: String,
     pub gpu_id: String,
     pub volume_size_gb: i64,
@@ -13,8 +14,13 @@ pub struct Model {
     pub provisioner_pod_id: Option<String>,
     pub endpoint_id: Option<String>,
     pub template_id: Option<String>,
-    #[sea_orm(belongs_to, from = "workspace_id", to = "id", on_delete = "Cascade")]
-    pub workspace: HasOne<super::workspaces::Entity>,
+    #[sea_orm(
+        belongs_to,
+        from = "workspace_id",
+        to = "workspace_id",
+        on_delete = "Cascade"
+    )]
+    pub workspace_runtime: HasOne<super::workspace_runtimes::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

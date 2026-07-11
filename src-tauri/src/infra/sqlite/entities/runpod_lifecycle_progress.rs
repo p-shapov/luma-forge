@@ -2,7 +2,7 @@ use sea_orm::entity::prelude::*;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "runpod_operation_payloads")]
+#[sea_orm(table_name = "runpod_lifecycle_progress")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub operation_id: String,

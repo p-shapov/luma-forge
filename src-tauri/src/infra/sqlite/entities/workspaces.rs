@@ -7,13 +7,14 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
     pub workflow_id: String,
-    pub workflow_version: String,
-    pub state: String,
-    pub runtime_kind: String,
+    pub workflow_revision: String,
     pub created_at: TimeDateTimeWithTimeZone,
-    pub updated_at: TimeDateTimeWithTimeZone,
-    #[sea_orm(has_many)]
-    pub lifecycle_operations: HasMany<super::lifecycle_operations::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Related<super::workspace_runtimes::Entity> for Entity {
+    fn to() -> RelationDef {
+        super::workspace_runtimes::Relation::Workspaces.def().rev()
+    }
+}
