@@ -2,6 +2,7 @@ use time::OffsetDateTime;
 
 use crate::application::{
     catalog::CatalogRef,
+    events::{ApplicationEvent, ApplicationEventSink},
     lifecycle::ports::LifecycleOperationRepository,
     workspace::{
         ports::{WorkflowCatalog, WorkspaceRepository, WorkspaceRepositoryError},
@@ -13,6 +14,7 @@ pub struct WorkspaceService<'a> {
     workspaces: &'a dyn WorkspaceRepository,
     lifecycle: &'a dyn LifecycleOperationRepository,
     workflows: &'a dyn WorkflowCatalog,
+    events: &'a dyn ApplicationEventSink,
 }
 
 impl<'a> WorkspaceService<'a> {
@@ -20,11 +22,13 @@ impl<'a> WorkspaceService<'a> {
         workspaces: &'a dyn WorkspaceRepository,
         lifecycle: &'a dyn LifecycleOperationRepository,
         workflows: &'a dyn WorkflowCatalog,
+        events: &'a dyn ApplicationEventSink,
     ) -> Self {
         Self {
             workspaces,
             lifecycle,
             workflows,
+            events,
         }
     }
 
@@ -43,7 +47,8 @@ impl<'a> WorkspaceService<'a> {
             return Err(WorkspaceError::WorkflowNotFound);
         }
 
-        self.workspaces
+        let workspace = self
+            .workspaces
             .create(Workspace {
                 id: id.to_owned(),
                 workflow,
@@ -56,7 +61,10 @@ impl<'a> WorkspaceService<'a> {
                 WorkspaceRepositoryError::Unavailable | WorkspaceRepositoryError::CorruptData => {
                     WorkspaceError::PersistenceUnavailable
                 }
-            })
+            })?;
+        self.events
+            .emit(ApplicationEvent::WorkspaceChanged(workspace.clone()));
+        Ok(workspace)
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), WorkspaceError> {
@@ -78,7 +86,11 @@ impl<'a> WorkspaceService<'a> {
             .await
             .map_err(|_| WorkspaceError::PersistenceUnavailable)?
             .then_some(())
-            .ok_or(WorkspaceError::NotFound)
+            .ok_or(WorkspaceError::NotFound)?;
+        self.events.emit(ApplicationEvent::WorkspaceDeleted {
+            workspace_id: id.to_owned(),
+        });
+        Ok(())
     }
 
     pub async fn get(&self, id: &str) -> Result<Workspace, WorkspaceError> {
@@ -106,7 +118,11 @@ mod tests {
 
     use super::{WorkspaceError, WorkspaceService};
     use crate::application::{
-        catalog::{CatalogRef, WorkflowDefinition, WorkflowSummary},
+        catalog::{
+            CatalogRef, RunpodContractRequirements, RuntimeContractRequirements,
+            WorkflowDefinition, WorkflowSummary,
+        },
+        events::{ApplicationEvent, ApplicationEventSink},
         lifecycle::{
             ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
             progress::runpod::RunpodProvisionStep,
@@ -120,6 +136,21 @@ mod tests {
             RuntimeKind, Workspace,
         },
     };
+
+    #[derive(Default)]
+    struct RecordingApplicationEventSink(Mutex<Vec<ApplicationEvent>>);
+
+    impl RecordingApplicationEventSink {
+        fn events(&self) -> Vec<ApplicationEvent> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    impl ApplicationEventSink for RecordingApplicationEventSink {
+        fn emit(&self, event: ApplicationEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
 
     struct FakeWorkspaceRepository {
         workspaces: Mutex<Vec<Workspace>>,
@@ -182,6 +213,7 @@ mod tests {
 
     struct FakeWorkflowCatalog {
         gets: Mutex<Vec<CatalogRef>>,
+        workflow: Option<WorkflowDefinition>,
     }
 
     #[async_trait::async_trait]
@@ -199,7 +231,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(CatalogRef::new(id, revision));
-            Ok(None)
+            Ok(self.workflow.clone().filter(|workflow| {
+                workflow.summary.id == id && workflow.summary.revision == revision
+            }))
         }
     }
 
@@ -267,15 +301,33 @@ mod tests {
         workspaces: FakeWorkspaceRepository,
         workflows: FakeWorkflowCatalog,
         lifecycle: FakeLifecycleOperationRepository,
+        events: RecordingApplicationEventSink,
     }
 
     impl Fakes {
         fn with_missing_workflow() -> Self {
-            Self::new(Vec::new(), Vec::new())
+            Self::new(Vec::new(), Vec::new(), None)
+        }
+
+        fn with_workflow() -> Self {
+            Self::new(Vec::new(), Vec::new(), Some(workflow()))
+        }
+
+        fn with_unprovisioned_workspace() -> Self {
+            Self::new(
+                vec![Workspace {
+                    id: "workspace-1".into(),
+                    workflow: CatalogRef::new("workflow", "1.0.0"),
+                    created_at: OffsetDateTime::UNIX_EPOCH,
+                    attached_runtime: None,
+                }],
+                Vec::new(),
+                None,
+            )
         }
 
         fn with_workspace(workspace: Workspace) -> Self {
-            Self::new(vec![workspace], Vec::new())
+            Self::new(vec![workspace], Vec::new(), None)
         }
 
         fn with_unprovisioned_workspace_and_running_operation() -> Self {
@@ -293,25 +345,91 @@ mod tests {
                     RunpodProvisionStep::CreateNetworkVolume,
                     OffsetDateTime::UNIX_EPOCH,
                 )],
+                None,
             )
         }
 
-        fn new(workspaces: Vec<Workspace>, operations: Vec<LifecycleOperation>) -> Self {
+        fn new(
+            workspaces: Vec<Workspace>,
+            operations: Vec<LifecycleOperation>,
+            workflow: Option<WorkflowDefinition>,
+        ) -> Self {
             Self {
                 workspaces: FakeWorkspaceRepository::new(workspaces),
                 workflows: FakeWorkflowCatalog {
                     gets: Mutex::new(Vec::new()),
+                    workflow,
                 },
                 lifecycle: FakeLifecycleOperationRepository {
                     operations: Mutex::new(operations),
                     running_checks: Mutex::new(Vec::new()),
                 },
+                events: RecordingApplicationEventSink::default(),
             }
         }
 
         fn service(&self) -> WorkspaceService<'_> {
-            WorkspaceService::new(&self.workspaces, &self.lifecycle, &self.workflows)
+            WorkspaceService::new(
+                &self.workspaces,
+                &self.lifecycle,
+                &self.workflows,
+                &self.events,
+            )
         }
+    }
+
+    fn workflow() -> WorkflowDefinition {
+        WorkflowDefinition {
+            summary: WorkflowSummary {
+                id: "workflow".into(),
+                revision: "1.0.0".into(),
+                name: "Workflow".into(),
+                description: "Workflow description".into(),
+                required_volume_size_gb: 1,
+                requires_hugging_face_api_key: false,
+            },
+            runtime_preset_ref: CatalogRef::new("runpod-preset", "1.0.0"),
+            contract_requirements: vec![RuntimeContractRequirements::Runpod(
+                RunpodContractRequirements {
+                    provisioner_contract_ref: CatalogRef::new("provisioner", "1.0.0"),
+                    endpoint_contract_ref: CatalogRef::new("endpoint", "1.0.0"),
+                },
+            )],
+            model_assets: serde_json::json!([]),
+            execution_contract: serde_json::json!({}),
+            workflow_graph: serde_json::json!({}),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_emits_the_committed_workspace() {
+        let fakes = Fakes::with_workflow();
+
+        let workspace = fakes
+            .service()
+            .create("workspace-1", CatalogRef::new("workflow", "1.0.0"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fakes.events.events(),
+            vec![ApplicationEvent::WorkspaceChanged(workspace)],
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_emits_only_after_the_workspace_is_removed() {
+        let fakes = Fakes::with_unprovisioned_workspace();
+
+        fakes.service().delete("workspace-1").await.unwrap();
+
+        assert!(!fakes.workspaces.contains("workspace-1"));
+        assert_eq!(
+            fakes.events.events(),
+            vec![ApplicationEvent::WorkspaceDeleted {
+                workspace_id: "workspace-1".into(),
+            }],
+        );
     }
 
     #[tokio::test]
@@ -325,6 +443,7 @@ mod tests {
 
         assert_eq!(result, Err(WorkspaceError::WorkflowNotFound));
         assert!(fakes.workspaces.created().is_empty());
+        assert!(fakes.events.events().is_empty());
     }
 
     #[tokio::test]
@@ -340,6 +459,7 @@ mod tests {
             fakes.service().delete("workspace-1").await,
             Err(WorkspaceError::RuntimeAttached)
         );
+        assert!(fakes.events.events().is_empty());
     }
 
     #[tokio::test]
@@ -351,5 +471,6 @@ mod tests {
             Err(WorkspaceError::OperationRunning)
         );
         assert!(fakes.workspaces.contains("workspace-1"));
+        assert!(fakes.events.events().is_empty());
     }
 }
