@@ -114,7 +114,6 @@ mod tests {
     use std::sync::Mutex;
 
     use time::OffsetDateTime;
-    use uuid::Uuid;
 
     use super::{WorkspaceError, WorkspaceService};
     use crate::application::{
@@ -125,12 +124,9 @@ mod tests {
         events::{ApplicationEvent, ApplicationEventSink},
         lifecycle::{
             ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-            LifecycleOperation, LifecycleOperationKind,
+            LifecycleOperation,
         },
-        runtimes::{
-            runpod::{RunpodProgress, RunpodProvisionStep},
-            RuntimeKind, RuntimeProgress,
-        },
+        runtimes::RuntimeKind,
         workspace::{
             ports::{
                 WorkflowCatalog, WorkflowCatalogError, WorkspaceRepository,
@@ -241,7 +237,7 @@ mod tests {
     }
 
     struct FakeLifecycleOperationRepository {
-        operations: Mutex<Vec<LifecycleOperation>>,
+        has_running: bool,
         running_checks: Mutex<Vec<String>>,
     }
 
@@ -249,38 +245,23 @@ mod tests {
     impl LifecycleOperationRepository for FakeLifecycleOperationRepository {
         async fn recent(
             &self,
-            limit: u64,
+            _limit: u64,
         ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
-            Ok(self
-                .operations
-                .lock()
-                .unwrap()
-                .iter()
-                .take(limit as usize)
-                .cloned()
-                .collect())
+            Ok(Vec::new())
         }
 
         async fn recent_for_workspace(
             &self,
-            workspace_id: &str,
-            limit: u64,
+            _workspace_id: &str,
+            _limit: u64,
         ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
-            Ok(self
-                .operations
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|operation| operation.workspace_id == workspace_id)
-                .take(limit as usize)
-                .cloned()
-                .collect())
+            Ok(Vec::new())
         }
 
         async fn running(
             &self,
         ) -> Result<Vec<LifecycleOperation>, LifecycleOperationRepositoryError> {
-            Ok(self.operations.lock().unwrap().clone())
+            Ok(Vec::new())
         }
 
         async fn has_running(
@@ -291,12 +272,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(workspace_id.to_owned());
-            Ok(self
-                .operations
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|operation| operation.workspace_id == workspace_id))
+            Ok(self.has_running)
         }
     }
 
@@ -309,11 +285,11 @@ mod tests {
 
     impl Fakes {
         fn with_missing_workflow() -> Self {
-            Self::new(Vec::new(), Vec::new(), None)
+            Self::new(Vec::new(), false, None)
         }
 
         fn with_workflow() -> Self {
-            Self::new(Vec::new(), Vec::new(), Some(workflow()))
+            Self::new(Vec::new(), false, Some(workflow()))
         }
 
         fn with_unprovisioned_workspace() -> Self {
@@ -324,13 +300,13 @@ mod tests {
                     created_at: OffsetDateTime::UNIX_EPOCH,
                     attached_runtime: None,
                 }],
-                Vec::new(),
+                false,
                 None,
             )
         }
 
         fn with_workspace(workspace: Workspace) -> Self {
-            Self::new(vec![workspace], Vec::new(), None)
+            Self::new(vec![workspace], false, None)
         }
 
         fn with_unprovisioned_workspace_and_running_operation() -> Self {
@@ -341,23 +317,14 @@ mod tests {
                     created_at: OffsetDateTime::UNIX_EPOCH,
                     attached_runtime: None,
                 }],
-                vec![LifecycleOperation::running(
-                    Uuid::from_u128(1),
-                    "workspace-1",
-                    Uuid::from_u128(2),
-                    LifecycleOperationKind::Provision,
-                    RuntimeProgress::Runpod(RunpodProgress::Provision(
-                        RunpodProvisionStep::CreateNetworkVolume,
-                    )),
-                    OffsetDateTime::UNIX_EPOCH,
-                )],
+                true,
                 None,
             )
         }
 
         fn new(
             workspaces: Vec<Workspace>,
-            operations: Vec<LifecycleOperation>,
+            has_running: bool,
             workflow: Option<WorkflowDefinition>,
         ) -> Self {
             Self {
@@ -367,7 +334,7 @@ mod tests {
                     workflow,
                 },
                 lifecycle: FakeLifecycleOperationRepository {
-                    operations: Mutex::new(operations),
+                    has_running,
                     running_checks: Mutex::new(Vec::new()),
                 },
                 events: RecordingApplicationEventSink::default(),

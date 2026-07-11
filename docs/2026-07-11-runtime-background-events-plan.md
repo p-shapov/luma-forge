@@ -38,6 +38,7 @@
 - `src-tauri/src/application/runtimes/ports/mod.rs`: generic runtime port exports.
 - `src-tauri/src/application/runtimes/ports/runtime_transition_repository.rs`: generic transition write port and typed errors.
 - `src-tauri/src/application/runtimes/transition.rs`: commit-then-event transition context.
+- `src-tauri/src/application/runtimes/runpod/progress.rs`: RunPod-owned lifecycle progress steps.
 
 ### Existing application files
 
@@ -65,7 +66,7 @@
 
 **Interfaces:**
 - Consumes: current `Workspace`, `RuntimeKind`, `RunpodRuntime`, and `LifecycleOperation` models.
-- Produces: `Runtime`, `RuntimeModel`, `ApplicationEvent`, and `ApplicationEventSink`.
+- Produces: `Runtime`, `RuntimeKind`, `RuntimeProgress`, `RuntimeModel`, `ApplicationEvent`, and `ApplicationEventSink`.
 
 - [ ] **Step 1: Add the failing provider-neutral runtime test**
 
@@ -127,13 +128,21 @@ Expected: compilation fails because `Runtime`, `RuntimeModel`, and the RunPod im
 Add to `application/runtimes/model.rs`:
 
 ```rust
-use crate::application::workspace::RuntimeKind;
+use super::runpod::{RunpodProgress, RunpodRuntime};
 
-use super::runpod::RunpodRuntime;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeKind {
+    Runpod,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Runtime {
     Runpod(RunpodRuntime),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeProgress {
+    Runpod(RunpodProgress),
 }
 
 pub trait RuntimeModel: Clone + Send + Sync + 'static {
@@ -147,8 +156,8 @@ Implement it in `application/runtimes/runpod/model.rs`:
 
 ```rust
 use crate::application::{
-    runtimes::{Runtime, RuntimeModel},
-    workspace::{RuntimeKind, WorkspaceStatus},
+    runtimes::{Runtime, RuntimeKind, RuntimeModel},
+    workspace::WorkspaceStatus,
 };
 
 impl RuntimeModel for RunpodRuntime {
@@ -175,8 +184,8 @@ Create `application/events.rs`:
 ```rust
 use crate::application::{
     lifecycle::LifecycleOperation,
-    runtimes::Runtime,
-    workspace::{RuntimeKind, Workspace},
+    runtimes::{Runtime, RuntimeKind},
+    workspace::Workspace,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
