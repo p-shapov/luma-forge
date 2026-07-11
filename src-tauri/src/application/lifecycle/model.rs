@@ -1,4 +1,5 @@
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use super::{
     errors::LifecycleError,
@@ -41,10 +42,10 @@ impl LifecycleProgress {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleOperation {
-    pub id: String,
+    pub id: Uuid,
     pub workspace_id: String,
     pub state: LifecycleOperationState,
-    pub trace_id: String,
+    pub trace_id: Uuid,
     pub progress: LifecycleProgress,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -53,9 +54,9 @@ pub struct LifecycleOperation {
 
 impl LifecycleOperation {
     pub fn runpod_provision(
-        id: &str,
+        id: Uuid,
         workspace_id: &str,
-        trace_id: &str,
+        trace_id: Uuid,
         step: RunpodProvisionStep,
         now: OffsetDateTime,
     ) -> Self {
@@ -69,9 +70,9 @@ impl LifecycleOperation {
     }
 
     pub fn runpod_cleanup(
-        id: &str,
+        id: Uuid,
         workspace_id: &str,
-        trace_id: &str,
+        trace_id: Uuid,
         step: RunpodCleanupStep,
         now: OffsetDateTime,
     ) -> Self {
@@ -85,17 +86,17 @@ impl LifecycleOperation {
     }
 
     fn running(
-        id: &str,
+        id: Uuid,
         workspace_id: &str,
-        trace_id: &str,
+        trace_id: Uuid,
         progress: LifecycleProgress,
         now: OffsetDateTime,
     ) -> Self {
         Self {
-            id: id.to_owned(),
+            id,
             workspace_id: workspace_id.to_owned(),
             state: LifecycleOperationState::Running,
-            trace_id: trace_id.to_owned(),
+            trace_id,
             progress,
             created_at: now,
             updated_at: now,
@@ -178,13 +179,14 @@ impl LifecycleOperation {
 mod tests {
     use super::*;
     use crate::application::lifecycle::progress::runpod::{RunpodCleanupStep, RunpodProvisionStep};
+    use uuid::Uuid;
 
     #[test]
     fn running_operation_can_succeed_once_and_retains_its_step() {
         let mut operation = LifecycleOperation::runpod_provision(
-            "operation-1",
+            Uuid::from_u128(1),
             "workspace-1",
-            "trace-1",
+            Uuid::from_u128(2),
             RunpodProvisionStep::CreateNetworkVolume,
             OffsetDateTime::UNIX_EPOCH,
         );
@@ -205,9 +207,9 @@ mod tests {
     #[test]
     fn interrupted_operation_fails_without_changing_progress_or_trace() {
         let mut operation = LifecycleOperation::runpod_cleanup(
-            "operation-1",
+            Uuid::from_u128(1),
             "workspace-1",
-            "trace-1",
+            Uuid::from_u128(2),
             RunpodCleanupStep::DeleteEndpoint,
             OffsetDateTime::UNIX_EPOCH,
         );
@@ -215,7 +217,7 @@ mod tests {
         operation.fail(OffsetDateTime::UNIX_EPOCH).unwrap();
 
         assert_eq!(operation.state, LifecycleOperationState::Failed);
-        assert_eq!(operation.trace_id, "trace-1");
+        assert_eq!(operation.trace_id, Uuid::from_u128(2));
         assert_eq!(
             operation.progress.cleanup_step(),
             Some(RunpodCleanupStep::DeleteEndpoint)
