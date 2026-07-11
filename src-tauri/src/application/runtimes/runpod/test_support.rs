@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 
@@ -46,7 +46,8 @@ pub(super) struct ProvisionFakes {
     runtime_catalog: Arc<FakeRunpodRuntimeCatalog>,
     lifecycle: Arc<FakeLifecycleOperationRepository>,
     secrets: Arc<FakeSecretStore>,
-    events: Arc<RecordingApplicationEventSink>,
+    pub events: Arc<RecordingApplicationEventSink>,
+    workspace_rows: Arc<Mutex<Vec<Workspace>>>,
 }
 
 pub(super) type CleanupFakes = ProvisionFakes;
@@ -55,6 +56,12 @@ pub(super) type RecoveryFakes = ProvisionFakes;
 impl ProvisionFakes {
     pub fn ready() -> Self {
         Self::new(workspace(None), None, Vec::new())
+    }
+
+    pub fn ready_without_runpod_credential() -> Self {
+        let fakes = Self::ready();
+        fakes.secrets.runpod.store(false, Ordering::Relaxed);
+        fakes
     }
 
     pub fn ready_runtime() -> Self {
@@ -143,15 +150,29 @@ impl ProvisionFakes {
         })
     }
 
+    pub fn workspace_snapshot(&self) -> Workspace {
+        self.workspace_rows
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace.id == "workspace-1")
+            .cloned()
+            .expect("workspace fixture should exist")
+    }
+
     fn new(
         workspace: Workspace,
         runtime: Option<RunpodRuntime>,
         operations: Vec<LifecycleOperation>,
     ) -> Self {
+        let workspace_rows = Arc::new(Mutex::new(vec![workspace]));
         Self {
             provider: Arc::new(FakeRunpodRuntimeProvider::default()),
-            repository: Arc::new(FakeRunpodRuntimeRepository::new(runtime)),
-            workspaces: Arc::new(FakeWorkspaceRepository(Mutex::new(vec![workspace]))),
+            repository: Arc::new(FakeRunpodRuntimeRepository::new(
+                runtime,
+                workspace_rows.clone(),
+            )),
+            workspaces: Arc::new(FakeWorkspaceRepository(workspace_rows.clone())),
             workflows: Arc::new(FakeWorkflowCatalog(workflow())),
             runtime_catalog: Arc::new(FakeRunpodRuntimeCatalog(runtime_definition())),
             lifecycle: Arc::new(FakeLifecycleOperationRepository(Mutex::new(operations))),
@@ -160,6 +181,7 @@ impl ProvisionFakes {
                 hugging_face: true,
             }),
             events: Arc::new(RecordingApplicationEventSink::default()),
+            workspace_rows,
         }
     }
 }
@@ -180,6 +202,71 @@ impl ApplicationEventSink for RecordingApplicationEventSink {
 impl RecordingApplicationEventSink {
     pub fn events(&self) -> Vec<ApplicationEvent> {
         self.events.lock().unwrap().clone()
+    }
+
+    pub async fn wait_for_terminal_operation(&self, id: Uuid) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let found = self.events.lock().unwrap().iter().any(|event| {
+                matches!(
+                    event,
+                    ApplicationEvent::LifecycleOperationChanged(operation)
+                        if operation.id == id
+                            && operation.state != LifecycleOperationState::Running
+                )
+            });
+            if found {
+                return;
+            }
+            changed.await;
+        }
+    }
+
+    pub fn runtime_changed_count(&self) -> usize {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event, ApplicationEvent::RuntimeChanged(_)))
+            .count()
+    }
+
+    pub fn runtime_deleted_count(&self) -> usize {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event, ApplicationEvent::RuntimeDeleted { .. }))
+            .count()
+    }
+
+    pub fn lifecycle_event_count(&self) -> usize {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event, ApplicationEvent::LifecycleOperationChanged(_)))
+            .count()
+    }
+
+    pub fn workspace_event_count(&self) -> usize {
+        self.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| matches!(event, ApplicationEvent::WorkspaceChanged(_)))
+            .count()
+    }
+}
+
+pub fn provision_command() -> super::ProvisionRunpodRuntime {
+    super::ProvisionRunpodRuntime {
+        workspace_id: "workspace-1".into(),
+        datacenter_id: "dc-1".into(),
+        gpu_id: "gpu-1".into(),
+        volume_size_gb: 19,
     }
 }
 
@@ -240,7 +327,7 @@ fn runtime(state: RunpodRuntimeState) -> RunpodRuntime {
     }
 }
 
-struct FakeWorkspaceRepository(Mutex<Vec<Workspace>>);
+struct FakeWorkspaceRepository(Arc<Mutex<Vec<Workspace>>>);
 
 #[async_trait::async_trait]
 impl WorkspaceRepository for FakeWorkspaceRepository {
@@ -393,13 +480,39 @@ impl SecretStore for FakeSecretStore {
 pub(super) struct FakeRunpodRuntimeRepository {
     runtimes: Mutex<Vec<RunpodRuntime>>,
     snapshots: Mutex<Vec<(RunpodRuntime, LifecycleOperation)>>,
+    workspace_rows: Arc<Mutex<Vec<Workspace>>>,
+    save_count: AtomicUsize,
+    fail_on_save: AtomicUsize,
+    failed_write_attempted: AtomicBool,
+    changed: tokio::sync::Notify,
 }
 
 impl FakeRunpodRuntimeRepository {
-    fn new(runtime: Option<RunpodRuntime>) -> Self {
+    fn new(runtime: Option<RunpodRuntime>, workspace_rows: Arc<Mutex<Vec<Workspace>>>) -> Self {
         Self {
             runtimes: Mutex::new(runtime.into_iter().collect()),
             snapshots: Mutex::new(Vec::new()),
+            workspace_rows,
+            save_count: AtomicUsize::new(0),
+            fail_on_save: AtomicUsize::new(usize::MAX),
+            failed_write_attempted: AtomicBool::new(false),
+            changed: tokio::sync::Notify::new(),
+        }
+    }
+
+    pub fn fail_transition_after_initial_commit(&self) {
+        self.fail_on_save.store(2, Ordering::SeqCst);
+    }
+
+    pub async fn wait_for_failed_transition(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.failed_write_attempted.load(Ordering::SeqCst) {
+                return;
+            }
+            changed.await;
         }
     }
 
@@ -486,11 +599,26 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
         runtime: &RunpodRuntime,
         operation: &LifecycleOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
+        let save_number = self.save_count.fetch_add(1, Ordering::SeqCst) + 1;
+        if save_number == self.fail_on_save.load(Ordering::SeqCst) {
+            self.failed_write_attempted.store(true, Ordering::SeqCst);
+            self.changed.notify_waiters();
+            return Err(RuntimeTransitionRepositoryError::Unavailable);
+        }
         let mut runtimes = self.runtimes.lock().unwrap();
         if runtime.state == RunpodRuntimeState::CleaningUp
             && operation.state == LifecycleOperationState::Succeeded
         {
             runtimes.retain(|item| item.workspace_id != runtime.workspace_id);
+            if let Some(workspace) = self
+                .workspace_rows
+                .lock()
+                .unwrap()
+                .iter_mut()
+                .find(|workspace| workspace.id == runtime.workspace_id)
+            {
+                workspace.attached_runtime = None;
+            }
         } else if let Some(saved) = runtimes
             .iter_mut()
             .find(|item| item.workspace_id == runtime.workspace_id)
@@ -498,6 +626,15 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
             *saved = runtime.clone();
         } else {
             runtimes.push(runtime.clone());
+            if let Some(workspace) = self
+                .workspace_rows
+                .lock()
+                .unwrap()
+                .iter_mut()
+                .find(|workspace| workspace.id == runtime.workspace_id)
+            {
+                workspace.attached_runtime = Some(RuntimeKind::Runpod);
+            }
         }
         self.snapshots
             .lock()
@@ -511,6 +648,9 @@ impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository 
 pub(super) struct FakeRunpodRuntimeProvider {
     calls: Mutex<Vec<&'static str>>,
     fail_once: Mutex<Option<&'static str>>,
+    block_first_call: AtomicBool,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
 }
 
 impl FakeRunpodRuntimeProvider {
@@ -522,8 +662,24 @@ impl FakeRunpodRuntimeProvider {
         *self.fail_once.lock().unwrap() = Some(method);
     }
 
-    fn call(&self, method: &'static str) -> Result<(), RunpodRuntimeProviderError> {
+    pub fn block_first_call(&self) {
+        self.block_first_call.store(true, Ordering::SeqCst);
+    }
+
+    pub async fn wait_until_first_call(&self) {
+        self.entered.notified().await;
+    }
+
+    pub fn release_first_call(&self) {
+        self.release.notify_one();
+    }
+
+    async fn call(&self, method: &'static str) -> Result<(), RunpodRuntimeProviderError> {
         self.calls.lock().unwrap().push(method);
+        if self.block_first_call.swap(false, Ordering::SeqCst) {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
         let mut fail_once = self.fail_once.lock().unwrap();
         if *fail_once == Some(method) {
             *fail_once = None;
@@ -541,7 +697,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: CreateNetworkVolume,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.call("create_network_volume")?;
+        self.call("create_network_volume").await?;
         Ok("volume-1".into())
     }
 
@@ -550,7 +706,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: StartProvisionerPod,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.call("start_provisioner_pod")?;
+        self.call("start_provisioner_pod").await?;
         Ok("pod-1".into())
     }
 
@@ -560,7 +716,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &str,
         _: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
-        self.call("wait_for_provisioner")
+        self.call("wait_for_provisioner").await
     }
 
     async fn terminate_provisioner_pod(
@@ -568,7 +724,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
-        self.call("terminate_provisioner_pod")
+        self.call("terminate_provisioner_pod").await
     }
 
     async fn create_template(
@@ -576,7 +732,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: CreateTemplate,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.call("create_template")?;
+        self.call("create_template").await?;
         Ok("template-1".into())
     }
 
@@ -585,7 +741,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: CreateEndpoint,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.call("create_endpoint")?;
+        self.call("create_endpoint").await?;
         Ok("endpoint-1".into())
     }
 
@@ -594,7 +750,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
-        self.call("delete_endpoint")
+        self.call("delete_endpoint").await
     }
 
     async fn delete_template(
@@ -602,7 +758,7 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
-        self.call("delete_template")
+        self.call("delete_template").await
     }
 
     async fn delete_network_volume(
@@ -610,6 +766,6 @@ impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
         _: &SecretString,
         _: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
-        self.call("delete_network_volume")
+        self.call("delete_network_volume").await
     }
 }
