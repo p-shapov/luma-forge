@@ -6,9 +6,12 @@ use sea_orm::{
 use crate::{
     application::{
         lifecycle::{LifecycleOperation, LifecycleOperationState},
-        runtimes::runpod::{
-            RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeRepository,
-            RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeState,
+        runtimes::{
+            ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
+            runpod::{
+                RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeRepository,
+                RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeState,
+            },
         },
     },
     infra::sqlite::entities::{
@@ -51,51 +54,54 @@ impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
         let model = model.ok_or(RunpodRuntimeRepositoryError::CorruptData)?;
         map_runtime(model).map(Some)
     }
+}
 
+#[async_trait::async_trait]
+impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepository {
     async fn save_transition(
         &self,
         runtime: &RunpodRuntime,
         operation: &LifecycleOperation,
-    ) -> Result<(), RunpodRuntimeRepositoryError> {
+    ) -> Result<(), RuntimeTransitionRepositoryError> {
         if runtime.workspace_id != operation.workspace_id {
-            return Err(RunpodRuntimeRepositoryError::CorruptData);
+            return Err(RuntimeTransitionRepositoryError::CorruptData);
         }
 
         let transaction = self
             .connection
             .begin()
             .await
-            .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+            .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
         let anchor = workspace_runtimes::Entity::find_by_id(&runtime.workspace_id)
             .one(&transaction)
             .await
-            .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+            .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
         if anchor
             .as_ref()
             .is_some_and(|anchor| anchor.provider_kind != "runpod")
         {
-            return Err(RunpodRuntimeRepositoryError::CorruptData);
+            return Err(RuntimeTransitionRepositoryError::CorruptData);
         }
         let stored_runtime = runpod_workspace_runtimes::Entity::find_by_id(&runtime.workspace_id)
             .one(&transaction)
             .await
-            .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+            .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
         let stored_operation = lifecycle_operations::Entity::find_by_id(operation.id.to_string())
             .one(&transaction)
             .await
-            .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+            .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
 
         if operation.state == LifecycleOperationState::Failed {
             let mut model = stored_runtime
-                .ok_or(RunpodRuntimeRepositoryError::NotFound)?
+                .ok_or(RuntimeTransitionRepositoryError::NotFound)?
                 .into_active_model();
             model.state = Set("failed".to_owned());
             model
                 .update(&transaction)
                 .await
-                .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+                .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
             update_operation(
-                stored_operation.ok_or(RunpodRuntimeRepositoryError::NotFound)?,
+                stored_operation.ok_or(RuntimeTransitionRepositoryError::NotFound)?,
                 operation,
                 &transaction,
             )
@@ -106,18 +112,18 @@ impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
             if runpod_workspace_runtimes::Entity::delete_by_id(&runtime.workspace_id)
                 .exec(&transaction)
                 .await
-                .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?
+                .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?
                 .rows_affected
                 == 0
             {
-                return Err(RunpodRuntimeRepositoryError::NotFound);
+                return Err(RuntimeTransitionRepositoryError::NotFound);
             }
             workspace_runtimes::Entity::delete_by_id(&runtime.workspace_id)
                 .exec(&transaction)
                 .await
-                .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+                .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
             update_operation(
-                stored_operation.ok_or(RunpodRuntimeRepositoryError::NotFound)?,
+                stored_operation.ok_or(RuntimeTransitionRepositoryError::NotFound)?,
                 operation,
                 &transaction,
             )
@@ -126,7 +132,7 @@ impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
             match stored_runtime {
                 Some(model) => update_runtime(model, runtime, &transaction).await?,
                 None if anchor.is_none() => insert_runtime(runtime, &transaction).await?,
-                None => return Err(RunpodRuntimeRepositoryError::CorruptData),
+                None => return Err(RuntimeTransitionRepositoryError::CorruptData),
             }
 
             match stored_operation {
@@ -137,14 +143,14 @@ impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
                             runpod_lifecycle_progress::Entity::find_by_id(operation.id.to_string())
                                 .one(&transaction)
                                 .await
-                                .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?
-                                .ok_or(RunpodRuntimeRepositoryError::CorruptData)?
+                                .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?
+                                .ok_or(RuntimeTransitionRepositoryError::CorruptData)?
                                 .into_active_model();
                         progress.step = Set(progress_value(operation.progress).to_owned());
                         progress
                             .update(&transaction)
                             .await
-                            .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+                            .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
                     }
                 }
                 None => insert_operation(operation, &transaction).await?,
@@ -154,14 +160,14 @@ impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
         transaction
             .commit()
             .await
-            .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)
+            .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)
     }
 }
 
 async fn insert_runtime(
     runtime: &RunpodRuntime,
     connection: &sea_orm::DatabaseTransaction,
-) -> Result<(), RunpodRuntimeRepositoryError> {
+) -> Result<(), RuntimeTransitionRepositoryError> {
     workspace_runtimes::ActiveModel {
         workspace_id: Set(runtime.workspace_id.clone()),
         provider_kind: Set("runpod".to_owned()),
@@ -175,7 +181,7 @@ async fn insert_runtime(
         datacenter_id: Set(runtime.config.datacenter_id.clone()),
         gpu_id: Set(runtime.config.gpu_id.clone()),
         volume_size_gb: Set(i64::try_from(runtime.config.volume_size_gb)
-            .map_err(|_| RunpodRuntimeRepositoryError::CorruptData)?),
+            .map_err(|_| RuntimeTransitionRepositoryError::CorruptData)?),
         network_volume_id: Set(runtime.resources.network_volume_id.clone()),
         provisioner_pod_id: Set(runtime.resources.provisioner_pod_id.clone()),
         endpoint_id: Set(runtime.resources.endpoint_id.clone()),
@@ -191,7 +197,7 @@ async fn update_runtime(
     model: runpod_workspace_runtimes::Model,
     runtime: &RunpodRuntime,
     connection: &sea_orm::DatabaseTransaction,
-) -> Result<(), RunpodRuntimeRepositoryError> {
+) -> Result<(), RuntimeTransitionRepositoryError> {
     let mut model = model.into_active_model();
     model.state = Set(runtime_state_value(runtime.state).to_owned());
     model.network_volume_id = Set(runtime.resources.network_volume_id.clone());
@@ -201,14 +207,14 @@ async fn update_runtime(
     model
         .update(connection)
         .await
-        .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+        .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
     Ok(())
 }
 
 async fn insert_operation(
     operation: &LifecycleOperation,
     connection: &sea_orm::DatabaseTransaction,
-) -> Result<(), RunpodRuntimeRepositoryError> {
+) -> Result<(), RuntimeTransitionRepositoryError> {
     lifecycle_operations::ActiveModel {
         id: Set(operation.id.to_string()),
         workspace_id: Set(operation.workspace_id.clone()),
@@ -225,9 +231,9 @@ async fn insert_operation(
     .await
     .map_err(|error| match error.sql_err() {
         Some(SqlErr::UniqueConstraintViolation(_)) => {
-            RunpodRuntimeRepositoryError::OperationAlreadyRunning
+            RuntimeTransitionRepositoryError::OperationAlreadyRunning
         }
-        _ => RunpodRuntimeRepositoryError::Unavailable,
+        _ => RuntimeTransitionRepositoryError::Unavailable,
     })?;
     runpod_lifecycle_progress::ActiveModel {
         operation_id: Set(operation.id.to_string()),
@@ -235,7 +241,7 @@ async fn insert_operation(
     }
     .insert(connection)
     .await
-    .map_err(|_| RunpodRuntimeRepositoryError::Unavailable)?;
+    .map_err(|_| RuntimeTransitionRepositoryError::Unavailable)?;
     Ok(())
 }
 
@@ -243,7 +249,7 @@ async fn update_operation(
     model: lifecycle_operations::Model,
     operation: &LifecycleOperation,
     connection: &sea_orm::DatabaseTransaction,
-) -> Result<(), RunpodRuntimeRepositoryError> {
+) -> Result<(), RuntimeTransitionRepositoryError> {
     let mut model = model.into_active_model();
     model.state = Set(operation_state_value(operation.state).to_owned());
     model.running_workspace_id = Set((operation.state == LifecycleOperationState::Running)
@@ -255,9 +261,9 @@ async fn update_operation(
         .await
         .map_err(|error| match error.sql_err() {
             Some(SqlErr::UniqueConstraintViolation(_)) => {
-                RunpodRuntimeRepositoryError::OperationAlreadyRunning
+                RuntimeTransitionRepositoryError::OperationAlreadyRunning
             }
-            _ => RunpodRuntimeRepositoryError::Unavailable,
+            _ => RuntimeTransitionRepositoryError::Unavailable,
         })?;
     Ok(())
 }
@@ -299,9 +305,11 @@ fn runtime_state_value(state: RunpodRuntimeState) -> &'static str {
     }
 }
 
-fn map_runtime_insert_error(error: sea_orm::DbErr) -> RunpodRuntimeRepositoryError {
+fn map_runtime_insert_error(error: sea_orm::DbErr) -> RuntimeTransitionRepositoryError {
     match error.sql_err() {
-        Some(SqlErr::UniqueConstraintViolation(_)) => RunpodRuntimeRepositoryError::AlreadyExists,
-        _ => RunpodRuntimeRepositoryError::Unavailable,
+        Some(SqlErr::UniqueConstraintViolation(_)) => {
+            RuntimeTransitionRepositoryError::AlreadyExists
+        }
+        _ => RuntimeTransitionRepositoryError::Unavailable,
     }
 }

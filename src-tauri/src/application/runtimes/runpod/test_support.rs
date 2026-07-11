@@ -16,6 +16,7 @@ use crate::application::{
         progress::runpod::{RunpodCleanupStep, RunpodProvisionStep},
         LifecycleOperation, LifecycleOperationState,
     },
+    runtimes::ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
     secrets::{SecretKind, SecretStore, SecretStoreError},
     workspace::{
         ports::{
@@ -449,12 +450,15 @@ impl RunpodRuntimeRepository for FakeRunpodRuntimeRepository {
             .find(|runtime| runtime.workspace_id == workspace_id)
             .cloned())
     }
+}
 
+#[async_trait::async_trait]
+impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository {
     async fn save_transition(
         &self,
         runtime: &RunpodRuntime,
         operation: &LifecycleOperation,
-    ) -> Result<(), RunpodRuntimeRepositoryError> {
+    ) -> Result<(), RuntimeTransitionRepositoryError> {
         let mut runtimes = self.runtimes.lock().unwrap();
         if runtime.state == RunpodRuntimeState::CleaningUp
             && operation.state == LifecycleOperationState::Succeeded

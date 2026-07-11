@@ -1,0 +1,355 @@
+use std::sync::Arc;
+
+use crate::application::{
+    events::{ApplicationEvent, ApplicationEventSink},
+    lifecycle::LifecycleOperation,
+    runtimes::{
+        ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
+        RuntimeModel,
+    },
+    workspace::ports::WorkspaceRepository,
+};
+
+#[derive(Clone)]
+pub struct RuntimeTransitionContext<R, P>
+where
+    R: RuntimeModel,
+    P: RuntimeTransitionRepository<R> + ?Sized,
+{
+    transitions: Arc<P>,
+    workspaces: Arc<dyn WorkspaceRepository>,
+    events: Arc<dyn ApplicationEventSink>,
+    runtime: std::marker::PhantomData<R>,
+}
+
+impl<R, P> RuntimeTransitionContext<R, P>
+where
+    R: RuntimeModel,
+    P: RuntimeTransitionRepository<R> + ?Sized,
+{
+    pub fn new(
+        transitions: Arc<P>,
+        workspaces: Arc<dyn WorkspaceRepository>,
+        events: Arc<dyn ApplicationEventSink>,
+    ) -> Self {
+        Self {
+            transitions,
+            workspaces,
+            events,
+            runtime: std::marker::PhantomData,
+        }
+    }
+
+    pub fn transitions(&self) -> &P {
+        self.transitions.as_ref()
+    }
+
+    pub async fn save_changed(
+        &self,
+        runtime: &R,
+        operation: &LifecycleOperation,
+    ) -> Result<(), RuntimeTransitionRepositoryError> {
+        self.transitions.save_transition(runtime, operation).await?;
+        self.events.emit(ApplicationEvent::RuntimeChanged(
+            runtime.clone().into_runtime(),
+        ));
+        self.events
+            .emit(ApplicationEvent::LifecycleOperationChanged(
+                operation.clone(),
+            ));
+        Ok(())
+    }
+
+    pub async fn save_attached(
+        &self,
+        runtime: &R,
+        operation: &LifecycleOperation,
+    ) -> Result<(), RuntimeTransitionRepositoryError> {
+        self.transitions.save_transition(runtime, operation).await?;
+        self.emit_workspace_projection(runtime.workspace_id()).await;
+        self.events.emit(ApplicationEvent::RuntimeChanged(
+            runtime.clone().into_runtime(),
+        ));
+        self.events
+            .emit(ApplicationEvent::LifecycleOperationChanged(
+                operation.clone(),
+            ));
+        Ok(())
+    }
+
+    pub async fn save_deleted(
+        &self,
+        runtime: &R,
+        operation: &LifecycleOperation,
+    ) -> Result<(), RuntimeTransitionRepositoryError> {
+        self.transitions.save_transition(runtime, operation).await?;
+        self.emit_workspace_projection(runtime.workspace_id()).await;
+        self.events.emit(ApplicationEvent::RuntimeDeleted {
+            workspace_id: runtime.workspace_id().to_owned(),
+            kind: runtime.kind(),
+        });
+        self.events
+            .emit(ApplicationEvent::LifecycleOperationChanged(
+                operation.clone(),
+            ));
+        Ok(())
+    }
+
+    async fn emit_workspace_projection(&self, workspace_id: &str) {
+        if let Ok(Some(workspace)) = self.workspaces.get(workspace_id).await {
+            self.events
+                .emit(ApplicationEvent::WorkspaceChanged(workspace));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    };
+
+    use time::OffsetDateTime;
+    use uuid::Uuid;
+
+    use crate::application::{
+        catalog::CatalogRef,
+        events::{ApplicationEvent, ApplicationEventSink},
+        lifecycle::{progress::runpod::RunpodProvisionStep, LifecycleOperation},
+        runtimes::{
+            ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
+            runpod::{
+                RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources, RunpodRuntimeState,
+            },
+            Runtime,
+        },
+        workspace::{
+            ports::{WorkspaceRepository, WorkspaceRepositoryError},
+            RuntimeKind, Workspace,
+        },
+    };
+
+    use super::RuntimeTransitionContext;
+
+    #[tokio::test]
+    async fn attached_transition_commits_before_ordered_events() {
+        let fakes = Fakes::attached();
+
+        fakes
+            .context()
+            .save_attached(&fakes.runtime, &fakes.operation)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fakes.events.events(),
+            vec![
+                ApplicationEvent::WorkspaceChanged(fakes.workspace.clone()),
+                ApplicationEvent::RuntimeChanged(Runtime::Runpod(fakes.runtime.clone())),
+                ApplicationEvent::LifecycleOperationChanged(fakes.operation.clone()),
+            ]
+        );
+        assert!(fakes.events.all_emitted_after_commit());
+    }
+
+    #[tokio::test]
+    async fn changed_transition_emits_only_runtime_then_lifecycle() {
+        let fakes = Fakes::attached();
+
+        fakes
+            .context()
+            .save_changed(&fakes.runtime, &fakes.operation)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fakes.events.events(),
+            vec![
+                ApplicationEvent::RuntimeChanged(Runtime::Runpod(fakes.runtime.clone())),
+                ApplicationEvent::LifecycleOperationChanged(fakes.operation.clone()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn deleted_transition_emits_detached_workspace_before_deletion_and_lifecycle() {
+        let fakes = Fakes::detached();
+
+        fakes
+            .context()
+            .save_deleted(&fakes.runtime, &fakes.operation)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fakes.events.events(),
+            vec![
+                ApplicationEvent::WorkspaceChanged(fakes.workspace.clone()),
+                ApplicationEvent::RuntimeDeleted {
+                    workspace_id: "workspace-1".into(),
+                    kind: RuntimeKind::Runpod,
+                },
+                ApplicationEvent::LifecycleOperationChanged(fakes.operation.clone()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_commit_emits_nothing() {
+        let fakes = Fakes::failing_transition();
+
+        assert_eq!(
+            fakes
+                .context()
+                .save_changed(&fakes.runtime, &fakes.operation)
+                .await,
+            Err(RuntimeTransitionRepositoryError::Unavailable),
+        );
+        assert!(fakes.events.events().is_empty());
+    }
+
+    struct Fakes {
+        transitions: Arc<FakeTransitionRepository>,
+        workspaces: Arc<FakeWorkspaceRepository>,
+        events: Arc<RecordingEventSink>,
+        runtime: RunpodRuntime,
+        operation: LifecycleOperation,
+        workspace: Workspace,
+    }
+
+    impl Fakes {
+        fn attached() -> Self {
+            Self::new(Some(RuntimeKind::Runpod), false)
+        }
+
+        fn detached() -> Self {
+            Self::new(None, false)
+        }
+
+        fn failing_transition() -> Self {
+            Self::new(Some(RuntimeKind::Runpod), true)
+        }
+
+        fn new(attached_runtime: Option<RuntimeKind>, fail: bool) -> Self {
+            let committed = Arc::new(AtomicBool::new(false));
+            let workspace = Workspace {
+                id: "workspace-1".into(),
+                workflow: CatalogRef::new("workflow-1", "1"),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                attached_runtime,
+            };
+            Self {
+                transitions: Arc::new(FakeTransitionRepository {
+                    committed: committed.clone(),
+                    fail,
+                }),
+                workspaces: Arc::new(FakeWorkspaceRepository(workspace.clone())),
+                events: Arc::new(RecordingEventSink {
+                    committed,
+                    events: Mutex::new(Vec::new()),
+                }),
+                runtime: RunpodRuntime {
+                    workspace_id: "workspace-1".into(),
+                    state: RunpodRuntimeState::Ready,
+                    config: RunpodRuntimeConfig {
+                        datacenter_id: "dc-1".into(),
+                        gpu_id: "gpu-1".into(),
+                        volume_size_gb: 19,
+                    },
+                    resources: RunpodRuntimeResources::default(),
+                },
+                operation: LifecycleOperation::runpod_provision(
+                    Uuid::from_u128(1),
+                    "workspace-1",
+                    Uuid::from_u128(2),
+                    RunpodProvisionStep::CreateEndpoint,
+                    OffsetDateTime::UNIX_EPOCH,
+                ),
+                workspace,
+            }
+        }
+
+        fn context(&self) -> RuntimeTransitionContext<RunpodRuntime, FakeTransitionRepository> {
+            RuntimeTransitionContext::new(
+                self.transitions.clone(),
+                self.workspaces.clone(),
+                self.events.clone(),
+            )
+        }
+    }
+
+    struct FakeTransitionRepository {
+        committed: Arc<AtomicBool>,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl RuntimeTransitionRepository<RunpodRuntime> for FakeTransitionRepository {
+        async fn save_transition(
+            &self,
+            _: &RunpodRuntime,
+            _: &LifecycleOperation,
+        ) -> Result<(), RuntimeTransitionRepositoryError> {
+            if self.fail {
+                return Err(RuntimeTransitionRepositoryError::Unavailable);
+            }
+            self.committed.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    struct RecordingEventSink {
+        committed: Arc<AtomicBool>,
+        events: Mutex<Vec<(bool, ApplicationEvent)>>,
+    }
+
+    impl RecordingEventSink {
+        fn events(&self) -> Vec<ApplicationEvent> {
+            self.events
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(_, event)| event.clone())
+                .collect()
+        }
+
+        fn all_emitted_after_commit(&self) -> bool {
+            self.events
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(committed, _)| *committed)
+        }
+    }
+
+    impl ApplicationEventSink for RecordingEventSink {
+        fn emit(&self, event: ApplicationEvent) {
+            self.events
+                .lock()
+                .unwrap()
+                .push((self.committed.load(Ordering::SeqCst), event));
+        }
+    }
+
+    struct FakeWorkspaceRepository(Workspace);
+
+    #[async_trait::async_trait]
+    impl WorkspaceRepository for FakeWorkspaceRepository {
+        async fn create(&self, _: Workspace) -> Result<Workspace, WorkspaceRepositoryError> {
+            unreachable!()
+        }
+
+        async fn get(&self, id: &str) -> Result<Option<Workspace>, WorkspaceRepositoryError> {
+            Ok((self.0.id == id).then(|| self.0.clone()))
+        }
+
+        async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
+            unreachable!()
+        }
+
+        async fn delete(&self, _: &str) -> Result<bool, WorkspaceRepositoryError> {
+            unreachable!()
+        }
+    }
+}
