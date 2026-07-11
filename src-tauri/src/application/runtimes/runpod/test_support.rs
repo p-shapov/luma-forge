@@ -65,6 +65,12 @@ impl ProvisionFakes {
         )
     }
 
+    pub fn ready_runtime_without_runpod_credential() -> Self {
+        let mut fakes = Self::ready_runtime();
+        fakes.secrets.runpod = false;
+        fakes
+    }
+
     pub fn failed_partial_runtime() -> Self {
         let mut runtime = runtime(RunpodRuntimeState::Failed);
         runtime.resources = RunpodRuntimeResources {
@@ -391,6 +397,15 @@ impl FakeRunpodRuntimeRepository {
 
     pub fn runtime_was_removed(&self) -> bool {
         self.runtimes.lock().unwrap().is_empty()
+    }
+
+    pub fn runtime_state(&self, workspace_id: &str) -> Option<RunpodRuntimeState> {
+        self.runtimes
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|runtime| runtime.workspace_id == workspace_id)
+            .map(|runtime| runtime.state)
     }
 
     pub fn saved_states(&self) -> Vec<(RunpodRuntimeState, LifecycleOperationState)> {

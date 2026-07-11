@@ -45,6 +45,11 @@ impl RunpodRuntimeService<'_> {
             .get(workspace_id)
             .await?
             .ok_or(RunpodRuntimeError::NotProvisioned)?;
+        let runpod_key = self
+            .secrets
+            .get(SecretKind::RunpodApiKey)
+            .await?
+            .ok_or(RunpodRuntimeError::CredentialMissing)?;
         runtime.begin_cleanup()?;
 
         let mut operation = LifecycleOperation::runpod_cleanup(
@@ -55,12 +60,6 @@ impl RunpodRuntimeService<'_> {
             OffsetDateTime::now_utc(),
         );
         self.runtimes.save_transition(&runtime, &operation).await?;
-
-        let runpod_key = self
-            .secrets
-            .get(SecretKind::RunpodApiKey)
-            .await?
-            .ok_or(RunpodRuntimeError::CredentialMissing)?;
 
         if let Some(id) = runtime.resources.endpoint_id.clone() {
             if let Err(error) = self.provider.delete_endpoint(&runpod_key, &id).await {
@@ -576,6 +575,22 @@ mod tests {
                 .cleanup("workspace-1")
                 .await,
             Err(RunpodRuntimeError::NotProvisioned)
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_without_runpod_credential_does_not_start_a_transition() {
+        let fakes = CleanupFakes::ready_runtime_without_runpod_credential();
+
+        assert_eq!(
+            fakes.service().cleanup("workspace-1").await,
+            Err(RunpodRuntimeError::CredentialMissing)
+        );
+        assert!(fakes.provider.calls().is_empty());
+        assert!(fakes.repository.saved_states().is_empty());
+        assert_eq!(
+            fakes.repository.runtime_state("workspace-1"),
+            Some(RunpodRuntimeState::Ready)
         );
     }
 
