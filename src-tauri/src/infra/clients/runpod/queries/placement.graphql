@@ -1,4 +1,4 @@
-query LumaForgeRunpodPlacement {
+query Placement {
   gpuTypes {
     id
     displayName

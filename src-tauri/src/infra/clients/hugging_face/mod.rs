@@ -1,5 +1,6 @@
 mod client;
-mod types;
+#[allow(clippy::derivable_impls)]
+pub mod generated;
 
 pub use client::HuggingFaceClient;
-pub use types::HuggingFaceIdentity;
+pub use generated::WhoamiResponse;

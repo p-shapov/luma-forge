@@ -1,4 +1,4 @@
-query LumaForgeRunpodIdentity {
+query Myself {
   myself {
     id
     email

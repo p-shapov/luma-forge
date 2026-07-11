@@ -1,7 +1,11 @@
 mod client;
-mod types;
+#[allow(clippy::derivable_impls)]
+pub mod generated;
+mod queries;
 
 pub use client::RunpodClient;
-pub use types::{
-    RunpodDatacenter, RunpodGpuAvailability, RunpodGpuType, RunpodIdentity, RunpodPlacementOptions,
+pub use generated::{
+    Endpoint, EndpointCreateInput, NetworkVolume, NetworkVolumeCreateInput, Pod, PodCreateInput,
+    Template, TemplateCreateInput,
 };
+pub use queries::{MyselfResponse, PlacementResponse};
