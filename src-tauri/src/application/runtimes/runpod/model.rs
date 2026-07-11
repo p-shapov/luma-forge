@@ -1,4 +1,7 @@
-use crate::application::workspace::WorkspaceStatus;
+use crate::application::{
+    runtimes::{Runtime, RuntimeModel},
+    workspace::{RuntimeKind, WorkspaceStatus},
+};
 
 use super::RunpodRuntimeError;
 
@@ -31,6 +34,20 @@ pub struct RunpodRuntime {
     pub state: RunpodRuntimeState,
     pub config: RunpodRuntimeConfig,
     pub resources: RunpodRuntimeResources,
+}
+
+impl RuntimeModel for RunpodRuntime {
+    fn workspace_id(&self) -> &str {
+        &self.workspace_id
+    }
+
+    fn kind(&self) -> RuntimeKind {
+        RuntimeKind::Runpod
+    }
+
+    fn into_runtime(self) -> Runtime {
+        Runtime::Runpod(self)
+    }
 }
 
 impl RunpodRuntime {
