@@ -36,8 +36,16 @@ part of the scope.
 Add a provider-neutral application runtime enum:
 
 ```rust
+pub enum RuntimeKind {
+    Runpod,
+}
+
 pub enum Runtime {
     Runpod(RunpodRuntime),
+}
+
+pub enum RuntimeProgress {
+    Runpod(RunpodProgress),
 }
 ```
 
@@ -51,13 +59,46 @@ pub trait RuntimeModel: Clone + Send + Sync + 'static {
 }
 ```
 
-Adding another provider adds its application model, a `Runtime` variant, and a
-`RuntimeModel` implementation. Existing background and event code does not gain
-provider branches.
+`RuntimeKind` and `RuntimeProgress` belong to `application/runtimes`, not
+`application/workspace` or `application/lifecycle`. RunPod-owned progress types
+live under `application/runtimes/runpod/progress.rs`.
+
+Adding another provider adds its application model, `Runtime` and
+`RuntimeProgress` variants, and a `RuntimeModel` implementation. Existing
+transition and event behavior does not gain provider-specific methods.
 
 Provider-owned resource IDs remain in the provider runtime model because native
 cleanup and recovery require them. A future inbound adapter may omit those IDs
 from its public runtime DTO.
+
+`Workspace` stores only `attached_runtime: Option<RuntimeKind>`. This is the
+committed runtime-anchor projection used for dispatch and deletion guards; the
+full provider runtime remains a separate aggregate and event payload.
+
+## Provider-Neutral Lifecycle Operation
+
+`application/lifecycle` owns only operation identity, workspace identity,
+operation kind, state, trace ID, timestamps, and the valid running-to-terminal
+transitions. It stores provider progress through `RuntimeProgress` dispatch but
+defines no RunPod constructors, step setters, or progress accessors.
+
+The shared behavior is:
+
+```rust
+LifecycleOperation::running(id, workspace_id, trace_id, kind, progress, now)
+operation.set_progress(progress, now)
+operation.succeed(now)
+operation.fail(now)
+```
+
+`LifecycleOperationKind` is stored explicitly rather than derived from a
+provider progress variant. Provider workflows construct and update their own
+progress values before passing them to the shared lifecycle behavior.
+
+Workspace service tests configure the fake lifecycle repository with a simple
+`has_running` result. They do not construct RunPod operations or introduce a
+fake runtime because `WorkspaceService` consumes neither runtime models nor a
+runtime repository.
 
 ## Application Events
 
@@ -307,7 +348,8 @@ before a successful commit do not spawn tasks or emit events.
 Adding a runtime provider requires:
 
 1. its provider-specific application model and progress steps;
-2. a `Runtime` enum variant and `RuntimeModel` implementation;
+2. `Runtime`, `RuntimeKind`, and `RuntimeProgress` enum variants plus a
+   `RuntimeModel` implementation;
 3. its provider-specific repository and provider ports/adapters;
 4. its provider workflow implementation using `RuntimeTransitionContext`;
 5. provider-specific behavioral tests.
