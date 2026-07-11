@@ -18,7 +18,6 @@ where
     transitions: Arc<P>,
     workspaces: Arc<dyn WorkspaceRepository>,
     events: Arc<dyn ApplicationEventSink>,
-    // ponytail: one global transition lane; use per-workspace locks if throughput matters.
     coordinator: Arc<tokio::sync::Mutex<()>>,
     runtime: std::marker::PhantomData<R>,
 }
