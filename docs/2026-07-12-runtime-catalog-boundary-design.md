@@ -18,8 +18,9 @@ It also owns the provider-neutral runtime operation model:
 - `RuntimeOperation`;
 - `RuntimeOperationKind`;
 - `RuntimeOperationState`;
-- `RuntimeOperationError`;
 - the operation transition behavior and its unit tests.
+
+`application/runtimes/errors.rs` owns `RuntimeOperationError`, matching the existing boundary-local error placement used by RunPod. There is no global application error module.
 
 Workspace continues to store `CatalogRef` for its selected workflow and to use `WorkflowDefinition` through `WorkflowCatalog`. This creates no new aggregate: workspace consumes the runtime catalog projection required to validate and provision its runtime.
 
