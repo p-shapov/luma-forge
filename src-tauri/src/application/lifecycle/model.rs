@@ -1,10 +1,11 @@
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{
-    errors::LifecycleError,
-    progress::runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
+use crate::application::runtimes::runpod::{
+    RunpodCleanupStep, RunpodProgress, RunpodProvisionStep,
 };
+
+use super::errors::LifecycleError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleOperationState {
@@ -178,7 +179,7 @@ impl LifecycleOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::lifecycle::progress::runpod::{RunpodCleanupStep, RunpodProvisionStep};
+    use crate::application::runtimes::runpod::{RunpodCleanupStep, RunpodProvisionStep};
     use uuid::Uuid;
 
     #[test]

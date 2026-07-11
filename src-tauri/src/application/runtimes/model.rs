@@ -1,10 +1,18 @@
-use crate::application::workspace::RuntimeKind;
+use super::runpod::{RunpodProgress, RunpodRuntime};
 
-use super::runpod::RunpodRuntime;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeKind {
+    Runpod,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Runtime {
     Runpod(RunpodRuntime),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeProgress {
+    Runpod(RunpodProgress),
 }
 
 pub trait RuntimeModel: Clone + Send + Sync + 'static {
@@ -17,7 +25,8 @@ pub trait RuntimeModel: Clone + Send + Sync + 'static {
 mod tests {
     use super::*;
     use crate::application::runtimes::runpod::{
-        RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources, RunpodRuntimeState,
+        RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
+        RunpodRuntimeResources, RunpodRuntimeState,
     };
 
     #[test]
@@ -36,5 +45,17 @@ mod tests {
         assert_eq!(runtime.workspace_id(), "workspace-1");
         assert_eq!(runtime.kind(), RuntimeKind::Runpod);
         assert_eq!(runtime.clone().into_runtime(), Runtime::Runpod(runtime));
+    }
+
+    #[test]
+    fn runtime_dispatch_owns_provider_progress() {
+        assert_eq!(
+            RuntimeProgress::Runpod(RunpodProgress::Provision(
+                RunpodProvisionStep::CreateNetworkVolume,
+            )),
+            RuntimeProgress::Runpod(RunpodProgress::Provision(
+                RunpodProvisionStep::CreateNetworkVolume,
+            )),
+        );
     }
 }

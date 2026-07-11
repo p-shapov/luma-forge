@@ -1,11 +1,7 @@
 use time::OffsetDateTime;
 
 use crate::application::catalog::CatalogRef;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeKind {
-    Runpod,
-}
+use crate::application::runtimes::RuntimeKind;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorkspaceStatus {

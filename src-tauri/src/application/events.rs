@@ -1,7 +1,7 @@
 use crate::application::{
     lifecycle::LifecycleOperation,
-    runtimes::Runtime,
-    workspace::{RuntimeKind, Workspace},
+    runtimes::{Runtime, RuntimeKind},
+    workspace::Workspace,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

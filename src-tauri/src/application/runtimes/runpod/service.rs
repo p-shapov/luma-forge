@@ -6,23 +6,16 @@ use uuid::Uuid;
 use crate::application::{
     catalog::{RunpodRuntimeDefinition, WorkflowDefinition},
     events::ApplicationEventSink,
-    lifecycle::{
-        ports::LifecycleOperationRepository,
-        progress::runpod::{RunpodCleanupStep, RunpodProvisionStep},
-        LifecycleOperation, LifecycleProgress,
-    },
-    runtimes::RuntimeTransitionContext,
+    lifecycle::{ports::LifecycleOperationRepository, LifecycleOperation, LifecycleProgress},
+    runtimes::{RuntimeKind, RuntimeTransitionContext},
     secrets::{SecretKind, SecretStore},
-    workspace::{
-        ports::{WorkflowCatalog, WorkspaceRepository},
-        RuntimeKind,
-    },
+    workspace::ports::{WorkflowCatalog, WorkspaceRepository},
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntime, RunpodRuntimeCatalog,
-    RunpodRuntimeConfig, RunpodRuntimeError, RunpodRuntimeProvider, RunpodRuntimeRepository,
-    StartProvisionerPod,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProvisionStep,
+    RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig, RunpodRuntimeError,
+    RunpodRuntimeProvider, RunpodRuntimeRepository, StartProvisionerPod,
 };
 
 pub struct ProvisionRunpodRuntime {
@@ -535,11 +528,11 @@ impl RunpodRuntimeService {
 mod tests {
     use crate::application::{
         events::ApplicationEvent,
-        lifecycle::{
-            progress::runpod::{RunpodCleanupStep, RunpodProvisionStep},
-            LifecycleOperationState,
+        lifecycle::LifecycleOperationState,
+        runtimes::{
+            runpod::{RunpodCleanupStep, RunpodProvisionStep},
+            Runtime, RuntimeKind,
         },
-        runtimes::Runtime,
     };
     use uuid::Uuid;
 
@@ -845,7 +838,7 @@ mod tests {
                 ApplicationEvent::WorkspaceChanged(detached_workspace),
                 ApplicationEvent::RuntimeDeleted {
                     workspace_id: "workspace-1".into(),
-                    kind: crate::application::workspace::RuntimeKind::Runpod,
+                    kind: RuntimeKind::Runpod,
                 },
                 ApplicationEvent::LifecycleOperationChanged(succeeded_operation),
             ]

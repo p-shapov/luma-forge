@@ -137,19 +137,21 @@ mod tests {
     use crate::application::{
         catalog::CatalogRef,
         events::{ApplicationEvent, ApplicationEventSink},
-        lifecycle::{progress::runpod::RunpodProvisionStep, LifecycleOperation},
+        lifecycle::LifecycleOperation,
         runtimes::{
             ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
             runpod::{
                 RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources, RunpodRuntimeState,
             },
-            Runtime,
+            Runtime, RuntimeKind,
         },
         workspace::{
             ports::{WorkspaceRepository, WorkspaceRepositoryError},
-            RuntimeKind, Workspace,
+            Workspace,
         },
     };
+
+    use crate::application::runtimes::runpod::RunpodProvisionStep;
 
     use super::RuntimeTransitionContext;
 

@@ -1,6 +1,7 @@
 mod errors;
 mod model;
 pub mod ports;
+mod progress;
 mod service;
 #[cfg(test)]
 mod test_support;
@@ -12,4 +13,5 @@ pub use ports::{
     RunpodRuntimeCatalogError, RunpodRuntimeProvider, RunpodRuntimeProviderError,
     RunpodRuntimeRepository, RunpodRuntimeRepositoryError, StartProvisionerPod,
 };
+pub use progress::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep};
 pub use service::{ProvisionRunpodRuntime, RunpodRuntimeService, RunpodRuntimeServiceDependencies};

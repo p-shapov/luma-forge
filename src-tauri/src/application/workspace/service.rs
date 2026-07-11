@@ -125,15 +125,15 @@ mod tests {
         events::{ApplicationEvent, ApplicationEventSink},
         lifecycle::{
             ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-            progress::runpod::RunpodProvisionStep,
             LifecycleOperation,
         },
+        runtimes::{runpod::RunpodProvisionStep, RuntimeKind},
         workspace::{
             ports::{
                 WorkflowCatalog, WorkflowCatalogError, WorkspaceRepository,
                 WorkspaceRepositoryError,
             },
-            RuntimeKind, Workspace,
+            Workspace,
         },
     };
 

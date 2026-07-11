@@ -4,10 +4,12 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOr
 use uuid::Uuid;
 
 use crate::{
-    application::lifecycle::{
-        ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-        progress::runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-        LifecycleOperation, LifecycleOperationKind, LifecycleOperationState, LifecycleProgress,
+    application::{
+        lifecycle::{
+            ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
+            LifecycleOperation, LifecycleOperationKind, LifecycleOperationState, LifecycleProgress,
+        },
+        runtimes::runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
     },
     infra::sqlite::entities::{lifecycle_operations, runpod_lifecycle_progress},
 };

@@ -3,9 +3,10 @@ use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrai
 use crate::{
     application::{
         catalog::CatalogRef,
+        runtimes::RuntimeKind,
         workspace::{
             ports::{WorkspaceRepository, WorkspaceRepositoryError},
-            RuntimeKind, Workspace,
+            Workspace,
         },
     },
     infra::sqlite::entities::{workspace_runtimes, workspaces},

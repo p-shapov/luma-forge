@@ -1,6 +1,6 @@
 use crate::application::{
-    runtimes::{Runtime, RuntimeModel},
-    workspace::{RuntimeKind, WorkspaceStatus},
+    runtimes::{Runtime, RuntimeKind, RuntimeModel},
+    workspace::WorkspaceStatus,
 };
 
 use super::RunpodRuntimeError;

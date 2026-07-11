@@ -3,5 +3,5 @@ pub mod ports;
 pub mod runpod;
 mod transition;
 
-pub use model::{Runtime, RuntimeModel};
+pub use model::{Runtime, RuntimeKind, RuntimeModel, RuntimeProgress};
 pub use transition::RuntimeTransitionContext;
