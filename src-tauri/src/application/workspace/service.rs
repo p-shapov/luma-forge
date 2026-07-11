@@ -15,7 +15,19 @@ pub struct WorkspaceService<'a> {
     workflows: &'a dyn WorkflowCatalog,
 }
 
-impl WorkspaceService<'_> {
+impl<'a> WorkspaceService<'a> {
+    pub fn new(
+        workspaces: &'a dyn WorkspaceRepository,
+        lifecycle: &'a dyn LifecycleOperationRepository,
+        workflows: &'a dyn WorkflowCatalog,
+    ) -> Self {
+        Self {
+            workspaces,
+            lifecycle,
+            workflows,
+        }
+    }
+
     pub async fn create(
         &self,
         id: &str,
@@ -298,11 +310,7 @@ mod tests {
         }
 
         fn service(&self) -> WorkspaceService<'_> {
-            WorkspaceService {
-                workspaces: &self.workspaces,
-                lifecycle: &self.lifecycle,
-                workflows: &self.workflows,
-            }
+            WorkspaceService::new(&self.workspaces, &self.lifecycle, &self.workflows)
         }
     }
 
