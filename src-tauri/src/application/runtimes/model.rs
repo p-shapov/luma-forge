@@ -22,6 +22,13 @@ pub trait RuntimeModel: Clone + Send + Sync + 'static {
 }
 
 #[cfg(test)]
+pub(crate) fn progress_fixture() -> RuntimeProgress {
+    RuntimeProgress::Runpod(RunpodProgress::Provision(
+        super::runpod::RunpodProvisionStep::CreateNetworkVolume,
+    ))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::application::runtimes::runpod::{

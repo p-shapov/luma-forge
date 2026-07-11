@@ -6,16 +6,16 @@ use uuid::Uuid;
 use crate::application::{
     catalog::{RunpodRuntimeDefinition, WorkflowDefinition},
     events::ApplicationEventSink,
-    lifecycle::{ports::LifecycleOperationRepository, LifecycleOperation, LifecycleProgress},
-    runtimes::{RuntimeKind, RuntimeTransitionContext},
+    lifecycle::{ports::LifecycleOperationRepository, LifecycleOperation, LifecycleOperationKind},
+    runtimes::{RuntimeKind, RuntimeProgress, RuntimeTransitionContext},
     secrets::{SecretKind, SecretStore},
     workspace::ports::{WorkflowCatalog, WorkspaceRepository},
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProvisionStep,
-    RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig, RunpodRuntimeError,
-    RunpodRuntimeProvider, RunpodRuntimeRepository, StartProvisionerPod,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProgress,
+    RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
+    RunpodRuntimeError, RunpodRuntimeProvider, RunpodRuntimeRepository, StartProvisionerPod,
 };
 
 pub struct ProvisionRunpodRuntime {
@@ -83,11 +83,12 @@ impl RunpodRuntimeService {
             .ok_or(RunpodRuntimeError::CredentialMissing)?;
         runtime.begin_cleanup()?;
 
-        let operation = LifecycleOperation::runpod_cleanup(
+        let operation = LifecycleOperation::running(
             Uuid::new_v4(),
             workspace_id,
             Uuid::new_v4(),
-            RunpodCleanupStep::DeleteEndpoint,
+            LifecycleOperationKind::Cleanup,
+            RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint)),
             OffsetDateTime::now_utc(),
         );
         self.transitions.save_changed(&runtime, &operation).await?;
@@ -201,7 +202,7 @@ impl RunpodRuntimeService {
 
     pub async fn fail_interrupted(&self) -> Result<(), RunpodRuntimeError> {
         for mut operation in self.lifecycle.running().await? {
-            let LifecycleProgress::Runpod(_) = operation.progress;
+            let RuntimeProgress::Runpod(_) = operation.progress;
             let mut runtime = self
                 .runtimes
                 .get(&operation.workspace_id)
@@ -274,11 +275,14 @@ impl RunpodRuntimeService {
                 volume_size_gb: command.volume_size_gb,
             },
         );
-        let operation = LifecycleOperation::runpod_provision(
+        let operation = LifecycleOperation::running(
             Uuid::new_v4(),
             &command.workspace_id,
             Uuid::new_v4(),
-            RunpodProvisionStep::CreateNetworkVolume,
+            LifecycleOperationKind::Provision,
+            RuntimeProgress::Runpod(RunpodProgress::Provision(
+                RunpodProvisionStep::CreateNetworkVolume,
+            )),
             OffsetDateTime::now_utc(),
         );
         self.transitions.save_attached(&runtime, &operation).await?;
@@ -490,7 +494,10 @@ impl RunpodRuntimeService {
         operation: &mut LifecycleOperation,
         step: RunpodProvisionStep,
     ) -> Result<(), RunpodRuntimeError> {
-        operation.set_provision_step(step, OffsetDateTime::now_utc())?;
+        operation.set_progress(
+            RuntimeProgress::Runpod(RunpodProgress::Provision(step)),
+            OffsetDateTime::now_utc(),
+        )?;
         self.transitions
             .save_changed(runtime, operation)
             .await
@@ -503,7 +510,10 @@ impl RunpodRuntimeService {
         operation: &mut LifecycleOperation,
         step: RunpodCleanupStep,
     ) -> Result<(), RunpodRuntimeError> {
-        operation.set_cleanup_step(step, OffsetDateTime::now_utc())?;
+        operation.set_progress(
+            RuntimeProgress::Runpod(RunpodProgress::Cleanup(step)),
+            OffsetDateTime::now_utc(),
+        )?;
         self.transitions
             .save_changed(runtime, operation)
             .await
@@ -530,8 +540,8 @@ mod tests {
         events::ApplicationEvent,
         lifecycle::LifecycleOperationState,
         runtimes::{
-            runpod::{RunpodCleanupStep, RunpodProvisionStep},
-            Runtime, RuntimeKind,
+            runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
+            Runtime, RuntimeKind, RuntimeProgress,
         },
     };
     use uuid::Uuid;
@@ -540,6 +550,11 @@ mod tests {
         test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
         RunpodRuntimeError, RunpodRuntimeResources, RunpodRuntimeState,
     };
+
+    fn runpod_progress(progress: RuntimeProgress) -> RunpodProgress {
+        let RuntimeProgress::Runpod(progress) = progress;
+        progress
+    }
 
     #[tokio::test]
     async fn start_provision_returns_a_durable_operation_before_provider_work_finishes() {
@@ -555,7 +570,7 @@ mod tests {
         assert_eq!(runtime.state, RunpodRuntimeState::Provisioning);
         assert_eq!(operation.state, LifecycleOperationState::Running);
         assert_eq!(
-            operation.progress.provision_step(),
+            runpod_progress(operation.progress).provision_step(),
             Some(RunpodProvisionStep::CreateNetworkVolume)
         );
         assert_eq!(
@@ -707,7 +722,11 @@ mod tests {
             assert_eq!(runtime.state, RunpodRuntimeState::Failed, "{method}");
             assert_eq!(runtime.resources, resources, "{method}");
             assert_eq!(operation.state, LifecycleOperationState::Failed, "{method}");
-            assert_eq!(operation.progress.provision_step(), Some(step), "{method}");
+            assert_eq!(
+                runpod_progress(operation.progress).provision_step(),
+                Some(step),
+                "{method}"
+            );
             let events = fakes.events.events();
             assert_eq!(
                 &events[events.len() - 2..],
@@ -758,7 +777,7 @@ mod tests {
             LifecycleOperationState::Running
         );
         assert_eq!(
-            operation.progress.provision_step(),
+            runpod_progress(operation.progress).provision_step(),
             Some(RunpodProvisionStep::CreateNetworkVolume)
         );
         assert_eq!(fakes.events.runtime_changed_count(), 1);
@@ -776,7 +795,7 @@ mod tests {
         assert_eq!(runtime.state, RunpodRuntimeState::CleaningUp);
         assert_eq!(operation.state, LifecycleOperationState::Running);
         assert_eq!(
-            operation.progress.cleanup_step(),
+            runpod_progress(operation.progress).cleanup_step(),
             Some(RunpodCleanupStep::DeleteEndpoint)
         );
         assert_eq!(
@@ -902,7 +921,7 @@ mod tests {
         assert_eq!(runtime.resources.template_id.as_deref(), Some("template-1"));
         assert_eq!(operation.state, LifecycleOperationState::Failed);
         assert_eq!(
-            operation.progress.cleanup_step(),
+            runpod_progress(operation.progress).cleanup_step(),
             Some(RunpodCleanupStep::DeleteTemplate)
         );
         let events = fakes.events.events();
@@ -945,7 +964,7 @@ mod tests {
             ApplicationEvent::LifecycleOperationChanged(operation)
                 if operation.state == LifecycleOperationState::Failed
                     && operation.trace_id == Uuid::from_u128(2)
-                    && operation.progress.provision_step()
+                    && runpod_progress(operation.progress).provision_step()
                         == Some(RunpodProvisionStep::CreateEndpoint)
         ));
         assert!(matches!(
@@ -959,7 +978,7 @@ mod tests {
             ApplicationEvent::LifecycleOperationChanged(operation)
                 if operation.state == LifecycleOperationState::Failed
                     && operation.trace_id == Uuid::from_u128(4)
-                    && operation.progress.cleanup_step()
+                    && runpod_progress(operation.progress).cleanup_step()
                         == Some(RunpodCleanupStep::DeleteEndpoint)
         ));
         assert_eq!(fakes.events.runtime_changed_count(), 2);

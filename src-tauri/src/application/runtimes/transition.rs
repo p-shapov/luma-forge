@@ -137,21 +137,20 @@ mod tests {
     use crate::application::{
         catalog::CatalogRef,
         events::{ApplicationEvent, ApplicationEventSink},
-        lifecycle::LifecycleOperation,
+        lifecycle::{LifecycleOperation, LifecycleOperationKind},
         runtimes::{
             ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
             runpod::{
-                RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources, RunpodRuntimeState,
+                RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
+                RunpodRuntimeResources, RunpodRuntimeState,
             },
-            Runtime, RuntimeKind,
+            Runtime, RuntimeKind, RuntimeProgress,
         },
         workspace::{
             ports::{WorkspaceRepository, WorkspaceRepositoryError},
             Workspace,
         },
     };
-
-    use crate::application::runtimes::runpod::RunpodProvisionStep;
 
     use super::RuntimeTransitionContext;
 
@@ -341,11 +340,14 @@ mod tests {
                     },
                     resources: RunpodRuntimeResources::default(),
                 },
-                operation: LifecycleOperation::runpod_provision(
+                operation: LifecycleOperation::running(
                     Uuid::from_u128(1),
                     "workspace-1",
                     Uuid::from_u128(2),
-                    RunpodProvisionStep::CreateEndpoint,
+                    LifecycleOperationKind::Provision,
+                    RuntimeProgress::Runpod(RunpodProgress::Provision(
+                        RunpodProvisionStep::CreateEndpoint,
+                    )),
                     OffsetDateTime::UNIX_EPOCH,
                 ),
                 workspace,

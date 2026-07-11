@@ -1,9 +1,7 @@
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::application::runtimes::runpod::{
-    RunpodCleanupStep, RunpodProgress, RunpodProvisionStep,
-};
+use crate::application::runtimes::RuntimeProgress;
 
 use super::errors::LifecycleError;
 
@@ -20,82 +18,32 @@ pub enum LifecycleOperationKind {
     Cleanup,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LifecycleProgress {
-    Runpod(RunpodProgress),
-}
-
-impl LifecycleProgress {
-    pub fn provision_step(self) -> Option<RunpodProvisionStep> {
-        match self {
-            Self::Runpod(RunpodProgress::Provision(step)) => Some(step),
-            _ => None,
-        }
-    }
-
-    pub fn cleanup_step(self) -> Option<RunpodCleanupStep> {
-        match self {
-            Self::Runpod(RunpodProgress::Cleanup(step)) => Some(step),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleOperation {
     pub id: Uuid,
     pub workspace_id: String,
+    pub kind: LifecycleOperationKind,
     pub state: LifecycleOperationState,
     pub trace_id: Uuid,
-    pub progress: LifecycleProgress,
+    pub progress: RuntimeProgress,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub finished_at: Option<OffsetDateTime>,
 }
 
 impl LifecycleOperation {
-    pub fn runpod_provision(
+    pub fn running(
         id: Uuid,
         workspace_id: &str,
         trace_id: Uuid,
-        step: RunpodProvisionStep,
-        now: OffsetDateTime,
-    ) -> Self {
-        Self::running(
-            id,
-            workspace_id,
-            trace_id,
-            LifecycleProgress::Runpod(RunpodProgress::Provision(step)),
-            now,
-        )
-    }
-
-    pub fn runpod_cleanup(
-        id: Uuid,
-        workspace_id: &str,
-        trace_id: Uuid,
-        step: RunpodCleanupStep,
-        now: OffsetDateTime,
-    ) -> Self {
-        Self::running(
-            id,
-            workspace_id,
-            trace_id,
-            LifecycleProgress::Runpod(RunpodProgress::Cleanup(step)),
-            now,
-        )
-    }
-
-    fn running(
-        id: Uuid,
-        workspace_id: &str,
-        trace_id: Uuid,
-        progress: LifecycleProgress,
+        kind: LifecycleOperationKind,
+        progress: RuntimeProgress,
         now: OffsetDateTime,
     ) -> Self {
         Self {
             id,
             workspace_id: workspace_id.to_owned(),
+            kind,
             state: LifecycleOperationState::Running,
             trace_id,
             progress,
@@ -105,31 +53,9 @@ impl LifecycleOperation {
         }
     }
 
-    pub fn set_provision_step(
+    pub fn set_progress(
         &mut self,
-        step: RunpodProvisionStep,
-        now: OffsetDateTime,
-    ) -> Result<(), LifecycleError> {
-        self.set_progress(
-            LifecycleProgress::Runpod(RunpodProgress::Provision(step)),
-            now,
-        )
-    }
-
-    pub fn set_cleanup_step(
-        &mut self,
-        step: RunpodCleanupStep,
-        now: OffsetDateTime,
-    ) -> Result<(), LifecycleError> {
-        self.set_progress(
-            LifecycleProgress::Runpod(RunpodProgress::Cleanup(step)),
-            now,
-        )
-    }
-
-    fn set_progress(
-        &mut self,
-        progress: LifecycleProgress,
+        progress: RuntimeProgress,
         now: OffsetDateTime,
     ) -> Result<(), LifecycleError> {
         self.ensure_running()?;
@@ -163,42 +89,31 @@ impl LifecycleOperation {
             .then_some(())
             .ok_or(LifecycleError::InvalidTransition)
     }
-
-    pub fn kind(&self) -> LifecycleOperationKind {
-        match self.progress {
-            LifecycleProgress::Runpod(RunpodProgress::Provision(_)) => {
-                LifecycleOperationKind::Provision
-            }
-            LifecycleProgress::Runpod(RunpodProgress::Cleanup(_)) => {
-                LifecycleOperationKind::Cleanup
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::runtimes::runpod::{RunpodCleanupStep, RunpodProvisionStep};
+    use crate::application::runtimes::progress_fixture;
     use uuid::Uuid;
 
     #[test]
     fn running_operation_can_succeed_once_and_retains_its_step() {
-        let mut operation = LifecycleOperation::runpod_provision(
+        let progress = progress_fixture();
+        let mut operation = LifecycleOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
             Uuid::from_u128(2),
-            RunpodProvisionStep::CreateNetworkVolume,
+            LifecycleOperationKind::Provision,
+            progress,
             OffsetDateTime::UNIX_EPOCH,
         );
 
         operation.succeed(OffsetDateTime::UNIX_EPOCH).unwrap();
 
+        assert_eq!(operation.kind, LifecycleOperationKind::Provision);
         assert_eq!(operation.state, LifecycleOperationState::Succeeded);
-        assert_eq!(
-            operation.progress.provision_step(),
-            Some(RunpodProvisionStep::CreateNetworkVolume)
-        );
+        assert_eq!(operation.progress, progress);
         assert_eq!(
             operation.succeed(OffsetDateTime::UNIX_EPOCH),
             Err(LifecycleError::InvalidTransition)
@@ -207,21 +122,21 @@ mod tests {
 
     #[test]
     fn interrupted_operation_fails_without_changing_progress_or_trace() {
-        let mut operation = LifecycleOperation::runpod_cleanup(
+        let progress = progress_fixture();
+        let mut operation = LifecycleOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
             Uuid::from_u128(2),
-            RunpodCleanupStep::DeleteEndpoint,
+            LifecycleOperationKind::Cleanup,
+            progress,
             OffsetDateTime::UNIX_EPOCH,
         );
 
         operation.fail(OffsetDateTime::UNIX_EPOCH).unwrap();
 
         assert_eq!(operation.state, LifecycleOperationState::Failed);
+        assert_eq!(operation.kind, LifecycleOperationKind::Cleanup);
         assert_eq!(operation.trace_id, Uuid::from_u128(2));
-        assert_eq!(
-            operation.progress.cleanup_step(),
-            Some(RunpodCleanupStep::DeleteEndpoint)
-        );
+        assert_eq!(operation.progress, progress);
     }
 }

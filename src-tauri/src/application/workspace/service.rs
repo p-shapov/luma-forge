@@ -125,9 +125,12 @@ mod tests {
         events::{ApplicationEvent, ApplicationEventSink},
         lifecycle::{
             ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-            LifecycleOperation,
+            LifecycleOperation, LifecycleOperationKind,
         },
-        runtimes::{runpod::RunpodProvisionStep, RuntimeKind},
+        runtimes::{
+            runpod::{RunpodProgress, RunpodProvisionStep},
+            RuntimeKind, RuntimeProgress,
+        },
         workspace::{
             ports::{
                 WorkflowCatalog, WorkflowCatalogError, WorkspaceRepository,
@@ -338,11 +341,14 @@ mod tests {
                     created_at: OffsetDateTime::UNIX_EPOCH,
                     attached_runtime: None,
                 }],
-                vec![LifecycleOperation::runpod_provision(
+                vec![LifecycleOperation::running(
                     Uuid::from_u128(1),
                     "workspace-1",
                     Uuid::from_u128(2),
-                    RunpodProvisionStep::CreateNetworkVolume,
+                    LifecycleOperationKind::Provision,
+                    RuntimeProgress::Runpod(RunpodProgress::Provision(
+                        RunpodProvisionStep::CreateNetworkVolume,
+                    )),
                     OffsetDateTime::UNIX_EPOCH,
                 )],
                 None,

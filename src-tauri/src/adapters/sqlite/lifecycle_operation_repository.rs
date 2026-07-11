@@ -7,9 +7,12 @@ use crate::{
     application::{
         lifecycle::{
             ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-            LifecycleOperation, LifecycleOperationKind, LifecycleOperationState, LifecycleProgress,
+            LifecycleOperation, LifecycleOperationKind, LifecycleOperationState,
         },
-        runtimes::runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
+        runtimes::{
+            runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
+            RuntimeProgress,
+        },
     },
     infra::sqlite::entities::{lifecycle_operations, runpod_lifecycle_progress},
 };
@@ -122,7 +125,7 @@ fn map_operation(
     };
     let progress = match kind {
         LifecycleOperationKind::Provision => {
-            LifecycleProgress::Runpod(RunpodProgress::Provision(match step {
+            RuntimeProgress::Runpod(RunpodProgress::Provision(match step {
                 "create_network_volume" => RunpodProvisionStep::CreateNetworkVolume,
                 "start_provisioner_pod" => RunpodProvisionStep::StartProvisionerPod,
                 "poll_provisioner" => RunpodProvisionStep::PollProvisioner,
@@ -133,7 +136,7 @@ fn map_operation(
             }))
         }
         LifecycleOperationKind::Cleanup => {
-            LifecycleProgress::Runpod(RunpodProgress::Cleanup(match step {
+            RuntimeProgress::Runpod(RunpodProgress::Cleanup(match step {
                 "delete_endpoint" => RunpodCleanupStep::DeleteEndpoint,
                 "delete_template" => RunpodCleanupStep::DeleteTemplate,
                 "terminate_provisioner_pod" => RunpodCleanupStep::TerminateProvisionerPod,
@@ -147,6 +150,7 @@ fn map_operation(
         id: Uuid::parse_str(&model.id)
             .map_err(|_| LifecycleOperationRepositoryError::CorruptData)?,
         workspace_id: model.workspace_id,
+        kind,
         state,
         trace_id: Uuid::parse_str(&model.trace_id)
             .map_err(|_| LifecycleOperationRepositoryError::CorruptData)?,
@@ -172,9 +176,9 @@ pub(super) fn operation_state_value(state: LifecycleOperationState) -> &'static 
     }
 }
 
-pub(super) fn progress_value(progress: LifecycleProgress) -> &'static str {
+pub(super) fn progress_value(progress: RuntimeProgress) -> &'static str {
     match progress {
-        LifecycleProgress::Runpod(RunpodProgress::Provision(step)) => match step {
+        RuntimeProgress::Runpod(RunpodProgress::Provision(step)) => match step {
             RunpodProvisionStep::CreateNetworkVolume => "create_network_volume",
             RunpodProvisionStep::StartProvisionerPod => "start_provisioner_pod",
             RunpodProvisionStep::PollProvisioner => "poll_provisioner",
@@ -182,7 +186,7 @@ pub(super) fn progress_value(progress: LifecycleProgress) -> &'static str {
             RunpodProvisionStep::CreateTemplate => "create_template",
             RunpodProvisionStep::CreateEndpoint => "create_endpoint",
         },
-        LifecycleProgress::Runpod(RunpodProgress::Cleanup(step)) => match step {
+        RuntimeProgress::Runpod(RunpodProgress::Cleanup(step)) => match step {
             RunpodCleanupStep::DeleteEndpoint => "delete_endpoint",
             RunpodCleanupStep::DeleteTemplate => "delete_template",
             RunpodCleanupStep::TerminateProvisionerPod => "terminate_provisioner_pod",

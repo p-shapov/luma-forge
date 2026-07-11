@@ -220,7 +220,7 @@ async fn insert_operation(
         workspace_id: Set(operation.workspace_id.clone()),
         running_workspace_id: Set((operation.state == LifecycleOperationState::Running)
             .then(|| operation.workspace_id.clone())),
-        operation_kind: Set(operation_kind_value(operation.kind()).to_owned()),
+        operation_kind: Set(operation_kind_value(operation.kind).to_owned()),
         state: Set(operation_state_value(operation.state).to_owned()),
         trace_id: Set(operation.trace_id.to_string()),
         created_at: Set(operation.created_at),

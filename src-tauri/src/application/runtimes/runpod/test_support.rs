@@ -17,11 +17,11 @@ use crate::application::{
     events::{ApplicationEvent, ApplicationEventSink},
     lifecycle::{
         ports::{LifecycleOperationRepository, LifecycleOperationRepositoryError},
-        LifecycleOperation, LifecycleOperationState,
+        LifecycleOperation, LifecycleOperationKind, LifecycleOperationState,
     },
     runtimes::{
         ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
-        RuntimeKind,
+        RuntimeKind, RuntimeProgress,
     },
     secrets::{SecretKind, SecretStore, SecretStoreError},
     workspace::{
@@ -33,11 +33,12 @@ use crate::application::{
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProvisionStep,
-    RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeConfig,
-    RunpodRuntimeProvider, RunpodRuntimeProviderError, RunpodRuntimeRepository,
-    RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeService,
-    RunpodRuntimeServiceDependencies, RunpodRuntimeState, StartProvisionerPod,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProgress,
+    RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeCatalogError,
+    RunpodRuntimeConfig, RunpodRuntimeProvider, RunpodRuntimeProviderError,
+    RunpodRuntimeRepository, RunpodRuntimeRepositoryError, RunpodRuntimeResources,
+    RunpodRuntimeService, RunpodRuntimeServiceDependencies, RunpodRuntimeState,
+    StartProvisionerPod,
 };
 
 pub(super) struct ProvisionFakes {
@@ -112,18 +113,24 @@ impl ProvisionFakes {
             workspace(Some(RuntimeKind::Runpod)),
             Some(runtime(RunpodRuntimeState::Provisioning)),
             vec![
-                LifecycleOperation::runpod_provision(
+                LifecycleOperation::running(
                     Uuid::from_u128(1),
                     "workspace-1",
                     Uuid::from_u128(2),
-                    RunpodProvisionStep::CreateEndpoint,
+                    LifecycleOperationKind::Provision,
+                    RuntimeProgress::Runpod(RunpodProgress::Provision(
+                        RunpodProvisionStep::CreateEndpoint,
+                    )),
                     now,
                 ),
-                LifecycleOperation::runpod_cleanup(
+                LifecycleOperation::running(
                     Uuid::from_u128(3),
                     "workspace-2",
                     Uuid::from_u128(4),
-                    RunpodCleanupStep::DeleteEndpoint,
+                    LifecycleOperationKind::Cleanup,
+                    RuntimeProgress::Runpod(RunpodProgress::Cleanup(
+                        RunpodCleanupStep::DeleteEndpoint,
+                    )),
                     now,
                 ),
             ],
@@ -524,7 +531,10 @@ impl FakeRunpodRuntimeRepository {
             .unwrap()
             .iter()
             .filter(|(_, operation)| operation.state == LifecycleOperationState::Running)
-            .filter_map(|(_, operation)| operation.progress.provision_step())
+            .filter_map(|(_, operation)| {
+                let RuntimeProgress::Runpod(progress) = operation.progress;
+                progress.provision_step()
+            })
             .collect()
     }
 
@@ -534,7 +544,10 @@ impl FakeRunpodRuntimeRepository {
             .unwrap()
             .iter()
             .filter(|(_, operation)| operation.state == LifecycleOperationState::Running)
-            .filter_map(|(_, operation)| operation.progress.cleanup_step())
+            .filter_map(|(_, operation)| {
+                let RuntimeProgress::Runpod(progress) = operation.progress;
+                progress.cleanup_step()
+            })
             .collect()
     }
 
