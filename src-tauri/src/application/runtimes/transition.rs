@@ -138,7 +138,10 @@ mod tests {
     use crate::application::{
         catalog::CatalogRef,
         events::{ApplicationEvent, ApplicationEventSink},
-        lifecycle::{progress::runpod::RunpodProvisionStep, LifecycleOperation},
+        lifecycle::{
+            background::LifecycleBackgroundRunner, progress::runpod::RunpodProvisionStep,
+            LifecycleOperation,
+        },
         runtimes::{
             ports::{RuntimeTransitionRepository, RuntimeTransitionRepositoryError},
             runpod::{
@@ -251,28 +254,32 @@ mod tests {
         let cleanup_context = context.clone();
         let cleanup_runtime = fakes.runtime.clone();
         let cleanup_operation = fakes.operation.clone();
-        let cleanup = tokio::spawn(async move {
-            cleanup_context
+        let (cleanup_completed_tx, cleanup_completed_rx) = oneshot::channel();
+        LifecycleBackgroundRunner.spawn(async move {
+            let result = cleanup_context
                 .save_deleted(&cleanup_runtime, &cleanup_operation)
-                .await
+                .await;
+            cleanup_completed_tx.send(result).unwrap();
         });
         projection_entered_rx.await.unwrap();
 
         let (reprovision_started_tx, reprovision_started_rx) = oneshot::channel();
+        let (reprovision_completed_tx, reprovision_completed_rx) = oneshot::channel();
         let reprovision_runtime = fakes.runtime.clone();
         let reprovision_operation = fakes.operation.clone();
-        let reprovision = tokio::spawn(async move {
+        LifecycleBackgroundRunner.spawn(async move {
             reprovision_started_tx.send(()).unwrap();
-            context
+            let result = context
                 .save_attached(&reprovision_runtime, &reprovision_operation)
-                .await
+                .await;
+            reprovision_completed_tx.send(result).unwrap();
         });
         reprovision_started_rx.await.unwrap();
 
         assert!(fakes.events.events().is_empty());
         release_projection_tx.send(()).unwrap();
-        cleanup.await.unwrap().unwrap();
-        reprovision.await.unwrap().unwrap();
+        cleanup_completed_rx.await.unwrap().unwrap();
+        reprovision_completed_rx.await.unwrap().unwrap();
 
         assert_eq!(
             fakes.events.events(),
