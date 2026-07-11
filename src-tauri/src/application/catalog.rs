@@ -48,9 +48,9 @@ impl WorkflowDefinition {
     pub fn runpod_requirements(
         requirements: &[RuntimeContractRequirements],
     ) -> Option<&RunpodContractRequirements> {
-        requirements.iter().find_map(|value| match value {
-            RuntimeContractRequirements::Runpod(value) => Some(value),
-        })
+        requirements
+            .first()
+            .map(|RuntimeContractRequirements::Runpod(value)| value)
     }
 }
 

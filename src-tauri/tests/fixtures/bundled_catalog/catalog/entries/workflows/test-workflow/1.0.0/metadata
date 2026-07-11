@@ -1,5 +1,6 @@
 {
   "name": "Test workflow",
+  "description": "Test workflow fixture.",
   "runtime_preset_ref": {
     "contract": "catalog/contracts/runtime_preset_revision",
     "id": "test-preset",
