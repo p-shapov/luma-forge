@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use fastrace::collector::TraceId;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use uuid::Uuid;
 
@@ -146,7 +147,9 @@ fn map_operation(
         workspace_id: model.workspace_id,
         kind,
         state,
-        trace_id: Uuid::parse_str(&model.trace_id)
+        trace_id: model
+            .trace_id
+            .parse::<TraceId>()
             .map_err(|_| RuntimeOperationRepositoryError::CorruptData)?,
         progress,
         created_at: model.created_at,

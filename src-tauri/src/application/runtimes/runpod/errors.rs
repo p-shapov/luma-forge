@@ -36,6 +36,8 @@ pub enum RunpodRuntimeError {
     InvalidTransition,
 }
 
+impl crate::diagnostics::DiagnosticValue for RunpodRuntimeError {}
+
 impl From<RunpodRuntimeProviderError> for RunpodRuntimeError {
     fn from(_: RunpodRuntimeProviderError) -> Self {
         Self::ProviderUnavailable

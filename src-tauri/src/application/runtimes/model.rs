@@ -1,3 +1,4 @@
+use fastrace::collector::TraceId;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -86,7 +87,7 @@ pub struct RuntimeOperation {
     pub workspace_id: String,
     pub kind: RuntimeOperationKind,
     pub state: RuntimeOperationState,
-    pub trace_id: Uuid,
+    pub trace_id: TraceId,
     pub progress: RuntimeProgress,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -97,7 +98,7 @@ impl RuntimeOperation {
     pub fn running(
         id: Uuid,
         workspace_id: &str,
-        trace_id: Uuid,
+        trace_id: TraceId,
         kind: RuntimeOperationKind,
         progress: RuntimeProgress,
         now: OffsetDateTime,
@@ -204,7 +205,7 @@ mod tests {
         let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
-            Uuid::from_u128(2),
+            TraceId(2),
             RuntimeOperationKind::Provision,
             progress,
             OffsetDateTime::UNIX_EPOCH,
@@ -227,7 +228,7 @@ mod tests {
         let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
-            Uuid::from_u128(2),
+            TraceId(2),
             RuntimeOperationKind::Cleanup,
             progress,
             OffsetDateTime::UNIX_EPOCH,
@@ -237,7 +238,7 @@ mod tests {
 
         assert_eq!(operation.state, RuntimeOperationState::Failed);
         assert_eq!(operation.kind, RuntimeOperationKind::Cleanup);
-        assert_eq!(operation.trace_id, Uuid::from_u128(2));
+        assert_eq!(operation.trace_id, TraceId(2));
         assert_eq!(operation.progress, progress);
     }
 }

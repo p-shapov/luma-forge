@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use fastrace::{collector::SpanContext, future::FutureExt, Span};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -21,10 +22,15 @@ use super::{
     StartProvisionerPod,
 };
 
+#[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct ProvisionRunpodRuntime {
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub datacenter_id: String,
+    #[diagnostic(show)]
     pub gpu_id: String,
+    #[diagnostic(show)]
     pub volume_size_gb: u64,
 }
 
@@ -70,9 +76,10 @@ impl RunpodRuntimeService {
         }
     }
 
+    #[crate::diagnostics::diagnostic]
     pub async fn start_cleanup(
         &self,
-        workspace_id: &str,
+        #[diagnostic(show)] workspace_id: &str,
     ) -> Result<(RunpodRuntime, RuntimeOperation), RunpodRuntimeError> {
         let mut runtime = self
             .runtimes
@@ -89,7 +96,8 @@ impl RunpodRuntimeService {
         let operation = RuntimeOperation::running(
             Uuid::new_v4(),
             workspace_id,
-            Uuid::new_v4(),
+            crate::diagnostics::current_trace_id()
+                .expect("diagnostic operation has an active trace"),
             RuntimeOperationKind::Cleanup,
             RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint)),
             OffsetDateTime::now_utc(),
@@ -100,127 +108,114 @@ impl RunpodRuntimeService {
         let initial_operation = operation.clone();
         let service = self.clone();
         let workspace_id = workspace_id.to_owned();
-        tokio::spawn(async move {
-            service
-                .run_cleanup(workspace_id, runpod_key, runtime, operation)
-                .await;
-        });
+        let parent = SpanContext::current_local_parent()
+            .expect("diagnostic operation has an active trace context");
+        let runner = Span::root("application.runtimes.runpod.run_cleanup", parent);
+        tokio::spawn(
+            async move {
+                service
+                    .run_cleanup(workspace_id, runpod_key, runtime, operation)
+                    .await
+            }
+            .in_span(runner),
+        );
 
         Ok((initial_runtime, initial_operation))
     }
 
+    #[crate::diagnostics::diagnostic(show_error)]
     async fn run_cleanup(
         &self,
-        _workspace_id: String,
+        #[diagnostic(show)] _workspace_id: String,
         runpod_key: secrecy::SecretString,
         mut runtime: RunpodRuntime,
         mut operation: RuntimeOperation,
-    ) {
+    ) -> Result<(), RunpodRuntimeError> {
         if let Some(id) = runtime.resources.endpoint_id.clone() {
-            if self
-                .provider
-                .delete_endpoint(&runpod_key, &id)
-                .await
-                .is_err()
-            {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            if let Err(error) = self.provider.delete_endpoint(&runpod_key, &id).await {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
             runtime.resources.endpoint_id = None;
         }
-        if self
-            .set_cleanup_step(&runtime, &mut operation, RunpodCleanupStep::DeleteTemplate)
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_cleanup_step(&runtime, &mut operation, RunpodCleanupStep::DeleteTemplate)
+            .await?;
 
         if let Some(id) = runtime.resources.template_id.clone() {
-            if self
-                .provider
-                .delete_template(&runpod_key, &id)
-                .await
-                .is_err()
-            {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            if let Err(error) = self.provider.delete_template(&runpod_key, &id).await {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
             runtime.resources.template_id = None;
         }
-        if self
-            .set_cleanup_step(
-                &runtime,
-                &mut operation,
-                RunpodCleanupStep::TerminateProvisionerPod,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_cleanup_step(
+            &runtime,
+            &mut operation,
+            RunpodCleanupStep::TerminateProvisionerPod,
+        )
+        .await?;
 
         if let Some(id) = runtime.resources.provisioner_pod_id.clone() {
-            if self
+            if let Err(error) = self
                 .provider
                 .terminate_provisioner_pod(&runpod_key, &id)
                 .await
-                .is_err()
             {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
             runtime.resources.provisioner_pod_id = None;
         }
-        if self
-            .set_cleanup_step(
-                &runtime,
-                &mut operation,
-                RunpodCleanupStep::DeleteNetworkVolume,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_cleanup_step(
+            &runtime,
+            &mut operation,
+            RunpodCleanupStep::DeleteNetworkVolume,
+        )
+        .await?;
 
         if let Some(id) = runtime.resources.network_volume_id.clone() {
-            if self
-                .provider
-                .delete_network_volume(&runpod_key, &id)
-                .await
-                .is_err()
-            {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            if let Err(error) = self.provider.delete_network_volume(&runpod_key, &id).await {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
             runtime.resources.network_volume_id = None;
         }
 
-        if operation.succeed(OffsetDateTime::now_utc()).is_err() {
-            return;
-        }
-        let _ = self.transitions.save_deleted(&runtime, &operation).await;
+        operation.succeed(OffsetDateTime::now_utc())?;
+        self.transitions.save_deleted(&runtime, &operation).await?;
+        Ok(())
     }
 
+    #[crate::diagnostics::diagnostic]
     pub async fn fail_interrupted(&self) -> Result<(), RunpodRuntimeError> {
-        for mut operation in self.operations.running().await? {
-            let RuntimeProgress::Runpod(_) = operation.progress;
-            let mut runtime = self
-                .runtimes
-                .get(&operation.workspace_id)
-                .await?
-                .ok_or(RunpodRuntimeError::NotProvisioned)?;
-            runtime.mark_failed()?;
-            operation.fail(OffsetDateTime::now_utc())?;
-            self.transitions.save_changed(&runtime, &operation).await?;
+        for operation in self.operations.running().await? {
+            let recovery = Span::root(
+                "application.runtimes.runpod.recover_interrupted",
+                SpanContext::new(operation.trace_id, fastrace::collector::SpanId::default()),
+            );
+            async {
+                let mut operation = operation;
+                let RuntimeProgress::Runpod(_) = operation.progress;
+                let mut runtime = self
+                    .runtimes
+                    .get(&operation.workspace_id)
+                    .await?
+                    .ok_or(RunpodRuntimeError::NotProvisioned)?;
+                runtime.mark_failed()?;
+                operation.fail(OffsetDateTime::now_utc())?;
+                self.transitions.save_changed(&runtime, &operation).await?;
+                Ok::<(), RunpodRuntimeError>(())
+            }
+            .in_span(recovery)
+            .await?;
         }
         Ok(())
     }
 
+    #[crate::diagnostics::diagnostic]
     pub async fn start_provision(
         &self,
-        command: ProvisionRunpodRuntime,
+        #[diagnostic(show)] command: ProvisionRunpodRuntime,
     ) -> Result<(RunpodRuntime, RuntimeOperation), RunpodRuntimeError> {
         let workspace = self
             .workspaces
@@ -286,7 +281,8 @@ impl RunpodRuntimeService {
         let operation = RuntimeOperation::running(
             Uuid::new_v4(),
             &command.workspace_id,
-            Uuid::new_v4(),
+            crate::diagnostics::current_trace_id()
+                .expect("diagnostic operation has an active trace"),
             RuntimeOperationKind::Provision,
             RuntimeProgress::Runpod(RunpodProgress::Provision(
                 RunpodProvisionStep::CreateNetworkVolume,
@@ -298,34 +294,41 @@ impl RunpodRuntimeService {
         let initial_runtime = runtime.clone();
         let initial_operation = operation.clone();
         let service = self.clone();
-        tokio::spawn(async move {
-            service
-                .run_provision(
-                    command,
-                    definition,
-                    workflow,
-                    runpod_key,
-                    hugging_face_api_key,
-                    runtime,
-                    operation,
-                )
-                .await;
-        });
+        let parent = SpanContext::current_local_parent()
+            .expect("diagnostic operation has an active trace context");
+        let runner = Span::root("application.runtimes.runpod.run_provision", parent);
+        tokio::spawn(
+            async move {
+                service
+                    .run_provision(
+                        command,
+                        definition,
+                        workflow,
+                        runpod_key,
+                        hugging_face_api_key,
+                        runtime,
+                        operation,
+                    )
+                    .await
+            }
+            .in_span(runner),
+        );
 
         Ok((initial_runtime, initial_operation))
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[crate::diagnostics::diagnostic(show_error)]
     async fn run_provision(
         &self,
-        command: ProvisionRunpodRuntime,
+        #[diagnostic(show)] command: ProvisionRunpodRuntime,
         definition: RunpodRuntimeDefinition,
         workflow: WorkflowDefinition,
         runpod_key: secrecy::SecretString,
         hugging_face_api_key: Option<secrecy::SecretString>,
         mut runtime: RunpodRuntime,
         mut operation: RuntimeOperation,
-    ) {
+    ) -> Result<(), RunpodRuntimeError> {
         let volume_id = match self
             .provider
             .create_network_volume(
@@ -339,23 +342,18 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(value) => value,
-            Err(_) => {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            Err(error) => {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
         };
         runtime.resources.network_volume_id = Some(volume_id.clone());
-        if self
-            .set_provision_step(
-                &runtime,
-                &mut operation,
-                RunpodProvisionStep::StartProvisionerPod,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_provision_step(
+            &runtime,
+            &mut operation,
+            RunpodProvisionStep::StartProvisionerPod,
+        )
+        .await?;
 
         let pod_id = match self
             .provider
@@ -373,23 +371,18 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(value) => value,
-            Err(_) => {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            Err(error) => {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
         };
         runtime.resources.provisioner_pod_id = Some(pod_id.clone());
-        if self
-            .set_provision_step(
-                &runtime,
-                &mut operation,
-                RunpodProvisionStep::PollProvisioner,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_provision_step(
+            &runtime,
+            &mut operation,
+            RunpodProvisionStep::PollProvisioner,
+        )
+        .await?;
 
         match self
             .provider
@@ -397,46 +390,36 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(()) => {}
-            Err(_) => {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            Err(error) => {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
         }
 
-        if self
-            .set_provision_step(
-                &runtime,
-                &mut operation,
-                RunpodProvisionStep::TerminateProvisionerPod,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_provision_step(
+            &runtime,
+            &mut operation,
+            RunpodProvisionStep::TerminateProvisionerPod,
+        )
+        .await?;
         match self
             .provider
             .terminate_provisioner_pod(&runpod_key, &pod_id)
             .await
         {
             Ok(()) => {}
-            Err(_) => {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            Err(error) => {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
         }
         runtime.resources.provisioner_pod_id = None;
-        if self
-            .set_provision_step(
-                &runtime,
-                &mut operation,
-                RunpodProvisionStep::CreateTemplate,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_provision_step(
+            &runtime,
+            &mut operation,
+            RunpodProvisionStep::CreateTemplate,
+        )
+        .await?;
 
         let template_id = match self
             .provider
@@ -450,23 +433,18 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(value) => value,
-            Err(_) => {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            Err(error) => {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
         };
         runtime.resources.template_id = Some(template_id.clone());
-        if self
-            .set_provision_step(
-                &runtime,
-                &mut operation,
-                RunpodProvisionStep::CreateEndpoint,
-            )
-            .await
-            .is_err()
-        {
-            return;
-        }
+        self.set_provision_step(
+            &runtime,
+            &mut operation,
+            RunpodProvisionStep::CreateEndpoint,
+        )
+        .await?;
 
         let endpoint_id = match self
             .provider
@@ -483,17 +461,17 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(value) => value,
-            Err(_) => {
-                let _ = self.fail_transition(&mut runtime, &mut operation).await;
-                return;
+            Err(error) => {
+                self.fail_transition(&mut runtime, &mut operation).await?;
+                return Err(error.into());
             }
         };
         runtime.resources.endpoint_id = Some(endpoint_id);
 
-        if runtime.mark_ready().is_err() || operation.succeed(OffsetDateTime::now_utc()).is_err() {
-            return;
-        }
-        let _ = self.transitions.save_changed(&runtime, &operation).await;
+        runtime.mark_ready()?;
+        operation.succeed(OffsetDateTime::now_utc())?;
+        self.transitions.save_changed(&runtime, &operation).await?;
+        Ok(())
     }
 
     async fn set_provision_step(
@@ -544,19 +522,38 @@ impl RunpodRuntimeService {
 
 #[cfg(test)]
 mod tests {
+    use fastrace::collector::TraceId;
+
+    use crate::application::runtimes::runpod::{
+        test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
+        RunpodRuntime, RunpodRuntimeError, RunpodRuntimeResources, RunpodRuntimeState,
+    };
     use crate::application::{
         events::ApplicationEvent,
         runtimes::{
             runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-            Runtime, RuntimeKind, RuntimeOperationState, RuntimeProgress,
+            Runtime, RuntimeKind, RuntimeOperation, RuntimeOperationState, RuntimeProgress,
         },
     };
-    use uuid::Uuid;
 
-    use crate::application::runtimes::runpod::{
-        test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
-        RunpodRuntimeError, RunpodRuntimeResources, RunpodRuntimeState,
-    };
+    #[crate::diagnostics::diagnostic(root)]
+    async fn start_provision(
+        fakes: &ProvisionFakes,
+    ) -> Result<(RunpodRuntime, RuntimeOperation), RunpodRuntimeError> {
+        fakes.service().start_provision(provision_command()).await
+    }
+
+    #[crate::diagnostics::diagnostic(root)]
+    async fn start_cleanup(
+        fakes: &CleanupFakes,
+    ) -> Result<(RunpodRuntime, RuntimeOperation), RunpodRuntimeError> {
+        fakes.service().start_cleanup("workspace-1").await
+    }
+
+    #[crate::diagnostics::diagnostic(root)]
+    async fn fail_interrupted(fakes: &RecoveryFakes) -> Result<(), RunpodRuntimeError> {
+        fakes.service().fail_interrupted().await
+    }
 
     fn runpod_progress(progress: RuntimeProgress) -> RunpodProgress {
         let RuntimeProgress::Runpod(progress) = progress;
@@ -568,11 +565,7 @@ mod tests {
         let fakes = ProvisionFakes::ready();
         fakes.provider.block_first_call();
 
-        let (runtime, operation) = fakes
-            .service()
-            .start_provision(provision_command())
-            .await
-            .unwrap();
+        let (runtime, operation) = start_provision(&fakes).await.unwrap();
 
         assert_eq!(runtime.state, RunpodRuntimeState::Provisioning);
         assert_eq!(operation.state, RuntimeOperationState::Running);
@@ -607,8 +600,10 @@ mod tests {
         );
     }
 
+    #[crate::diagnostics::diagnostic(root)]
     #[tokio::test]
-    async fn provision_persists_each_current_step_before_the_provider_call() {
+    async fn start_provision_persists_the_active_trace() -> Result<(), RunpodRuntimeError> {
+        let trace_id = crate::diagnostics::current_trace_id().unwrap();
         let fakes = ProvisionFakes::ready();
 
         let (_, operation) = fakes
@@ -616,6 +611,21 @@ mod tests {
             .start_provision(provision_command())
             .await
             .unwrap();
+        fakes.events.wait_for_terminal_operation(operation.id).await;
+
+        assert!(fakes
+            .repository
+            .saved_trace_ids()
+            .iter()
+            .all(|saved_trace_id| *saved_trace_id == trace_id));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn provision_persists_each_current_step_before_the_provider_call() {
+        let fakes = ProvisionFakes::ready();
+
+        let (_, operation) = start_provision(&fakes).await.unwrap();
         fakes.events.wait_for_terminal_operation(operation.id).await;
 
         assert_eq!(
@@ -714,11 +724,7 @@ mod tests {
             let fakes = ProvisionFakes::ready();
             fakes.provider.fail_once(method);
 
-            let (_, started_operation) = fakes
-                .service()
-                .start_provision(provision_command())
-                .await
-                .unwrap();
+            let (_, started_operation) = start_provision(&fakes).await.unwrap();
             fakes
                 .events
                 .wait_for_terminal_operation(started_operation.id)
@@ -751,7 +757,7 @@ mod tests {
         let fakes = ProvisionFakes::ready_without_runpod_credential();
 
         assert_eq!(
-            fakes.service().start_provision(provision_command()).await,
+            start_provision(&fakes).await,
             Err(RunpodRuntimeError::CredentialMissing)
         );
         assert!(fakes.repository.saved_states().is_empty());
@@ -765,11 +771,7 @@ mod tests {
         fakes.provider.block_first_call();
         fakes.repository.fail_transition_after_initial_commit();
 
-        let (runtime, operation) = fakes
-            .service()
-            .start_provision(provision_command())
-            .await
-            .unwrap();
+        let (runtime, operation) = start_provision(&fakes).await.unwrap();
         fakes.provider.wait_until_first_call().await;
         fakes.provider.release_first_call();
         fakes.repository.wait_for_failed_transition().await;
@@ -797,7 +799,7 @@ mod tests {
         let fakes = CleanupFakes::ready_runtime();
         fakes.provider.block_first_call();
 
-        let (runtime, operation) = fakes.service().start_cleanup("workspace-1").await.unwrap();
+        let (runtime, operation) = start_cleanup(&fakes).await.unwrap();
 
         assert_eq!(runtime.state, RunpodRuntimeState::CleaningUp);
         assert_eq!(operation.state, RuntimeOperationState::Running);
@@ -825,7 +827,7 @@ mod tests {
     async fn cleanup_runs_every_step_and_removes_the_runtime() {
         let fakes = CleanupFakes::ready_runtime();
 
-        let (_, started_operation) = fakes.service().start_cleanup("workspace-1").await.unwrap();
+        let (_, started_operation) = start_cleanup(&fakes).await.unwrap();
         fakes
             .events
             .wait_for_terminal_operation(started_operation.id)
@@ -875,7 +877,7 @@ mod tests {
     async fn cleanup_skips_absent_resource_ids_but_still_records_each_step() {
         let fakes = CleanupFakes::failed_partial_runtime();
 
-        let (_, operation) = fakes.service().start_cleanup("workspace-1").await.unwrap();
+        let (_, operation) = start_cleanup(&fakes).await.unwrap();
         fakes.events.wait_for_terminal_operation(operation.id).await;
 
         assert_eq!(fakes.repository.running_cleanup_steps().len(), 4);
@@ -887,7 +889,7 @@ mod tests {
         let fakes = CleanupFakes::without_runtime();
 
         assert_eq!(
-            fakes.service().start_cleanup("workspace-1").await,
+            start_cleanup(&fakes).await,
             Err(RunpodRuntimeError::NotProvisioned)
         );
         assert!(fakes.provider.calls().is_empty());
@@ -899,7 +901,7 @@ mod tests {
         let fakes = CleanupFakes::ready_runtime_without_runpod_credential();
 
         assert_eq!(
-            fakes.service().start_cleanup("workspace-1").await,
+            start_cleanup(&fakes).await,
             Err(RunpodRuntimeError::CredentialMissing)
         );
         assert!(fakes.provider.calls().is_empty());
@@ -916,7 +918,7 @@ mod tests {
         let fakes = CleanupFakes::ready_runtime();
         fakes.provider.fail_once("delete_template");
 
-        let (_, started_operation) = fakes.service().start_cleanup("workspace-1").await.unwrap();
+        let (_, started_operation) = start_cleanup(&fakes).await.unwrap();
         fakes
             .events
             .wait_for_terminal_operation(started_operation.id)
@@ -945,7 +947,7 @@ mod tests {
     async fn startup_marks_running_operations_and_runtimes_failed() {
         let fakes = RecoveryFakes::with_running_provision_and_cleanup();
 
-        fakes.service().fail_interrupted().await.unwrap();
+        fail_interrupted(&fakes).await.unwrap();
 
         assert_eq!(
             fakes.repository.saved_states(),
@@ -956,7 +958,7 @@ mod tests {
         );
         assert_eq!(
             fakes.repository.saved_trace_ids(),
-            vec![Uuid::from_u128(2), Uuid::from_u128(4)]
+            vec![TraceId(2), TraceId(4)]
         );
         let events = fakes.events.events();
         assert_eq!(events.len(), 4);
@@ -970,7 +972,7 @@ mod tests {
             &events[1],
             ApplicationEvent::RuntimeOperationChanged(operation)
                 if operation.state == RuntimeOperationState::Failed
-                    && operation.trace_id == Uuid::from_u128(2)
+                    && operation.trace_id == TraceId(2)
                     && runpod_progress(operation.progress).provision_step()
                         == Some(RunpodProvisionStep::CreateEndpoint)
         ));
@@ -984,7 +986,7 @@ mod tests {
             &events[3],
             ApplicationEvent::RuntimeOperationChanged(operation)
                 if operation.state == RuntimeOperationState::Failed
-                    && operation.trace_id == Uuid::from_u128(4)
+                    && operation.trace_id == TraceId(4)
                     && runpod_progress(operation.progress).cleanup_step()
                         == Some(RunpodCleanupStep::DeleteEndpoint)
         ));

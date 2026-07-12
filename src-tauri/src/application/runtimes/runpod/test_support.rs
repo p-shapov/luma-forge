@@ -5,6 +5,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
+use fastrace::collector::TraceId;
 use secrecy::SecretString;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -113,7 +114,7 @@ impl ProvisionFakes {
                 RuntimeOperation::running(
                     Uuid::from_u128(1),
                     "workspace-1",
-                    Uuid::from_u128(2),
+                    TraceId(2),
                     RuntimeOperationKind::Provision,
                     RuntimeProgress::Runpod(RunpodProgress::Provision(
                         RunpodProvisionStep::CreateEndpoint,
@@ -123,7 +124,7 @@ impl ProvisionFakes {
                 RuntimeOperation::running(
                     Uuid::from_u128(3),
                     "workspace-2",
-                    Uuid::from_u128(4),
+                    TraceId(4),
                     RuntimeOperationKind::Cleanup,
                     RuntimeProgress::Runpod(RunpodProgress::Cleanup(
                         RunpodCleanupStep::DeleteEndpoint,
@@ -565,7 +566,7 @@ impl FakeRunpodRuntimeRepository {
             .collect()
     }
 
-    pub fn saved_trace_ids(&self) -> Vec<Uuid> {
+    pub fn saved_trace_ids(&self) -> Vec<TraceId> {
         self.snapshots
             .lock()
             .unwrap()
