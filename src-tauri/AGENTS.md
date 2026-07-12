@@ -13,6 +13,14 @@
 - Keep raw secrets and bearer tokens behind secure storage and provider-call paths.
 - Do not include raw provider API keys, worker tokens, Hugging Face keys, or future credentials in domain snapshots, command responses, generated frontend types, logs, metadata, persisted workspace JSON, or test fixtures.
 
+## Diagnostics
+
+- Apply diagnostics only to public commands, application services, production port implementations, infrastructure clients, and detached runner boundaries. Leave constructors, accessors, private helpers, domain mutations, generated code, and test fakes uninstrumented.
+- Omit arguments, outputs, errors, and DTO fields by default. Every value selected with `show`, `show_output`, or `show_error` must implement `DiagnosticValue`.
+- Derive `DiagnosticDebug` for external boundary DTOs and explicitly show only safe fields. Keep generated wire DTOs private to transport conversion and HTTP construction.
+- Capture and propagate the current `SpanContext` across detached task boundaries.
+- Implement diagnostics from the current contract; never copy old diagnostics code.
+
 ## Diagnostics And Bug Triage
 
 1. Locate support files in Tauri `app_data_dir()`. On macOS this is `~/Library/Application Support/<bundle identifier>/`.
