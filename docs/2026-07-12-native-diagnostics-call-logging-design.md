@@ -2,195 +2,321 @@
 
 ## Context
 
-The active native refactor under `src-tauri/src` needs one trace to begin at each future Tauri command and remain available through application services, port implementations, adapters, infra clients, and detached background work. It also needs a systematic logging rule instead of selectively instrumented milestones.
+The active native refactor under `src-tauri/src` needs one trace to begin at each future Tauri command and remain available through application services, production port implementations, adapters, infra clients, and detached background work. Logging must follow one systematic rule instead of relying on hand-written start and outcome records.
 
-The existing `src-tauri/old_src/diagnostics` implementation is a reference for `fastrace`, `logforth`, JSONL output, error diagnostics, and secret sanitization. This design reuses its proven security behavior where useful, but does not preserve its module APIs or custom error-code machinery when a simpler current implementation is sufficient.
+The diagnostics implementation is new code designed for the active architecture. `src-tauri/old_src/diagnostics` is not an implementation base, and its wrappers, custom JSON layout, sanitizer, error traits, tests, and proc macros are not copied into active code.
 
-This document is the current diagnostics design for `src-tauri/src`. It supersedes the older active-code recommendations in `docs/superpowers/specs/2026-06-21-native-operation-tracing-design.md` where the two differ.
+This document supersedes the earlier contents of this file and the active-code recommendations in `docs/superpowers/specs/2026-06-21-native-operation-tracing-design.md` where they differ.
 
 ## Goals
 
-- Create a root `fastrace` context at every entry point that does not already have one.
-- Propagate tracing through ordinary calls without adding trace parameters to function signatures.
-- Preserve tracing explicitly across background boundaries such as `tokio::spawn`.
-- Persist the command trace ID in each runtime operation.
-- Write `start`, `success`, or `error` records for every public runtime operation.
-- Log sanitized inputs and outputs at those public boundaries.
-- Keep secrets, request bodies, raw provider responses, signed URLs, and oversized diagnostics out of the log file.
-- Centralize call logging so the rule has one implementation.
+- Create one root `fastrace` context at every true native entry point.
+- Propagate tracing through ordinary calls without trace parameters in function signatures.
+- Preserve tracing explicitly across detached execution boundaries.
+- Persist the active trace ID in each runtime operation.
+- Emit `start`, `success`, and `error` records through a declarative function attribute.
+- Make logged values explicit and fail-closed without heuristic sanitization.
+- Standardize safe diagnostic formatting for external boundary DTOs.
+- Keep secrets, credentials, raw request bodies, raw provider responses, and large payloads out of logs by construction.
 
 ## Non-Goals
 
 - Do not pass `TraceId` or `SpanContext` through ordinary service, port, adapter, or client signatures.
-- Do not instrument constructors, getters, private helpers, pure mapping functions, or trait declarations without executable bodies.
-- Do not add a custom diagnostics proc macro or a custom lint.
-- Do not add a tracing exporter or external telemetry backend.
+- Do not log private helpers, `pub(crate)` module helpers, constructors, getters, pure mappings, domain mutations, or test fakes.
+- Do not copy or adapt the old diagnostics module.
+- Do not add a wrapper API around every function body.
+- Do not add a custom JSON sanitizer or custom log layout.
+- Do not traverse arbitrary error source chains.
+- Do not reimplement child-span or `async_trait` instrumentation already owned by `fastrace`.
+- Do not add an external trace exporter.
 - Do not catch panics or convert them into application errors.
-- Do not implement future Tauri commands as part of this diagnostics change.
+- Do not implement future Tauri commands or their frontend bindings in this change.
 
-## Diagnostics Boundary
+## Components
 
-Add a top-level `diagnostics` module under `src-tauri/src`. It owns:
+The feature has two focused components.
+
+### Runtime diagnostics module
+
+`src-tauri/src/diagnostics` owns:
 
 - `logforth` initialization;
-- the sanitizing JSON layout and application log filter;
-- current `fastrace` context access;
-- async and synchronous call wrappers;
-- safe error-chain extraction.
+- the standard `logforth::layout::JsonLayout`;
+- `FastraceDiagnostic` integration;
+- current trace ID access;
+- small formatting helpers used by generated macro code;
+- the `DiagnosticValue` marker trait;
+- safe `Redacted` and named-field debug views.
 
-The module may reuse and adapt the old `diagnostics` files, especially the sanitization rules and their security tests. The active implementation must be shaped around the current `application`, `adapters`, and `infra` boundaries rather than copied wholesale.
+It does not own service, adapter, provider, persistence, or Tauri semantics.
 
-Diagnostics initialization happens after support paths and the log directory exist, but before application state is constructed or application operations run. The output remains one JSONL file at `<app_data_dir>/logs/luma-forge.log`.
+### Diagnostics proc-macro crate
 
-## Trace Propagation
+A new proc-macro crate under `src-tauri/crates/diagnostics-macros` owns:
 
-`diagnostics::run` and `diagnostics::run_sync` own span creation:
+- the `#[diagnostic]` function and impl attribute;
+- the `#[derive(DiagnosticDebug)]` derive;
+- parsing and validation of diagnostic annotations;
+- generated logging code;
+- composition with `#[fastrace::trace]`.
 
-- with an active local parent, the wrapper creates a child span;
-- without an active local parent, the wrapper creates a root span from `SpanContext::random()`;
-- start and terminal logs are emitted while that span is active;
-- nested public calls therefore inherit the current trace and create nested spans without parameter drilling.
+The macro crate is implemented from scratch. It uses `syn`, `quote`, and `proc-macro2`, but contains no runtime logger or business-specific logic.
 
-Future Tauri command adapters use the same wrapper. While the wrapper is active, a command can read `diagnostics::current_trace_id()` when it needs to construct a UI-safe command error.
+The native crate re-exports the macros from its diagnostics module so active code has one diagnostics namespace.
 
-### Background tasks
+## Diagnostic Values
 
-`tokio::spawn` does not implicitly inherit the active local parent. Before spawning, the caller captures `SpanContext::current_local_parent()`. The spawned future creates a runner span with that captured context and executes through `FutureExt::in_span`. Public operations inside the task then return to the ordinary wrapper rule.
+### `DiagnosticValue`
 
-The same explicit propagation rule applies to other execution boundaries that do not preserve the active future context, including `spawn_blocking` and future process or HTTP trace propagation.
-
-### Runtime operations
-
-`RuntimeOperation.trace_id` changes from `Uuid` to `fastrace::collector::TraceId`. Operation IDs remain `Uuid`.
-
-Provision and cleanup stop generating a separate random trace ID. They read the active trace ID when the durable operation is created. SQLite stores the canonical `TraceId` string and parses that type when operations are loaded.
-
-During startup recovery, each interrupted operation is handled under a new recovery span created with its stored trace ID. This reconnects recovery logs to the original support correlation ID even though the pre-restart span no longer exists.
-
-## Public Call Contract
-
-The diagnostics module exposes two common wrappers:
+Showing a value requires more than an arbitrary `Debug` implementation:
 
 ```rust
-diagnostics::run(name, input, future).await
-diagnostics::run_sync(name, input, operation)
+pub trait DiagnosticValue: std::fmt::Debug {}
 ```
 
-For a fallible public operation, the wrapper:
+The runtime module implements this trait for an explicit safe scalar set:
 
-1. creates and activates the function span;
-2. emits `INFO call.start` with `function` and `input`;
-3. executes the supplied future or synchronous operation;
-4. emits exactly one terminal record;
-5. emits `INFO call.success` with `function` and `output` for `Ok`;
-6. emits `ERROR call.error` with `function` and safe error diagnostics for `Err`;
-7. returns the original result unchanged.
+- integer and floating-point primitives;
+- `bool` and `char`;
+- `str` and `String`;
+- `()`;
+- `Uuid` and `fastrace::collector::TraceId`;
+- `SecretString`, whose own `Debug` is already redacted;
+- references, `Option`, `Vec`, slices, arrays, and supported tuples when their contained values implement `DiagnosticValue`.
 
-The function name is a static logical name such as:
+There is no blanket `impl<T: Debug> DiagnosticValue for T`. A struct or enum with only ordinary `Debug` therefore cannot be shown accidentally.
 
-- `application.workspace.create`;
-- `adapters.sqlite.workspace_repository.create`;
-- `infra.runpod.create_network_volume`.
+`serde_json::Value`, generated provider DTOs, transport responses, request builders, and other open-ended values are not diagnostic scalars.
 
-Input, output, and error values use `Debug` so domain and application types do not gain `Serialize` solely for diagnostics. Secret-bearing values must use redacting types such as `SecretString`; the final layout then applies the generic body, size, key, and token sanitization rules.
+### `DiagnosticDebug`
 
-A panic is not a `Result::Err`; the wrapper does not catch unwinding. A panicking operation may therefore leave only its `call.start` record.
+`#[derive(DiagnosticDebug)]` generates:
 
-## Instrumentation Rule
+- a safe `std::fmt::Debug` implementation;
+- an implementation of `DiagnosticValue`.
 
-Every executable public runtime operation uses `diagnostics::run` or `diagnostics::run_sync`:
+It supports structs and enums. Fields are fail-closed:
 
-- future Tauri commands;
-- public application service methods;
-- executable application port implementations;
-- public adapter operations;
-- public infra client operations.
+- no annotation: omit the field;
+- `#[diagnostic(show)]`: format the field through `DiagnosticValue`;
+- `#[diagnostic(redact)]`: keep the field name and render `[REDACTED]` without requiring any formatting trait from the field type.
 
-The following are excluded:
+There is no `skip` annotation because omission is the default.
 
-- constructors;
-- getters and accessors;
-- private helpers;
-- pure mapping functions;
-- trait declarations without executable bodies.
+Example:
 
-Errors are intentionally logged at every public boundary they cross. The infra client records the original network or decoding error, the adapter records its mapped port error, and the application service records its application error. Their shared trace ID correlates the records.
+```rust
+#[derive(DiagnosticDebug)]
+pub struct CreatePodRequest {
+    #[diagnostic(show)]
+    pub workspace_id: String,
 
-A detached operation has no waiting public caller to record its eventual failure. The private background boundary that finalizes a runtime operation therefore emits one additional `call.error`-shaped operation failure record before persisting the failed state. This is the only instrumentation exception for a private function; it prevents background persistence, transition, and orchestration failures from disappearing after the initiating public method has already returned success.
+    #[diagnostic(show)]
+    pub datacenter_id: String,
 
-The rule is added to `src-tauri/AGENTS.md`. A custom lint and proc macro are deferred because the common wrapper plus a complete implementation audit provides the rule without another maintenance subsystem.
+    #[diagnostic(redact)]
+    pub bearer_token: SecretString,
 
-## Log Format
-
-`logforth` writes application records at `INFO` and above. `FastraceDiagnostic` adds the active `trace_id` and `span_id` to each wrapper record.
-
-A successful terminal record has this conceptual shape:
-
-```json
-{
-  "timestamp": "2026-07-12T00:00:00Z",
-  "level": "INFO",
-  "target": "luma_forge::diagnostics",
-  "message": "call.success",
-  "ctx": {
-    "function": "application.workspace.create",
-    "output": "Workspace { ... }"
-  },
-  "diags": {
-    "trace_id": "0123456789abcdef0123456789abcdef",
-    "span_id": "0123456789abcdef"
-  }
+    pub model_assets: serde_json::Value,
 }
 ```
 
-The start record contains `input` instead of `output`. An error record lifts a sanitized structured error object to the top-level `error` field.
+Its diagnostic representation includes `workspace_id`, `datacenter_id`, and a redacted `bearer_token`; `model_assets` is absent.
 
-## Error Diagnostics
+Deriving ordinary `Debug` and `DiagnosticDebug` for the same type is a compile error because both implement `Debug`.
 
-Diagnostics uses the standard `std::error::Error::source()` chain. It does not restore the old `HasDiagnosticCode` trait or the `luma-diagnostic` proc-macro crate.
+## External Boundary DTOs
 
-An error record contains:
+Named request and response structures are required at external boundaries:
 
-- the Rust error type name;
-- sanitized `Debug` output;
-- sanitized top-level `Display` message;
-- sanitized source-chain messages in source order.
+- future Tauri command requests and responses;
+- public provider and HTTP client requests and responses;
+- future worker and process contracts.
 
-Each current boundary already has a typed error enum. Logging each boundary before or after its mapping preserves the concrete lower-layer failure without requiring a parallel diagnostics error taxonomy. Stable public error codes remain the responsibility of future command response contracts, not the generic logging module.
+These boundary DTOs derive `DiagnosticDebug`. Only explicitly shown fields can appear in logs.
 
-## Sanitization
+Generated HTTP and GraphQL types remain private wire representations. A public infra client accepts and returns application-owned boundary DTOs, then converts to or from generated types inside its private transport implementation.
 
-`SanitizingJsonLayout` is the final mandatory barrier before a record reaches disk. It recursively sanitizes messages, inputs, outputs, error diagnostics, context values, and diagnostic values.
+The current RunPod pod request is an important cutover case: a generated `PodCreateInput.env` containing bearer and Hugging Face values as raw `String` must not cross a public logged signature. The public client accepts a safe request containing `SecretString`; the raw generated environment map is created only immediately before the private HTTP call.
 
-The active implementation retains or improves the old security behavior:
+This DTO rule does not apply to every in-process selector. Public in-process operations may retain named scalar parameters and scalar results, such as `workspace_id: &str`, `limit: u64`, `bool`, one ID, or `()`.
 
-- secret-bearing keys, bearer tokens, API keys, authorization values, and other credentials become `[REDACTED]`;
-- Hugging Face tokens and signed URL credentials are redacted inside strings;
-- body-like values become `[REDACTED_BODY]`;
-- values above the diagnostic size limit become `[REDACTED_LARGE_DIAGNOSTIC]`;
-- nested structured values are sanitized recursively;
-- serialization or formatting failures produce a fixed safe fallback rather than the original value.
+## Function Instrumentation
 
-`SecretString` remains the required type for credentials crossing public operations. Its redacted `Debug` representation is the first protection; the final layout remains defense in depth for raw strings and incorrectly shaped diagnostic values.
+### Logged operations
 
-Raw HTTP request bodies and raw provider response bodies are not public-operation diagnostic values. Public infra clients log their typed, sanitized inputs and outputs after transport mapping. Large typed outputs are suppressed by the same size policy.
+Instrumentation applies to executable public operations:
+
+- future Tauri commands;
+- public application service methods;
+- production implementations of public port traits;
+- public infra client methods.
+
+It does not apply to private methods, `pub(crate)` helpers, constructors, getters, pure mapping functions, domain mutations, body-less trait declarations, or test fakes.
+
+A detached task entry point is the only private exception. It is an execution boundary after the initiating public method has already returned, so it must own its terminal success or failure log. Private helpers called by the runner remain uninstrumented.
+
+### Attribute policy
+
+`#[diagnostic]` supports async and synchronous functions that return `Result<T, E>`. It automatically ignores `self` and rejects destructuring parameters so logged argument names remain stable.
+
+Argument values are explicit and fail-closed:
+
+- no parameter annotation: omit the argument;
+- `#[diagnostic(show)]`: include the argument and require `DiagnosticValue`;
+- `#[diagnostic(redact)]`: include the argument name with `[REDACTED]` and impose no formatting trait on its type.
+
+Example:
+
+```rust
+#[diagnostic(show_output, show_error)]
+pub async fn create_pod(
+    #[diagnostic(show)] request: CreatePodRequest,
+    #[diagnostic(redact)] api_key: &SecretString,
+    transport_options: InternalOptions,
+) -> Result<CreatePodResponse, NetworkError> {
+    // operation
+}
+```
+
+The request and redacted API key are present in `call.start`; `transport_options` is absent.
+
+Output values are also fail-closed:
+
+- no output annotation: omit the `output` field;
+- `show_output`: require `T: DiagnosticValue` and show the value;
+- `redact_output`: write `output = [REDACTED]`.
+
+The error event is always emitted. It always contains the Rust error type name, but the value is fail-closed:
+
+- no error annotation: omit the error value;
+- `show_error`: require `E: DiagnosticValue` and show its safe `Debug`;
+- `redact_error`: write `error = [REDACTED]`.
+
+Conflicting annotations are compile errors.
+
+### Generated records
+
+For normal `Result` completion, the macro emits:
+
+1. `INFO call.start` with the function name and explicitly selected named inputs;
+2. `INFO call.success` with an explicitly selected or redacted output, when configured;
+3. `ERROR call.error` with the error type and an explicitly selected or redacted error value, when `Err` is returned.
+
+It returns the original `Result` unchanged. A panic is not caught and may leave only `call.start`.
+
+The runtime uses the standard `logforth` JSON layout. There is no final heuristic sanitizer. Safety comes from `DiagnosticValue`, `DiagnosticDebug`, explicit show/redact choices, private wire types, and safe typed error boundaries.
+
+## Composition With `fastrace`
+
+### Child operations
+
+For ordinary operations, `#[diagnostic]` injects logging logic and composes the resulting function with `#[fastrace::trace]`. `fastrace` owns child span creation, future polling, local-parent management, span naming, and its supported `async_trait` transformation.
+
+For inherent service methods, the attribute is placed on the method.
+
+For `async_trait` production port implementations, `#[diagnostic]` is placed before `#[async_trait::async_trait]` on the impl. The impl form consumes per-method and per-parameter diagnostic annotations, transforms the source async methods, and leaves async lowering to `async_trait` and span instrumentation to `fastrace`.
+
+### Root operations
+
+`#[diagnostic(root)]` is reserved for true entry points with no parent context:
+
+- future Tauri commands;
+- startup bootstrap;
+- future process entry points.
+
+Root mode creates `Span::root` from `SpanContext::random()` and runs the generated call logging inside it. Ordinary operations never create fallback roots.
+
+Future command error mapping reads `diagnostics::current_trace_id()` while the command root is active and returns that UI-safe ID.
+
+### Detached tasks
+
+Before `tokio::spawn`, the caller captures `SpanContext::current_local_parent()`. The spawned future creates a runner span with the captured context and executes through `FutureExt::in_span`. The diagnostic runner attribute then owns the task's start and terminal records.
+
+The same explicit propagation rule applies to future execution boundaries that do not inherit the active future context, including `spawn_blocking`, processes, and outbound distributed trace propagation.
+
+## Runtime Operations
+
+`RuntimeOperation.trace_id` changes from `Uuid` to `fastrace::collector::TraceId`. Operation IDs remain `Uuid`.
+
+Provision and cleanup read the active trace ID when the durable operation is created instead of generating a second random UUID. SQLite stores the canonical trace string and parses `TraceId` when reading operations.
+
+During startup recovery, each interrupted operation is handled under an explicit recovery span created with its stored trace ID. The recovery operation then uses ordinary `#[diagnostic]` beneath that span rather than `#[diagnostic(root)]`, which would generate a new trace. This associates recovery records with the original support correlation ID without attempting to restore the pre-restart span tree or resume provider work.
+
+## Error Safety
+
+The macro logs only the public boundary's typed error. It does not traverse `Error::source()` or serialize arbitrary dependency errors.
+
+An error shown with `show_error` must implement `DiagnosticValue`. Error enums that need visible values derive `DiagnosticDebug` and opt in only safe fields. Lower layers map raw network, keyring, database, JSON, GraphQL, and provider failures into safe typed errors before they cross a logged public boundary.
+
+Errors are intentionally logged at every instrumented public boundary they cross. Their shared trace ID correlates the infra, adapter, and application views of the failure.
+
+## Initialization
+
+`diagnostics::init(logs_dir)` configures:
+
+- one append-only JSONL file at `<app_data_dir>/logs/luma-forge.log`;
+- the standard `logforth::layout::JsonLayout`;
+- application targets at `INFO` and above;
+- `FastraceDiagnostic` for active `trace_id` and `span_id` fields.
+
+Initialization occurs after support paths exist and before application state construction or operations. The current refactor shell has no Tauri setup or support-path bootstrap, so this work provides and tests the initialization API but does not invent a temporary call from the current `Hello, world!` main. The future native bootstrap must call it at the required point.
+
+## Permanent Repository Rule
+
+`src-tauri/AGENTS.md` records:
+
+- which public operations require `#[diagnostic]`;
+- that private helpers and test fakes are excluded;
+- that detached runner entry points are the only private exception;
+- that external boundary DTOs use `DiagnosticDebug`;
+- that logged values require explicit `show` or `redact`;
+- that raw wire DTOs, request bodies, provider responses, and exposed secrets never enter diagnostic values;
+- that detached work explicitly propagates `SpanContext`.
 
 ## Testing
 
-Diagnostics-owned tests cover:
+The proc-macro crate uses `trybuild` as a dev-only dependency.
 
-- async `start -> success`;
-- async `start -> error`;
-- the equivalent synchronous wrapper behavior;
-- standalone root creation and nested child-span behavior;
-- secret-bearing keys and nested values;
-- bearer tokens, API keys, authorization values, Hugging Face tokens, and signed URLs;
-- body-like and oversized diagnostic suppression;
-- error message and standard source-chain sanitization.
+Compile-pass cases cover:
 
-Existing runtime operation tests change their trace fixtures and assertions from `Uuid` to `fastrace::TraceId`. No instrumentation-only test is added for each service or adapter method.
+- showing a whitelisted scalar;
+- showing a `DiagnosticDebug` type;
+- redacting an arbitrary type;
+- omitted arguments and fields;
+- omitted, shown, and redacted outputs;
+- omitted, shown, and redacted errors;
+- async inherent methods;
+- `async_trait` impl instrumentation;
+- root entry points;
+- structs and enums derived with `DiagnosticDebug`.
 
-Implementation includes a complete search-based audit of executable public operations under `src-tauri/src/application`, `src-tauri/src/adapters`, and `src-tauri/src/infra` to apply the wrapper consistently.
+Compile-fail cases cover:
+
+- showing a struct with only ordinary `Debug`;
+- showing an output or error without `DiagnosticValue`;
+- conflicting annotations;
+- destructuring parameters;
+- `#[diagnostic]` on a function not returning `Result`;
+- deriving ordinary `Debug` together with `DiagnosticDebug`.
+
+Runtime diagnostics tests cover:
+
+- `start -> success` ordering;
+- `start -> error` ordering;
+- omission of unannotated arguments, fields, outputs, and error values;
+- `[REDACTED]` for redacted arguments, fields, outputs, and errors;
+- the standard JSON output shape;
+- `trace_id` and `span_id` enrichment;
+- root and child trace relationships.
+
+Runtime operation tests cover:
+
+- storing the active `fastrace::TraceId`;
+- detached runner propagation;
+- recovery under the stored trace ID.
+
+No instrumentation-only test is added for every application or adapter method. A final source audit verifies attribute coverage on the public operations in scope.
 
 Native verification runs:
 
@@ -204,12 +330,16 @@ Command code generation and frontend verification are required only when future 
 
 ## Acceptance Criteria
 
-- Every executable public runtime operation in scope emits one `call.start` and exactly one `call.success` or `call.error` for normal `Result` completion.
-- Nested operations share one trace ID and have nested span contexts without trace parameters in their signatures.
-- Detached background work continues the originating trace through explicit `SpanContext` capture.
-- Runtime operations persist the active `fastrace::TraceId`; provision and cleanup do not generate separate trace IDs.
-- Startup recovery logs use each interrupted operation's stored trace ID.
-- Inputs, outputs, and errors are present in the appropriate call records and are sanitized before disk output.
-- Secrets, credentials, body-like values, signed URL credentials, and oversized diagnostics never appear raw in `luma-forge.log`.
-- The instrumentation rule is documented in `src-tauri/AGENTS.md`.
-- Native tests, formatting, and Clippy pass.
+- Active diagnostics and its macros are implemented from scratch; no old diagnostics implementation is copied or adapted.
+- Every executable public operation in scope and every detached runner entry point uses the diagnostic attribute.
+- Ordinary calls share the entry-point trace without trace parameters in their signatures.
+- The custom attribute delegates child-span and `async_trait` mechanics to `fastrace`.
+- `DiagnosticDebug` supports structs and enums and omits unannotated fields.
+- `show` accepts only `DiagnosticValue`; arbitrary ordinary `Debug` values cannot enter logs.
+- Inputs, outputs, and error values are omitted unless explicitly shown or redacted.
+- External boundary I/O uses application-owned DTOs with `DiagnosticDebug`; raw generated wire DTOs remain private.
+- Secrets, credentials, raw bodies, raw provider responses, and large payloads never enter log values.
+- Runtime operations persist the active `fastrace::TraceId` and detached work preserves its parent context.
+- `luma-forge.log` uses standard `logforth` JSON records enriched with active trace and span IDs.
+- The permanent instrumentation rule is documented in `src-tauri/AGENTS.md`.
+- Proc-macro compile tests and native verification pass.
