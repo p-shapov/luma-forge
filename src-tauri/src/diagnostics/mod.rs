@@ -70,6 +70,10 @@ pub fn current_trace_id() -> Option<fastrace::collector::TraceId> {
     fastrace::collector::SpanContext::current_local_parent().map(|context| context.trace_id)
 }
 
+pub fn current_trace_uuid() -> Option<uuid::Uuid> {
+    current_trace_id().map(|trace_id| uuid::Uuid::from_u128(trace_id.0))
+}
+
 pub trait DiagnosticValue: Debug {}
 
 pub fn shown<T: DiagnosticValue>(value: &T) -> &T {

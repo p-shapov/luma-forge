@@ -5,7 +5,7 @@ use syn::{
     PathArguments, Result, ReturnType, Signature, Type,
 };
 
-use crate::args::{value_policy, FunctionArgs, ValuePolicy};
+use crate::args::{value_policy, FunctionArgs, SpanMode, ValuePolicy};
 
 pub fn expand(args: FunctionArgs, input: TokenStream) -> Result<TokenStream> {
     if let Ok(mut function) = syn::parse2::<ItemFn>(input.clone()) {
@@ -14,7 +14,7 @@ pub fn expand(args: FunctionArgs, input: TokenStream) -> Result<TokenStream> {
     }
 
     let mut implementation = syn::parse2::<ItemImpl>(input)?;
-    if args.root
+    if !matches!(args.span, SpanMode::Ambient)
         || !matches!(args.output, ValuePolicy::Omit)
         || !matches!(args.error, ValuePolicy::Omit)
     {
@@ -49,9 +49,6 @@ pub fn expand(args: FunctionArgs, input: TokenStream) -> Result<TokenStream> {
             FunctionArgs::default()
         };
         instrument(&mut method.sig, &mut method.block, &args)?;
-        if !args.root {
-            method.attrs.push(parse_quote!(#[fastrace::trace]));
-        }
     }
 
     Ok(quote!(#implementation))
@@ -59,9 +56,6 @@ pub fn expand(args: FunctionArgs, input: TokenStream) -> Result<TokenStream> {
 
 fn instrument_function(function: &mut ItemFn, args: FunctionArgs) -> Result<()> {
     instrument(&mut function.sig, &mut function.block, &args)?;
-    if !args.root {
-        function.attrs.push(parse_quote!(#[fastrace::trace]));
-    }
     Ok(())
 }
 
@@ -78,6 +72,9 @@ fn parse_attribute_args(attribute: &Attribute) -> Result<FunctionArgs> {
 
 fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) -> Result<()> {
     validate_result(&signature.output)?;
+    if matches!(args.span, SpanMode::Detached) {
+        validate_detached(signature)?;
+    }
     let fields = input_fields(signature)?;
     let fields_ident = syn::Ident::new("__diagnostic_fields", Span::mixed_site());
     let start = if fields.is_empty() {
@@ -102,30 +99,94 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
         #terminal
         #result
     });
-    let instrumented = if args.root && signature.asyncness.is_some() {
+    let ambient = quote! {
+        fastrace::collector::SpanContext::current_local_parent()
+            .unwrap_or_else(fastrace::collector::SpanContext::random)
+    };
+    let context = match &args.span {
+        SpanMode::Ambient | SpanMode::Detached => ambient,
+        SpanMode::Root => quote!(fastrace::collector::SpanContext::random()),
+        SpanMode::Restore(expression) => quote! {
+            (#expression)
+                .map(|trace_id: uuid::Uuid| {
+                    fastrace::collector::SpanContext::new(
+                        fastrace::collector::TraceId(trace_id.as_u128()),
+                        fastrace::collector::SpanId::default(),
+                    )
+                })
+                .unwrap_or_else(fastrace::collector::SpanContext::random)
+        },
+    };
+
+    let instrumented = if matches!(args.span, SpanMode::Detached) {
+        let context_ident = syn::Ident::new("__diagnostic_context", Span::mixed_site());
+        let output = result_type(&signature.output)?.clone();
+        signature.asyncness = None;
+        signature.output = parse_quote!(
+            -> impl std::future::Future<Output = #output> + Send + 'static
+        );
         quote!({
-            use fastrace::future::FutureExt as _;
-            (async move #instrumented)
-                .in_span(fastrace::Span::root(fastrace::func_path!(), fastrace::collector::SpanContext::random()))
-                .await
+            let #context_ident = #context;
+            fastrace::future::FutureExt::in_span(
+                async move #instrumented,
+                fastrace::Span::root(fastrace::func_path!(), #context_ident),
+            )
         })
-    } else if args.root {
+    } else if signature.asyncness.is_some() {
+        quote!({
+            fastrace::future::FutureExt::in_span(
+                async move #instrumented,
+                fastrace::Span::root(fastrace::func_path!(), #context),
+            )
+            .await
+        })
+    } else {
         let root = syn::Ident::new("__diagnostic_root", Span::mixed_site());
         let guard = syn::Ident::new("__diagnostic_guard", Span::mixed_site());
         quote!({
             let #root = fastrace::Span::root(
                 fastrace::func_path!(),
-                fastrace::collector::SpanContext::random(),
+                #context,
             );
             let #guard = #root.set_local_parent();
             #instrumented
         })
-    } else {
-        instrumented
     };
 
     *body = parse_quote!({ #instrumented });
     Ok(())
+}
+
+fn validate_detached(signature: &Signature) -> Result<()> {
+    if signature.asyncness.is_none() {
+        return Err(syn::Error::new_spanned(
+            &signature.fn_token,
+            "detached diagnostic functions must be async",
+        ));
+    }
+    for input in &signature.inputs {
+        let borrowed = match input {
+            FnArg::Receiver(receiver) => receiver.reference.is_some(),
+            FnArg::Typed(argument) => matches!(argument.ty.as_ref(), Type::Reference(_)),
+        };
+        if borrowed {
+            return Err(syn::Error::new_spanned(
+                input,
+                "detached diagnostic functions require owned parameters",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn result_type(output: &ReturnType) -> Result<&Type> {
+    let ReturnType::Type(_, ty) = output else {
+        return Err(syn::Error::new_spanned(
+            output,
+            "diagnostic functions must return `Result<T, E>`",
+        ));
+    };
+    Ok(ty)
 }
 
 fn validate_result(output: &ReturnType) -> Result<()> {

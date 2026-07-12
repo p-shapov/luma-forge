@@ -1,0 +1,5 @@
+error: duplicate or conflicting diagnostic span mode
+ --> tests/ui/fail/conflicting_span_mode.rs:3:20
+  |
+3 | #[diagnostic(root, detached)]
+  |                    ^^^^^^^^

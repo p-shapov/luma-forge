@@ -87,10 +87,29 @@ async fn traced_child() -> Result<SpanContext, TestError> {
     Ok(SpanContext::current_local_parent().unwrap())
 }
 
+#[super::diagnostic]
+async fn standalone() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic(detached)]
+async fn detached() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic(restore = trace_id)]
+async fn restored(trace_id: Option<uuid::Uuid>) -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
 #[super::diagnostic(root)]
 async fn traced_root() -> Result<(SpanContext, SpanContext), TestError> {
     let root = SpanContext::current_local_parent().unwrap();
     assert_eq!(super::current_trace_id(), Some(root.trace_id));
+    assert_eq!(
+        super::current_trace_uuid(),
+        Some(uuid::Uuid::from_u128(root.trace_id.0))
+    );
     Ok((root, traced_child().await?))
 }
 
@@ -216,6 +235,34 @@ async fn nested_calls_share_trace_but_use_distinct_spans() {
 
     assert_eq!(root.trace_id, child.trace_id);
     assert_ne!(root.span_id, child.span_id);
+}
+
+#[tokio::test]
+async fn standalone_call_creates_root_context() {
+    assert!(standalone().await.unwrap().trace_id.0 != 0);
+}
+
+#[tokio::test]
+async fn detached_call_captures_parent_before_spawn() {
+    let parent = SpanContext::random();
+    let root = fastrace::Span::root("diagnostics.detached_parent", parent);
+    let _guard = root.set_local_parent();
+    let future = detached();
+    drop(_guard);
+
+    let child = tokio::spawn(future).await.unwrap().unwrap();
+    assert_eq!(child.trace_id, parent.trace_id);
+    assert_ne!(child.span_id, parent.span_id);
+}
+
+#[tokio::test]
+async fn restore_uses_saved_trace_or_falls_back_to_root() {
+    let saved = uuid::Uuid::new_v4();
+    let restored = restored(Some(saved)).await.unwrap();
+    let fallback = self::restored(None).await.unwrap();
+
+    assert_eq!(restored.trace_id.0, saved.as_u128());
+    assert_ne!(fallback.trace_id, restored.trace_id);
 }
 
 #[test]

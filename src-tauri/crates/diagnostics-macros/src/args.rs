@@ -7,8 +7,15 @@ pub enum ValuePolicy {
     Redact,
 }
 
+pub enum SpanMode {
+    Ambient,
+    Root,
+    Detached,
+    Restore(syn::Expr),
+}
+
 pub struct FunctionArgs {
-    pub root: bool,
+    pub span: SpanMode,
     pub output: ValuePolicy,
     pub error: ValuePolicy,
 }
@@ -16,7 +23,7 @@ pub struct FunctionArgs {
 impl Default for FunctionArgs {
     fn default() -> Self {
         Self {
-            root: false,
+            span: SpanMode::Ambient,
             output: ValuePolicy::Omit,
             error: ValuePolicy::Omit,
         }
@@ -29,36 +36,66 @@ impl Parse for FunctionArgs {
         let metas = input.parse_terminated(syn::Meta::parse, syn::Token![,])?;
 
         for meta in metas {
-            if !matches!(&meta, syn::Meta::Path(_)) {
-                return Err(syn::Error::new_spanned(
-                    meta,
-                    "expected a diagnostic policy flag",
-                ));
-            }
             let path = meta.path();
             if path.is_ident("root") {
-                if args.root {
-                    return Err(syn::Error::new_spanned(meta, "duplicate `root` policy"));
-                }
-                args.root = true;
+                require_path(&meta)?;
+                set_span_mode(&mut args.span, SpanMode::Root, &meta)?;
+            } else if path.is_ident("detached") {
+                require_path(&meta)?;
+                set_span_mode(&mut args.span, SpanMode::Detached, &meta)?;
+            } else if path.is_ident("restore") {
+                let syn::Meta::NameValue(name_value) = &meta else {
+                    return Err(syn::Error::new_spanned(meta, "expected `restore = expression`"));
+                };
+                set_span_mode(
+                    &mut args.span,
+                    SpanMode::Restore(name_value.value.clone()),
+                    &meta,
+                )?;
             } else if path.is_ident("show_output") {
+                require_path(&meta)?;
                 set_policy(&mut args.output, ValuePolicy::Show, &meta, "output")?;
             } else if path.is_ident("redact_output") {
+                require_path(&meta)?;
                 set_policy(&mut args.output, ValuePolicy::Redact, &meta, "output")?;
             } else if path.is_ident("show_error") {
+                require_path(&meta)?;
                 set_policy(&mut args.error, ValuePolicy::Show, &meta, "error")?;
             } else if path.is_ident("redact_error") {
+                require_path(&meta)?;
                 set_policy(&mut args.error, ValuePolicy::Redact, &meta, "error")?;
             } else {
                 return Err(syn::Error::new_spanned(
                     meta,
-                    "expected `root`, `show_output`, `redact_output`, `show_error`, or `redact_error`",
+                    "expected `root`, `detached`, `restore = expression`, `show_output`, `redact_output`, `show_error`, or `redact_error`",
                 ));
             }
         }
 
         Ok(args)
     }
+}
+
+fn require_path(meta: &syn::Meta) -> Result<()> {
+    if matches!(meta, syn::Meta::Path(_)) {
+        Ok(())
+    } else {
+        Err(syn::Error::new_spanned(
+            meta,
+            "expected a diagnostic policy flag",
+        ))
+    }
+}
+
+fn set_span_mode(span: &mut SpanMode, next: SpanMode, meta: &syn::Meta) -> Result<()> {
+    if !matches!(span, SpanMode::Ambient) {
+        return Err(syn::Error::new_spanned(
+            meta,
+            "duplicate or conflicting diagnostic span mode",
+        ));
+    }
+    *span = next;
+    Ok(())
 }
 
 fn set_policy(
