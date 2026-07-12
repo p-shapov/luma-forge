@@ -1,8 +1,12 @@
 use std::fmt::{self, Debug};
 
-pub use luma_diagnostics_macros::DiagnosticDebug;
+pub use luma_diagnostics_macros::{diagnostic, DiagnosticDebug};
 
 pub trait DiagnosticValue: Debug {}
+
+pub fn shown<T: DiagnosticValue>(value: &T) -> &T {
+    value
+}
 
 pub struct Redacted;
 

@@ -1,0 +1,5 @@
+error: duplicate or conflicting diagnostic output policy
+ --> tests/ui/fail/conflicting_output_policy.rs:3:27
+  |
+3 | #[diagnostic(show_output, redact_output)]
+  |                           ^^^^^^^^^^^^^
