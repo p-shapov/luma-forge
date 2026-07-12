@@ -15,9 +15,10 @@
 
 ## Diagnostics
 
-- Apply diagnostics only to public commands, application services, production port implementations, infrastructure clients, and detached runner boundaries. Leave constructors, accessors, private helpers, domain mutations, generated code, and test fakes uninstrumented.
+- Apply diagnostics only to public commands, application services, production port implementations, infrastructure clients, detached runner boundaries, and per-operation recovery boundaries. Leave constructors, accessors, other private helpers, domain mutations, generated code, and test fakes uninstrumented.
 - Omit arguments, outputs, errors, and DTO fields by default. Every value selected with `show`, `show_output`, or `show_error` must implement `DiagnosticValue`.
 - Derive `DiagnosticDebug` for external boundary DTOs and explicitly show only safe fields. Keep generated wire DTOs private to transport conversion and HTTP construction.
+- Never include raw request bodies or raw provider responses in diagnostic values.
 - Capture and propagate the current `SpanContext` across detached task boundaries.
 - Implement diagnostics from the current contract; never copy old diagnostics code.
 

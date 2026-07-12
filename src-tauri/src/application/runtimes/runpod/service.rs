@@ -193,22 +193,27 @@ impl RunpodRuntimeService {
                 "application.runtimes.runpod.recover_interrupted",
                 SpanContext::new(operation.trace_id, fastrace::collector::SpanId::default()),
             );
-            async {
-                let mut operation = operation;
-                let RuntimeProgress::Runpod(_) = operation.progress;
-                let mut runtime = self
-                    .runtimes
-                    .get(&operation.workspace_id)
-                    .await?
-                    .ok_or(RunpodRuntimeError::NotProvisioned)?;
-                runtime.mark_failed()?;
-                operation.fail(OffsetDateTime::now_utc())?;
-                self.transitions.save_changed(&runtime, &operation).await?;
-                Ok::<(), RunpodRuntimeError>(())
-            }
-            .in_span(recovery)
-            .await?;
+            self.recover_interrupted(operation)
+                .in_span(recovery)
+                .await?;
         }
+        Ok(())
+    }
+
+    #[crate::diagnostics::diagnostic]
+    async fn recover_interrupted(
+        &self,
+        mut operation: RuntimeOperation,
+    ) -> Result<(), RunpodRuntimeError> {
+        let RuntimeProgress::Runpod(_) = operation.progress;
+        let mut runtime = self
+            .runtimes
+            .get(&operation.workspace_id)
+            .await?
+            .ok_or(RunpodRuntimeError::NotProvisioned)?;
+        runtime.mark_failed()?;
+        operation.fail(OffsetDateTime::now_utc())?;
+        self.transitions.save_changed(&runtime, &operation).await?;
         Ok(())
     }
 
@@ -993,6 +998,22 @@ mod tests {
         assert_eq!(fakes.events.runtime_changed_count(), 2);
         assert_eq!(fakes.events.runtime_operation_event_count(), 2);
         assert_eq!(fakes.events.workspace_event_count(), 0);
+        assert!(fakes.provider.calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn recovery_entry_point_marks_one_operation_failed() {
+        let fakes = RecoveryFakes::with_running_provision_and_cleanup();
+        let service = fakes.service();
+        let operation = service.operations.running().await.unwrap().remove(0);
+
+        service.recover_interrupted(operation).await.unwrap();
+
+        assert_eq!(
+            fakes.repository.saved_states(),
+            vec![(RunpodRuntimeState::Failed, RuntimeOperationState::Failed)]
+        );
+        assert_eq!(fakes.repository.saved_trace_ids(), vec![TraceId(2)]);
         assert!(fakes.provider.calls().is_empty());
     }
 }
