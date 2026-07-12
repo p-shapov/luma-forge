@@ -19,7 +19,8 @@
 - Omit arguments, outputs, errors, and DTO fields by default. Every value selected with `show`, `show_output`, or `show_error` must implement `DiagnosticValue`.
 - Derive `DiagnosticDebug` for external boundary DTOs and explicitly show only safe fields. Keep generated wire DTOs private to transport conversion and HTTP construction.
 - Never include raw request bodies or raw provider responses in diagnostic values.
-- Capture and propagate the current `SpanContext` across detached task boundaries.
+- Let diagnostic attributes own root fallback, detached-task propagation, and stored-trace restoration. Do not call `Span`, `SpanContext`, `FutureExt`, `in_span`, or current-trace helpers from application workflow, adapter, or infrastructure function bodies. `RuntimeOperation::running` is the only application-model current-trace capture boundary.
+- Persist runtime-operation trace correlation only as `Option<Uuid>` support metadata. Missing ambient trace context stores `None`; it must not panic or invent an unbacked trace ID.
 - Implement diagnostics from the current contract; never copy old diagnostics code.
 
 ## Diagnostics And Bug Triage
