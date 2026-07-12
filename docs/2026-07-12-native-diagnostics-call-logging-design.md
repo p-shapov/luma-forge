@@ -12,8 +12,9 @@ This document supersedes the earlier contents of this file and the active-code r
 
 - Create one root `fastrace` context at every true native entry point.
 - Propagate tracing through ordinary calls without trace parameters in function signatures.
-- Preserve tracing explicitly across detached execution boundaries.
-- Persist the active trace ID in each runtime operation.
+- Make every instrumented operation safe to call without a pre-existing span by creating a root when no parent exists.
+- Preserve tracing across detached execution boundaries inside the diagnostic macro rather than application function bodies.
+- Persist the active trace ID as `Option<Uuid>` in each runtime operation.
 - Emit `start`, `success`, and `error` records through a declarative function attribute.
 - Make logged values explicit and fail-closed without heuristic sanitization.
 - Standardize safe diagnostic formatting for external boundary DTOs.
@@ -27,7 +28,6 @@ This document supersedes the earlier contents of this file and the active-code r
 - Do not add a wrapper API around every function body.
 - Do not add a custom JSON sanitizer or custom log layout.
 - Do not traverse arbitrary error source chains.
-- Do not reimplement child-span or `async_trait` instrumentation already owned by `fastrace`.
 - Do not add an external trace exporter.
 - Do not catch panics or convert them into application errors.
 - Do not implement future Tauri commands or their frontend bindings in this change.
@@ -43,7 +43,7 @@ The feature has two focused components.
 - `logforth` initialization;
 - the standard `logforth::layout::JsonLayout`;
 - `FastraceDiagnostic` integration;
-- current trace ID access;
+- optional current trace ID capture and conversion between `Uuid` and `fastrace` IDs;
 - small formatting helpers used by generated macro code;
 - the `DiagnosticValue` marker trait;
 - safe `Redacted` and named-field debug views.
@@ -58,7 +58,7 @@ A new proc-macro crate under `src-tauri/crates/diagnostics-macros` owns:
 - the `#[derive(DiagnosticDebug)]` derive;
 - parsing and validation of diagnostic annotations;
 - generated logging code;
-- composition with `#[fastrace::trace]`.
+- root, child, detached, and stored-trace restoration composition with `fastrace`.
 
 The macro crate is implemented from scratch. It uses `syn`, `quote`, and `proc-macro2`, but contains no runtime logger or business-specific logic.
 
@@ -209,39 +209,57 @@ The runtime uses the standard `logforth` JSON layout. There is no final heuristi
 
 ## Composition With `fastrace`
 
-### Child operations
+The diagnostic macro owns all span setup. Application, adapter, and infra function bodies do not import or call `Span`, `SpanContext`, `FutureExt`, `in_span`, or `current_trace_id`.
 
-For ordinary operations, `#[diagnostic]` injects logging logic and composes the resulting function with `#[fastrace::trace]`. `fastrace` owns child span creation, future polling, local-parent management, span naming, and its supported `async_trait` transformation.
+### Ordinary operations
 
-For inherent service methods, the attribute is placed on the method.
+`#[diagnostic]` inspects the ambient parent when the operation future is polled:
 
-For `async_trait` production port implementations, `#[diagnostic]` is placed before `#[async_trait::async_trait]` on the impl. The impl form consumes per-method and per-parameter diagnostic annotations, transforms the source async methods, and leaves async lowering to `async_trait` and span instrumentation to `fastrace`.
+- when a parent exists, it creates a child span;
+- when no parent exists, it creates a new random root span.
 
-### Root operations
+The fallback root removes the implicit requirement that a service, port implementation, adapter, or client must be called from an already instrumented caller. Direct calls remain fully logged instead of panicking or running without trace enrichment.
 
-`#[diagnostic(root)]` is reserved for true entry points with no parent context:
+For inherent methods, the attribute is placed on the method. For `async_trait` production port implementations, `#[diagnostic]` remains before `#[async_trait::async_trait]`; the impl form consumes method policies before async lowering.
+
+### Explicit roots
+
+`#[diagnostic(root)]` always creates a new random trace, even if an ambient parent exists. It is reserved for true entry points:
 
 - future Tauri commands;
 - startup bootstrap;
 - future process entry points.
 
-Root mode creates `Span::root` from `SpanContext::random()` and runs the generated call logging inside it. Ordinary operations never create fallback roots.
-
-Future command error mapping reads `diagnostics::current_trace_id()` while the command root is active and returns that UI-safe ID.
-
 ### Detached tasks
 
-Before `tokio::spawn`, the caller captures `SpanContext::current_local_parent()`. The spawned future creates a runner span with the captured context and executes through `FutureExt::in_span`. The diagnostic runner attribute then owns the task's start and terminal records.
+`#[diagnostic(detached)]` is reserved for async detached runner entry points. The generated wrapper captures the ambient parent synchronously when the runner future is created, then returns a `Send + 'static` future that runs call logging and the original body inside a child span. When no parent exists, it captures a new random root context instead.
 
-The same explicit propagation rule applies to future execution boundaries that do not inherit the active future context, including `spawn_blocking`, processes, and outbound distributed trace propagation.
+Detached runner methods take owned `self` and owned inputs so their returned futures can be passed directly to `tokio::spawn`:
+
+```rust
+tokio::spawn(self.clone().run_cleanup(...));
+```
+
+The caller contains no tracing setup. The macro rejects `detached` on synchronous functions and rejects combinations with `root` or `restore`.
+
+### Stored trace restoration
+
+`#[diagnostic(restore = operation.trace_id)]` accepts an expression of type `Option<Uuid>`:
+
+- `Some(trace_id)` creates a new root span segment within that stored trace;
+- `None` creates a new random root trace.
+
+Only the trace ID is restored. The pre-restart span tree and parent span ID no longer exist and are not reconstructed. `restore` is reserved for per-operation interrupted recovery and is mutually exclusive with `root` and `detached`.
 
 ## Runtime Operations
 
-`RuntimeOperation.trace_id` changes from `Uuid` to `fastrace::collector::TraceId`. Operation IDs remain `Uuid`.
+`RuntimeOperation.trace_id` is `Option<Uuid>`. Operation IDs remain required `Uuid` values.
 
-Provision and cleanup read the active trace ID when the durable operation is created instead of generating a second random UUID. SQLite stores the canonical trace string and parses `TraceId` when reading operations.
+`RuntimeOperation::running` no longer accepts a trace argument. It captures the current ambient trace through the diagnostics runtime and stores it as `Some(Uuid)`. A direct constructor call outside an instrumented operation stores `None`; it does not generate an unbacked trace ID and does not panic.
 
-During startup recovery, each interrupted operation is handled under an explicit recovery span created with its stored trace ID. The recovery operation then uses ordinary `#[diagnostic]` beneath that span rather than `#[diagnostic(root)]`, which would generate a new trace. This associates recovery records with the original support correlation ID without attempting to restore the pre-restart span tree or resume provider work.
+SQLite stores the UUID string in a nullable `trace_id` column. A valid stored string maps to `Some(Uuid)`, `NULL` maps to `None`, and an invalid non-null string maps to `CorruptData`.
+
+Provision and cleanup runners use `#[diagnostic(detached)]` and inherit the initiating command trace. During startup recovery, each interrupted operation is passed to a `#[diagnostic(restore = operation.trace_id)]` boundary. Recovery records therefore use the original operation trace when available without manual span code or provider reconciliation.
 
 ## Error Safety
 
@@ -272,7 +290,8 @@ Initialization occurs after support paths exist and before application state con
 - that external boundary DTOs use `DiagnosticDebug`;
 - that logged values require explicit `show` or `redact`;
 - that raw wire DTOs, request bodies, provider responses, and exposed secrets never enter diagnostic values;
-- that detached work explicitly propagates `SpanContext`.
+- that diagnostic macros own root fallback, detached propagation, and stored-trace restoration;
+- that application, adapter, and infra function bodies contain no direct tracing API calls.
 
 ## Testing
 
@@ -289,6 +308,8 @@ Compile-pass cases cover:
 - async inherent methods;
 - `async_trait` impl instrumentation;
 - root entry points;
+- detached async entry points;
+- stored-trace restoration from `Some(Uuid)` and `None`;
 - structs and enums derived with `DiagnosticDebug`.
 
 Compile-fail cases cover:
@@ -298,6 +319,8 @@ Compile-fail cases cover:
 - conflicting annotations;
 - destructuring parameters;
 - `#[diagnostic]` on a function not returning `Result`;
+- `detached` on a synchronous function;
+- conflicting `root`, `detached`, and `restore` modes;
 - deriving ordinary `Debug` together with `DiagnosticDebug`.
 
 Runtime diagnostics tests cover:
@@ -308,11 +331,13 @@ Runtime diagnostics tests cover:
 - `[REDACTED]` for redacted arguments, fields, outputs, and errors;
 - the standard JSON output shape;
 - `trace_id` and `span_id` enrichment;
-- root and child trace relationships.
+- standalone root fallback and nested child relationships;
+- detached propagation with the same trace and a distinct span;
+- stored-trace restoration with `Some(Uuid)` and root fallback with `None`.
 
 Runtime operation tests cover:
 
-- storing the active `fastrace::TraceId`;
+- storing the active trace as `Some(Uuid)` and storing `None` outside a span;
 - detached runner propagation;
 - recovery under the stored trace ID.
 
@@ -332,14 +357,15 @@ Command code generation and frontend verification are required only when future 
 
 - Active diagnostics and its macros are implemented from scratch; no old diagnostics implementation is copied or adapted.
 - Every executable public operation in scope, every detached runner entry point, and every per-operation interrupted-recovery entry point uses the diagnostic attribute.
-- Ordinary calls share the entry-point trace without trace parameters in their signatures.
-- The custom attribute delegates child-span and `async_trait` mechanics to `fastrace`.
+- Ordinary calls share the entry-point trace without trace parameters in their signatures and create a fallback root when called standalone.
+- The custom attribute owns ordinary root fallback, explicit roots, detached propagation, and stored-trace restoration while remaining compatible with `async_trait`.
 - `DiagnosticDebug` supports structs and enums and omits unannotated fields.
 - `show` accepts only `DiagnosticValue`; arbitrary ordinary `Debug` values cannot enter logs.
 - Inputs, outputs, and error values are omitted unless explicitly shown or redacted.
 - External boundary I/O uses application-owned DTOs with `DiagnosticDebug`; raw generated wire DTOs remain private.
 - Secrets, credentials, raw bodies, raw provider responses, and large payloads never enter log values.
-- Runtime operations persist the active `fastrace::TraceId` and detached work preserves its parent context.
+- Runtime operations persist the active trace as `Option<Uuid>` without requiring an ambient span, detached work preserves its parent context, and interrupted recovery restores the stored trace when present.
+- Application, adapter, and infra function bodies contain no direct `fastrace` span/context propagation calls.
 - `luma-forge.log` uses standard `logforth` JSON records enriched with active trace and span IDs.
 - The permanent instrumentation rule is documented in `src-tauri/AGENTS.md`.
 - Proc-macro compile tests and native verification pass.
