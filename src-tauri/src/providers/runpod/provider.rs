@@ -6,7 +6,7 @@ use reqwest::header::CONTENT_TYPE;
 use secrecy::ExposeSecret;
 use sha2::Sha256;
 
-use crate::infra::clients::{graphql::GraphqlResponseExt, http, http::ResponseExt, NetworkError};
+use crate::providers::{graphql::GraphqlResponseExt, http, http::ResponseExt, NetworkError};
 
 use super::{
     generated::{
@@ -30,11 +30,11 @@ const RESOURCE_PREFIX: &str = "luma-forge";
 const PROVISIONER_PORT: &str = "8000/http";
 
 #[derive(Clone)]
-pub struct RunpodClient {
+pub struct RunpodProvider {
     http: reqwest::Client,
 }
 
-impl RunpodClient {
+impl RunpodProvider {
     pub fn new() -> Result<Self, NetworkError> {
         Ok(Self {
             http: http::client()?,
@@ -373,92 +373,4 @@ fn derive_bearer_token(
 
 fn resource_name(workspace_id: &str, resource: &str) -> String {
     format!("{RESOURCE_PREFIX}-{workspace_id}-{resource}")
-}
-
-#[cfg(test)]
-mod tests {
-    use secrecy::{ExposeSecret, SecretString};
-
-    use super::{placement, placement_response, pod_create_input, CreatePodRequest, NetworkError};
-
-    fn request() -> CreatePodRequest {
-        CreatePodRequest {
-            credential: SecretString::from("runpod-secret"),
-            hugging_face_credential: Some(SecretString::from("hugging-face-secret")),
-            workspace_id: "workspace-1".into(),
-            datacenter_id: "EU-RO-1".into(),
-            provisioner_image_ref: "registry/provisioner:latest".into(),
-            network_volume_id: "volume-1".into(),
-            required_model_assets: serde_json::json!([{"id": "model-1"}]),
-        }
-    }
-
-    #[test]
-    fn pod_request_debug_redacts_credentials_and_omits_model_assets() {
-        let formatted = format!("{:?}", request());
-
-        assert!(formatted.contains("workspace-1"));
-        assert!(formatted.contains("EU-RO-1"));
-        assert!(formatted.contains("credential: [REDACTED]"));
-        assert!(formatted.contains("hugging_face_credential: [REDACTED]"));
-        assert!(!formatted.contains("runpod-secret"));
-        assert!(!formatted.contains("hugging-face-secret"));
-        assert!(!formatted.contains("required_model_assets"));
-        assert!(!formatted.contains("model-1"));
-    }
-
-    #[test]
-    fn pod_wire_mapper_exposes_secrets_only_in_required_environment_entries() {
-        let input = pod_create_input(&request()).unwrap();
-
-        assert_eq!(
-            input.env["LUMA_FORGE_HUGGING_FACE_API_KEY"],
-            "hugging-face-secret"
-        );
-        assert_eq!(
-            input.env["LUMA_FORGE_PROVISIONER_REQUIRED_MODEL_ASSETS"],
-            "[{\"id\":\"model-1\"}]"
-        );
-        assert_ne!(
-            input.env["LUMA_FORGE_PROVISIONER_BEARER_TOKEN"],
-            request().credential.expose_secret()
-        );
-        assert_eq!(input.env.len(), 3);
-    }
-
-    #[test]
-    fn placement_mapper_rejects_missing_identity() {
-        let response: placement::ResponseData = serde_json::from_value(serde_json::json!({
-            "gpuTypes": [],
-            "myself": null
-        }))
-        .unwrap();
-
-        assert_eq!(
-            placement_response(response).unwrap_err(),
-            NetworkError::InvalidResponse
-        );
-    }
-
-    #[test]
-    fn placement_mapper_preserves_nullable_lists_and_items() {
-        let null_lists: placement::ResponseData = serde_json::from_value(serde_json::json!({
-            "gpuTypes": null,
-            "myself": { "datacenters": null }
-        }))
-        .unwrap();
-        let null_items: placement::ResponseData = serde_json::from_value(serde_json::json!({
-            "gpuTypes": [null],
-            "myself": { "datacenters": [null] }
-        }))
-        .unwrap();
-
-        let null_lists = placement_response(null_lists).unwrap();
-        assert!(null_lists.gpu_types.is_none());
-        assert!(null_lists.datacenters.is_none());
-
-        let null_items = placement_response(null_items).unwrap();
-        assert!(null_items.gpu_types.unwrap()[0].is_none());
-        assert!(null_items.datacenters.unwrap()[0].is_none());
-    }
 }

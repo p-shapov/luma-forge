@@ -2,19 +2,21 @@ use secrecy::SecretString;
 
 use crate::{
     application::secrets::{Identity, SecretIdentityProvider, SecretIdentityProviderError},
-    infra::clients::{
-        runpod::{IdentityRequest, RunpodClient},
+    providers::{
+        runpod::{IdentityRequest, RunpodProvider},
         NetworkError,
     },
 };
 
 pub struct RunpodIdentityAdapter {
-    client: RunpodClient,
+    provider: RunpodProvider,
 }
 
 impl RunpodIdentityAdapter {
-    pub fn new(client: RunpodClient) -> Self {
-        Self { client }
+    pub fn new() -> Result<Self, NetworkError> {
+        Ok(Self {
+            provider: RunpodProvider::new()?,
+        })
     }
 }
 
@@ -27,7 +29,7 @@ impl SecretIdentityProvider for RunpodIdentityAdapter {
         #[diagnostic(redact)] credential: &SecretString,
     ) -> Result<Identity, SecretIdentityProviderError> {
         let response = self
-            .client
+            .provider
             .identity(IdentityRequest {
                 credential: credential.clone(),
             })

@@ -8,11 +8,11 @@ use crate::{
         CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntimeProvider,
         RunpodRuntimeProviderError, StartProvisionerPod,
     },
-    infra::clients::{
+    providers::{
         runpod::{
             CreateEndpointRequest, CreateNetworkVolumeRequest, CreatePodRequest,
             CreateTemplateRequest, DeleteEndpointRequest, DeleteNetworkVolumeRequest,
-            DeletePodRequest, DeleteTemplateRequest, ProvisionerStatusRequest, RunpodClient,
+            DeletePodRequest, DeleteTemplateRequest, ProvisionerStatusRequest, RunpodProvider,
         },
         NetworkError,
     },
@@ -24,12 +24,14 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const POLL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 pub struct RunpodRuntimeProviderAdapter {
-    client: RunpodClient,
+    provider: RunpodProvider,
 }
 
 impl RunpodRuntimeProviderAdapter {
-    pub fn new(client: RunpodClient) -> Self {
-        Self { client }
+    pub fn new() -> Result<Self, NetworkError> {
+        Ok(Self {
+            provider: RunpodProvider::new()?,
+        })
     }
 }
 
@@ -42,7 +44,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(redact)] api_key: &SecretString,
         #[diagnostic(show)] command: CreateNetworkVolume,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.client
+        self.provider
             .create_network_volume(CreateNetworkVolumeRequest {
                 credential: api_key.clone(),
                 workspace_id: command.workspace_id,
@@ -64,7 +66,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(redact)] api_key: &SecretString,
         #[diagnostic(show)] command: StartProvisionerPod,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.client
+        self.provider
             .create_pod(CreatePodRequest {
                 credential: api_key.clone(),
                 hugging_face_credential: command.hugging_face_api_key,
@@ -95,7 +97,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
             }
 
             let response = self
-                .client
+                .provider
                 .provisioner_status(ProvisionerStatusRequest {
                     credential: api_key.clone(),
                     workspace_id: workspace_id.to_owned(),
@@ -119,7 +121,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(show)] pod_id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(
-            self.client
+            self.provider
                 .delete_pod(DeletePodRequest {
                     credential: api_key.clone(),
                     id: pod_id.to_owned(),
@@ -134,7 +136,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(redact)] api_key: &SecretString,
         #[diagnostic(show)] command: CreateTemplate,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.client
+        self.provider
             .create_template(CreateTemplateRequest {
                 credential: api_key.clone(),
                 workspace_id: command.workspace_id,
@@ -152,7 +154,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(redact)] api_key: &SecretString,
         #[diagnostic(show)] command: CreateEndpoint,
     ) -> Result<String, RunpodRuntimeProviderError> {
-        self.client
+        self.provider
             .create_endpoint(CreateEndpointRequest {
                 credential: api_key.clone(),
                 workspace_id: command.workspace_id,
@@ -176,7 +178,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(show)] id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(
-            self.client
+            self.provider
                 .delete_endpoint(DeleteEndpointRequest {
                     credential: api_key.clone(),
                     id: id.to_owned(),
@@ -192,7 +194,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(show)] id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(
-            self.client
+            self.provider
                 .delete_template(DeleteTemplateRequest {
                     credential: api_key.clone(),
                     id: id.to_owned(),
@@ -208,7 +210,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(show)] id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(
-            self.client
+            self.provider
                 .delete_network_volume(DeleteNetworkVolumeRequest {
                     credential: api_key.clone(),
                     id: id.to_owned(),

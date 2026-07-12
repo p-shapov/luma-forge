@@ -13,8 +13,10 @@ pub struct KeyringSecretStore {
 }
 
 impl KeyringSecretStore {
-    pub fn new(storage: KeyringStorage) -> Self {
-        Self { storage }
+    pub fn new(service_name: impl Into<String>) -> Self {
+        Self {
+            storage: KeyringStorage::new(service_name),
+        }
     }
 }
 

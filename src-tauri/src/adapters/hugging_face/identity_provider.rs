@@ -2,19 +2,21 @@ use secrecy::SecretString;
 
 use crate::{
     application::secrets::{Identity, SecretIdentityProvider, SecretIdentityProviderError},
-    infra::clients::{
-        hugging_face::{HuggingFaceClient, IdentityRequest},
+    providers::{
+        hugging_face::{HuggingFaceProvider, IdentityRequest},
         NetworkError,
     },
 };
 
 pub struct HuggingFaceIdentityAdapter {
-    client: HuggingFaceClient,
+    provider: HuggingFaceProvider,
 }
 
 impl HuggingFaceIdentityAdapter {
-    pub fn new(client: HuggingFaceClient) -> Self {
-        Self { client }
+    pub fn new() -> Result<Self, NetworkError> {
+        Ok(Self {
+            provider: HuggingFaceProvider::new()?,
+        })
     }
 }
 
@@ -27,7 +29,7 @@ impl SecretIdentityProvider for HuggingFaceIdentityAdapter {
         #[diagnostic(redact)] credential: &SecretString,
     ) -> Result<Identity, SecretIdentityProviderError> {
         let response = self
-            .client
+            .provider
             .identity(IdentityRequest {
                 credential: credential.clone(),
             })

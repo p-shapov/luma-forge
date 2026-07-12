@@ -1,17 +1,17 @@
 use secrecy::ExposeSecret;
 
-use crate::infra::clients::{http, http::ResponseExt, NetworkError};
+use crate::providers::{http, http::ResponseExt, NetworkError};
 
 use super::{generated::WhoamiResponse, IdentityRequest, IdentityResponse};
 
 const WHOAMI_URL: &str = "https://huggingface.co/api/whoami-v2";
 
 #[derive(Clone)]
-pub struct HuggingFaceClient {
+pub struct HuggingFaceProvider {
     http: reqwest::Client,
 }
 
-impl HuggingFaceClient {
+impl HuggingFaceProvider {
     pub fn new() -> Result<Self, NetworkError> {
         Ok(Self {
             http: http::client()?,
