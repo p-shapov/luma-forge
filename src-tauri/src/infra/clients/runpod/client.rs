@@ -74,7 +74,7 @@ impl RunpodClient {
             .await
             .into_graphql_data()
             .await?;
-        Ok(placement_response(response))
+        placement_response(response)
     }
 
     #[crate::diagnostics::diagnostic(show_output)]
@@ -224,44 +224,49 @@ fn identity_response(response: myself::ResponseData) -> Result<IdentityResponse,
     })
 }
 
-fn placement_response(response: placement::ResponseData) -> PlacementResponse {
-    let gpu_types = response
-        .gpu_types
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|gpu| PlacementGpuType {
-            id: gpu.id,
-            display_name: gpu.display_name,
-            memory_gb: gpu.memory_in_gb,
-        })
-        .collect();
-    let datacenters = response
-        .myself
-        .and_then(|identity| identity.datacenters)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|datacenter| PlacementDatacenter {
-            id: datacenter.id,
-            name: datacenter.name,
-            gpu_availability: datacenter
-                .gpu_availability
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|gpu| PlacementGpuAvailability {
-                    gpu_type_id: gpu.gpu_type_id,
-                    available: gpu.available,
-                    stock_status: gpu.stock_status,
+fn placement_response(
+    response: placement::ResponseData,
+) -> Result<PlacementResponse, NetworkError> {
+    let identity = response.myself.ok_or(NetworkError::InvalidResponse)?;
+    let gpu_types = response.gpu_types.map(|gpu_types| {
+        gpu_types
+            .into_iter()
+            .map(|gpu| {
+                gpu.map(|gpu| PlacementGpuType {
+                    id: gpu.id,
+                    display_name: gpu.display_name,
+                    memory_gb: gpu.memory_in_gb,
                 })
-                .collect(),
-        })
-        .collect();
-    PlacementResponse {
+            })
+            .collect()
+    });
+    let datacenters = identity.datacenters.map(|datacenters| {
+        datacenters
+            .into_iter()
+            .map(|datacenter| {
+                datacenter.map(|datacenter| PlacementDatacenter {
+                    id: datacenter.id,
+                    name: datacenter.name,
+                    gpu_availability: datacenter.gpu_availability.map(|availability| {
+                        availability
+                            .into_iter()
+                            .map(|gpu| {
+                                gpu.map(|gpu| PlacementGpuAvailability {
+                                    gpu_type_id: gpu.gpu_type_id,
+                                    available: gpu.available,
+                                    stock_status: gpu.stock_status,
+                                })
+                            })
+                            .collect()
+                    }),
+                })
+            })
+            .collect()
+    });
+    Ok(PlacementResponse {
         gpu_types,
         datacenters,
-    }
+    })
 }
 
 fn network_volume_create_input(request: &CreateNetworkVolumeRequest) -> NetworkVolumeCreateInput {
@@ -374,7 +379,7 @@ fn resource_name(workspace_id: &str, resource: &str) -> String {
 mod tests {
     use secrecy::{ExposeSecret, SecretString};
 
-    use super::{pod_create_input, CreatePodRequest};
+    use super::{placement, placement_response, pod_create_input, CreatePodRequest, NetworkError};
 
     fn request() -> CreatePodRequest {
         CreatePodRequest {
@@ -419,5 +424,41 @@ mod tests {
             request().credential.expose_secret()
         );
         assert_eq!(input.env.len(), 3);
+    }
+
+    #[test]
+    fn placement_mapper_rejects_missing_identity() {
+        let response: placement::ResponseData = serde_json::from_value(serde_json::json!({
+            "gpuTypes": [],
+            "myself": null
+        }))
+        .unwrap();
+
+        assert_eq!(
+            placement_response(response).unwrap_err(),
+            NetworkError::InvalidResponse
+        );
+    }
+
+    #[test]
+    fn placement_mapper_preserves_nullable_lists_and_items() {
+        let null_lists: placement::ResponseData = serde_json::from_value(serde_json::json!({
+            "gpuTypes": null,
+            "myself": { "datacenters": null }
+        }))
+        .unwrap();
+        let null_items: placement::ResponseData = serde_json::from_value(serde_json::json!({
+            "gpuTypes": [null],
+            "myself": { "datacenters": [null] }
+        }))
+        .unwrap();
+
+        let null_lists = placement_response(null_lists).unwrap();
+        assert!(null_lists.gpu_types.is_none());
+        assert!(null_lists.datacenters.is_none());
+
+        let null_items = placement_response(null_items).unwrap();
+        assert!(null_items.gpu_types.unwrap()[0].is_none());
+        assert!(null_items.datacenters.unwrap()[0].is_none());
     }
 }

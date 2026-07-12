@@ -23,9 +23,9 @@ pub struct PlacementRequest {
 #[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct PlacementResponse {
     #[diagnostic(show)]
-    pub gpu_types: Vec<PlacementGpuType>,
+    pub gpu_types: Option<Vec<Option<PlacementGpuType>>>,
     #[diagnostic(show)]
-    pub datacenters: Vec<PlacementDatacenter>,
+    pub datacenters: Option<Vec<Option<PlacementDatacenter>>>,
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -45,7 +45,7 @@ pub struct PlacementDatacenter {
     #[diagnostic(show)]
     pub name: Option<String>,
     #[diagnostic(show)]
-    pub gpu_availability: Vec<PlacementGpuAvailability>,
+    pub gpu_availability: Option<Vec<Option<PlacementGpuAvailability>>>,
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
