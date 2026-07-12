@@ -80,7 +80,7 @@ The runtime module implements this trait for an explicit safe scalar set:
 - `bool` and `char`;
 - `str` and `String`;
 - `()`;
-- `Uuid` and `fastrace::collector::TraceId`;
+- `Uuid`;
 - `SecretString`, whose own `Debug` is already redacted;
 - references, `Option`, `Vec`, slices, arrays, and supported tuples when their contained values implement `DiagnosticValue`.
 
@@ -209,7 +209,7 @@ The runtime uses the standard `logforth` JSON layout. There is no final heuristi
 
 ## Composition With `fastrace`
 
-The diagnostic macro owns all span setup. Application, adapter, and infra function bodies do not import or call `Span`, `SpanContext`, `FutureExt`, `in_span`, or `current_trace_id`.
+The diagnostic macro owns all span setup. Application workflow, adapter, and infra function bodies do not import or call `Span`, `SpanContext`, `FutureExt`, `in_span`, or current-trace helpers. `RuntimeOperation::running` is the sole application-model exception: it captures the optional current trace UUID as persisted support metadata without creating or propagating spans.
 
 ### Ordinary operations
 
@@ -291,7 +291,8 @@ Initialization occurs after support paths exist and before application state con
 - that logged values require explicit `show` or `redact`;
 - that raw wire DTOs, request bodies, provider responses, and exposed secrets never enter diagnostic values;
 - that diagnostic macros own root fallback, detached propagation, and stored-trace restoration;
-- that application, adapter, and infra function bodies contain no direct tracing API calls.
+- that application workflow, adapter, and infra function bodies contain no direct tracing API calls;
+- that `RuntimeOperation::running` is the only application-model current-trace capture boundary.
 
 ## Testing
 
@@ -365,7 +366,7 @@ Command code generation and frontend verification are required only when future 
 - External boundary I/O uses application-owned DTOs with `DiagnosticDebug`; raw generated wire DTOs remain private.
 - Secrets, credentials, raw bodies, raw provider responses, and large payloads never enter log values.
 - Runtime operations persist the active trace as `Option<Uuid>` without requiring an ambient span, detached work preserves its parent context, and interrupted recovery restores the stored trace when present.
-- Application, adapter, and infra function bodies contain no direct `fastrace` span/context propagation calls.
+- Application workflow, adapter, and infra function bodies contain no direct `fastrace` span/context propagation calls; `RuntimeOperation::running` is the only application-model current-trace capture boundary.
 - `luma-forge.log` uses standard `logforth` JSON records enriched with active trace and span IDs.
 - The permanent instrumentation rule is documented in `src-tauri/AGENTS.md`.
 - Proc-macro compile tests and native verification pass.
