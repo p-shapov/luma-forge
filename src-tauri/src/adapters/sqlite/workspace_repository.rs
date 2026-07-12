@@ -21,9 +21,14 @@ impl SqliteWorkspaceRepository {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl WorkspaceRepository for SqliteWorkspaceRepository {
-    async fn create(&self, workspace: Workspace) -> Result<Workspace, WorkspaceRepositoryError> {
+    #[diagnostic(show_output, show_error)]
+    async fn create(
+        &self,
+        #[diagnostic(show)] workspace: Workspace,
+    ) -> Result<Workspace, WorkspaceRepositoryError> {
         workspaces::ActiveModel {
             id: Set(workspace.id.clone()),
             workflow_id: Set(workspace.workflow.id.clone()),
@@ -39,7 +44,11 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
         Ok(workspace)
     }
 
-    async fn get(&self, id: &str) -> Result<Option<Workspace>, WorkspaceRepositoryError> {
+    #[diagnostic(show_output, show_error)]
+    async fn get(
+        &self,
+        #[diagnostic(show)] id: &str,
+    ) -> Result<Option<Workspace>, WorkspaceRepositoryError> {
         let Some((workspace, runtime)) = workspaces::Entity::find_by_id(id)
             .find_also_related(workspace_runtimes::Entity)
             .one(&self.connection)
@@ -51,6 +60,7 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
         map_workspace(workspace, runtime).map(Some)
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
         let rows = workspaces::Entity::find()
             .find_also_related(workspace_runtimes::Entity)
@@ -62,7 +72,8 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
             .collect()
     }
 
-    async fn delete(&self, id: &str) -> Result<bool, WorkspaceRepositoryError> {
+    #[diagnostic(show_output, show_error)]
+    async fn delete(&self, #[diagnostic(show)] id: &str) -> Result<bool, WorkspaceRepositoryError> {
         Ok(workspaces::Entity::delete_by_id(id)
             .exec(&self.connection)
             .await

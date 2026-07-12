@@ -32,11 +32,13 @@ impl SqliteRunpodRuntimeRepository {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
+    #[diagnostic(show_output, show_error)]
     async fn get(
         &self,
-        workspace_id: &str,
+        #[diagnostic(show)] workspace_id: &str,
     ) -> Result<Option<RunpodRuntime>, RunpodRuntimeRepositoryError> {
         let Some((anchor, model)) = workspace_runtimes::Entity::find_by_id(workspace_id)
             .find_also_related(runpod_workspace_runtimes::Entity)
@@ -54,12 +56,14 @@ impl RunpodRuntimeRepository for SqliteRunpodRuntimeRepository {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RuntimeTransitionRepository<RunpodRuntime> for SqliteRunpodRuntimeRepository {
+    #[diagnostic(show_error)]
     async fn save_transition(
         &self,
-        runtime: &RunpodRuntime,
-        operation: &RuntimeOperation,
+        #[diagnostic(show)] runtime: &RunpodRuntime,
+        #[diagnostic(show)] operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
         if runtime.workspace_id != operation.workspace_id {
             return Err(RuntimeTransitionRepositoryError::CorruptData);

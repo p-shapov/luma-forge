@@ -10,7 +10,7 @@ use super::ports::{
     RunpodRuntimeCatalogError, RunpodRuntimeProviderError, RunpodRuntimeRepositoryError,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeError {
     #[error("workspace was not found")]
     WorkspaceNotFound,
@@ -35,8 +35,6 @@ pub enum RunpodRuntimeError {
     #[error("runtime transition is invalid")]
     InvalidTransition,
 }
-
-impl crate::diagnostics::DiagnosticValue for RunpodRuntimeError {}
 
 impl From<RunpodRuntimeProviderError> for RunpodRuntimeError {
     fn from(_: RunpodRuntimeProviderError) -> Self {

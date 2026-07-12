@@ -14,12 +14,14 @@ use crate::{
 
 use super::BundledCatalogAdapter;
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RunpodRuntimeCatalog for BundledCatalogAdapter {
+    #[diagnostic(show_output, show_error)]
     async fn resolve(
         &self,
-        preset: &CatalogRef,
-        requirements: &RunpodContractRequirements,
+        #[diagnostic(show)] preset: &CatalogRef,
+        #[diagnostic(show)] requirements: &RunpodContractRequirements,
     ) -> Result<RunpodRuntimeDefinition, RunpodRuntimeCatalogError> {
         runtime_presets::Entry::get(&self.catalog, (&preset.id, &preset.revision))
             .await

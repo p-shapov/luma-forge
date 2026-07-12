@@ -15,11 +15,13 @@ impl HuggingFaceIdentityAdapter {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl SecretIdentityProvider for HuggingFaceIdentityAdapter {
+    #[diagnostic(show_output, show_error)]
     async fn identity(
         &self,
-        credential: &SecretString,
+        #[diagnostic(redact)] credential: &SecretString,
     ) -> Result<Identity, SecretIdentityProviderError> {
         let response = self
             .client

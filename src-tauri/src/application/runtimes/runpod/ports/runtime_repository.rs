@@ -2,7 +2,7 @@ use crate::application::runtimes::ports::RuntimeTransitionRepository;
 
 use super::super::RunpodRuntime;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeRepositoryError {
     #[error("runtime repository is unavailable")]
     Unavailable,

@@ -1,34 +1,53 @@
 use secrecy::SecretString;
 
+#[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct CreateNetworkVolume {
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub datacenter_id: String,
+    #[diagnostic(show)]
     pub size_gb: u64,
 }
 
+#[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct StartProvisionerPod {
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub datacenter_id: String,
+    #[diagnostic(show)]
     pub network_volume_id: String,
+    #[diagnostic(show)]
     pub provisioner_image_ref: String,
     pub required_model_assets: serde_json::Value,
+    #[diagnostic(redact)]
     pub hugging_face_api_key: Option<SecretString>,
 }
 
+#[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct CreateTemplate {
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub image_ref: String,
 }
 
+#[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct CreateEndpoint {
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub datacenter_id: String,
+    #[diagnostic(show)]
     pub gpu_id: String,
+    #[diagnostic(show)]
     pub network_volume_id: String,
+    #[diagnostic(show)]
     pub template_id: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeProviderError {
     #[error("runtime provider rejected the credential")]
     Unauthorized,

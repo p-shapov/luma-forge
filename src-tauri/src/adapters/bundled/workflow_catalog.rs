@@ -18,8 +18,10 @@ use super::BundledCatalogAdapter;
 const RUNTIME_PRESET_CONTRACT: &str = "catalog/contracts/runtime_preset_revision";
 const RUNTIME_CONTRACT: &str = "catalog/contracts/runtime_contract_revision";
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl WorkflowCatalog for BundledCatalogAdapter {
+    #[diagnostic(show_output, show_error)]
     async fn list_summaries(&self) -> Result<Vec<WorkflowSummary>, WorkflowCatalogError> {
         let mut summaries = workflows::Entry::all(&self.catalog)
             .await
@@ -35,10 +37,11 @@ impl WorkflowCatalog for BundledCatalogAdapter {
         Ok(summaries)
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn get(
         &self,
-        id: &str,
-        revision: &str,
+        #[diagnostic(show)] id: &str,
+        #[diagnostic(show)] revision: &str,
     ) -> Result<Option<WorkflowDefinition>, WorkflowCatalogError> {
         workflows::Entry::get(&self.catalog, (id, revision))
             .await

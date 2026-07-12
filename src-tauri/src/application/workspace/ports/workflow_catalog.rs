@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::application::runtimes::{WorkflowDefinition, WorkflowSummary};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum WorkflowCatalogError {
     #[error("bundled catalog is invalid")]
     InvalidCatalog,

@@ -7,9 +7,11 @@ use super::{
     runpod::{RunpodContractRequirements, RunpodProgress, RunpodRuntime},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Hash)]
 pub struct CatalogRef {
+    #[diagnostic(show)]
     pub id: String,
+    #[diagnostic(show)]
     pub revision: String,
 }
 
@@ -22,75 +24,95 @@ impl CatalogRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub enum RuntimeContractRequirements {
-    Runpod(RunpodContractRequirements),
+    Runpod(#[diagnostic(show)] RunpodContractRequirements),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct WorkflowSummary {
+    #[diagnostic(show)]
     pub id: String,
+    #[diagnostic(show)]
     pub revision: String,
+    #[diagnostic(show)]
     pub name: String,
+    #[diagnostic(show)]
     pub description: String,
+    #[diagnostic(show)]
     pub required_volume_size_gb: u64,
+    #[diagnostic(show)]
     pub requires_hugging_face_api_key: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq)]
 pub struct WorkflowDefinition {
+    #[diagnostic(show)]
     pub summary: WorkflowSummary,
+    #[diagnostic(show)]
     pub runtime_preset_ref: CatalogRef,
+    #[diagnostic(show)]
     pub contract_requirements: Vec<RuntimeContractRequirements>,
     pub model_assets: serde_json::Value,
     pub execution_contract: serde_json::Value,
     pub workflow_graph: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeKind {
     Runpod,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub enum Runtime {
-    Runpod(RunpodRuntime),
+    Runpod(#[diagnostic(show)] RunpodRuntime),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeProgress {
-    Runpod(RunpodProgress),
+    Runpod(#[diagnostic(show)] RunpodProgress),
 }
 
-pub trait RuntimeModel: Clone + Send + Sync + 'static {
+pub trait RuntimeModel:
+    crate::diagnostics::DiagnosticValue + Clone + Send + Sync + 'static
+{
     fn workspace_id(&self) -> &str;
     fn kind(&self) -> RuntimeKind;
     fn into_runtime(self) -> Runtime;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeOperationState {
     Running,
     Succeeded,
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeOperationKind {
     Provision,
     Cleanup,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RuntimeOperation {
+    #[diagnostic(show)]
     pub id: Uuid,
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub kind: RuntimeOperationKind,
+    #[diagnostic(show)]
     pub state: RuntimeOperationState,
+    #[diagnostic(show)]
     pub trace_id: TraceId,
+    #[diagnostic(show)]
     pub progress: RuntimeProgress,
+    #[diagnostic(show)]
     pub created_at: OffsetDateTime,
+    #[diagnostic(show)]
     pub updated_at: OffsetDateTime,
+    #[diagnostic(show)]
     pub finished_at: Option<OffsetDateTime>,
 }
 

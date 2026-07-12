@@ -31,10 +31,11 @@ impl<'a> WorkspaceService<'a> {
         }
     }
 
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
     pub async fn create(
         &self,
-        id: &str,
-        workflow: CatalogRef,
+        #[diagnostic(show)] id: &str,
+        #[diagnostic(show)] workflow: CatalogRef,
     ) -> Result<Workspace, WorkspaceError> {
         if self
             .workflows
@@ -66,7 +67,8 @@ impl<'a> WorkspaceService<'a> {
         Ok(workspace)
     }
 
-    pub async fn delete(&self, id: &str) -> Result<(), WorkspaceError> {
+    #[crate::diagnostics::diagnostic(show_error)]
+    pub async fn delete(&self, #[diagnostic(show)] id: &str) -> Result<(), WorkspaceError> {
         let workspace = self.get(id).await?;
         if workspace.runtime.is_some() {
             return Err(WorkspaceError::RuntimeAttached);
@@ -92,7 +94,8 @@ impl<'a> WorkspaceService<'a> {
         Ok(())
     }
 
-    pub async fn get(&self, id: &str) -> Result<Workspace, WorkspaceError> {
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    pub async fn get(&self, #[diagnostic(show)] id: &str) -> Result<Workspace, WorkspaceError> {
         self.workspaces
             .get(id)
             .await
@@ -100,6 +103,7 @@ impl<'a> WorkspaceService<'a> {
             .ok_or(WorkspaceError::NotFound)
     }
 
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
     pub async fn list(&self) -> Result<Vec<Workspace>, WorkspaceError> {
         self.workspaces
             .list()

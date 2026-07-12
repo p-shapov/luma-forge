@@ -149,6 +149,7 @@ impl_diagnostic_value!(
     uuid::Uuid,
     fastrace::collector::TraceId,
     secrecy::SecretString,
+    time::OffsetDateTime,
 );
 
 impl<T: DiagnosticValue + ?Sized> DiagnosticValue for &T {}

@@ -18,23 +18,34 @@ impl KeyringSecretStore {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl SecretStore for KeyringSecretStore {
-    async fn exists(&self, kind: SecretKind) -> Result<bool, SecretStoreError> {
+    #[diagnostic(show_output, show_error)]
+    async fn exists(&self, #[diagnostic(show)] kind: SecretKind) -> Result<bool, SecretStoreError> {
         self.storage
             .exists(account(kind))
             .await
             .map_err(map_storage_error)
     }
 
-    async fn get(&self, kind: SecretKind) -> Result<Option<SecretString>, SecretStoreError> {
+    #[diagnostic(redact_output, show_error)]
+    async fn get(
+        &self,
+        #[diagnostic(show)] kind: SecretKind,
+    ) -> Result<Option<SecretString>, SecretStoreError> {
         self.storage
             .get(account(kind))
             .await
             .map_err(map_storage_error)
     }
 
-    async fn insert(&self, kind: SecretKind, secret: SecretString) -> Result<(), SecretStoreError> {
+    #[diagnostic(show_error)]
+    async fn insert(
+        &self,
+        #[diagnostic(show)] kind: SecretKind,
+        #[diagnostic(redact)] secret: SecretString,
+    ) -> Result<(), SecretStoreError> {
         if self.exists(kind).await? {
             return Err(SecretStoreError::AlreadyExists);
         }
@@ -44,7 +55,8 @@ impl SecretStore for KeyringSecretStore {
             .map_err(map_storage_error)
     }
 
-    async fn delete(&self, kind: SecretKind) -> Result<(), SecretStoreError> {
+    #[diagnostic(show_error)]
+    async fn delete(&self, #[diagnostic(show)] kind: SecretKind) -> Result<(), SecretStoreError> {
         if !self.exists(kind).await? {
             return Err(SecretStoreError::NotFound);
         }

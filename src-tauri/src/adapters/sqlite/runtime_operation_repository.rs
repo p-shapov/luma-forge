@@ -54,11 +54,13 @@ impl SqliteRuntimeOperationRepository {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
+    #[diagnostic(show_output, show_error)]
     async fn recent(
         &self,
-        limit: u64,
+        #[diagnostic(show)] limit: u64,
     ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             runtime_operations::Entity::find()
@@ -68,10 +70,11 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
         .await
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn recent_for_workspace(
         &self,
-        workspace_id: &str,
-        limit: u64,
+        #[diagnostic(show)] workspace_id: &str,
+        #[diagnostic(show)] limit: u64,
     ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             runtime_operations::Entity::find()
@@ -82,6 +85,7 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
         .await
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             runtime_operations::Entity::find()
@@ -90,9 +94,10 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
         .await
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn has_running(
         &self,
-        workspace_id: &str,
+        #[diagnostic(show)] workspace_id: &str,
     ) -> Result<bool, RuntimeOperationRepositoryError> {
         Ok(runtime_operations::Entity::find()
             .filter(runtime_operations::Column::WorkspaceId.eq(workspace_id))

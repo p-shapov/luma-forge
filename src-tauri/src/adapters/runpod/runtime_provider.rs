@@ -41,12 +41,14 @@ impl RunpodRuntimeProviderAdapter {
     }
 }
 
+#[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
+    #[diagnostic(show_output, show_error)]
     async fn create_network_volume(
         &self,
-        api_key: &SecretString,
-        command: CreateNetworkVolume,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: CreateNetworkVolume,
     ) -> Result<String, RunpodRuntimeProviderError> {
         self.client
             .create_network_volume(
@@ -66,10 +68,11 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
             .ok_or(RunpodRuntimeProviderError::Unavailable)
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn start_provisioner_pod(
         &self,
-        api_key: &SecretString,
-        command: StartProvisionerPod,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: StartProvisionerPod,
     ) -> Result<String, RunpodRuntimeProviderError> {
         let bearer_token = derive_bearer_token(api_key, &command.workspace_id)?;
         let mut env = HashMap::from([
@@ -112,11 +115,12 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
             .ok_or(RunpodRuntimeProviderError::Unavailable)
     }
 
+    #[diagnostic(show_error)]
     async fn wait_for_provisioner(
         &self,
-        api_key: &SecretString,
-        workspace_id: &str,
-        pod_id: &str,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] workspace_id: &str,
+        #[diagnostic(show)] pod_id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         let bearer_token = SecretString::from(derive_bearer_token(api_key, workspace_id)?);
         let deadline = Instant::now() + POLL_TIMEOUT;
@@ -140,18 +144,20 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         }
     }
 
+    #[diagnostic(show_error)]
     async fn terminate_provisioner_pod(
         &self,
-        api_key: &SecretString,
-        pod_id: &str,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] pod_id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(self.client.delete_pod(api_key, pod_id).await)
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn create_template(
         &self,
-        api_key: &SecretString,
-        command: CreateTemplate,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: CreateTemplate,
     ) -> Result<String, RunpodRuntimeProviderError> {
         self.client
             .create_template(
@@ -179,10 +185,11 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
             .ok_or(RunpodRuntimeProviderError::Unavailable)
     }
 
+    #[diagnostic(show_output, show_error)]
     async fn create_endpoint(
         &self,
-        api_key: &SecretString,
-        command: CreateEndpoint,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: CreateEndpoint,
     ) -> Result<String, RunpodRuntimeProviderError> {
         self.client
             .create_endpoint(
@@ -221,26 +228,29 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
             .ok_or(RunpodRuntimeProviderError::Unavailable)
     }
 
+    #[diagnostic(show_error)]
     async fn delete_endpoint(
         &self,
-        api_key: &SecretString,
-        id: &str,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(self.client.delete_endpoint(api_key, id).await)
     }
 
+    #[diagnostic(show_error)]
     async fn delete_template(
         &self,
-        api_key: &SecretString,
-        id: &str,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(self.client.delete_template(api_key, id).await)
     }
 
+    #[diagnostic(show_error)]
     async fn delete_network_volume(
         &self,
-        api_key: &SecretString,
-        id: &str,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
         cleanup(self.client.delete_network_volume(api_key, id).await)
     }

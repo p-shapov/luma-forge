@@ -2,19 +2,23 @@ use crate::application::runtimes::{CatalogRef, Runtime, RuntimeKind, RuntimeMode
 
 use super::RunpodRuntimeError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodContractRequirements {
+    #[diagnostic(show)]
     pub provisioner_contract_ref: CatalogRef,
+    #[diagnostic(show)]
     pub endpoint_contract_ref: CatalogRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodRuntimeDefinition {
+    #[diagnostic(show)]
     pub provisioner_image_ref: String,
+    #[diagnostic(show)]
     pub endpoint_image_ref: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RunpodProvisionStep {
     CreateNetworkVolume,
     StartProvisionerPod,
@@ -24,7 +28,7 @@ pub enum RunpodProvisionStep {
     CreateEndpoint,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RunpodCleanupStep {
     DeleteEndpoint,
     DeleteTemplate,
@@ -32,10 +36,10 @@ pub enum RunpodCleanupStep {
     DeleteNetworkVolume,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RunpodProgress {
-    Provision(RunpodProvisionStep),
-    Cleanup(RunpodCleanupStep),
+    Provision(#[diagnostic(show)] RunpodProvisionStep),
+    Cleanup(#[diagnostic(show)] RunpodCleanupStep),
 }
 
 impl RunpodProgress {
@@ -54,7 +58,7 @@ impl RunpodProgress {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RunpodRuntimeState {
     Provisioning,
     Ready,
@@ -62,26 +66,37 @@ pub enum RunpodRuntimeState {
     Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodRuntimeConfig {
+    #[diagnostic(show)]
     pub datacenter_id: String,
+    #[diagnostic(show)]
     pub gpu_id: String,
+    #[diagnostic(show)]
     pub volume_size_gb: u64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Default, PartialEq, Eq)]
 pub struct RunpodRuntimeResources {
+    #[diagnostic(show)]
     pub network_volume_id: Option<String>,
+    #[diagnostic(show)]
     pub provisioner_pod_id: Option<String>,
+    #[diagnostic(show)]
     pub template_id: Option<String>,
+    #[diagnostic(show)]
     pub endpoint_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodRuntime {
+    #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
     pub state: RunpodRuntimeState,
+    #[diagnostic(show)]
     pub config: RunpodRuntimeConfig,
+    #[diagnostic(show)]
     pub resources: RunpodRuntimeResources,
 }
 

@@ -24,10 +24,11 @@ impl<'a> SecretsService<'a> {
         }
     }
 
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
     pub async fn set(
         &self,
-        kind: SecretKind,
-        secret: SecretString,
+        #[diagnostic(show)] kind: SecretKind,
+        #[diagnostic(redact)] secret: SecretString,
     ) -> Result<Identity, SecretsError> {
         if self
             .store
@@ -55,7 +56,11 @@ impl<'a> SecretsService<'a> {
         Ok(identity)
     }
 
-    pub async fn status(&self, kind: SecretKind) -> Result<SecretStatus, SecretsError> {
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    pub async fn status(
+        &self,
+        #[diagnostic(show)] kind: SecretKind,
+    ) -> Result<SecretStatus, SecretsError> {
         self.store
             .exists(kind)
             .await
@@ -69,7 +74,11 @@ impl<'a> SecretsService<'a> {
             .map_err(|_| SecretsError::StorageUnavailable)
     }
 
-    pub async fn identity(&self, kind: SecretKind) -> Result<Identity, SecretsError> {
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    pub async fn identity(
+        &self,
+        #[diagnostic(show)] kind: SecretKind,
+    ) -> Result<Identity, SecretsError> {
         let secret = self
             .store
             .get(kind)
@@ -82,7 +91,8 @@ impl<'a> SecretsService<'a> {
             .map_err(map_identity_error)
     }
 
-    pub async fn delete(&self, kind: SecretKind) -> Result<(), SecretsError> {
+    #[crate::diagnostics::diagnostic(show_error)]
+    pub async fn delete(&self, #[diagnostic(show)] kind: SecretKind) -> Result<(), SecretsError> {
         self.store.delete(kind).await.map_err(|error| match error {
             SecretStoreError::NotFound => SecretsError::NotConfigured,
             SecretStoreError::AlreadyExists | SecretStoreError::Unavailable => {

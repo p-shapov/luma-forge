@@ -2,7 +2,7 @@ use secrecy::SecretString;
 
 use crate::application::secrets::Identity;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SecretIdentityProviderError {
     #[error("credential is invalid")]
     InvalidCredential,

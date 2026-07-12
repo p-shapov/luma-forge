@@ -60,10 +60,11 @@ where
         self.transitions.as_ref()
     }
 
+    #[crate::diagnostics::diagnostic(show_error)]
     pub async fn save_changed(
         &self,
-        runtime: &R,
-        operation: &RuntimeOperation,
+        #[diagnostic(show)] runtime: &R,
+        #[diagnostic(show)] operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
         let _guard = self.coordinator.lock().await;
         self.transitions.save_transition(runtime, operation).await?;
@@ -75,10 +76,11 @@ where
         Ok(())
     }
 
+    #[crate::diagnostics::diagnostic(show_error)]
     pub async fn save_attached(
         &self,
-        runtime: &R,
-        operation: &RuntimeOperation,
+        #[diagnostic(show)] runtime: &R,
+        #[diagnostic(show)] operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
         let _guard = self.coordinator.lock().await;
         self.transitions.save_transition(runtime, operation).await?;
@@ -91,10 +93,11 @@ where
         Ok(())
     }
 
+    #[crate::diagnostics::diagnostic(show_error)]
     pub async fn save_deleted(
         &self,
-        runtime: &R,
-        operation: &RuntimeOperation,
+        #[diagnostic(show)] runtime: &R,
+        #[diagnostic(show)] operation: &RuntimeOperation,
     ) -> Result<(), RuntimeTransitionRepositoryError> {
         let _guard = self.coordinator.lock().await;
         self.transitions.save_transition(runtime, operation).await?;
