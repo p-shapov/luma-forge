@@ -21,7 +21,8 @@ This design covers:
 - Tauri command and event registration through Tauri Specta;
 - workspace reads with a hydrated runtime;
 - workflow and runtime-operation pagination;
-- concrete runtime dispatch, initially with one RunPod arm;
+- concrete facade and SQLite persistence dispatch, initially with one RunPod
+  arm each;
 - RunPod placement and provider identity queries;
 - API-key setup and deletion;
 - application-event mapping to Tauri events;
@@ -37,14 +38,19 @@ runtime provider.
 
 - A workspace has at most one runtime: `Workspace::runtime` is
   `Option<Runtime>`.
-- `Runtime` is a tagged application enum with an initial `Runpod` variant.
-- The `workspace_runtimes` anchor table is removed.
-- `runpod_workspace_runtimes.workspace_id` is a direct primary-key/foreign-key
-  relation to `workspaces.id`.
-- Cross-provider exclusivity remains an application invariant until a second
-  provider creates a concrete need for a generic anchor.
-- The facade uses a concrete runtime dispatcher with an ordinary enum match.
-  There is no dispatcher trait, factory, registry, or plugin system.
+- `Runtime` owns one provider-neutral `RuntimeState` and one tagged
+  `RuntimeProvider`, initially `RuntimeProvider::Runpod`.
+- `RuntimeState` is exactly `Provisioning`, `Ready`, `CleaningUp`, or `Failed`
+  for every provider. Provider-internal states map into this shared lifecycle.
+- `workspace_runtimes` remains the provider-neutral one-runtime anchor. It
+  stores `runtime_kind` and the shared state and enforces cross-provider
+  exclusivity.
+- Provider extension tables reference `workspace_runtimes.workspace_id` with
+  `ON DELETE CASCADE` and store only provider configuration and resources.
+- The facade and SQLite persistence boundaries use concrete closed dispatchers
+  with ordinary exhaustive enum matches. Dispatch arms route values only;
+  provider behavior and persistence stay in provider-specific modules.
+- There is no dispatcher trait, factory, dynamic registry, or plugin system.
 - Application events already carry complete application snapshots. The Tauri
   sink maps them synchronously; there is no hydration relay or facade cache.
 - Native initialization is all-or-nothing. A bootstrap failure aborts Tauri
@@ -63,17 +69,39 @@ pub struct Workspace {
     pub created_at: OffsetDateTime,
     pub runtime: Option<Runtime>,
 }
+
+pub struct Runtime {
+    pub state: RuntimeState,
+    pub provider: RuntimeProvider,
+}
+
+pub enum RuntimeState {
+    Provisioning,
+    Ready,
+    CleaningUp,
+    Failed,
+}
+
+pub enum RuntimeProvider {
+    Runpod(RunpodRuntime),
+}
 ```
 
 The provider runtime does not repeat `workspace_id`; its identity comes from
-the parent workspace. The RunPod variant continues to own its provider state,
-placement configuration, and native-only resource IDs.
+the parent workspace. `RuntimeProvider` determines `RuntimeKind`; the kind is
+not duplicated inside `Runtime`. The RunPod variant owns only its placement
+configuration and native-only resource IDs. Shared lifecycle state belongs to
+`Runtime`.
+
+`RuntimeOperation` stores `runtime_kind` explicitly. Operation history outlives
+the runtime anchor after cleanup or workspace deletion, so operation and
+progress hydration cannot infer the provider from the current workspace.
 
 `WorkspaceService::create` generates the workspace UUID inside the application
 boundary. `CreateWorkspaceRequest` therefore contains only the workflow
 reference.
 
-### Direct SQLite Relation
+### Provider-Neutral SQLite Relation
 
 The persisted shape is:
 
@@ -84,38 +112,79 @@ workspaces
   workflow_revision
   created_at
 
-runpod_workspace_runtimes
+workspace_runtimes
   workspace_id PK/FK -> workspaces.id ON DELETE CASCADE
+  runtime_kind
   state
+
+runpod_workspace_runtimes
+  workspace_id PK/FK -> workspace_runtimes.workspace_id ON DELETE CASCADE
   datacenter_id
   gpu_id
   volume_size_gb
   provider resource IDs
+
+runtime_operations
+  id PK
+  workspace_id
+  runtime_kind
+  operation_kind
+  state
+  trace and timestamps
+
+runpod_runtime_operation_progress
+  operation_id PK/FK -> runtime_operations.id
+  step
 ```
 
-`workspace_runtimes` and its SeaORM entity are deleted directly. This is a
-pre-v1 schema change; no migration, compatibility read, or fallback is added.
+This is a pre-v1 schema change; no migration, compatibility read, or fallback
+is added. `workspace_runtimes` is the discriminator used for hydration and the
+database guarantee that one workspace cannot own two provider extensions.
 
 `WorkspaceRepository::get` and the paginated workspace read load the base row
-and its optional provider extension as one hydrated application `Workspace`.
-With RunPod as the only provider this is one joined read, not an N+1 facade
-resolver.
+and optional anchor first. `SqliteRuntimePersistenceDispatcher` matches the
+stored kind and delegates provider extension hydration to the corresponding
+provider persistence module. Page hydration groups selected workspace IDs by
+kind and performs one batch read per present kind, not one read per workspace.
 
-A provider extension without its workspace is prevented by the foreign key. A
-workspace with more than one provider extension is prevented by application
-transition logic until another provider requires a database-level solution.
+A provider extension without its anchor is prevented by the foreign key. An
+anchor without its required provider extension is corrupt data. The reader
+does not probe other provider tables or use a fallback.
+
+### SQLite Persistence Dispatcher
+
+The generic SQLite boundary has one closed
+`SqliteRuntimePersistenceDispatcher`. It owns only exhaustive dispatch for
+provider runtime snapshots and operation progress. RunPod entity access,
+field mapping, state-independent provider data, and progress mapping live in
+`adapters/sqlite/runpod_runtime_persistence.rs`.
+
+Generic repositories may mention a provider only in an exhaustive dispatch
+arm. They must not contain provider SQL, provider resource fields, provider
+lifecycle branches, provider error interpretation, or provider DTO mapping.
+Provider persistence functions receive `&DatabaseTransaction` so generic and
+provider rows remain in one transaction without exposing SeaORM through an
+application port.
 
 ### Runtime Transitions
 
-Runtime transition persistence continues to atomically write the provider
-runtime and `RuntimeOperation`. Provider services mutate the runtime nested in
-the workspace snapshot and publish that complete workspace only after the
-transition commits.
+`SqliteRuntimeTransitionRepository` owns the generic transaction. It validates
+workspace identity and requires `Runtime.provider.kind()` to equal
+`RuntimeOperation.runtime_kind` whenever the workspace contains a runtime. It
+then writes the shared anchor/state and generic operation, dispatches the
+provider snapshot and progress writes, and commits once.
 
-Provision inserts the RunPod extension. Successful cleanup deletes it and
-produces `Workspace { runtime: None }`. Workspace deletion remains rejected
-while a runtime is attached or an operation is running. Runtime-operation
-history continues to survive workspace deletion.
+Provision inserts the anchor, provider extension, operation, and progress.
+Intermediate transitions update the shared state and provider extension.
+Failed transitions and recovery set the shared state to `Failed` while
+preserving provider resources. Successful cleanup persists the terminal
+operation, deletes the anchor and therefore its provider extension by cascade,
+and produces `Workspace { runtime: None }`. Operation history retains its
+`runtime_kind` and provider progress after the anchor is gone.
+
+A provider write failure rolls back anchor, operation, extension, and progress
+writes together. Transition events remain `workspace_changed` followed by
+`runtime_operation`, emitted only after commit.
 
 ## Facade Boundary
 
@@ -142,16 +211,24 @@ storage directly.
 
 ### Runtime Dispatcher
 
-The dispatcher has one concrete RunPod service field.
+The facade dispatcher has one concrete RunPod service field and contains no
+provider workflow behavior.
 
 - `provision_workspace` matches the tagged runtime request and calls the
   corresponding provider service.
 - `cleanup_workspace` loads the workspace once, matches its hydrated runtime,
   and calls the corresponding provider service.
-- interrupted-operation recovery calls the RunPod recovery entry point.
+- interrupted-operation recovery matches `RuntimeOperation.runtime_kind` and
+  calls the corresponding provider recovery entry point.
 
 Adding another provider adds one enum variant, one service field, and match
-arms. No abstraction is introduced before that provider exists.
+arms. Provider validation, credentials, lifecycle calls, and detached work stay
+inside the provider service.
+
+RunPod-specific code is permitted only in `application/runtimes/runpod/**`,
+`adapters/runpod/**`, `adapters/sqlite/runpod_runtime_persistence.rs`, explicit
+dispatch arms, composition-root wiring, and explicitly RunPod-specific facade
+commands and DTOs.
 
 ### RunPod Placement
 
@@ -226,14 +303,15 @@ Facade DTOs are projections, not aliases for application models.
 - creation time;
 - optional tagged `RuntimeDto`.
 
-The RunPod runtime DTO exposes state and placement configuration. Network
-volume, provisioner pod, template, and endpoint IDs remain native-only because
-the renderer neither needs nor owns provider resources.
+`RuntimeDto` exposes the shared state and a tagged provider projection. The
+RunPod projection exposes placement configuration. Network volume, provisioner
+pod, template, and endpoint IDs remain native-only because the renderer neither
+needs nor owns provider resources.
 
-`RuntimeOperationDto` exposes operation identity, workspace identity, kind,
-state, trace ID, resolved provider progress, and timestamps. Its tagged progress
-shape keeps invalid combinations such as a provision operation with a cleanup
-step unrepresentable.
+`RuntimeOperationDto` exposes operation identity, workspace identity, runtime
+kind, operation kind, state, trace ID, resolved provider progress, and
+timestamps. Its tagged progress shape keeps invalid combinations such as a
+provision operation with a cleanup step unrepresentable.
 
 `IdentityDto` exposes only the safe optional key name, username, and email.
 Raw credentials never appear in output DTOs, events, errors, logs, generated
@@ -309,6 +387,24 @@ families include:
 - invalid pagination;
 - invalid runtime transitions.
 
+The runtime persistence boundary uses only shared persistence errors:
+
+```rust
+pub enum RuntimePersistenceError {
+    AlreadyExists,
+    OperationAlreadyRunning,
+    NotFound,
+    Unavailable,
+    CorruptData,
+}
+```
+
+An unknown stored `runtime_kind`, a missing provider extension, or a mismatch
+between `Runtime.provider.kind()` and `RuntimeOperation.runtime_kind` is
+`CorruptData`. Provider persistence maps SeaORM errors into this shared
+boundary and never exposes raw database or provider messages. There are no
+cross-provider fallback reads.
+
 Provider, SQLite, bundled-catalog, and keyring messages are never returned to
 the renderer. The client receives a stable code and the root command trace ID.
 Application UUIDs are converted to strings in facade DTOs.
@@ -343,9 +439,11 @@ changes run `bun run codegen:commands`.
 5. initialize diagnostics at `app_data_dir/diagnostics.log`;
 6. connect and schema-sync SQLite at `app_data_dir/db.sqlite`;
 7. resolve the packaged bundled catalog at `resource_dir/bundled`;
-8. construct bundled, SQLite, keyring, RunPod, and Hugging Face adapters;
-9. construct application services, the concrete runtime dispatcher, the Tauri
-   event sink, and `FacadeState`;
+8. construct bundled, SQLite, keyring, RunPod, and Hugging Face adapters,
+   including provider persistence implementations and the closed SQLite
+   persistence dispatcher;
+9. construct application services, the concrete facade runtime dispatcher, the
+   Tauri event sink, and `FacadeState`;
 10. fail interrupted runtime operations while events are already mounted;
 11. manage the fully initialized facade state;
 12. finish Tauri startup.
@@ -361,14 +459,17 @@ state, and no startup-status command is added.
 
 Focused tests cover the new behavior at its owning boundary:
 
-- SQLite integration tests cover the direct workspace-to-RunPod foreign key,
-  hydrated workspace pages, totals and stable ordering, and atomic
-  runtime-operation transitions;
+- SQLite integration tests cover shared state in the generic anchor, provider
+  dispatch, batch-hydrated workspace pages, totals and stable ordering, atomic
+  rollback on provider failure, and operation progress hydration after cleanup;
 - application tests cover generated workspace UUIDs, full workspace events,
   pagination behavior, and updated provision/cleanup transitions;
 - facade tests cover tagged DTO conversion, secret omission, command-specific
-  error mapping, pagination validation, and the concrete RunPod dispatcher
-  arms;
+  error mapping, pagination validation, and provider-service dispatch without
+  provider workflow logic in the dispatcher;
+- a focused architecture audit confirms that generic runtime repositories
+  contain no RunPod SQL, field mapping, lifecycle branches, or resource fields
+  outside exhaustive dispatch arms;
 - the binding export test covers command/event collection and generated
   TypeScript output;
 - bootstrap tests cover support filenames and ensure events are mounted before
@@ -388,10 +489,11 @@ bun run lint
 ## Explicit Deferrals
 
 - No multiple runtime relation or `Workspace::runtimes` collection.
-- No generic runtime anchor until a second provider makes cross-provider
-  exclusivity concrete.
-- No dispatcher trait, provider registry, or dynamic provider loading.
+- No dispatcher trait, dynamic provider registry, or plugin loading.
+- No provider SQL, mapping, lifecycle behavior, or resource fields in generic
+  runtime repositories; provider names may appear there only in exhaustive
+  dispatch arms.
 - No workspace revision solely to order command responses against events.
 - No pagination cursor; the approved contract uses offset, limit, and total.
 - No secret-status command.
-- No compatibility layer for the removed `workspace_runtimes` schema.
+- No compatibility layer for the pre-v1 runtime schema change.
