@@ -226,7 +226,47 @@ fn initialization_reports_file_setup_failure_without_installing_logger() {
     let result = super::init(&logs_dir);
 
     std::fs::remove_file(logs_dir).unwrap();
-    assert!(result.is_err());
+    assert!(matches!(
+        result,
+        Err(super::DiagnosticsInitializationError::SetupFailed { .. })
+    ));
+}
+
+const INSTALL_FAILURE_SUBPROCESS: &str = "LUMA_FORGE_INSTALL_FAILURE_SUBPROCESS";
+const INSTALL_FAILURE_LOGS_DIR: &str = "LUMA_FORGE_INSTALL_FAILURE_LOGS_DIR";
+
+#[test]
+fn initialization_reports_logger_install_failure_in_subprocess() {
+    let logs_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "diagnostics::tests::initialization_install_failure_subprocess_helper",
+            "--nocapture",
+        ])
+        .env(INSTALL_FAILURE_SUBPROCESS, "1")
+        .env(INSTALL_FAILURE_LOGS_DIR, &logs_dir)
+        .status()
+        .unwrap();
+
+    std::fs::remove_dir_all(logs_dir).unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn initialization_install_failure_subprocess_helper() {
+    if std::env::var_os(INSTALL_FAILURE_SUBPROCESS).is_none() {
+        return;
+    }
+
+    let logs_dir = std::env::var_os(INSTALL_FAILURE_LOGS_DIR).unwrap();
+    super::init(std::path::Path::new(&logs_dir)).unwrap();
+    let result = super::init(std::path::Path::new(&logs_dir));
+
+    assert!(matches!(
+        result,
+        Err(super::DiagnosticsInitializationError::InstallFailed { .. })
+    ));
 }
 
 #[test]

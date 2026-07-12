@@ -10,6 +10,8 @@ pub use luma_diagnostics_macros::{diagnostic, DiagnosticDebug};
 pub enum DiagnosticsInitializationError {
     #[error("native diagnostics could not be initialized: {message}")]
     SetupFailed { message: String },
+    #[error("native diagnostics logger could not be installed: {message}")]
+    InstallFailed { message: String },
 }
 
 #[derive(Debug)]
@@ -56,7 +58,7 @@ pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
     );
 
     log::set_boxed_logger(Box::new(logger)).map_err(|error| {
-        DiagnosticsInitializationError::SetupFailed {
+        DiagnosticsInitializationError::InstallFailed {
             message: error.to_string(),
         }
     })?;
