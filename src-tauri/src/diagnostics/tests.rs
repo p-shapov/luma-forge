@@ -1,4 +1,5 @@
 use super::{DiagnosticDebug, DiagnosticValue, Field, Fields};
+use fastrace::collector::SpanContext;
 use std::sync::{Mutex, Once, OnceLock};
 
 #[derive(Clone)]
@@ -80,6 +81,18 @@ fn records_for(function: &str) -> Vec<Record> {
 struct TestError;
 
 impl DiagnosticValue for TestError {}
+
+#[super::diagnostic]
+async fn traced_child() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic(root)]
+async fn traced_root() -> Result<(SpanContext, SpanContext), TestError> {
+    let root = SpanContext::current_local_parent().unwrap();
+    assert_eq!(super::current_trace_id(), Some(root.trace_id));
+    Ok((root, traced_child().await?))
+}
 
 #[super::diagnostic(show_output, show_error)]
 async fn successful(
@@ -172,4 +185,75 @@ fn named_fields_preserve_names_and_redaction() {
     assert!(formatted.contains("workspace-1"));
     assert!(formatted.contains("api_key"));
     assert!(formatted.contains("[REDACTED]"));
+}
+
+#[test]
+fn standard_json_layout_preserves_call_fields() {
+    use logforth::kv::{Key, Value};
+    use logforth::Layout;
+
+    let fields = [
+        (Key::new("function"), Value::static_str("successful")),
+        (Key::new("workspace_id"), Value::static_str("workspace-1")),
+    ];
+    let record = logforth::record::Record::builder()
+        .payload(format_args!("call.start"))
+        .key_values(fields.as_slice())
+        .build();
+    let formatted = logforth::layout::JsonLayout::default()
+        .format(&record, &[])
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&formatted).unwrap();
+
+    assert_eq!(json["message"], "call.start");
+    assert_eq!(json["kvs"]["function"], "successful");
+    assert_eq!(json["kvs"]["workspace_id"], "workspace-1");
+}
+
+#[tokio::test]
+async fn nested_calls_share_trace_but_use_distinct_spans() {
+    let (root, child) = traced_root().await.unwrap();
+
+    assert_eq!(root.trace_id, child.trace_id);
+    assert_ne!(root.span_id, child.span_id);
+}
+
+#[test]
+fn initialization_reports_file_setup_failure_without_installing_logger() {
+    let logs_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
+    std::fs::write(&logs_dir, b"not a directory").unwrap();
+
+    let result = super::init(&logs_dir);
+
+    std::fs::remove_file(logs_dir).unwrap();
+    assert!(result.is_err());
+}
+
+#[test]
+fn application_filter_accepts_info_and_rejects_other_targets_or_debug() {
+    use logforth::filter::FilterResult;
+    use logforth::record::{FilterCriteria, Level};
+    use logforth::Filter;
+
+    let criteria = |target, level| {
+        FilterCriteria::builder()
+            .target(target)
+            .level(level)
+            .build()
+    };
+
+    assert_eq!(
+        super::ApplicationFilter
+            .enabled(&criteria("luma_forge_lib::diagnostics", Level::Info), &[]),
+        FilterResult::Neutral
+    );
+    assert_eq!(
+        super::ApplicationFilter.enabled(&criteria("dependency", Level::Info), &[]),
+        FilterResult::Reject
+    );
+    assert_eq!(
+        super::ApplicationFilter
+            .enabled(&criteria("luma_forge_lib::diagnostics", Level::Debug), &[],),
+        FilterResult::Reject
+    );
 }
