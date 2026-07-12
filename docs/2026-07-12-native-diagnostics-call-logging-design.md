@@ -154,7 +154,7 @@ Instrumentation applies to executable public operations:
 
 It does not apply to private methods, `pub(crate)` helpers, constructors, getters, pure mapping functions, domain mutations, body-less trait declarations, or test fakes.
 
-A detached task entry point is the only private exception. It is an execution boundary after the initiating public method has already returned, so it must own its terminal success or failure log. Private helpers called by the runner remain uninstrumented.
+Detached task entry points and per-operation interrupted-recovery entry points are the only private exceptions. Each is an execution boundary outside the initiating public method, so it must own its terminal success or failure log. Unrelated private helpers remain uninstrumented.
 
 ### Attribute policy
 
@@ -268,7 +268,7 @@ Initialization occurs after support paths exist and before application state con
 
 - which public operations require `#[diagnostic]`;
 - that private helpers and test fakes are excluded;
-- that detached runner entry points are the only private exception;
+- that detached runner and per-operation interrupted-recovery entry points are the only private exceptions;
 - that external boundary DTOs use `DiagnosticDebug`;
 - that logged values require explicit `show` or `redact`;
 - that raw wire DTOs, request bodies, provider responses, and exposed secrets never enter diagnostic values;
@@ -331,7 +331,7 @@ Command code generation and frontend verification are required only when future 
 ## Acceptance Criteria
 
 - Active diagnostics and its macros are implemented from scratch; no old diagnostics implementation is copied or adapted.
-- Every executable public operation in scope and every detached runner entry point uses the diagnostic attribute.
+- Every executable public operation in scope, every detached runner entry point, and every per-operation interrupted-recovery entry point uses the diagnostic attribute.
 - Ordinary calls share the entry-point trace without trace parameters in their signatures.
 - The custom attribute delegates child-span and `async_trait` mechanics to `fastrace`.
 - `DiagnosticDebug` supports structs and enums and omits unannotated fields.
