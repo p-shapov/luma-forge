@@ -1,2 +1,4 @@
 /target
 /gen
+/crates/diagnostics-macros/target
+/crates/diagnostics-macros/Cargo.lock
