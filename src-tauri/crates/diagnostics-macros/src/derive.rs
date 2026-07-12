@@ -81,15 +81,16 @@ fn enum_body(data: &DataEnum) -> Result<TokenStream> {
                 Fields::Named(fields) => {
                     let mut bindings = Vec::new();
                     let mut entries = Vec::new();
-                    for field in &fields.named {
+                    for (index, field) in fields.named.iter().enumerate() {
                         let field_name = field.ident.as_ref().expect("named field");
                         match value_policy(&field.attrs)? {
                             ValuePolicy::Omit => {}
                             ValuePolicy::Show => {
-                                bindings.push(field_name);
+                                let binding = format_ident!("__diagnostic_field_{index}");
+                                bindings.push(quote!(#field_name: #binding));
                                 entries.push(field_entry(
                                     ValuePolicy::Show,
-                                    quote!(#field_name),
+                                    quote!(#binding),
                                     Some(field_name),
                                 )?);
                             }
