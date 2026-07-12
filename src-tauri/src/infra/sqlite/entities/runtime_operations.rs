@@ -11,7 +11,7 @@ pub struct Model {
     pub running_workspace_id: Option<String>,
     pub operation_kind: String,
     pub state: String,
-    pub trace_id: String,
+    pub trace_id: Option<String>,
     pub created_at: TimeDateTimeWithTimeZone,
     pub updated_at: TimeDateTimeWithTimeZone,
     pub finished_at: Option<TimeDateTimeWithTimeZone>,

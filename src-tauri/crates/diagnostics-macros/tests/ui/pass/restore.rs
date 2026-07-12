@@ -19,7 +19,18 @@ mod diagnostics {
 #[diagnostic(restore = trace_id)]
 async fn restore(trace_id: Option<uuid::Uuid>) -> Result<(), ()> { Ok(()) }
 
+struct Operation {
+    trace_id: Option<uuid::Uuid>,
+}
+
+#[diagnostic(restore = operation.trace_id)]
+async fn restore_from_field(operation: Operation) -> Result<(), ()> {
+    std::mem::drop(operation);
+    Ok(())
+}
+
 fn main() {
     std::mem::drop(restore(Some(uuid::Uuid::new_v4())));
     std::mem::drop(restore(None));
+    std::mem::drop(restore_from_field(Operation { trace_id: None }));
 }

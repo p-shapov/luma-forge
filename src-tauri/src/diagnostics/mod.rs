@@ -66,12 +66,9 @@ pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
     Ok(())
 }
 
-pub fn current_trace_id() -> Option<fastrace::collector::TraceId> {
-    fastrace::collector::SpanContext::current_local_parent().map(|context| context.trace_id)
-}
-
 pub fn current_trace_uuid() -> Option<uuid::Uuid> {
-    current_trace_id().map(|trace_id| uuid::Uuid::from_u128(trace_id.0))
+    fastrace::collector::SpanContext::current_local_parent()
+        .map(|context| uuid::Uuid::from_u128(context.trace_id.0))
 }
 
 pub trait DiagnosticValue: Debug {}
@@ -151,7 +148,6 @@ impl_diagnostic_value!(
     String,
     (),
     uuid::Uuid,
-    fastrace::collector::TraceId,
     secrecy::SecretString,
     time::OffsetDateTime,
 );

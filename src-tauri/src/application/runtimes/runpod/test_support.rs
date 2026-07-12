@@ -5,7 +5,6 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use fastrace::collector::TraceId;
 use secrecy::SecretString;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -38,6 +37,19 @@ use super::{
     RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeService,
     RunpodRuntimeServiceDependencies, RunpodRuntimeState, StartProvisionerPod,
 };
+
+fn running_operation(
+    id: Uuid,
+    workspace_id: &str,
+    trace_id: Option<Uuid>,
+    kind: RuntimeOperationKind,
+    progress: RuntimeProgress,
+    now: OffsetDateTime,
+) -> RuntimeOperation {
+    let mut operation = RuntimeOperation::running(id, workspace_id, kind, progress, now);
+    operation.trace_id = trace_id;
+    operation
+}
 
 pub(super) struct ProvisionFakes {
     pub provider: Arc<FakeRunpodRuntimeProvider>,
@@ -111,23 +123,33 @@ impl ProvisionFakes {
             workspace(Some(RuntimeKind::Runpod)),
             Some(runtime(RunpodRuntimeState::Provisioning)),
             vec![
-                RuntimeOperation::running(
+                running_operation(
                     Uuid::from_u128(1),
                     "workspace-1",
-                    TraceId(2),
+                    Some(Uuid::from_u128(2)),
                     RuntimeOperationKind::Provision,
                     RuntimeProgress::Runpod(RunpodProgress::Provision(
                         RunpodProvisionStep::CreateEndpoint,
                     )),
                     now,
                 ),
-                RuntimeOperation::running(
+                running_operation(
                     Uuid::from_u128(3),
                     "workspace-2",
-                    TraceId(4),
+                    Some(Uuid::from_u128(4)),
                     RuntimeOperationKind::Cleanup,
                     RuntimeProgress::Runpod(RunpodProgress::Cleanup(
                         RunpodCleanupStep::DeleteEndpoint,
+                    )),
+                    now,
+                ),
+                running_operation(
+                    Uuid::from_u128(5),
+                    "workspace-3",
+                    None,
+                    RuntimeOperationKind::Provision,
+                    RuntimeProgress::Runpod(RunpodProgress::Provision(
+                        RunpodProvisionStep::CreateNetworkVolume,
                     )),
                     now,
                 ),
@@ -141,6 +163,14 @@ impl ProvisionFakes {
             .lock()
             .unwrap()
             .push(cleanup_runtime);
+        let mut nullable_trace_runtime = runtime(RunpodRuntimeState::Provisioning);
+        nullable_trace_runtime.workspace_id = "workspace-3".into();
+        fakes
+            .repository
+            .runtimes
+            .lock()
+            .unwrap()
+            .push(nullable_trace_runtime);
         fakes
     }
 
@@ -566,7 +596,7 @@ impl FakeRunpodRuntimeRepository {
             .collect()
     }
 
-    pub fn saved_trace_ids(&self) -> Vec<TraceId> {
+    pub fn saved_trace_ids(&self) -> Vec<Option<Uuid>> {
         self.snapshots
             .lock()
             .unwrap()

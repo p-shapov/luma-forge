@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use fastrace::collector::TraceId;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use uuid::Uuid;
 
@@ -154,8 +153,11 @@ fn map_operation(
         state,
         trace_id: model
             .trace_id
-            .parse::<TraceId>()
-            .map_err(|_| RuntimeOperationRepositoryError::CorruptData)?,
+            .map(|trace_id| {
+                uuid::Uuid::parse_str(&trace_id)
+                    .map_err(|_| RuntimeOperationRepositoryError::CorruptData)
+            })
+            .transpose()?,
         progress,
         created_at: model.created_at,
         updated_at: model.updated_at,
@@ -194,5 +196,45 @@ pub(super) fn runtime_operation_progress_value(progress: RuntimeProgress) -> &'s
             RunpodCleanupStep::TerminateProvisionerPod => "terminate_provisioner_pod",
             RunpodCleanupStep::DeleteNetworkVolume => "delete_network_volume",
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model(trace_id: Option<&str>) -> runtime_operations::Model {
+        runtime_operations::Model {
+            id: uuid::Uuid::nil().to_string(),
+            workspace_id: "workspace-1".into(),
+            running_workspace_id: Some("workspace-1".into()),
+            operation_kind: "provision".into(),
+            state: "running".into(),
+            trace_id: trace_id.map(str::to_owned),
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+            updated_at: time::OffsetDateTime::UNIX_EPOCH,
+            finished_at: None,
+        }
+    }
+
+    #[test]
+    fn trace_mapping_accepts_uuid_or_null_and_rejects_invalid_text() {
+        let trace_id = uuid::Uuid::new_v4();
+        assert_eq!(
+            map_operation(model(Some(&trace_id.to_string())), "create_network_volume")
+                .unwrap()
+                .trace_id,
+            Some(trace_id)
+        );
+        assert_eq!(
+            map_operation(model(None), "create_network_volume")
+                .unwrap()
+                .trace_id,
+            None
+        );
+        assert_eq!(
+            map_operation(model(Some("invalid")), "create_network_volume"),
+            Err(RuntimeOperationRepositoryError::CorruptData)
+        );
     }
 }

@@ -226,7 +226,7 @@ async fn insert_operation(
             .then(|| operation.workspace_id.clone())),
         operation_kind: Set(runtime_operation_kind_value(operation.kind).to_owned()),
         state: Set(runtime_operation_state_value(operation.state).to_owned()),
-        trace_id: Set(operation.trace_id.to_string()),
+        trace_id: Set(operation.trace_id.map(|trace_id| trace_id.to_string())),
         created_at: Set(operation.created_at),
         updated_at: Set(operation.updated_at),
         finished_at: Set(operation.finished_at),

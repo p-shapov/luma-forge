@@ -105,7 +105,6 @@ async fn restored(trace_id: Option<uuid::Uuid>) -> Result<SpanContext, TestError
 #[super::diagnostic(root)]
 async fn traced_root() -> Result<(SpanContext, SpanContext), TestError> {
     let root = SpanContext::current_local_parent().unwrap();
-    assert_eq!(super::current_trace_id(), Some(root.trace_id));
     assert_eq!(
         super::current_trace_uuid(),
         Some(uuid::Uuid::from_u128(root.trace_id.0))

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use fastrace::{collector::SpanContext, future::FutureExt, Span};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -96,8 +95,6 @@ impl RunpodRuntimeService {
         let operation = RuntimeOperation::running(
             Uuid::new_v4(),
             workspace_id,
-            crate::diagnostics::current_trace_id()
-                .expect("diagnostic operation has an active trace"),
             RuntimeOperationKind::Cleanup,
             RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint)),
             OffsetDateTime::now_utc(),
@@ -108,24 +105,14 @@ impl RunpodRuntimeService {
         let initial_operation = operation.clone();
         let service = self.clone();
         let workspace_id = workspace_id.to_owned();
-        let parent = SpanContext::current_local_parent()
-            .expect("diagnostic operation has an active trace context");
-        let runner = Span::root("application.runtimes.runpod.run_cleanup", parent);
-        tokio::spawn(
-            async move {
-                service
-                    .run_cleanup(workspace_id, runpod_key, runtime, operation)
-                    .await
-            }
-            .in_span(runner),
-        );
+        tokio::spawn(service.run_cleanup(workspace_id, runpod_key, runtime, operation));
 
         Ok((initial_runtime, initial_operation))
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[crate::diagnostics::diagnostic(detached, show_error)]
     async fn run_cleanup(
-        &self,
+        self,
         #[diagnostic(show)] _workspace_id: String,
         runpod_key: secrecy::SecretString,
         mut runtime: RunpodRuntime,
@@ -189,22 +176,17 @@ impl RunpodRuntimeService {
     #[crate::diagnostics::diagnostic]
     pub async fn fail_interrupted(&self) -> Result<(), RunpodRuntimeError> {
         for operation in self.operations.running().await? {
-            let recovery = Span::root(
-                "application.runtimes.runpod.recover_interrupted",
-                SpanContext::new(operation.trace_id, fastrace::collector::SpanId::default()),
-            );
-            self.recover_interrupted(operation)
-                .in_span(recovery)
-                .await?;
+            self.recover_interrupted(operation).await?;
         }
         Ok(())
     }
 
-    #[crate::diagnostics::diagnostic]
+    #[crate::diagnostics::diagnostic(restore = operation.trace_id)]
     async fn recover_interrupted(
         &self,
-        mut operation: RuntimeOperation,
+        operation: RuntimeOperation,
     ) -> Result<(), RunpodRuntimeError> {
+        let mut operation = operation;
         let RuntimeProgress::Runpod(_) = operation.progress;
         let mut runtime = self
             .runtimes
@@ -286,8 +268,6 @@ impl RunpodRuntimeService {
         let operation = RuntimeOperation::running(
             Uuid::new_v4(),
             &command.workspace_id,
-            crate::diagnostics::current_trace_id()
-                .expect("diagnostic operation has an active trace"),
             RuntimeOperationKind::Provision,
             RuntimeProgress::Runpod(RunpodProgress::Provision(
                 RunpodProvisionStep::CreateNetworkVolume,
@@ -299,33 +279,23 @@ impl RunpodRuntimeService {
         let initial_runtime = runtime.clone();
         let initial_operation = operation.clone();
         let service = self.clone();
-        let parent = SpanContext::current_local_parent()
-            .expect("diagnostic operation has an active trace context");
-        let runner = Span::root("application.runtimes.runpod.run_provision", parent);
-        tokio::spawn(
-            async move {
-                service
-                    .run_provision(
-                        command,
-                        definition,
-                        workflow,
-                        runpod_key,
-                        hugging_face_api_key,
-                        runtime,
-                        operation,
-                    )
-                    .await
-            }
-            .in_span(runner),
-        );
+        tokio::spawn(service.run_provision(
+            command,
+            definition,
+            workflow,
+            runpod_key,
+            hugging_face_api_key,
+            runtime,
+            operation,
+        ));
 
         Ok((initial_runtime, initial_operation))
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[crate::diagnostics::diagnostic(detached, show_error)]
     async fn run_provision(
-        &self,
+        self,
         #[diagnostic(show)] command: ProvisionRunpodRuntime,
         definition: RunpodRuntimeDefinition,
         workflow: WorkflowDefinition,
@@ -527,7 +497,7 @@ impl RunpodRuntimeService {
 
 #[cfg(test)]
 mod tests {
-    use fastrace::collector::TraceId;
+    use uuid::Uuid;
 
     use crate::application::runtimes::runpod::{
         test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
@@ -608,21 +578,18 @@ mod tests {
     #[crate::diagnostics::diagnostic(root)]
     #[tokio::test]
     async fn start_provision_persists_the_active_trace() -> Result<(), RunpodRuntimeError> {
-        let trace_id = crate::diagnostics::current_trace_id().unwrap();
+        let trace_id = crate::diagnostics::current_trace_uuid().unwrap();
         let fakes = ProvisionFakes::ready();
 
-        let (_, operation) = fakes
-            .service()
-            .start_provision(provision_command())
-            .await
-            .unwrap();
+        let (_, operation) = fakes.service().start_provision(provision_command()).await?;
         fakes.events.wait_for_terminal_operation(operation.id).await;
 
+        assert_eq!(operation.trace_id, Some(trace_id));
         assert!(fakes
             .repository
             .saved_trace_ids()
             .iter()
-            .all(|saved_trace_id| *saved_trace_id == trace_id));
+            .all(|saved| *saved == Some(trace_id)));
         Ok(())
     }
 
@@ -959,14 +926,15 @@ mod tests {
             vec![
                 (RunpodRuntimeState::Failed, RuntimeOperationState::Failed),
                 (RunpodRuntimeState::Failed, RuntimeOperationState::Failed),
+                (RunpodRuntimeState::Failed, RuntimeOperationState::Failed),
             ]
         );
         assert_eq!(
             fakes.repository.saved_trace_ids(),
-            vec![TraceId(2), TraceId(4)]
+            vec![Some(Uuid::from_u128(2)), Some(Uuid::from_u128(4)), None]
         );
         let events = fakes.events.events();
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 6);
         assert!(matches!(
             &events[0],
             ApplicationEvent::RuntimeChanged(Runtime::Runpod(runtime))
@@ -977,7 +945,7 @@ mod tests {
             &events[1],
             ApplicationEvent::RuntimeOperationChanged(operation)
                 if operation.state == RuntimeOperationState::Failed
-                    && operation.trace_id == TraceId(2)
+                    && operation.trace_id == Some(Uuid::from_u128(2))
                     && runpod_progress(operation.progress).provision_step()
                         == Some(RunpodProvisionStep::CreateEndpoint)
         ));
@@ -991,12 +959,18 @@ mod tests {
             &events[3],
             ApplicationEvent::RuntimeOperationChanged(operation)
                 if operation.state == RuntimeOperationState::Failed
-                    && operation.trace_id == TraceId(4)
+                    && operation.trace_id == Some(Uuid::from_u128(4))
                     && runpod_progress(operation.progress).cleanup_step()
                         == Some(RunpodCleanupStep::DeleteEndpoint)
         ));
-        assert_eq!(fakes.events.runtime_changed_count(), 2);
-        assert_eq!(fakes.events.runtime_operation_event_count(), 2);
+        assert!(matches!(
+            &events[5],
+            ApplicationEvent::RuntimeOperationChanged(operation)
+                if operation.state == RuntimeOperationState::Failed
+                    && operation.trace_id.is_none()
+        ));
+        assert_eq!(fakes.events.runtime_changed_count(), 3);
+        assert_eq!(fakes.events.runtime_operation_event_count(), 3);
         assert_eq!(fakes.events.workspace_event_count(), 0);
         assert!(fakes.provider.calls().is_empty());
     }
@@ -1013,7 +987,10 @@ mod tests {
             fakes.repository.saved_states(),
             vec![(RunpodRuntimeState::Failed, RuntimeOperationState::Failed)]
         );
-        assert_eq!(fakes.repository.saved_trace_ids(), vec![TraceId(2)]);
+        assert_eq!(
+            fakes.repository.saved_trace_ids(),
+            vec![Some(Uuid::from_u128(2))]
+        );
         assert!(fakes.provider.calls().is_empty());
     }
 }

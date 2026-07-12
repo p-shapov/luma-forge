@@ -1,4 +1,3 @@
-use fastrace::collector::TraceId;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -105,7 +104,7 @@ pub struct RuntimeOperation {
     #[diagnostic(show)]
     pub state: RuntimeOperationState,
     #[diagnostic(show)]
-    pub trace_id: TraceId,
+    pub trace_id: Option<Uuid>,
     #[diagnostic(show)]
     pub progress: RuntimeProgress,
     #[diagnostic(show)]
@@ -120,7 +119,6 @@ impl RuntimeOperation {
     pub fn running(
         id: Uuid,
         workspace_id: &str,
-        trace_id: TraceId,
         kind: RuntimeOperationKind,
         progress: RuntimeProgress,
         now: OffsetDateTime,
@@ -130,7 +128,7 @@ impl RuntimeOperation {
             workspace_id: workspace_id.to_owned(),
             kind,
             state: RuntimeOperationState::Running,
-            trace_id,
+            trace_id: crate::diagnostics::current_trace_uuid(),
             progress,
             created_at: now,
             updated_at: now,
@@ -227,7 +225,6 @@ mod tests {
         let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
-            TraceId(2),
             RuntimeOperationKind::Provision,
             progress,
             OffsetDateTime::UNIX_EPOCH,
@@ -238,6 +235,7 @@ mod tests {
         assert_eq!(operation.kind, RuntimeOperationKind::Provision);
         assert_eq!(operation.state, RuntimeOperationState::Succeeded);
         assert_eq!(operation.progress, progress);
+        assert_eq!(operation.trace_id, None);
         assert_eq!(
             operation.succeed(OffsetDateTime::UNIX_EPOCH),
             Err(RuntimeOperationError::InvalidTransition)
@@ -250,17 +248,18 @@ mod tests {
         let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
-            TraceId(2),
             RuntimeOperationKind::Cleanup,
             progress,
             OffsetDateTime::UNIX_EPOCH,
         );
+        let trace_id = Uuid::from_u128(2);
+        operation.trace_id = Some(trace_id);
 
         operation.fail(OffsetDateTime::UNIX_EPOCH).unwrap();
 
         assert_eq!(operation.state, RuntimeOperationState::Failed);
         assert_eq!(operation.kind, RuntimeOperationKind::Cleanup);
-        assert_eq!(operation.trace_id, TraceId(2));
+        assert_eq!(operation.trace_id, Some(trace_id));
         assert_eq!(operation.progress, progress);
     }
 }

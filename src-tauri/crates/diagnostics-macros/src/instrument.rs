@@ -133,10 +133,12 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
             )
         })
     } else if signature.asyncness.is_some() {
+        let context_ident = syn::Ident::new("__diagnostic_context", Span::mixed_site());
         quote!({
+            let #context_ident = #context;
             fastrace::future::FutureExt::in_span(
                 async move #instrumented,
-                fastrace::Span::root(fastrace::func_path!(), #context),
+                fastrace::Span::root(fastrace::func_path!(), #context_ident),
             )
             .await
         })

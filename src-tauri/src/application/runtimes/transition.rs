@@ -338,7 +338,6 @@ mod tests {
                 operation: RuntimeOperation::running(
                     Uuid::from_u128(1),
                     "workspace-1",
-                    fastrace::collector::TraceId(2),
                     RuntimeOperationKind::Provision,
                     RuntimeProgress::Runpod(RunpodProgress::Provision(
                         RunpodProvisionStep::CreateEndpoint,
