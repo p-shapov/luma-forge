@@ -13,6 +13,7 @@ pub struct SqliteInfraDatabase {
 }
 
 impl SqliteInfraDatabase {
+    #[crate::diagnostics::diagnostic]
     pub async fn connect(path: impl AsRef<Path>) -> Result<Self, SqliteInfraError> {
         let path = path.as_ref().to_string_lossy();
         let url = format!("sqlite://{path}?mode=rwc");

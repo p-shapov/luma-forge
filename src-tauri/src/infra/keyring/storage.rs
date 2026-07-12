@@ -15,7 +15,11 @@ impl KeyringStorage {
         }
     }
 
-    pub async fn exists(&self, account: &str) -> Result<bool, KeyringStorageError> {
+    #[crate::diagnostics::diagnostic(show_output)]
+    pub async fn exists(
+        &self,
+        #[diagnostic(show)] account: &str,
+    ) -> Result<bool, KeyringStorageError> {
         let service_name = self.service_name.clone();
         let account = account.to_owned();
 
@@ -29,7 +33,11 @@ impl KeyringStorage {
         .await
     }
 
-    pub async fn get(&self, account: &str) -> Result<Option<SecretString>, KeyringStorageError> {
+    #[crate::diagnostics::diagnostic(redact_output)]
+    pub async fn get(
+        &self,
+        #[diagnostic(show)] account: &str,
+    ) -> Result<Option<SecretString>, KeyringStorageError> {
         let service_name = self.service_name.clone();
         let account = account.to_owned();
 
@@ -43,10 +51,11 @@ impl KeyringStorage {
         .await
     }
 
+    #[crate::diagnostics::diagnostic]
     pub async fn set(
         &self,
-        account: &str,
-        secret: SecretString,
+        #[diagnostic(show)] account: &str,
+        #[diagnostic(redact)] secret: SecretString,
     ) -> Result<(), KeyringStorageError> {
         let service_name = self.service_name.clone();
         let account = account.to_owned();
@@ -59,7 +68,11 @@ impl KeyringStorage {
         .await
     }
 
-    pub async fn delete(&self, account: &str) -> Result<(), KeyringStorageError> {
+    #[crate::diagnostics::diagnostic]
+    pub async fn delete(
+        &self,
+        #[diagnostic(show)] account: &str,
+    ) -> Result<(), KeyringStorageError> {
         let service_name = self.service_name.clone();
         let account = account.to_owned();
 

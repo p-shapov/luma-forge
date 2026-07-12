@@ -1,6 +1,7 @@
 mod client;
 #[allow(clippy::derivable_impls)]
-pub mod generated;
+mod generated;
+mod types;
 
 pub use client::HuggingFaceClient;
-pub use generated::WhoamiResponse;
+pub use types::{IdentityRequest, IdentityResponse};

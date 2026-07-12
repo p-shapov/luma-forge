@@ -2,7 +2,10 @@ use secrecy::SecretString;
 
 use crate::{
     application::secrets::{Identity, SecretIdentityProvider, SecretIdentityProviderError},
-    infra::clients::{hugging_face::HuggingFaceClient, NetworkError},
+    infra::clients::{
+        hugging_face::{HuggingFaceClient, IdentityRequest},
+        NetworkError,
+    },
 };
 
 pub struct HuggingFaceIdentityAdapter {
@@ -25,12 +28,14 @@ impl SecretIdentityProvider for HuggingFaceIdentityAdapter {
     ) -> Result<Identity, SecretIdentityProviderError> {
         let response = self
             .client
-            .whoami(credential)
+            .identity(IdentityRequest {
+                credential: credential.clone(),
+            })
             .await
             .map_err(map_network_error)?;
         Ok(Identity {
-            key_name: response.auth.access_token.map(|token| token.display_name),
-            username: Some(response.name),
+            key_name: response.key_name,
+            username: Some(response.username),
             email: response.email,
         })
     }

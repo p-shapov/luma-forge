@@ -2,7 +2,10 @@ use secrecy::SecretString;
 
 use crate::{
     application::secrets::{Identity, SecretIdentityProvider, SecretIdentityProviderError},
-    infra::clients::{runpod::RunpodClient, NetworkError},
+    infra::clients::{
+        runpod::{IdentityRequest, RunpodClient},
+        NetworkError,
+    },
 };
 
 pub struct RunpodIdentityAdapter {
@@ -25,16 +28,15 @@ impl SecretIdentityProvider for RunpodIdentityAdapter {
     ) -> Result<Identity, SecretIdentityProviderError> {
         let response = self
             .client
-            .myself(credential)
+            .identity(IdentityRequest {
+                credential: credential.clone(),
+            })
             .await
             .map_err(map_network_error)?;
-        let myself = response
-            .myself
-            .ok_or(SecretIdentityProviderError::Unavailable)?;
         Ok(Identity {
             key_name: None,
             username: None,
-            email: myself.email,
+            email: response.email,
         })
     }
 }
