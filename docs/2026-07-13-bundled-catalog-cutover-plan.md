@@ -4,7 +4,7 @@
 
 **Goal:** Replace the old flat `bundled` catalog with the revision-based catalog and make native packaging plus both worker release pipelines consume it directly.
 
-**Architecture:** The repository and packaged application expose one `bundled/catalog` filesystem tree. Native code keeps its existing `Catalog` reader, while Python release tools address entry documents directly by safe `id/revision` components and create new immutable revision directories during promotion. Docker receives concrete source files; no aggregate registry, compatibility adapter, generator, cache, or new dependency is introduced.
+**Architecture:** The repository and packaged application expose one `bundled/catalog` filesystem tree. Native code keeps its existing `Catalog` reader, while both Python release tools reuse `workers/catalog_fs.py` to address entry documents by safe `id/revision` components and create new immutable revision directories during promotion. Docker receives concrete source files; no aggregate registry, compatibility adapter, generator, cache, or new dependency is introduced.
 
 **Tech Stack:** Rust/Tauri, Python 3.12 standard library, Docker, GitHub Actions YAML, JSON Schema catalog files.
 
@@ -16,6 +16,7 @@
 - Worker image references remain digest-pinned `@sha256:<64 lowercase hex>` values.
 - IDs are safe lowercase kebab-case path components; revisions are strict three-part semantic versions.
 - Do not add dependencies or change application-layer catalog models.
+- `workers/catalog_fs.py` is the single owner of shared catalog filesystem, JSON, safe-ID, semver, and digest validation helpers.
 - Keep tests fixture-backed, with at most one repository-packaged catalog smoke per worker/native boundary.
 - Follow `src-tauri/AGENTS.md` and `workers/AGENTS.md` verification commands.
 
@@ -140,6 +141,8 @@ git commit -m "refactor(bundled): promote revision catalog"
 ### Task 2: Build RunPod endpoint images from direct revision documents
 
 **Files:**
+- Create: `workers/__init__.py`
+- Create: `workers/catalog_fs.py`
 - Modify: `workers/runpod-endpoint/release_tool.py`
 - Modify: `workers/runpod-endpoint/src/tools/build_metadata.py`
 - Modify: `workers/runpod-endpoint/Dockerfile`
@@ -149,6 +152,7 @@ git commit -m "refactor(bundled): promote revision catalog"
 
 **Interfaces:**
 - Consumes: `bundled/catalog`, workflow `(id, revision)`, and the catalog reference documents.
+- Produces: shared `workers.catalog_fs` values `ReleaseToolError`, `WORKFLOW_FILES`, `entry_file`, `catalog_ref`, `load_json`, `write_json`, `dict_value`, `list_value`, `string_value`, `string_list_value`, `is_safe_identifier`, `parse_semver`, `format_semver`, `latest_revision`, `next_revision`, `validate_image_ref`, and `runpod_contract_requirements`.
 - Produces: `resolve` outputs named `workflow_path`, `execution_contract_path`, `execution_schema_path`, `runtime_preset_path`, `workflow_id`, `workflow_revision`, `contract_id`, `contract_revision`, and the existing Python/ComfyUI/PyTorch build metadata.
 - Produces: `extract_runtime_metadata(execution_contract_path: Path, execution_schema_path: Path, execution_contract_output_path: Path) -> None`.
 
@@ -254,11 +258,11 @@ PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover \
 Expected: FAIL because the new function signatures and filesystem resolver do
 not exist.
 
-- [ ] **Step 4: Implement direct entry resolution with standard-library paths**
+- [ ] **Step 4: Add the shared catalog filesystem module**
 
-In `workers/runpod-endpoint/release_tool.py`, replace aggregate catalog lookup
-helpers with these boundaries and keep the existing JSON/YAML scalar validation
-helpers only where still used:
+Create an empty `workers/__init__.py`. Create `workers/catalog_fs.py` with the
+shared standard-library boundary below. Move the existing equivalent validation
+logic out of the two release scripts when each one adopts this module:
 
 ```python
 ENTRY_ROOTS = {
@@ -267,6 +271,18 @@ ENTRY_ROOTS = {
     "runtime_preset": "runtime_presets",
     "workflow": "workflows",
 }
+
+WORKFLOW_FILES = (
+    "metadata",
+    "model_assets",
+    "contract_requirements",
+    "execution_contract",
+    "workflow",
+)
+
+
+class ReleaseToolError(Exception):
+    pass
 
 
 def entry_file(
@@ -278,9 +294,9 @@ def entry_file(
 ) -> Path:
     if kind not in ENTRY_ROOTS:
         raise ReleaseToolError(f"unsupported catalog entry kind: {kind}")
-    if not _is_safe_identifier(entry_id):
+    if not is_safe_identifier(entry_id):
         raise ReleaseToolError(f"invalid {kind.replace('_', ' ')} id")
-    _parse_semver(revision)
+    parse_semver(revision)
     path = catalog_root / "entries" / ENTRY_ROOTS[kind] / entry_id / revision / filename
     if not path.is_file():
         raise ReleaseToolError(f"catalog entry file does not exist: {path}")
@@ -288,31 +304,73 @@ def entry_file(
 
 
 def catalog_ref(value: dict[str, Any], key: str, contract: str) -> tuple[str, str]:
-    reference = _dict_value(value, key)
-    if _string_value(reference, "contract") != contract:
+    reference = dict_value(value, key)
+    if string_value(reference, "contract") != contract:
         raise ReleaseToolError(f"{key} uses an unexpected contract")
-    entry_id = _string_value(reference, "id")
-    revision = _string_value(reference, "revision")
-    if not _is_safe_identifier(entry_id):
+    entry_id = string_value(reference, "id")
+    revision = string_value(reference, "revision")
+    if not is_safe_identifier(entry_id):
         raise ReleaseToolError(f"invalid {key} id")
-    _parse_semver(revision)
+    parse_semver(revision)
     return entry_id, revision
 
 
-def next_revision(entries_root: Path, *, initial: str | None = None) -> str:
+def latest_revision(entries_root: Path) -> tuple[str, Path]:
     if not entries_root.is_dir():
-        if initial is not None:
-            _parse_semver(initial)
-            return initial
         raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
-    revisions = [_parse_semver(path.name) for path in entries_root.iterdir() if path.is_dir()]
+    revisions = [
+        (parse_semver(path.name), path)
+        for path in entries_root.iterdir()
+        if path.is_dir()
+    ]
     if not revisions:
+        raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
+    _version, path = max(revisions, key=lambda item: item[0])
+    return path.name, path
+
+
+def next_revision(entries_root: Path, *, initial: str | None = None) -> str:
+    if not entries_root.is_dir() or not any(path.is_dir() for path in entries_root.iterdir()):
         if initial is not None:
-            _parse_semver(initial)
+            parse_semver(initial)
             return initial
         raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
-    major, minor, patch = max(revisions)
-    return _format_semver((major, minor, patch + 1))
+    revision, _path = latest_revision(entries_root)
+    major, minor, patch = parse_semver(revision)
+    return format_semver((major, minor, patch + 1))
+```
+
+Also move the existing small JSON read/write, typed object/list/string accessors,
+`is_safe_identifier`, strict semver parse/format, digest-pinned image validation,
+latest-revision selection, and direct `contract_requirements` RunPod selection
+into this module under the exact exported names listed in **Interfaces**. Keep
+their current error messages where tests depend on them. Use only `json`, `re`,
+and `pathlib`.
+
+- [ ] **Step 5: Implement endpoint resolution on the shared module**
+
+At the top of `workers/runpod-endpoint/release_tool.py`, make the repository root
+importable for direct-script execution and import the shared functions:
+
+```python
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPOSITORY_ROOT))
+
+from workers.catalog_fs import (  # noqa: E402
+    ReleaseToolError,
+    catalog_ref,
+    dict_value,
+    entry_file,
+    load_json,
+    next_revision,
+    string_list_value,
+    string_value,
+)
+```
+
+Replace aggregate lookup with:
+
+```python
 
 
 def resolve_endpoint_build(
@@ -321,9 +379,9 @@ def resolve_endpoint_build(
     workflow_dir = entry_file(
         catalog_root, "workflow", workflow_id, workflow_revision, "workflow"
     ).parent
-    metadata = _load_json(workflow_dir / "metadata")
+    metadata = load_json(workflow_dir / "metadata")
     execution_contract_path = workflow_dir / "execution_contract"
-    execution_contract = _load_json(execution_contract_path)
+    execution_contract = load_json(execution_contract_path)
 
     preset_id, preset_revision = catalog_ref(
         metadata,
@@ -341,8 +399,8 @@ def resolve_endpoint_build(
     execution_schema_path = entry_file(
         catalog_root, "execution_schema", schema_id, schema_revision, "execution_schema"
     )
-    runtime = _dict_value(_load_json(runtime_preset_path), "runtime")
-    pytorch = _dict_value(runtime, "pytorch")
+    runtime = dict_value(load_json(runtime_preset_path), "runtime")
+    pytorch = dict_value(runtime, "pytorch")
     contract_id = endpoint_contract_id(workflow_id)
     contract_root = catalog_root / "entries/runtime_contracts" / contract_id
 
@@ -355,10 +413,10 @@ def resolve_endpoint_build(
         "workflow_revision": workflow_revision,
         "contract_id": contract_id,
         "contract_revision": next_revision(contract_root, initial="1.0.0"),
-        "runtime_python_version": _string_value(runtime, "python_version"),
-        "comfyui_revision": _string_value(runtime, "comfyui_revision"),
-        "pytorch_index_url": _string_value(pytorch, "index_url"),
-        "pytorch_packages_json": json.dumps(_string_list_value(pytorch, "packages"), separators=(",", ":")),
+        "runtime_python_version": string_value(runtime, "python_version"),
+        "comfyui_revision": string_value(runtime, "comfyui_revision"),
+        "pytorch_index_url": string_value(pytorch, "index_url"),
+        "pytorch_packages_json": json.dumps(string_list_value(pytorch, "packages"), separators=(",", ":")),
     }
 ```
 
@@ -367,7 +425,7 @@ the `resolve` CLI to accept `--catalog-root`, `--workflow-id`,
 `--workflow-revision`, and optional `--github-output`. Remove
 `--workflow-catalog`, `--runtime-presets-dir`, and `--catalog`.
 
-- [ ] **Step 5: Simplify build metadata to two source documents**
+- [ ] **Step 6: Simplify build metadata to two source documents**
 
 Replace `extract_runtime_metadata` in
 `workers/runpod-endpoint/src/tools/build_metadata.py` with:
@@ -392,7 +450,7 @@ Change its CLI flags to `--execution-contract`, `--execution-schema`, and
 `--execution-contract-output`. Delete aggregate lookup helpers that become
 unused.
 
-- [ ] **Step 6: Pass direct files into the Docker build**
+- [ ] **Step 7: Pass direct files into the Docker build**
 
 In `workers/runpod-endpoint/Dockerfile`, replace catalog registry arguments and
 copies with:
@@ -423,7 +481,7 @@ steps. Remove `LUMA_FORGE_BUNDLED_WORKFLOW_PATH`, `LUMA_FORGE_WORKFLOW_ID`,
 `LUMA_FORGE_WORKFLOW_VERSION`, `workflow-catalog.json`, and
 `execution-schemas.json`.
 
-- [ ] **Step 7: Point workflow-binding smoke at the revision document**
+- [ ] **Step 8: Point workflow-binding smoke at the revision document**
 
 In `workers/runpod-endpoint/tests/test_workflow_bindings.py`, set:
 
@@ -434,7 +492,7 @@ WORKFLOW_PATH = (
 )
 ```
 
-- [ ] **Step 8: Run the endpoint worker suite**
+- [ ] **Step 9: Run the endpoint worker suite**
 
 Run:
 
@@ -445,10 +503,10 @@ PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover \
 
 Expected: all tests PASS.
 
-- [ ] **Step 9: Commit direct endpoint build inputs**
+- [ ] **Step 10: Commit direct endpoint build inputs**
 
 ```bash
-git add workers/runpod-endpoint
+git add workers/__init__.py workers/catalog_fs.py workers/runpod-endpoint
 git commit -m "refactor(runpod): build from catalog revisions"
 ```
 
@@ -558,18 +616,11 @@ Expected: FAIL because promotion still mutates aggregate JSON objects.
 
 - [ ] **Step 3: Implement immutable endpoint promotion**
 
-Add `shutil` and implement:
+Add `shutil`; import `WORKFLOW_FILES`, `dict_value`, `load_json`,
+`parse_semver`, `runpod_contract_requirements`, `validate_image_ref`, and
+`write_json` from `workers.catalog_fs`; then implement:
 
 ```python
-WORKFLOW_FILES = (
-    "metadata",
-    "model_assets",
-    "contract_requirements",
-    "execution_contract",
-    "workflow",
-)
-
-
 def promote_endpoint_image(
     *,
     catalog_root: Path,
@@ -578,16 +629,16 @@ def promote_endpoint_image(
     contract_revision: str,
     image_ref: str,
 ) -> tuple[Path, Path]:
-    _validate_image_ref(image_ref)
+    validate_image_ref(image_ref)
     contract_id = endpoint_contract_id(workflow_id)
-    _parse_semver(contract_revision)
+    parse_semver(contract_revision)
     source = entry_file(
         catalog_root, "workflow", workflow_id, workflow_revision, "workflow"
     ).parent
     requirements_path = source / "contract_requirements"
-    requirements = _load_json(requirements_path)
-    runpod = _runpod_contract_requirements(requirements)
-    endpoint_ref = _dict_value(runpod, "endpoint_contract_ref")
+    requirements = load_json(requirements_path)
+    runpod = runpod_contract_requirements(requirements)
+    endpoint_ref = dict_value(runpod, "endpoint_contract_ref")
     if endpoint_ref.get("id") != contract_id:
         raise ReleaseToolError(
             f"workflow revision does not reference endpoint contract: {contract_id}"
@@ -607,15 +658,11 @@ def promote_endpoint_image(
 
     endpoint_ref["revision"] = contract_revision
     contract_dir.mkdir(parents=True)
-    _write_json(contract_dir / "runtime_contract", {"image_ref": image_ref})
+    write_json(contract_dir / "runtime_contract", {"image_ref": image_ref})
     shutil.copytree(source, promoted_dir)
-    _write_json(promoted_dir / "contract_requirements", requirements)
+    write_json(promoted_dir / "contract_requirements", requirements)
     return contract_dir / "runtime_contract", promoted_dir
 ```
-
-Change `_runpod_contract_requirements` to read the direct document's
-`contract_requirements` array and its `endpoint_contract_ref`/
-`provisioner_contract_ref` keys.
 
 Change `promote-endpoint-image` CLI to accept `--catalog-root`,
 `--workflow-id`, `--workflow-revision`, `--contract-revision`, `--image-ref`,
@@ -704,7 +751,7 @@ git commit -m "refactor(runpod): promote immutable catalog revisions"
 - Modify: `workers/provisioner/README.md`
 
 **Interfaces:**
-- Consumes: `bundled/catalog`, the fixed contract ID `provisioner`, and a digest-pinned image ref.
+- Consumes: `bundled/catalog`, Task 2 `workers.catalog_fs`, the fixed contract ID `provisioner`, and a digest-pinned image ref.
 - Produces: `next_provisioner_contract_revision(catalog_root: Path, contract_id: str) -> str`.
 - Produces: `promote_provisioner_image(catalog_root: Path, contract_id: str, contract_revision: str, image_ref: str) -> tuple[Path, list[Path]]`.
 
@@ -800,41 +847,22 @@ Expected: FAIL because the tool still accepts aggregate JSON catalogs.
 
 - [ ] **Step 3: Implement direct provisioner revision handling**
 
-Use only `json`, `re`, `shutil`, and `pathlib`. Implement the same local safe-ID,
-semver, JSON read/write, next-revision, and workflow file checks as the endpoint
-tool; do not introduce a cross-worker package for these few stable helpers.
+Make the repository root importable exactly as in the endpoint release tool.
+Import `ReleaseToolError`, `WORKFLOW_FILES`, `dict_value`,
+`is_safe_identifier`, `latest_revision`, `load_json`, `next_revision`,
+`parse_semver`, `runpod_contract_requirements`, `validate_image_ref`, and
+`write_json` from `workers.catalog_fs`. Keep only provisioner-specific behavior
+in this script.
 
 Core behavior:
 
 ```python
-def _latest_revision(entries_root: Path) -> tuple[str, Path]:
-    if not entries_root.is_dir():
-        raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
-    candidates = [
-        (_parse_semver(path.name), path)
-        for path in entries_root.iterdir()
-        if path.is_dir()
-    ]
-    if not candidates:
-        raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
-    _version, path = max(candidates, key=lambda item: item[0])
-    return path.name, path
-
-
 def next_provisioner_contract_revision(catalog_root: Path, contract_id: str) -> str:
-    if not _is_safe_identifier(contract_id):
+    if not is_safe_identifier(contract_id):
         raise ReleaseToolError("invalid runtime contract id")
-    revision, _path = _latest_revision(
-        catalog_root / "entries/runtime_contracts" / contract_id
+    return next_revision(
+        catalog_root / "entries/runtime_contracts" / contract_id,
     )
-    major, minor, patch = _parse_semver(revision)
-    return _format_semver((major, minor, patch + 1))
-
-
-def _next_revision(entries_root: Path) -> str:
-    revision, _path = _latest_revision(entries_root)
-    major, minor, patch = _parse_semver(revision)
-    return _format_semver((major, minor, patch + 1))
 
 
 def promote_provisioner_image(
@@ -844,10 +872,10 @@ def promote_provisioner_image(
     contract_revision: str,
     image_ref: str,
 ) -> tuple[Path, list[Path]]:
-    _validate_image_ref(image_ref)
-    if not _is_safe_identifier(contract_id):
+    validate_image_ref(image_ref)
+    if not is_safe_identifier(contract_id):
         raise ReleaseToolError("invalid runtime contract id")
-    _parse_semver(contract_revision)
+    parse_semver(contract_revision)
     contract_dir = (
         catalog_root / "entries/runtime_contracts" / contract_id / contract_revision
     )
@@ -857,13 +885,13 @@ def promote_provisioner_image(
     promotions: list[tuple[Path, Path, dict[str, Any]]] = []
     workflows_root = catalog_root / "entries/workflows"
     for workflow_root in sorted(path for path in workflows_root.iterdir() if path.is_dir()):
-        _source_revision, source = _latest_revision(workflow_root)
-        requirements = _load_json(source / "contract_requirements")
-        runpod = _runpod_contract_requirements(requirements)
-        reference = _dict_value(runpod, "provisioner_contract_ref")
+        _source_revision, source = latest_revision(workflow_root)
+        requirements = load_json(source / "contract_requirements")
+        runpod = runpod_contract_requirements(requirements)
+        reference = dict_value(runpod, "provisioner_contract_ref")
         if reference.get("id") != contract_id:
             continue
-        destination = workflow_root / _next_revision(workflow_root)
+        destination = workflow_root / next_revision(workflow_root)
         if destination.exists():
             raise ReleaseToolError(f"workflow revision already exists: {destination}")
         reference["revision"] = contract_revision
@@ -873,11 +901,11 @@ def promote_provisioner_image(
         raise ReleaseToolError(f"workflow catalog does not reference provisioner contract: {contract_id}")
 
     contract_dir.mkdir(parents=True)
-    _write_json(contract_dir / "runtime_contract", {"image_ref": image_ref})
+    write_json(contract_dir / "runtime_contract", {"image_ref": image_ref})
     destinations = []
     for source, destination, requirements in promotions:
         shutil.copytree(source, destination)
-        _write_json(destination / "contract_requirements", requirements)
+        write_json(destination / "contract_requirements", requirements)
         destinations.append(destination)
     return contract_dir / "runtime_contract", destinations
 ```
