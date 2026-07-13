@@ -6,7 +6,6 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub workspace_id: String,
-    pub state: String,
     pub datacenter_id: String,
     pub gpu_id: String,
     pub volume_size_gb: i64,

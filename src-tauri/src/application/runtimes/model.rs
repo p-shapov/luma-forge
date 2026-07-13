@@ -62,22 +62,44 @@ pub enum RuntimeKind {
     Runpod,
 }
 
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeState {
+    Provisioning,
+    Ready,
+    CleaningUp,
+    Failed,
+}
+
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
-pub enum Runtime {
+pub enum RuntimeProvider {
     Runpod(#[diagnostic(show)] RunpodRuntime),
+}
+
+impl RuntimeProvider {
+    pub fn kind(&self) -> RuntimeKind {
+        match self {
+            Self::Runpod(_) => RuntimeKind::Runpod,
+        }
+    }
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+pub struct Runtime {
+    #[diagnostic(show)]
+    pub state: RuntimeState,
+    #[diagnostic(show)]
+    pub provider: RuntimeProvider,
+}
+
+impl Runtime {
+    pub fn kind(&self) -> RuntimeKind {
+        self.provider.kind()
+    }
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeProgress {
     Runpod(#[diagnostic(show)] RunpodProgress),
-}
-
-pub trait RuntimeModel:
-    crate::diagnostics::DiagnosticValue + Clone + Send + Sync + 'static
-{
-    fn workspace_id(&self) -> &str;
-    fn kind(&self) -> RuntimeKind;
-    fn into_runtime(self) -> Runtime;
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +122,8 @@ pub struct RuntimeOperation {
     #[diagnostic(show)]
     pub workspace_id: String,
     #[diagnostic(show)]
+    pub runtime_kind: RuntimeKind,
+    #[diagnostic(show)]
     pub kind: RuntimeOperationKind,
     #[diagnostic(show)]
     pub state: RuntimeOperationState,
@@ -119,6 +143,7 @@ impl RuntimeOperation {
     pub fn running(
         id: Uuid,
         workspace_id: &str,
+        runtime_kind: RuntimeKind,
         kind: RuntimeOperationKind,
         progress: RuntimeProgress,
         now: OffsetDateTime,
@@ -126,6 +151,7 @@ impl RuntimeOperation {
         Self {
             id,
             workspace_id: workspace_id.to_owned(),
+            runtime_kind,
             kind,
             state: RuntimeOperationState::Running,
             trace_id: crate::diagnostics::current_trace_uuid(),
@@ -186,25 +212,22 @@ mod tests {
     use super::*;
     use crate::application::runtimes::runpod::{
         RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
-        RunpodRuntimeResources, RunpodRuntimeState,
     };
 
     #[test]
-    fn runpod_model_converts_without_erasing_its_provider_type() {
-        let runtime = RunpodRuntime {
-            workspace_id: "workspace-1".into(),
-            state: RunpodRuntimeState::Ready,
-            config: RunpodRuntimeConfig {
-                datacenter_id: "dc-1".into(),
-                gpu_id: "gpu-1".into(),
-                volume_size_gb: 19,
-            },
-            resources: RunpodRuntimeResources::default(),
+    fn runtime_kind_comes_from_its_provider() {
+        let runtime = Runtime {
+            state: RuntimeState::Provisioning,
+            provider: RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(
+                RunpodRuntimeConfig {
+                    datacenter_id: "EU-RO-1".into(),
+                    gpu_id: "gpu-1".into(),
+                    volume_size_gb: 100,
+                },
+            )),
         };
 
-        assert_eq!(runtime.workspace_id(), "workspace-1");
         assert_eq!(runtime.kind(), RuntimeKind::Runpod);
-        assert_eq!(runtime.clone().into_runtime(), Runtime::Runpod(runtime));
     }
 
     #[test]
@@ -225,6 +248,7 @@ mod tests {
         let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
+            RuntimeKind::Runpod,
             RuntimeOperationKind::Provision,
             progress,
             OffsetDateTime::UNIX_EPOCH,
@@ -248,6 +272,7 @@ mod tests {
         let mut operation = RuntimeOperation::running(
             Uuid::from_u128(1),
             "workspace-1",
+            RuntimeKind::Runpod,
             RuntimeOperationKind::Cleanup,
             progress,
             OffsetDateTime::UNIX_EPOCH,

@@ -1,14 +1,12 @@
 use crate::application::{
     runtimes::{
-        ports::{RuntimeOperationRepositoryError, RuntimeTransitionRepositoryError},
+        ports::{RuntimeOperationRepositoryError, RuntimePersistenceError},
         RuntimeOperationError,
     },
     secrets::SecretStoreError,
 };
 
-use super::ports::{
-    RunpodRuntimeCatalogError, RunpodRuntimeProviderError, RunpodRuntimeRepositoryError,
-};
+use super::ports::{RunpodRuntimeCatalogError, RunpodRuntimeProviderError};
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeError {
@@ -48,20 +46,14 @@ impl From<RunpodRuntimeCatalogError> for RunpodRuntimeError {
     }
 }
 
-impl From<RunpodRuntimeRepositoryError> for RunpodRuntimeError {
-    fn from(_: RunpodRuntimeRepositoryError) -> Self {
-        Self::PersistenceUnavailable
-    }
-}
-
-impl From<RuntimeTransitionRepositoryError> for RunpodRuntimeError {
-    fn from(error: RuntimeTransitionRepositoryError) -> Self {
+impl From<RuntimePersistenceError> for RunpodRuntimeError {
+    fn from(error: RuntimePersistenceError) -> Self {
         match error {
-            RuntimeTransitionRepositoryError::AlreadyExists => Self::AlreadyProvisioned,
-            RuntimeTransitionRepositoryError::OperationAlreadyRunning => Self::OperationInProgress,
-            RuntimeTransitionRepositoryError::NotFound
-            | RuntimeTransitionRepositoryError::Unavailable
-            | RuntimeTransitionRepositoryError::CorruptData => Self::PersistenceUnavailable,
+            RuntimePersistenceError::AlreadyExists => Self::AlreadyProvisioned,
+            RuntimePersistenceError::OperationAlreadyRunning => Self::OperationInProgress,
+            RuntimePersistenceError::NotFound
+            | RuntimePersistenceError::Unavailable
+            | RuntimePersistenceError::CorruptData => Self::PersistenceUnavailable,
         }
     }
 }

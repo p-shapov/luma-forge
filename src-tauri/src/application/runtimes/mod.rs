@@ -8,8 +8,8 @@ pub use errors::RuntimeOperationError;
 #[cfg(test)]
 pub(crate) use model::progress_fixture;
 pub use model::{
-    CatalogRef, Runtime, RuntimeContractRequirements, RuntimeKind, RuntimeModel, RuntimeOperation,
-    RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, WorkflowDefinition,
-    WorkflowSummary,
+    CatalogRef, Runtime, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
+    RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, RuntimeProvider, RuntimeState,
+    WorkflowDefinition, WorkflowSummary,
 };
 pub use transition::RuntimeTransitionContext;

@@ -13,12 +13,12 @@ use crate::application::{
     events::{ApplicationEvent, ApplicationEventSink},
     runtimes::{
         ports::{
-            RuntimeOperationRepository, RuntimeOperationRepositoryError,
-            RuntimeTransitionRepository, RuntimeTransitionRepositoryError,
+            RuntimeOperationRepository, RuntimeOperationRepositoryError, RuntimePersistenceError,
+            RuntimeTransitionRepository,
         },
-        CatalogRef, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
-        RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, WorkflowDefinition,
-        WorkflowSummary,
+        CatalogRef, Runtime, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
+        RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, RuntimeProvider,
+        RuntimeState, WorkflowDefinition, WorkflowSummary,
     },
     secrets::{SecretKind, SecretStore, SecretStoreError},
     workspace::{
@@ -33,9 +33,8 @@ use super::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
     RunpodContractRequirements, RunpodProgress, RunpodProvisionStep, RunpodRuntime,
     RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeConfig, RunpodRuntimeDefinition,
-    RunpodRuntimeProvider, RunpodRuntimeProviderError, RunpodRuntimeRepository,
-    RunpodRuntimeRepositoryError, RunpodRuntimeResources, RunpodRuntimeService,
-    RunpodRuntimeServiceDependencies, RunpodRuntimeState, StartProvisionerPod,
+    RunpodRuntimeProvider, RunpodRuntimeProviderError, RunpodRuntimeResources,
+    RunpodRuntimeService, RunpodRuntimeServiceDependencies, StartProvisionerPod,
 };
 
 fn running_operation(
@@ -46,14 +45,15 @@ fn running_operation(
     progress: RuntimeProgress,
     now: OffsetDateTime,
 ) -> RuntimeOperation {
-    let mut operation = RuntimeOperation::running(id, workspace_id, kind, progress, now);
+    let mut operation =
+        RuntimeOperation::running(id, workspace_id, RuntimeKind::Runpod, kind, progress, now);
     operation.trace_id = trace_id;
     operation
 }
 
 pub(super) struct ProvisionFakes {
     pub provider: Arc<FakeRunpodRuntimeProvider>,
-    pub repository: Arc<FakeRunpodRuntimeRepository>,
+    pub repository: Arc<FakeRuntimeTransitionRepository>,
     workspaces: Arc<FakeWorkspaceRepository>,
     workflows: Arc<FakeWorkflowCatalog>,
     runtime_catalog: Arc<FakeRunpodRuntimeCatalog>,
@@ -68,7 +68,7 @@ pub(super) type RecoveryFakes = ProvisionFakes;
 
 impl ProvisionFakes {
     pub fn ready() -> Self {
-        Self::new(workspace(None), None, Vec::new())
+        Self::new(workspace(None), Vec::new())
     }
 
     pub fn ready_without_runpod_credential() -> Self {
@@ -78,18 +78,14 @@ impl ProvisionFakes {
     }
 
     pub fn ready_runtime() -> Self {
-        let mut runtime = runtime(RunpodRuntimeState::Ready);
-        runtime.resources = RunpodRuntimeResources {
+        let mut runtime = runtime(RuntimeState::Ready);
+        runpod_mut(&mut runtime).resources = RunpodRuntimeResources {
             network_volume_id: Some("volume-1".into()),
             provisioner_pod_id: Some("pod-1".into()),
             template_id: Some("template-1".into()),
             endpoint_id: Some("endpoint-1".into()),
         };
-        Self::new(
-            workspace(Some(RuntimeKind::Runpod)),
-            Some(runtime),
-            Vec::new(),
-        )
+        Self::new(workspace(Some(runtime)), Vec::new())
     }
 
     pub fn ready_runtime_without_runpod_credential() -> Self {
@@ -99,29 +95,24 @@ impl ProvisionFakes {
     }
 
     pub fn failed_partial_runtime() -> Self {
-        let mut runtime = runtime(RunpodRuntimeState::Failed);
-        runtime.resources = RunpodRuntimeResources {
+        let mut runtime = runtime(RuntimeState::Failed);
+        runpod_mut(&mut runtime).resources = RunpodRuntimeResources {
             network_volume_id: Some("volume-1".into()),
             provisioner_pod_id: None,
             template_id: None,
             endpoint_id: None,
         };
-        Self::new(
-            workspace(Some(RuntimeKind::Runpod)),
-            Some(runtime),
-            Vec::new(),
-        )
+        Self::new(workspace(Some(runtime)), Vec::new())
     }
 
     pub fn without_runtime() -> Self {
-        Self::new(workspace(None), None, Vec::new())
+        Self::new(workspace(None), Vec::new())
     }
 
     pub fn with_running_provision_and_cleanup() -> Self {
         let now = OffsetDateTime::UNIX_EPOCH;
         let fakes = Self::new(
-            workspace(Some(RuntimeKind::Runpod)),
-            Some(runtime(RunpodRuntimeState::Provisioning)),
+            workspace(Some(runtime(RuntimeState::Provisioning))),
             vec![
                 running_operation(
                     Uuid::from_u128(1),
@@ -155,22 +146,15 @@ impl ProvisionFakes {
                 ),
             ],
         );
-        let mut cleanup_runtime = runtime(RunpodRuntimeState::CleaningUp);
-        cleanup_runtime.workspace_id = "workspace-2".into();
+        let mut workspace_2 = workspace(Some(runtime(RuntimeState::CleaningUp)));
+        workspace_2.id = "workspace-2".into();
+        let mut workspace_3 = workspace(Some(runtime(RuntimeState::Provisioning)));
+        workspace_3.id = "workspace-3".into();
         fakes
-            .repository
-            .runtimes
+            .workspace_rows
             .lock()
             .unwrap()
-            .push(cleanup_runtime);
-        let mut nullable_trace_runtime = runtime(RunpodRuntimeState::Provisioning);
-        nullable_trace_runtime.workspace_id = "workspace-3".into();
-        fakes
-            .repository
-            .runtimes
-            .lock()
-            .unwrap()
-            .push(nullable_trace_runtime);
+            .extend([workspace_2, workspace_3]);
         fakes
     }
 
@@ -178,9 +162,8 @@ impl ProvisionFakes {
         RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
             workspaces: self.workspaces.clone(),
             workflows: self.workflows.clone(),
-            runtimes: self.repository.clone(),
+            transitions: self.repository.clone(),
             runtime_catalog: self.runtime_catalog.clone(),
-            operations: self.operations.clone(),
             secrets: self.secrets.clone(),
             provider: self.provider.clone(),
             events: self.events.clone(),
@@ -197,18 +180,22 @@ impl ProvisionFakes {
             .expect("workspace fixture should exist")
     }
 
-    fn new(
-        workspace: Workspace,
-        runtime: Option<RunpodRuntime>,
-        operations: Vec<RuntimeOperation>,
-    ) -> Self {
+    pub fn running_operations(&self) -> Vec<RuntimeOperation> {
+        self.operations
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|operation| operation.state == RuntimeOperationState::Running)
+            .cloned()
+            .collect()
+    }
+
+    fn new(workspace: Workspace, operations: Vec<RuntimeOperation>) -> Self {
         let workspace_rows = Arc::new(Mutex::new(vec![workspace]));
         Self {
             provider: Arc::new(FakeRunpodRuntimeProvider::default()),
-            repository: Arc::new(FakeRunpodRuntimeRepository::new(
-                runtime,
-                workspace_rows.clone(),
-            )),
+            repository: Arc::new(FakeRuntimeTransitionRepository::new(workspace_rows.clone())),
             workspaces: Arc::new(FakeWorkspaceRepository(workspace_rows.clone())),
             workflows: Arc::new(FakeWorkflowCatalog(workflow())),
             runtime_catalog: Arc::new(FakeRunpodRuntimeCatalog(runtime_definition())),
@@ -261,24 +248,6 @@ impl RecordingApplicationEventSink {
         }
     }
 
-    pub fn runtime_changed_count(&self) -> usize {
-        self.events
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|event| matches!(event, ApplicationEvent::RuntimeChanged(_)))
-            .count()
-    }
-
-    pub fn runtime_deleted_count(&self) -> usize {
-        self.events
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|event| matches!(event, ApplicationEvent::RuntimeDeleted { .. }))
-            .count()
-    }
-
     pub fn runtime_operation_event_count(&self) -> usize {
         self.events
             .lock()
@@ -307,7 +276,7 @@ pub fn provision_command() -> super::ProvisionRunpodRuntime {
     }
 }
 
-fn workspace(runtime: Option<RuntimeKind>) -> Workspace {
+fn workspace(runtime: Option<Runtime>) -> Workspace {
     Workspace {
         id: "workspace-1".into(),
         workflow: CatalogRef::new("workflow-1", "1"),
@@ -346,16 +315,29 @@ fn runtime_definition() -> RunpodRuntimeDefinition {
     }
 }
 
-fn runtime(state: RunpodRuntimeState) -> RunpodRuntime {
-    RunpodRuntime {
-        workspace_id: "workspace-1".into(),
+fn runtime(state: RuntimeState) -> Runtime {
+    Runtime {
         state,
-        config: RunpodRuntimeConfig {
-            datacenter_id: "dc-1".into(),
-            gpu_id: "gpu-1".into(),
-            volume_size_gb: 19,
-        },
-        resources: RunpodRuntimeResources::default(),
+        provider: RuntimeProvider::Runpod(RunpodRuntime {
+            config: RunpodRuntimeConfig {
+                datacenter_id: "dc-1".into(),
+                gpu_id: "gpu-1".into(),
+                volume_size_gb: 19,
+            },
+            resources: RunpodRuntimeResources::default(),
+        }),
+    }
+}
+
+fn runpod(runtime: &Runtime) -> &RunpodRuntime {
+    match &runtime.provider {
+        RuntimeProvider::Runpod(runtime) => runtime,
+    }
+}
+
+fn runpod_mut(runtime: &mut Runtime) -> &mut RunpodRuntime {
+    match &mut runtime.provider {
+        RuntimeProvider::Runpod(runtime) => runtime,
     }
 }
 
@@ -509,9 +491,8 @@ impl SecretStore for FakeSecretStore {
     }
 }
 
-pub(super) struct FakeRunpodRuntimeRepository {
-    runtimes: Mutex<Vec<RunpodRuntime>>,
-    snapshots: Mutex<Vec<(RunpodRuntime, RuntimeOperation)>>,
+pub(super) struct FakeRuntimeTransitionRepository {
+    snapshots: Mutex<Vec<(Workspace, RuntimeOperation)>>,
     workspace_rows: Arc<Mutex<Vec<Workspace>>>,
     save_count: AtomicUsize,
     fail_on_save: AtomicUsize,
@@ -519,10 +500,9 @@ pub(super) struct FakeRunpodRuntimeRepository {
     changed: tokio::sync::Notify,
 }
 
-impl FakeRunpodRuntimeRepository {
-    fn new(runtime: Option<RunpodRuntime>, workspace_rows: Arc<Mutex<Vec<Workspace>>>) -> Self {
+impl FakeRuntimeTransitionRepository {
+    fn new(workspace_rows: Arc<Mutex<Vec<Workspace>>>) -> Self {
         Self {
-            runtimes: Mutex::new(runtime.into_iter().collect()),
             snapshots: Mutex::new(Vec::new()),
             workspace_rows,
             save_count: AtomicUsize::new(0),
@@ -575,24 +555,32 @@ impl FakeRunpodRuntimeRepository {
     }
 
     pub fn runtime_was_removed(&self) -> bool {
-        self.runtimes.lock().unwrap().is_empty()
-    }
-
-    pub fn runtime_state(&self, workspace_id: &str) -> Option<RunpodRuntimeState> {
-        self.runtimes
+        self.workspace_rows
             .lock()
             .unwrap()
             .iter()
-            .find(|runtime| runtime.workspace_id == workspace_id)
+            .find(|workspace| workspace.id == "workspace-1")
+            .is_none_or(|workspace| workspace.runtime.is_none())
+    }
+
+    pub fn runtime_state(&self, workspace_id: &str) -> Option<RuntimeState> {
+        self.workspace_rows
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)
+            .and_then(|workspace| workspace.runtime.as_ref())
             .map(|runtime| runtime.state)
     }
 
-    pub fn saved_states(&self) -> Vec<(RunpodRuntimeState, RuntimeOperationState)> {
+    pub fn saved_states(&self) -> Vec<(RuntimeState, RuntimeOperationState)> {
         self.snapshots
             .lock()
             .unwrap()
             .iter()
-            .map(|(runtime, operation)| (runtime.state, operation.state))
+            .map(|(workspace, operation)| {
+                (workspace.runtime.as_ref().unwrap().state, operation.state)
+            })
             .collect()
     }
 
@@ -610,74 +598,44 @@ impl FakeRunpodRuntimeRepository {
     }
 
     pub fn last_snapshot(&self) -> (RunpodRuntime, RuntimeOperation) {
+        let (workspace, operation) = self.snapshots.lock().unwrap().last().unwrap().clone();
+        (
+            runpod(workspace.runtime.as_ref().unwrap()).clone(),
+            operation,
+        )
+    }
+
+    pub fn last_workspace_snapshot(&self) -> (Workspace, RuntimeOperation) {
         self.snapshots.lock().unwrap().last().unwrap().clone()
     }
 }
 
 #[async_trait::async_trait]
-impl RunpodRuntimeRepository for FakeRunpodRuntimeRepository {
-    async fn get(
-        &self,
-        workspace_id: &str,
-    ) -> Result<Option<RunpodRuntime>, RunpodRuntimeRepositoryError> {
-        Ok(self
-            .runtimes
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|runtime| runtime.workspace_id == workspace_id)
-            .cloned())
-    }
-}
-
-#[async_trait::async_trait]
-impl RuntimeTransitionRepository<RunpodRuntime> for FakeRunpodRuntimeRepository {
+impl RuntimeTransitionRepository for FakeRuntimeTransitionRepository {
     async fn save_transition(
         &self,
-        runtime: &RunpodRuntime,
+        workspace: &Workspace,
         operation: &RuntimeOperation,
-    ) -> Result<(), RuntimeTransitionRepositoryError> {
+    ) -> Result<(), RuntimePersistenceError> {
         let save_number = self.save_count.fetch_add(1, Ordering::SeqCst) + 1;
         if save_number == self.fail_on_save.load(Ordering::SeqCst) {
             self.failed_write_attempted.store(true, Ordering::SeqCst);
             self.changed.notify_waiters();
-            return Err(RuntimeTransitionRepositoryError::Unavailable);
+            return Err(RuntimePersistenceError::Unavailable);
         }
-        let mut runtimes = self.runtimes.lock().unwrap();
-        if runtime.state == RunpodRuntimeState::CleaningUp
-            && operation.state == RuntimeOperationState::Succeeded
-        {
-            runtimes.retain(|item| item.workspace_id != runtime.workspace_id);
-            if let Some(workspace) = self
-                .workspace_rows
-                .lock()
-                .unwrap()
-                .iter_mut()
-                .find(|workspace| workspace.id == runtime.workspace_id)
-            {
-                workspace.runtime = None;
-            }
-        } else if let Some(saved) = runtimes
+        if let Some(saved) = self
+            .workspace_rows
+            .lock()
+            .unwrap()
             .iter_mut()
-            .find(|item| item.workspace_id == runtime.workspace_id)
+            .find(|saved| saved.id == workspace.id)
         {
-            *saved = runtime.clone();
-        } else {
-            runtimes.push(runtime.clone());
-            if let Some(workspace) = self
-                .workspace_rows
-                .lock()
-                .unwrap()
-                .iter_mut()
-                .find(|workspace| workspace.id == runtime.workspace_id)
-            {
-                workspace.runtime = Some(RuntimeKind::Runpod);
-            }
+            *saved = workspace.clone();
         }
         self.snapshots
             .lock()
             .unwrap()
-            .push((runtime.clone(), operation.clone()));
+            .push((workspace.clone(), operation.clone()));
         Ok(())
     }
 }

@@ -9,11 +9,10 @@ pub use errors::RunpodRuntimeError;
 pub use model::{
     RunpodCleanupStep, RunpodContractRequirements, RunpodProgress, RunpodProvisionStep,
     RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeDefinition, RunpodRuntimeResources,
-    RunpodRuntimeState,
 };
 pub use ports::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntimeCatalog,
     RunpodRuntimeCatalogError, RunpodRuntimeProvider, RunpodRuntimeProviderError,
-    RunpodRuntimeRepository, RunpodRuntimeRepositoryError, StartProvisionerPod,
+    StartProvisionerPod,
 };
 pub use service::{ProvisionRunpodRuntime, RunpodRuntimeService, RunpodRuntimeServiceDependencies};

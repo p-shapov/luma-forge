@@ -6,7 +6,8 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub workspace_id: String,
-    pub provider_kind: String,
+    pub runtime_kind: String,
+    pub state: String,
     #[sea_orm(belongs_to, from = "workspace_id", to = "id", on_delete = "Cascade")]
     pub workspace: HasOne<super::workspaces::Entity>,
 }

@@ -123,9 +123,9 @@ mod tests {
         events::{ApplicationEvent, ApplicationEventSink},
         runtimes::{
             ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
-            runpod::RunpodContractRequirements,
-            CatalogRef, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
-            WorkflowDefinition, WorkflowSummary,
+            runpod::{RunpodContractRequirements, RunpodRuntime, RunpodRuntimeConfig},
+            CatalogRef, Runtime, RuntimeContractRequirements, RuntimeOperation, RuntimeProvider,
+            RuntimeState, WorkflowDefinition, WorkflowSummary,
         },
         workspace::{
             ports::{
@@ -423,7 +423,16 @@ mod tests {
             id: "workspace-1".into(),
             workflow: CatalogRef::new("workflow", "1.0.0"),
             created_at: OffsetDateTime::UNIX_EPOCH,
-            runtime: Some(RuntimeKind::Runpod),
+            runtime: Some(Runtime {
+                state: RuntimeState::Ready,
+                provider: RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(
+                    RunpodRuntimeConfig {
+                        datacenter_id: "dc-1".into(),
+                        gpu_id: "gpu-1".into(),
+                        volume_size_gb: 19,
+                    },
+                )),
+            }),
         });
 
         assert_eq!(

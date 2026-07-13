@@ -1,7 +1,9 @@
-mod runpod_runtime_repository;
+mod runpod_runtime_persistence;
 mod runtime_operation_repository;
+mod runtime_persistence_dispatcher;
+mod runtime_transition_repository;
 mod workspace_repository;
 
-pub use runpod_runtime_repository::SqliteRunpodRuntimeRepository;
 pub use runtime_operation_repository::SqliteRuntimeOperationRepository;
+pub use runtime_transition_repository::SqliteRuntimeTransitionRepository;
 pub use workspace_repository::SqliteWorkspaceRepository;

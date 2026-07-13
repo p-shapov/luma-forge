@@ -1,16 +1,16 @@
-use std::collections::HashMap;
-
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use uuid::Uuid;
 
 use crate::{
     application::runtimes::{
         ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
-        runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-        RuntimeOperation, RuntimeOperationKind, RuntimeOperationState, RuntimeProgress,
+        RuntimeKind, RuntimeOperation, RuntimeOperationKind, RuntimeOperationState,
+        RuntimeProgress,
     },
-    infra::sqlite::entities::{runpod_runtime_operation_progress, runtime_operations},
+    infra::sqlite::entities::runtime_operations,
 };
+
+use super::runtime_persistence_dispatcher;
 
 pub struct SqliteRuntimeOperationRepository {
     connection: DatabaseConnection,
@@ -29,25 +29,24 @@ impl SqliteRuntimeOperationRepository {
             .all(&self.connection)
             .await
             .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?;
-        let progress = runpod_runtime_operation_progress::Entity::find()
-            .filter(
-                runpod_runtime_operation_progress::Column::OperationId
-                    .is_in(operations.iter().map(|operation| operation.id.clone())),
-            )
-            .all(&self.connection)
-            .await
-            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
-            .into_iter()
-            .map(|progress| (progress.operation_id, progress.step))
-            .collect::<HashMap<_, _>>();
+        let operation_kinds = operations
+            .iter()
+            .map(|operation| {
+                parse_runtime_kind(&operation.runtime_kind).map(|kind| (operation.id.clone(), kind))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let progress =
+            runtime_persistence_dispatcher::load_progress(&operation_kinds, &self.connection)
+                .await?;
 
         operations
             .into_iter()
             .map(|operation| {
-                let step = progress
+                let operation_progress = progress
                     .get(&operation.id)
+                    .copied()
                     .ok_or(RuntimeOperationRepositoryError::CorruptData)?;
-                map_operation(operation, step)
+                map_operation(operation, operation_progress)
             })
             .collect()
     }
@@ -110,8 +109,9 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
 
 fn map_operation(
     model: runtime_operations::Model,
-    step: &str,
+    progress: RuntimeProgress,
 ) -> Result<RuntimeOperation, RuntimeOperationRepositoryError> {
+    let runtime_kind = parse_runtime_kind(&model.runtime_kind)?;
     let kind = match model.operation_kind.as_str() {
         "provision" => RuntimeOperationKind::Provision,
         "cleanup" => RuntimeOperationKind::Cleanup,
@@ -123,39 +123,16 @@ fn map_operation(
         "failed" => RuntimeOperationState::Failed,
         _ => return Err(RuntimeOperationRepositoryError::CorruptData),
     };
-    let progress = match kind {
-        RuntimeOperationKind::Provision => {
-            RuntimeProgress::Runpod(RunpodProgress::Provision(match step {
-                "create_network_volume" => RunpodProvisionStep::CreateNetworkVolume,
-                "start_provisioner_pod" => RunpodProvisionStep::StartProvisionerPod,
-                "poll_provisioner" => RunpodProvisionStep::PollProvisioner,
-                "terminate_provisioner_pod" => RunpodProvisionStep::TerminateProvisionerPod,
-                "create_template" => RunpodProvisionStep::CreateTemplate,
-                "create_endpoint" => RunpodProvisionStep::CreateEndpoint,
-                _ => return Err(RuntimeOperationRepositoryError::CorruptData),
-            }))
-        }
-        RuntimeOperationKind::Cleanup => {
-            RuntimeProgress::Runpod(RunpodProgress::Cleanup(match step {
-                "delete_endpoint" => RunpodCleanupStep::DeleteEndpoint,
-                "delete_template" => RunpodCleanupStep::DeleteTemplate,
-                "terminate_provisioner_pod" => RunpodCleanupStep::TerminateProvisionerPod,
-                "delete_network_volume" => RunpodCleanupStep::DeleteNetworkVolume,
-                _ => return Err(RuntimeOperationRepositoryError::CorruptData),
-            }))
-        }
-    };
-
     Ok(RuntimeOperation {
         id: Uuid::parse_str(&model.id).map_err(|_| RuntimeOperationRepositoryError::CorruptData)?,
         workspace_id: model.workspace_id,
+        runtime_kind,
         kind,
         state,
         trace_id: model
             .trace_id
             .map(|trace_id| {
-                uuid::Uuid::parse_str(&trace_id)
-                    .map_err(|_| RuntimeOperationRepositoryError::CorruptData)
+                Uuid::parse_str(&trace_id).map_err(|_| RuntimeOperationRepositoryError::CorruptData)
             })
             .transpose()?,
         progress,
@@ -163,6 +140,11 @@ fn map_operation(
         updated_at: model.updated_at,
         finished_at: model.finished_at,
     })
+}
+
+fn parse_runtime_kind(value: &str) -> Result<RuntimeKind, RuntimeOperationRepositoryError> {
+    runtime_persistence_dispatcher::parse_runtime_kind(value)
+        .map_err(|_| RuntimeOperationRepositoryError::CorruptData)
 }
 
 pub(super) fn runtime_operation_kind_value(kind: RuntimeOperationKind) -> &'static str {
@@ -180,33 +162,16 @@ pub(super) fn runtime_operation_state_value(state: RuntimeOperationState) -> &'s
     }
 }
 
-pub(super) fn runtime_operation_progress_value(progress: RuntimeProgress) -> &'static str {
-    match progress {
-        RuntimeProgress::Runpod(RunpodProgress::Provision(step)) => match step {
-            RunpodProvisionStep::CreateNetworkVolume => "create_network_volume",
-            RunpodProvisionStep::StartProvisionerPod => "start_provisioner_pod",
-            RunpodProvisionStep::PollProvisioner => "poll_provisioner",
-            RunpodProvisionStep::TerminateProvisionerPod => "terminate_provisioner_pod",
-            RunpodProvisionStep::CreateTemplate => "create_template",
-            RunpodProvisionStep::CreateEndpoint => "create_endpoint",
-        },
-        RuntimeProgress::Runpod(RunpodProgress::Cleanup(step)) => match step {
-            RunpodCleanupStep::DeleteEndpoint => "delete_endpoint",
-            RunpodCleanupStep::DeleteTemplate => "delete_template",
-            RunpodCleanupStep::TerminateProvisionerPod => "terminate_provisioner_pod",
-            RunpodCleanupStep::DeleteNetworkVolume => "delete_network_volume",
-        },
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn model(trace_id: Option<&str>) -> runtime_operations::Model {
         runtime_operations::Model {
-            id: uuid::Uuid::nil().to_string(),
+            id: Uuid::nil().to_string(),
             workspace_id: "workspace-1".into(),
+            runtime_kind: runtime_persistence_dispatcher::runtime_kind_value(RuntimeKind::Runpod)
+                .into(),
             running_workspace_id: Some("workspace-1".into()),
             operation_kind: "provision".into(),
             state: "running".into(),
@@ -219,21 +184,17 @@ mod tests {
 
     #[test]
     fn trace_mapping_accepts_uuid_or_null_and_rejects_invalid_text() {
-        let trace_id = uuid::Uuid::new_v4();
+        let trace_id = Uuid::new_v4();
+        let progress = crate::application::runtimes::progress_fixture();
         assert_eq!(
-            map_operation(model(Some(&trace_id.to_string())), "create_network_volume")
+            map_operation(model(Some(&trace_id.to_string())), progress)
                 .unwrap()
                 .trace_id,
             Some(trace_id)
         );
+        assert_eq!(map_operation(model(None), progress).unwrap().trace_id, None);
         assert_eq!(
-            map_operation(model(None), "create_network_volume")
-                .unwrap()
-                .trace_id,
-            None
-        );
-        assert_eq!(
-            map_operation(model(Some("invalid")), "create_network_volume"),
+            map_operation(model(Some("invalid")), progress),
             Err(RuntimeOperationRepositoryError::CorruptData)
         );
     }

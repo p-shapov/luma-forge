@@ -1,6 +1,6 @@
 use time::OffsetDateTime;
 
-use crate::application::runtimes::{CatalogRef, RuntimeKind};
+use crate::application::runtimes::{CatalogRef, Runtime};
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct Workspace {
@@ -11,5 +11,5 @@ pub struct Workspace {
     #[diagnostic(show)]
     pub created_at: OffsetDateTime,
     #[diagnostic(show)]
-    pub runtime: Option<RuntimeKind>,
+    pub runtime: Option<Runtime>,
 }
