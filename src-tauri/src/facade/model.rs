@@ -201,6 +201,27 @@ pub struct WorkspaceDto {
     pub runtime: Option<RuntimeDto>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, tauri_specta::Event)]
+#[tauri_specta(event_name = "workspace_changed")]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChangedEvent {
+    pub workspace: WorkspaceDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, tauri_specta::Event)]
+#[tauri_specta(event_name = "workspace_deleted")]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDeletedEvent {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, tauri_specta::Event)]
+#[tauri_specta(event_name = "runtime_operation")]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeOperationEvent {
+    pub operation: RuntimeOperationDto,
+}
+
 impl TryFrom<Workspace> for WorkspaceDto {
     type Error = FacadeMappingError;
 
