@@ -34,7 +34,7 @@ When adding a new workspace runtime, extend `WorkspaceService` only where the sh
 
 During pre-production development, local SQLite schema bootstrap or compatibility checks may reject stale state from an earlier build. Stop the app before deleting the local database file.
 
-Native support files are configured centrally in `src/app/support.rs` and live under the Tauri `app_data_dir()`. On macOS, the path pattern is:
+Native support files are configured centrally in `src/lib.rs` and live under the Tauri `app_data_dir()`. On macOS, the path pattern is:
 
 ```text
 ~/Library/Application Support/com.luma-forge/
@@ -42,10 +42,10 @@ Native support files are configured centrally in `src/app/support.rs` and live u
 
 Current support files:
 
-- `native.sqlite`: native SQLite database for workspace catalog and lifecycle journal state.
-- `logs/`: native diagnostics logs, including `luma-forge.log`.
+- `db.sqlite`: native SQLite database for workspace catalog and runtime operation state.
+- `diagnostics.log`: native diagnostics log.
 
-Deleting `native.sqlite` removes local native state only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
+Deleting `db.sqlite` removes local native state only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
 
 ### Using Logs
 

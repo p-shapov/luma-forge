@@ -39,8 +39,20 @@ impl logforth::Filter for ApplicationFilter {
     }
 }
 
-pub fn init(logs_dir: &Path) -> Result<(), DiagnosticsInitializationError> {
-    let appender = logforth::append::file::FileBuilder::new(logs_dir, "luma-forge.log")
+pub fn init(log_path: &Path) -> Result<(), DiagnosticsInitializationError> {
+    let directory =
+        log_path
+            .parent()
+            .ok_or_else(|| DiagnosticsInitializationError::SetupFailed {
+                message: "diagnostics path has no parent".to_owned(),
+            })?;
+    let file_name = log_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| DiagnosticsInitializationError::SetupFailed {
+            message: "diagnostics file name is invalid".to_owned(),
+        })?;
+    let appender = logforth::append::file::FileBuilder::new(directory, file_name)
         .layout(logforth::layout::JsonLayout::default())
         .build()
         .map_err(|error| DiagnosticsInitializationError::SetupFailed {

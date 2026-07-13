@@ -266,12 +266,12 @@ async fn restore_uses_saved_trace_or_falls_back_to_root() {
 
 #[test]
 fn initialization_reports_file_setup_failure_without_installing_logger() {
-    let logs_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
-    std::fs::write(&logs_dir, b"not a directory").unwrap();
+    let temp_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
+    std::fs::write(&temp_dir, b"not a directory").unwrap();
 
-    let result = super::init(&logs_dir);
+    let result = super::init(&temp_dir.join("diagnostics.log"));
 
-    std::fs::remove_file(logs_dir).unwrap();
+    std::fs::remove_file(temp_dir).unwrap();
     assert!(matches!(
         result,
         Err(super::DiagnosticsInitializationError::SetupFailed { .. })
@@ -307,9 +307,10 @@ fn initialization_install_failure_subprocess_helper() {
         return;
     }
 
-    let logs_dir = std::env::var_os(INSTALL_FAILURE_LOGS_DIR).unwrap();
-    super::init(std::path::Path::new(&logs_dir)).unwrap();
-    let result = super::init(std::path::Path::new(&logs_dir));
+    let temp_dir = std::env::var_os(INSTALL_FAILURE_LOGS_DIR).unwrap();
+    let log_path = std::path::Path::new(&temp_dir).join("diagnostics.log");
+    super::init(&log_path).unwrap();
+    let result = super::init(&log_path);
 
     assert!(matches!(
         result,
@@ -341,15 +342,16 @@ fn initialized_logger_trace_fields_subprocess_helper() {
         return;
     }
 
-    let logs_dir = std::env::var_os(TRACE_FIELDS_LOGS_DIR).unwrap();
-    super::init(std::path::Path::new(&logs_dir)).unwrap();
+    let temp_dir = std::env::var_os(TRACE_FIELDS_LOGS_DIR).unwrap();
+    let log_path = std::path::Path::new(&temp_dir).join("diagnostics.log");
+    super::init(&log_path).unwrap();
+    assert!(log_path.is_file());
     let span = fastrace::Span::root("diagnostics.file_test", SpanContext::random());
     let _guard = span.set_local_parent();
     log::info!("trace fields");
     log::logger().flush();
 
-    let record =
-        std::fs::read_to_string(std::path::Path::new(&logs_dir).join("luma-forge.log")).unwrap();
+    let record = std::fs::read_to_string(log_path).unwrap();
     let json: serde_json::Value = serde_json::from_str(record.trim()).unwrap();
 
     assert!(json["diags"]["trace_id"].is_string());
