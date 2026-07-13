@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::application::{
     events::{ApplicationEvent, ApplicationEventSink},
-    runtimes::{ports::RuntimeOperationRepository, CatalogRef, WorkflowSummary},
+    runtimes::{CatalogRef, WorkflowSummary},
     workspace::{
         ports::{WorkflowCatalog, WorkspaceRepository, WorkspaceRepositoryError},
         Workspace, WorkspaceError,
@@ -15,7 +15,6 @@ use crate::application::{
 #[derive(Clone)]
 pub struct WorkspaceService {
     workspaces: Arc<dyn WorkspaceRepository>,
-    operations: Arc<dyn RuntimeOperationRepository>,
     workflows: Arc<dyn WorkflowCatalog>,
     events: Arc<dyn ApplicationEventSink>,
 }
@@ -23,13 +22,11 @@ pub struct WorkspaceService {
 impl WorkspaceService {
     pub fn new(
         workspaces: Arc<dyn WorkspaceRepository>,
-        operations: Arc<dyn RuntimeOperationRepository>,
         workflows: Arc<dyn WorkflowCatalog>,
         events: Arc<dyn ApplicationEventSink>,
     ) -> Self {
         Self {
             workspaces,
-            operations,
             workflows,
             events,
         }
@@ -61,9 +58,10 @@ impl WorkspaceService {
             .await
             .map_err(|error| match error {
                 WorkspaceRepositoryError::AlreadyExists => WorkspaceError::AlreadyExists,
-                WorkspaceRepositoryError::Unavailable | WorkspaceRepositoryError::CorruptData => {
-                    WorkspaceError::PersistenceUnavailable
-                }
+                WorkspaceRepositoryError::RuntimeAttached
+                | WorkspaceRepositoryError::OperationRunning
+                | WorkspaceRepositoryError::Unavailable
+                | WorkspaceRepositoryError::CorruptData => WorkspaceError::PersistenceUnavailable,
             })?;
         self.events
             .emit(ApplicationEvent::WorkspaceChanged(workspace.clone()));
@@ -72,23 +70,16 @@ impl WorkspaceService {
 
     #[crate::diagnostics::diagnostic(show_error)]
     pub async fn delete(&self, #[diagnostic(show)] id: &str) -> Result<(), WorkspaceError> {
-        let workspace = self.get(id).await?;
-        if workspace.runtime.is_some() {
-            return Err(WorkspaceError::RuntimeAttached);
-        }
-        if self
-            .operations
-            .has_running(id)
-            .await
-            .map_err(|_| WorkspaceError::PersistenceUnavailable)?
-        {
-            return Err(WorkspaceError::OperationRunning);
-        }
-
         self.workspaces
             .delete(id)
             .await
-            .map_err(|_| WorkspaceError::PersistenceUnavailable)?
+            .map_err(|error| match error {
+                WorkspaceRepositoryError::RuntimeAttached => WorkspaceError::RuntimeAttached,
+                WorkspaceRepositoryError::OperationRunning => WorkspaceError::OperationRunning,
+                WorkspaceRepositoryError::AlreadyExists
+                | WorkspaceRepositoryError::Unavailable
+                | WorkspaceRepositoryError::CorruptData => WorkspaceError::PersistenceUnavailable,
+            })?
             .then_some(())
             .ok_or(WorkspaceError::NotFound)?;
         self.events.emit(ApplicationEvent::WorkspaceDeleted {
@@ -144,23 +135,30 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use time::OffsetDateTime;
+    use tokio::sync::Barrier;
 
     use super::{WorkspaceError, WorkspaceService};
-    use crate::application::{
-        events::{ApplicationEvent, ApplicationEventSink},
-        runtimes::{
-            ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
-            runpod::{RunpodContractRequirements, RunpodRuntime, RunpodRuntimeConfig},
-            CatalogRef, Runtime, RuntimeContractRequirements, RuntimeOperation, RuntimeProvider,
-            RuntimeState, WorkflowDefinition, WorkflowSummary,
-        },
-        workspace::{
-            ports::{
-                WorkflowCatalog, WorkflowCatalogError, WorkspaceRepository,
-                WorkspaceRepositoryError,
+    use crate::{
+        adapters::sqlite::{SqliteRuntimeTransitionRepository, SqliteWorkspaceRepository},
+        application::{
+            events::{ApplicationEvent, ApplicationEventSink},
+            runtimes::{
+                runpod::{
+                    test_support::{provision_command, ProvisionFakes},
+                    RunpodContractRequirements, RunpodRuntime, RunpodRuntimeConfig,
+                },
+                CatalogRef, Runtime, RuntimeContractRequirements, RuntimeProvider, RuntimeState,
+                WorkflowDefinition, WorkflowSummary,
             },
-            Workspace,
+            workspace::{
+                ports::{
+                    WorkflowCatalog, WorkflowCatalogError, WorkspaceRepository,
+                    WorkspaceRepositoryError,
+                },
+                Workspace,
+            },
         },
+        infra::sqlite::database::SqliteInfraDatabase,
     };
 
     #[derive(Default)]
@@ -181,13 +179,15 @@ mod tests {
     struct FakeWorkspaceRepository {
         workspaces: Mutex<Vec<Workspace>>,
         creates: Mutex<Vec<Workspace>>,
+        has_running: bool,
     }
 
     impl FakeWorkspaceRepository {
-        fn new(workspaces: Vec<Workspace>) -> Self {
+        fn new(workspaces: Vec<Workspace>, has_running: bool) -> Self {
             Self {
                 workspaces: Mutex::new(workspaces),
                 creates: Mutex::new(Vec::new()),
+                has_running,
             }
         }
 
@@ -245,9 +245,51 @@ mod tests {
 
         async fn delete(&self, id: &str) -> Result<bool, WorkspaceRepositoryError> {
             let mut workspaces = self.workspaces.lock().unwrap();
-            let original_len = workspaces.len();
-            workspaces.retain(|workspace| workspace.id != id);
-            Ok(workspaces.len() != original_len)
+            let Some(index) = workspaces.iter().position(|workspace| workspace.id == id) else {
+                return Ok(false);
+            };
+            if workspaces[index].runtime.is_some() {
+                return Err(WorkspaceRepositoryError::RuntimeAttached);
+            }
+            if self.has_running {
+                return Err(WorkspaceRepositoryError::OperationRunning);
+            }
+            workspaces.remove(index);
+            Ok(true)
+        }
+    }
+
+    struct PausedDeleteWorkspaceRepository {
+        inner: Arc<SqliteWorkspaceRepository>,
+        delete_entered: Arc<Barrier>,
+        resume_delete: Arc<Barrier>,
+    }
+
+    #[async_trait::async_trait]
+    impl WorkspaceRepository for PausedDeleteWorkspaceRepository {
+        async fn create(
+            &self,
+            workspace: Workspace,
+        ) -> Result<Workspace, WorkspaceRepositoryError> {
+            self.inner.create(workspace).await
+        }
+
+        async fn get(&self, id: &str) -> Result<Option<Workspace>, WorkspaceRepositoryError> {
+            self.inner.get(id).await
+        }
+
+        async fn page(
+            &self,
+            offset: u64,
+            limit: u64,
+        ) -> Result<(Vec<Workspace>, u64), WorkspaceRepositoryError> {
+            self.inner.page(offset, limit).await
+        }
+
+        async fn delete(&self, id: &str) -> Result<bool, WorkspaceRepositoryError> {
+            self.delete_entered.wait().await;
+            self.resume_delete.wait().await;
+            self.inner.delete(id).await
         }
     }
 
@@ -283,42 +325,9 @@ mod tests {
         }
     }
 
-    struct FakeRuntimeOperationRepository {
-        has_running: bool,
-        running_checks: Mutex<Vec<String>>,
-    }
-
-    #[async_trait::async_trait]
-    impl RuntimeOperationRepository for FakeRuntimeOperationRepository {
-        async fn page(
-            &self,
-            _workspace_id: Option<&str>,
-            _offset: u64,
-            _limit: u64,
-        ) -> Result<(Vec<RuntimeOperation>, u64), RuntimeOperationRepositoryError> {
-            Ok((Vec::new(), 0))
-        }
-
-        async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-            Ok(Vec::new())
-        }
-
-        async fn has_running(
-            &self,
-            workspace_id: &str,
-        ) -> Result<bool, RuntimeOperationRepositoryError> {
-            self.running_checks
-                .lock()
-                .unwrap()
-                .push(workspace_id.to_owned());
-            Ok(self.has_running)
-        }
-    }
-
     struct Fakes {
         workspaces: Arc<FakeWorkspaceRepository>,
         workflows: Arc<FakeWorkflowCatalog>,
-        operations: Arc<FakeRuntimeOperationRepository>,
         events: Arc<RecordingApplicationEventSink>,
     }
 
@@ -371,14 +380,10 @@ mod tests {
             workflows: Vec<WorkflowDefinition>,
         ) -> Self {
             Self {
-                workspaces: Arc::new(FakeWorkspaceRepository::new(workspaces)),
+                workspaces: Arc::new(FakeWorkspaceRepository::new(workspaces, has_running)),
                 workflows: Arc::new(FakeWorkflowCatalog {
                     gets: Mutex::new(Vec::new()),
                     workflows,
-                }),
-                operations: Arc::new(FakeRuntimeOperationRepository {
-                    has_running,
-                    running_checks: Mutex::new(Vec::new()),
                 }),
                 events: Arc::new(RecordingApplicationEventSink::default()),
             }
@@ -387,7 +392,6 @@ mod tests {
         fn service(&self) -> WorkspaceService {
             WorkspaceService::new(
                 self.workspaces.clone(),
-                self.operations.clone(),
                 self.workflows.clone(),
                 self.events.clone(),
             )
@@ -524,5 +528,62 @@ mod tests {
         );
         assert!(fakes.workspaces.contains("workspace-1"));
         assert!(fakes.events.events().is_empty());
+    }
+
+    #[tokio::test]
+    async fn provision_admission_wins_over_an_in_flight_delete_while_provider_work_starts() {
+        let path = std::env::temp_dir().join(format!("luma-forge-{}.sqlite", uuid::Uuid::new_v4()));
+        let database = SqliteInfraDatabase::connect(path).await.unwrap();
+        let connection = database.connection().clone();
+        let inner = Arc::new(SqliteWorkspaceRepository::new(connection.clone()));
+        inner
+            .create(Workspace {
+                id: "workspace-1".into(),
+                workflow: CatalogRef::new("workflow-1", "1"),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                runtime: None,
+            })
+            .await
+            .unwrap();
+        let delete_entered = Arc::new(Barrier::new(2));
+        let resume_delete = Arc::new(Barrier::new(2));
+        let workspaces = Arc::new(PausedDeleteWorkspaceRepository {
+            inner: inner.clone(),
+            delete_entered: delete_entered.clone(),
+            resume_delete: resume_delete.clone(),
+        });
+        let runtime_fakes = ProvisionFakes::ready();
+        runtime_fakes.block_first_provider_call();
+        let runtime_service = runtime_fakes.service_with_persistence(
+            workspaces.clone(),
+            Arc::new(SqliteRuntimeTransitionRepository::new(connection.clone())),
+        );
+        let workspace_service = WorkspaceService::new(
+            workspaces,
+            Arc::new(FakeWorkflowCatalog {
+                gets: Mutex::new(Vec::new()),
+                workflows: Vec::new(),
+            }),
+            Arc::new(RecordingApplicationEventSink::default()),
+        );
+
+        let delete = tokio::spawn(async move { workspace_service.delete("workspace-1").await });
+        delete_entered.wait().await;
+        runtime_service
+            .start_provision(provision_command())
+            .await
+            .unwrap();
+        runtime_fakes.wait_until_first_provider_call().await;
+        resume_delete.wait().await;
+
+        assert_eq!(delete.await.unwrap(), Err(WorkspaceError::RuntimeAttached));
+        assert!(inner
+            .get("workspace-1")
+            .await
+            .unwrap()
+            .unwrap()
+            .runtime
+            .is_some());
+        runtime_fakes.release_first_provider_call();
     }
 }

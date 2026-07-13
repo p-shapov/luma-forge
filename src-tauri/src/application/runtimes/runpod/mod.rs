@@ -3,7 +3,7 @@ mod model;
 pub mod ports;
 mod service;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 pub use errors::RunpodRuntimeError;
 pub use model::{

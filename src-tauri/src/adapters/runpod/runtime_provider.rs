@@ -331,17 +331,96 @@ mod tests {
     #[test]
     fn placement_normalizes_complete_gpu_references_in_provider_order() {
         let response = PlacementResponse {
+            gpu_types: Some(vec![
+                Some(PlacementGpuType {
+                    id: Some("NVIDIA RTX 4090".into()),
+                    display_name: Some("RTX 4090".into()),
+                    memory_gb: Some(24),
+                }),
+                Some(PlacementGpuType {
+                    id: Some("NVIDIA A100".into()),
+                    display_name: Some("A100".into()),
+                    memory_gb: Some(80),
+                }),
+            ]),
+            datacenters: Some(vec![
+                Some(PlacementDatacenter {
+                    id: Some("US-TX-1".into()),
+                    name: Some("US Texas".into()),
+                    gpu_availability: Some(vec![
+                        Some(PlacementGpuAvailability {
+                            gpu_type_id: Some("NVIDIA A100".into()),
+                            available: Some(true),
+                            stock_status: None,
+                        }),
+                        Some(PlacementGpuAvailability {
+                            gpu_type_id: Some("NVIDIA RTX 4090".into()),
+                            available: Some(false),
+                            stock_status: None,
+                        }),
+                    ]),
+                }),
+                Some(PlacementDatacenter {
+                    id: Some("EU-RO-1".into()),
+                    name: Some("EU Romania".into()),
+                    gpu_availability: Some(vec![Some(PlacementGpuAvailability {
+                        gpu_type_id: Some("NVIDIA RTX 4090".into()),
+                        available: Some(true),
+                        stock_status: None,
+                    })]),
+                }),
+            ]),
+        };
+
+        assert_eq!(
+            normalize_placement(response),
+            Ok(RunpodPlacement {
+                max_volume_size_gb: RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+                datacenters: vec![
+                    RunpodPlacementDatacenter {
+                        id: "US-TX-1".into(),
+                        name: "US Texas".into(),
+                        gpus: vec![
+                            RunpodPlacementGpu {
+                                id: "NVIDIA A100".into(),
+                                name: "A100".into(),
+                                vram_gb: 80,
+                            },
+                            RunpodPlacementGpu {
+                                id: "NVIDIA RTX 4090".into(),
+                                name: "RTX 4090".into(),
+                                vram_gb: 24,
+                            },
+                        ],
+                    },
+                    RunpodPlacementDatacenter {
+                        id: "EU-RO-1".into(),
+                        name: "EU Romania".into(),
+                        gpus: vec![RunpodPlacementGpu {
+                            id: "NVIDIA RTX 4090".into(),
+                            name: "RTX 4090".into(),
+                            vram_gb: 24,
+                        }],
+                    },
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn placement_rejects_unknown_availability_gpu_reference() {
+        let response = PlacementResponse {
             gpu_types: Some(vec![Some(PlacementGpuType {
-                id: Some("NVIDIA RTX 4090".into()),
-                display_name: Some("RTX 4090".into()),
+                id: Some("known".into()),
+                display_name: Some("Known GPU".into()),
                 memory_gb: Some(24),
             })]),
             datacenters: Some(vec![Some(PlacementDatacenter {
                 id: Some("EU-RO-1".into()),
                 name: Some("EU Romania".into()),
                 gpu_availability: Some(vec![Some(PlacementGpuAvailability {
-                    gpu_type_id: Some("NVIDIA RTX 4090".into()),
-                    available: Some(false),
+                    gpu_type_id: Some("unknown".into()),
+                    available: Some(true),
                     stock_status: None,
                 })]),
             })]),
@@ -349,18 +428,7 @@ mod tests {
 
         assert_eq!(
             normalize_placement(response),
-            Ok(RunpodPlacement {
-                max_volume_size_gb: RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
-                datacenters: vec![RunpodPlacementDatacenter {
-                    id: "EU-RO-1".into(),
-                    name: "EU Romania".into(),
-                    gpus: vec![RunpodPlacementGpu {
-                        id: "NVIDIA RTX 4090".into(),
-                        name: "RTX 4090".into(),
-                        vram_gb: 24,
-                    }],
-                }],
-            })
+            Err(RunpodRuntimeProviderError::Unavailable)
         );
     }
 

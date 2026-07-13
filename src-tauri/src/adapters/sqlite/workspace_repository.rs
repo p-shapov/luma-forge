@@ -1,6 +1,7 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryOrder, QuerySelect, SqlErr,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, SqlErr,
+    Statement, TransactionTrait,
 };
 
 use crate::{
@@ -11,7 +12,7 @@ use crate::{
             Workspace,
         },
     },
-    infra::sqlite::entities::{workspace_runtimes, workspaces},
+    infra::sqlite::entities::{runtime_operations, workspace_runtimes, workspaces},
 };
 
 use super::runtime_persistence_dispatcher;
@@ -132,12 +133,61 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
 
     #[diagnostic(show_output, show_error)]
     async fn delete(&self, #[diagnostic(show)] id: &str) -> Result<bool, WorkspaceRepositoryError> {
-        Ok(workspaces::Entity::delete_by_id(id)
-            .exec(&self.connection)
+        let transaction = self
+            .connection
+            .begin()
+            .await
+            .map_err(|_| WorkspaceRepositoryError::Unavailable)?;
+        let deleted = transaction
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Sqlite,
+                "DELETE FROM workspaces
+                 WHERE id = ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM workspace_runtimes WHERE workspace_id = workspaces.id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM runtime_operations
+                       WHERE running_workspace_id = workspaces.id
+                   )",
+                [id.into()],
+            ))
             .await
             .map_err(|_| WorkspaceRepositoryError::Unavailable)?
-            .rows_affected
-            > 0)
+            .rows_affected()
+            > 0;
+        let result = if deleted {
+            Ok(true)
+        } else if workspaces::Entity::find_by_id(id)
+            .one(&transaction)
+            .await
+            .map_err(|_| WorkspaceRepositoryError::Unavailable)?
+            .is_none()
+        {
+            Ok(false)
+        } else if workspace_runtimes::Entity::find_by_id(id)
+            .one(&transaction)
+            .await
+            .map_err(|_| WorkspaceRepositoryError::Unavailable)?
+            .is_some()
+        {
+            Err(WorkspaceRepositoryError::RuntimeAttached)
+        } else if runtime_operations::Entity::find()
+            .filter(runtime_operations::Column::RunningWorkspaceId.eq(id))
+            .one(&transaction)
+            .await
+            .map_err(|_| WorkspaceRepositoryError::Unavailable)?
+            .is_some()
+        {
+            Err(WorkspaceRepositoryError::OperationRunning)
+        } else {
+            Err(WorkspaceRepositoryError::CorruptData)
+        };
+        transaction
+            .commit()
+            .await
+            .map_err(|_| WorkspaceRepositoryError::Unavailable)?;
+        result
     }
 }
 

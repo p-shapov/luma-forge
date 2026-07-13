@@ -52,15 +52,15 @@ fn running_operation(
     operation
 }
 
-pub(super) struct ProvisionFakes {
-    pub provider: Arc<FakeRunpodRuntimeProvider>,
-    pub repository: Arc<FakeRuntimeTransitionRepository>,
+pub(crate) struct ProvisionFakes {
+    pub(super) provider: Arc<FakeRunpodRuntimeProvider>,
+    pub(super) repository: Arc<FakeRuntimeTransitionRepository>,
     workspaces: Arc<FakeWorkspaceRepository>,
     workflows: Arc<FakeWorkflowCatalog>,
     runtime_catalog: Arc<FakeRunpodRuntimeCatalog>,
     operations: Arc<FakeRuntimeOperationRepository>,
     secrets: Arc<FakeSecretStore>,
-    pub events: Arc<RecordingApplicationEventSink>,
+    pub(super) events: Arc<RecordingApplicationEventSink>,
     workspace_rows: Arc<Mutex<Vec<Workspace>>>,
 }
 
@@ -160,15 +160,35 @@ impl ProvisionFakes {
     }
 
     pub fn service(&self) -> RunpodRuntimeService {
+        self.service_with_persistence(self.workspaces.clone(), self.repository.clone())
+    }
+
+    pub fn service_with_persistence(
+        &self,
+        workspaces: Arc<dyn WorkspaceRepository>,
+        transitions: Arc<dyn RuntimeTransitionRepository>,
+    ) -> RunpodRuntimeService {
         RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
-            workspaces: self.workspaces.clone(),
+            workspaces,
             workflows: self.workflows.clone(),
-            transitions: self.repository.clone(),
+            transitions,
             runtime_catalog: self.runtime_catalog.clone(),
             secrets: self.secrets.clone(),
             provider: self.provider.clone(),
             events: self.events.clone(),
         })
+    }
+
+    pub fn block_first_provider_call(&self) {
+        self.provider.block_first_call();
+    }
+
+    pub async fn wait_until_first_provider_call(&self) {
+        self.provider.wait_until_first_call().await;
+    }
+
+    pub fn release_first_provider_call(&self) {
+        self.provider.release_first_call();
     }
 
     pub fn workspace_snapshot(&self) -> Workspace {

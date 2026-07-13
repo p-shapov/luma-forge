@@ -4,6 +4,10 @@ use crate::application::workspace::Workspace;
 pub enum WorkspaceRepositoryError {
     #[error("workspace already exists")]
     AlreadyExists,
+    #[error("workspace has an attached runtime")]
+    RuntimeAttached,
+    #[error("workspace has a running operation")]
+    OperationRunning,
     #[error("workspace persistence is unavailable")]
     Unavailable,
     #[error("workspace persistence contains invalid data")]

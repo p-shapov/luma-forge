@@ -290,3 +290,16 @@ async fn anchor_without_provider_extension_is_corrupt() {
         Err(WorkspaceRepositoryError::CorruptData),
     );
 }
+
+#[tokio::test]
+async fn workspace_delete_distinguishes_eligible_and_missing_rows() {
+    let fixture = Fixture::new().await;
+    fixture
+        .workspaces
+        .create(fixture.workspace("workspace-1"))
+        .await
+        .unwrap();
+
+    assert_eq!(fixture.workspaces.delete("workspace-1").await, Ok(true));
+    assert_eq!(fixture.workspaces.delete("workspace-1").await, Ok(false));
+}

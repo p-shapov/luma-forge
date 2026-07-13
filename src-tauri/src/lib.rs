@@ -108,12 +108,8 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
     let operations = Arc::new(SqliteRuntimeOperationRepository::new(connection));
     let events = Arc::new(TauriEventSink::new(app.handle().clone()));
 
-    let workspace_service = WorkspaceService::new(
-        workspaces.clone(),
-        operations.clone(),
-        bundled.clone(),
-        events.clone(),
-    );
+    let workspace_service =
+        WorkspaceService::new(workspaces.clone(), bundled.clone(), events.clone());
     let secrets_service =
         SecretsService::new(secrets.clone(), runpod_identity, hugging_face_identity);
     let operations_service = RuntimeOperationQueryService::new(operations);
