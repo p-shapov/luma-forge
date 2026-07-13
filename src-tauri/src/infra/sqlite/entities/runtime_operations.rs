@@ -8,8 +8,6 @@ pub struct Model {
     pub id: String,
     pub workspace_id: String,
     pub runtime_kind: String,
-    #[sea_orm(unique)]
-    pub running_workspace_id: Option<String>,
     pub operation_kind: String,
     pub state: String,
     pub trace_id: Option<String>,

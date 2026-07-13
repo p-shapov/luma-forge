@@ -25,7 +25,7 @@ use luma_forge_lib::{
         },
     },
 };
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, IntoActiveModel};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -230,6 +230,53 @@ async fn operation_kind_and_progress_family_mismatch_rolls_back() {
     );
     assert!(
         runpod_runtime_operation_progress::Entity::find_by_id(operation.id.to_string())
+            .one(fixture.database.connection())
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn cleanup_admission_rejects_an_anchor_already_in_transition() {
+    let fixture = Fixture::with_ready_runtime().await;
+    let mut workspace = fixture
+        .workspaces
+        .get("workspace-1")
+        .await
+        .unwrap()
+        .unwrap();
+    workspace.runtime.as_mut().unwrap().state = RuntimeState::CleaningUp;
+
+    let mut anchor = workspace_runtimes::Entity::find_by_id("workspace-1")
+        .one(fixture.database.connection())
+        .await
+        .unwrap()
+        .unwrap()
+        .into_active_model();
+    anchor.state = Set("cleaning_up".into());
+    anchor.update(fixture.database.connection()).await.unwrap();
+
+    let operation = RuntimeOperation::running(
+        Uuid::new_v4(),
+        "workspace-1",
+        RuntimeKind::Runpod,
+        RuntimeOperationKind::Cleanup,
+        RuntimeProgress::Runpod(RunpodProgress::Cleanup(
+            luma_forge_lib::application::runtimes::runpod::RunpodCleanupStep::DeleteEndpoint,
+        )),
+        OffsetDateTime::UNIX_EPOCH,
+    );
+
+    assert_eq!(
+        fixture
+            .transitions
+            .save_transition(&workspace, &operation)
+            .await,
+        Err(RuntimePersistenceError::OperationAlreadyRunning),
+    );
+    assert!(
+        runtime_operations::Entity::find_by_id(operation.id.to_string())
             .one(fixture.database.connection())
             .await
             .unwrap()

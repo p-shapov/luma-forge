@@ -91,7 +91,7 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
     async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
         self.load(
             runtime_operations::Entity::find()
-                .filter(runtime_operations::Column::RunningWorkspaceId.is_not_null()),
+                .filter(runtime_operations::Column::State.eq("running")),
         )
         .await
     }
@@ -103,7 +103,7 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
     ) -> Result<bool, RuntimeOperationRepositoryError> {
         Ok(runtime_operations::Entity::find()
             .filter(runtime_operations::Column::WorkspaceId.eq(workspace_id))
-            .filter(runtime_operations::Column::RunningWorkspaceId.is_not_null())
+            .filter(runtime_operations::Column::State.eq("running"))
             .one(&self.connection)
             .await
             .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
@@ -176,7 +176,6 @@ mod tests {
             workspace_id: "workspace-1".into(),
             runtime_kind: runtime_persistence_dispatcher::runtime_kind_value(RuntimeKind::Runpod)
                 .into(),
-            running_workspace_id: Some("workspace-1".into()),
             operation_kind: "provision".into(),
             state: "running".into(),
             trace_id: trace_id.map(str::to_owned),

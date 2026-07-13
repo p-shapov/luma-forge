@@ -148,7 +148,7 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
                    )
                    AND NOT EXISTS (
                        SELECT 1 FROM runtime_operations
-                       WHERE running_workspace_id = workspaces.id
+                       WHERE workspace_id = workspaces.id AND state = 'running'
                    )",
                 [id.into()],
             ))
@@ -173,7 +173,8 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
         {
             Err(WorkspaceRepositoryError::RuntimeAttached)
         } else if runtime_operations::Entity::find()
-            .filter(runtime_operations::Column::RunningWorkspaceId.eq(id))
+            .filter(runtime_operations::Column::WorkspaceId.eq(id))
+            .filter(runtime_operations::Column::State.eq("running"))
             .one(&transaction)
             .await
             .map_err(|_| WorkspaceRepositoryError::Unavailable)?

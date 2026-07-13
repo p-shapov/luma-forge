@@ -1,6 +1,6 @@
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, IntoActiveModel, SqlErr,
-    TransactionTrait,
+    sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection,
+    EntityTrait, IntoActiveModel, QueryFilter, SqlErr, TransactionTrait,
 };
 
 use crate::{
@@ -46,12 +46,14 @@ impl RuntimeTransitionRepository for SqliteRuntimeTransitionRepository {
             .await
             .map_err(|_| RuntimePersistenceError::Unavailable)?;
 
+        let operation_is_new = save_operation(operation, &transaction).await?;
         match &workspace.runtime {
             Some(runtime) if runtime.kind() == operation.runtime_kind => {
-                upsert_anchor(
+                save_anchor(
                     &workspace.id,
                     runtime.state,
-                    operation.runtime_kind,
+                    operation,
+                    operation_is_new,
                     &transaction,
                 )
                 .await?;
@@ -70,13 +72,39 @@ impl RuntimeTransitionRepository for SqliteRuntimeTransitionRepository {
             }
             None => return Err(RuntimePersistenceError::CorruptData),
         }
-        save_operation(operation, &transaction).await?;
         runtime_persistence_dispatcher::save_progress(operation, &transaction).await?;
         transaction
             .commit()
             .await
             .map_err(|_| RuntimePersistenceError::Unavailable)
     }
+}
+
+async fn save_anchor(
+    workspace_id: &str,
+    state: RuntimeState,
+    operation: &RuntimeOperation,
+    operation_is_new: bool,
+    transaction: &sea_orm::DatabaseTransaction,
+) -> Result<(), RuntimePersistenceError> {
+    if operation_is_new && operation.state == RuntimeOperationState::Running {
+        return match operation.kind {
+            RuntimeOperationKind::Provision => {
+                insert_anchor(workspace_id, state, operation.runtime_kind, transaction)
+                    .await
+                    .map_err(|error| match error {
+                        RuntimePersistenceError::AlreadyExists => {
+                            RuntimePersistenceError::OperationAlreadyRunning
+                        }
+                        error => error,
+                    })
+            }
+            RuntimeOperationKind::Cleanup => {
+                claim_cleanup_anchor(workspace_id, operation.runtime_kind, transaction).await
+            }
+        };
+    }
+    upsert_anchor(workspace_id, state, operation.runtime_kind, transaction).await
 }
 
 async fn upsert_anchor(
@@ -104,24 +132,71 @@ async fn upsert_anchor(
                 .map_err(|_| RuntimePersistenceError::Unavailable)?;
         }
         None => {
-            workspace_runtimes::ActiveModel {
-                workspace_id: Set(workspace_id.to_owned()),
-                runtime_kind: Set(
-                    runtime_persistence_dispatcher::runtime_kind_value(kind).to_owned()
-                ),
-                state: Set(runtime_state_value(state).to_owned()),
-            }
-            .insert(transaction)
-            .await
-            .map_err(|error| match error.sql_err() {
-                Some(SqlErr::UniqueConstraintViolation(_)) => {
-                    RuntimePersistenceError::AlreadyExists
-                }
-                _ => RuntimePersistenceError::Unavailable,
-            })?;
+            insert_anchor(workspace_id, state, kind, transaction).await?;
         }
     }
     Ok(())
+}
+
+async fn insert_anchor(
+    workspace_id: &str,
+    state: RuntimeState,
+    kind: RuntimeKind,
+    transaction: &sea_orm::DatabaseTransaction,
+) -> Result<(), RuntimePersistenceError> {
+    workspace_runtimes::ActiveModel {
+        workspace_id: Set(workspace_id.to_owned()),
+        runtime_kind: Set(runtime_persistence_dispatcher::runtime_kind_value(kind).to_owned()),
+        state: Set(runtime_state_value(state).to_owned()),
+    }
+    .insert(transaction)
+    .await
+    .map_err(|error| match error.sql_err() {
+        Some(SqlErr::UniqueConstraintViolation(_)) => RuntimePersistenceError::AlreadyExists,
+        _ => RuntimePersistenceError::Unavailable,
+    })?;
+    Ok(())
+}
+
+async fn claim_cleanup_anchor(
+    workspace_id: &str,
+    kind: RuntimeKind,
+    transaction: &sea_orm::DatabaseTransaction,
+) -> Result<(), RuntimePersistenceError> {
+    let result = workspace_runtimes::Entity::update_many()
+        .col_expr(
+            workspace_runtimes::Column::State,
+            Expr::value("cleaning_up"),
+        )
+        .filter(workspace_runtimes::Column::WorkspaceId.eq(workspace_id))
+        .filter(
+            workspace_runtimes::Column::RuntimeKind
+                .eq(runtime_persistence_dispatcher::runtime_kind_value(kind)),
+        )
+        .filter(workspace_runtimes::Column::State.is_in(["ready", "failed"]))
+        .exec(transaction)
+        .await
+        .map_err(|_| RuntimePersistenceError::Unavailable)?;
+    if result.rows_affected == 1 {
+        return Ok(());
+    }
+
+    match workspace_runtimes::Entity::find_by_id(workspace_id)
+        .one(transaction)
+        .await
+        .map_err(|_| RuntimePersistenceError::Unavailable)?
+    {
+        None => Err(RuntimePersistenceError::NotFound),
+        Some(model)
+            if model.runtime_kind != runtime_persistence_dispatcher::runtime_kind_value(kind) =>
+        {
+            Err(RuntimePersistenceError::CorruptData)
+        }
+        Some(model) if matches!(model.state.as_str(), "provisioning" | "cleaning_up") => {
+            Err(RuntimePersistenceError::OperationAlreadyRunning)
+        }
+        Some(_) => Err(RuntimePersistenceError::CorruptData),
+    }
 }
 
 async fn delete_anchor(
@@ -141,7 +216,7 @@ async fn delete_anchor(
 async fn save_operation(
     operation: &RuntimeOperation,
     transaction: &sea_orm::DatabaseTransaction,
-) -> Result<(), RuntimePersistenceError> {
+) -> Result<bool, RuntimePersistenceError> {
     match runtime_operations::Entity::find_by_id(operation.id.to_string())
         .one(transaction)
         .await
@@ -157,7 +232,6 @@ async fn save_operation(
                 return Err(RuntimePersistenceError::CorruptData);
             }
             let mut model = model.into_active_model();
-            model.running_workspace_id = Set(running_workspace_id(operation));
             model.state = Set(runtime_operation_repository::runtime_operation_state_value(
                 operation.state,
             )
@@ -168,6 +242,7 @@ async fn save_operation(
                 .update(transaction)
                 .await
                 .map_err(map_operation_error)?;
+            Ok(false)
         }
         None => {
             runtime_operations::ActiveModel {
@@ -177,7 +252,6 @@ async fn save_operation(
                     operation.runtime_kind,
                 )
                 .to_owned()),
-                running_workspace_id: Set(running_workspace_id(operation)),
                 operation_kind: Set(runtime_operation_repository::runtime_operation_kind_value(
                     operation.kind,
                 )
@@ -194,13 +268,9 @@ async fn save_operation(
             .insert(transaction)
             .await
             .map_err(map_operation_error)?;
+            Ok(true)
         }
     }
-    Ok(())
-}
-
-fn running_workspace_id(operation: &RuntimeOperation) -> Option<String> {
-    (operation.state == RuntimeOperationState::Running).then(|| operation.workspace_id.clone())
 }
 
 fn runtime_state_value(state: RuntimeState) -> &'static str {
