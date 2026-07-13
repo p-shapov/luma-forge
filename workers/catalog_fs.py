@@ -70,6 +70,28 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
         handle.write("\n")
 
 
+def validate_workflow_revision(path: Path) -> None:
+    if path.is_symlink():
+        raise ReleaseToolError(
+            f"workflow revision directory must not be a symlink: {path}"
+        )
+    if not path.is_dir():
+        raise ReleaseToolError(f"workflow revision directory does not exist: {path}")
+    for name in WORKFLOW_FILES:
+        document = path / name
+        if document.is_symlink():
+            raise ReleaseToolError(
+                f"workflow revision file must not be a symlink: {document}"
+            )
+        if not document.is_file():
+            raise ReleaseToolError(f"workflow revision file does not exist: {document}")
+
+
+def ensure_destination_available(path: Path) -> None:
+    if path.exists() or path.is_symlink():
+        raise ReleaseToolError(f"catalog promotion destination already exists: {path}")
+
+
 def dict_value(value: dict[str, Any], key: str) -> dict[str, Any]:
     item = value.get(key)
     if not isinstance(item, dict):

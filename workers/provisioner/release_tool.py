@@ -12,8 +12,8 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from workers.catalog_fs import (  # noqa: E402
     ReleaseToolError,
-    WORKFLOW_FILES,
     dict_value,
+    ensure_destination_available,
     is_safe_identifier,
     latest_revision,
     load_json,
@@ -21,6 +21,7 @@ from workers.catalog_fs import (  # noqa: E402
     parse_semver,
     runpod_contract_requirements,
     validate_image_ref,
+    validate_workflow_revision,
     write_json,
 )
 
@@ -52,32 +53,24 @@ def promote_provisioner_image(
     contract_dir = (
         catalog_root / "entries/runtime_contracts" / contract_id / contract_revision
     )
-    if contract_dir.exists():
-        raise ReleaseToolError(
-            f"runtime contract revision already exists: {contract_revision}"
-        )
+    ensure_destination_available(contract_dir)
 
     promotions: list[tuple[Path, Path, dict[str, Any]]] = []
     workflows_root = catalog_root / "entries/workflows"
     for workflow_root in sorted(
         path for path in workflows_root.iterdir() if path.is_dir()
     ):
+        if not is_safe_identifier(workflow_root.name):
+            raise ReleaseToolError("invalid workflow id")
         _source_revision, source = latest_revision(workflow_root)
-        for name in WORKFLOW_FILES:
-            if not (source / name).is_file():
-                raise ReleaseToolError(
-                    f"workflow revision file does not exist: {source / name}"
-                )
+        validate_workflow_revision(source)
         requirements = load_json(source / "contract_requirements")
         runpod = runpod_contract_requirements(requirements)
         reference = dict_value(runpod, "provisioner_contract_ref")
         if reference.get("id") != contract_id:
             continue
         destination = workflow_root / next_revision(workflow_root)
-        if destination.exists():
-            raise ReleaseToolError(
-                f"workflow revision already exists: {destination}"
-            )
+        ensure_destination_available(destination)
         reference["revision"] = contract_revision
         promotions.append((source, destination, requirements))
 

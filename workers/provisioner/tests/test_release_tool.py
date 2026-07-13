@@ -54,13 +54,25 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
         )[1].split("Open provisioner promotion PR", maxsplit=1)[0]
         pr_section = workflow.split("Open provisioner promotion PR", maxsplit=1)[1]
 
-        self.assertIn("git status --porcelain --untracked-files=all", verify_section)
+        self.assertIn(
+            'porcelain_entries="$(git status --porcelain --untracked-files=all)"',
+            verify_section,
+        )
+        self.assertIn(
+            'runtime_contract_entry="?? $runtime_contract_path"', verify_section
+        )
         self.assertIn(
             "bundled/catalog/entries/runtime_contracts/provisioner/${{ steps.contract.outputs.contract_revision }}/runtime_contract",
             verify_section,
         )
-        self.assertIn("bundled/catalog/entries/workflows/[a-z][a-z0-9-]*", verify_section)
-        self.assertIn("(metadata|model_assets|contract_requirements|execution_contract|workflow)", verify_section)
+        self.assertIn(
+            r"\?\? bundled/catalog/entries/workflows/[a-z][a-z0-9-]*/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)",
+            verify_section,
+        )
+        self.assertIn(
+            "(metadata|model_assets|contract_requirements|execution_contract|workflow)",
+            verify_section,
+        )
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
         self.assertIn("${{ steps.promotion.outputs.runtime_contract_path }}", pr_section)
@@ -132,6 +144,101 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
                     contract_revision="1.0.1",
                     image_ref="ghcr.io/luma-forge/provisioner-worker:latest",
                 )
+
+    def test_promote_rejects_unsafe_workflow_family_id_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            workflow_root = catalog_root / "entries/workflows"
+            (workflow_root / "workflow").rename(workflow_root / "unsafe_id")
+            contract_dir = (
+                catalog_root / "entries/runtime_contracts/provisioner/1.0.1"
+            )
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "invalid workflow id"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+            self.assertFalse(contract_dir.exists())
+
+    def test_promote_rejects_symlinked_workflow_file_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            source = catalog_root / "entries/workflows/workflow/1.0.0"
+            metadata = source / "metadata"
+            metadata.unlink()
+            metadata.symlink_to(
+                catalog_root
+                / "entries/runtime_contracts/provisioner/1.0.0/runtime_contract"
+            )
+            contract_dir = (
+                catalog_root / "entries/runtime_contracts/provisioner/1.0.1"
+            )
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "must not be a symlink"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+            self.assertFalse(contract_dir.exists())
+
+    def test_promote_rejects_dangling_workflow_destination_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            destination = catalog_root / "entries/workflows/workflow/1.0.1"
+            destination.symlink_to(
+                Path(directory) / "missing", target_is_directory=True
+            )
+            contract_dir = (
+                catalog_root / "entries/runtime_contracts/provisioner/1.0.1"
+            )
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "destination already exists"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+            self.assertFalse(contract_dir.exists())
+
+    def test_promote_rejects_dangling_contract_destination_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            contract_dir = (
+                catalog_root / "entries/runtime_contracts/provisioner/1.0.1"
+            )
+            contract_dir.symlink_to(
+                Path(directory) / "missing", target_is_directory=True
+            )
+            workflow_destination = (
+                catalog_root / "entries/workflows/workflow/1.0.1"
+            )
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "destination already exists"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+            self.assertFalse(workflow_destination.exists())
 
     def test_cli_writes_revision_outputs(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:

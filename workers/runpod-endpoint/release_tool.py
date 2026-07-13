@@ -13,9 +13,9 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from workers.catalog_fs import (  # noqa: E402
     ReleaseToolError,
-    WORKFLOW_FILES,
     catalog_ref,
     dict_value,
+    ensure_destination_available,
     entry_file,
     is_safe_identifier,
     load_json,
@@ -25,6 +25,7 @@ from workers.catalog_fs import (  # noqa: E402
     string_list_value,
     string_value,
     validate_image_ref,
+    validate_workflow_revision,
     write_json,
 )
 
@@ -101,6 +102,7 @@ def promote_endpoint_image(
     source = entry_file(
         catalog_root, "workflow", workflow_id, workflow_revision, "workflow"
     ).parent
+    validate_workflow_revision(source)
     requirements_path = source / "contract_requirements"
     requirements = load_json(requirements_path)
     runpod = runpod_contract_requirements(requirements)
@@ -116,13 +118,8 @@ def promote_endpoint_image(
     workflow_root = catalog_root / "entries/workflows" / workflow_id
     promoted_revision = next_revision(workflow_root)
     promoted_dir = workflow_root / promoted_revision
-    if contract_dir.exists() or promoted_dir.exists():
-        raise ReleaseToolError("catalog promotion revision already exists")
-    for name in WORKFLOW_FILES:
-        if not (source / name).is_file():
-            raise ReleaseToolError(
-                f"workflow revision file does not exist: {source / name}"
-            )
+    ensure_destination_available(contract_dir)
+    ensure_destination_available(promoted_dir)
 
     endpoint_ref["revision"] = contract_revision
     contract_dir.mkdir(parents=True)

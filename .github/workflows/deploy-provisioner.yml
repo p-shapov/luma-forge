@@ -101,25 +101,26 @@ jobs:
 
       - name: Verify provisioner promotion PR scope
         run: |
-          changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
+          porcelain_entries="$(git status --porcelain --untracked-files=all)"
           runtime_contract_path='bundled/catalog/entries/runtime_contracts/provisioner/${{ steps.contract.outputs.contract_revision }}/runtime_contract'
-          workflow_path_pattern='bundled/catalog/entries/workflows/[a-z][a-z0-9-]*/[0-9]+\.[0-9]+\.[0-9]+/(metadata|model_assets|contract_requirements|execution_contract|workflow)'
+          runtime_contract_entry="?? $runtime_contract_path"
+          workflow_entry_pattern='\?\? bundled/catalog/entries/workflows/[a-z][a-z0-9-]*/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)/(metadata|model_assets|contract_requirements|execution_contract|workflow)'
 
           if [ "${{ steps.promotion.outputs.runtime_contract_path }}" != "$runtime_contract_path" ] || \
-             ! printf '%s\n' "$changed_paths" | grep -Fqx "$runtime_contract_path"; then
+             ! printf '%s\n' "$porcelain_entries" | grep -Fqx "$runtime_contract_entry"; then
             echo "::error::Catalog promotion did not create the expected provisioner runtime contract revision"
             exit 1
           fi
 
-          if ! printf '%s\n' "$changed_paths" | grep -Eqx "$workflow_path_pattern"; then
+          if ! printf '%s\n' "$porcelain_entries" | grep -Eqx "$workflow_entry_pattern"; then
             echo "::error::Catalog promotion did not create a workflow revision"
             exit 1
           fi
 
-          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx "$workflow_path_pattern" | grep -Fvx "$runtime_contract_path" || true)"
-          if [ -n "$unexpected_paths" ]; then
+          unexpected_entries="$(printf '%s\n' "$porcelain_entries" | sed '/^$/d' | grep -Evx "$workflow_entry_pattern" | grep -Fvx "$runtime_contract_entry" || true)"
+          if [ -n "$unexpected_entries" ]; then
             echo "::error::Catalog promotion produced unexpected changed paths:"
-            printf '%s\n' "$unexpected_paths"
+            printf '%s\n' "$unexpected_entries"
             exit 1
           fi
 
