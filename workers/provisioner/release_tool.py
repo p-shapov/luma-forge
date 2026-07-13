@@ -12,8 +12,10 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from workers.catalog_fs import (  # noqa: E402
     ReleaseToolError,
+    catalog_ref,
     dict_value,
     ensure_destination_available,
+    entry_file,
     is_safe_identifier,
     latest_revision,
     load_json,
@@ -72,9 +74,21 @@ def promote_provisioner_image(
         validate_workflow_revision(catalog_root, source)
         requirements = load_json(source / "contract_requirements")
         runpod = runpod_contract_requirements(requirements)
+        referenced_id, referenced_revision = catalog_ref(
+            runpod,
+            "provisioner_contract_ref",
+            "catalog/contracts/runtime_contract_revision",
+        )
         reference = dict_value(runpod, "provisioner_contract_ref")
-        if reference.get("id") != contract_id:
+        if referenced_id != contract_id:
             continue
+        entry_file(
+            catalog_root,
+            "runtime_contract",
+            referenced_id,
+            referenced_revision,
+            "runtime_contract",
+        )
         destination = workflow_root / next_revision(catalog_root, workflow_root)
         ensure_destination_available(catalog_root, destination)
         reference["revision"] = contract_revision

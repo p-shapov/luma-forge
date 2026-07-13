@@ -150,17 +150,12 @@ def is_safe_identifier(value: str) -> bool:
 
 
 def parse_semver(value: str) -> tuple[int, int, int]:
-    if not isinstance(value, str):
+    if not isinstance(value, str) or re.fullmatch(
+        r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value
+    ) is None:
         raise ReleaseToolError("invalid contract version")
-    parts = value.split(".")
-    if len(parts) != 3:
-        raise ReleaseToolError("invalid contract version")
-    parsed = []
-    for part in parts:
-        if not part.isdigit() or (len(part) > 1 and part.startswith("0")):
-            raise ReleaseToolError("invalid contract version")
-        parsed.append(int(part))
-    return (parsed[0], parsed[1], parsed[2])
+    major, minor, patch = value.split(".")
+    return int(major), int(minor), int(patch)
 
 
 def format_semver(value: tuple[int, int, int]) -> str:

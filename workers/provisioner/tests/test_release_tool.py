@@ -145,6 +145,50 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
                     image_ref="ghcr.io/luma-forge/provisioner-worker:latest",
                 )
 
+    def test_promote_rejects_wrong_provisioner_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            requirements_path = (
+                catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+            )
+            requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
+            requirements["contract_requirements"][0]["provisioner_contract_ref"][
+                "contract"
+            ] = "catalog/contracts/runtime_preset_revision"
+            requirements_path.write_text(json.dumps(requirements), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "uses an unexpected contract"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+    def test_promote_rejects_dangling_current_provisioner_contract_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            requirements_path = (
+                catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+            )
+            requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
+            requirements["contract_requirements"][0]["provisioner_contract_ref"][
+                "revision"
+            ] = "9.9.9"
+            requirements_path.write_text(json.dumps(requirements), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "catalog entry file does not exist"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
     def test_promote_rejects_unsafe_workflow_family_id_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             catalog_root = _write_catalog_tree(Path(directory))

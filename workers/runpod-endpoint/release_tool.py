@@ -42,6 +42,7 @@ def resolve_endpoint_build(
     workflow_dir = entry_file(
         catalog_root, "workflow", workflow_id, workflow_revision, "workflow"
     ).parent
+    validate_workflow_revision(catalog_root, workflow_dir)
     metadata = load_json(workflow_dir / "metadata")
     execution_contract_path = workflow_dir / "execution_contract"
     execution_contract = load_json(execution_contract_path)
@@ -108,11 +109,23 @@ def promote_endpoint_image(
     requirements_path = source / "contract_requirements"
     requirements = load_json(requirements_path)
     runpod = runpod_contract_requirements(requirements)
+    referenced_id, referenced_revision = catalog_ref(
+        runpod,
+        "endpoint_contract_ref",
+        "catalog/contracts/runtime_contract_revision",
+    )
     endpoint_ref = dict_value(runpod, "endpoint_contract_ref")
-    if endpoint_ref.get("id") != contract_id:
+    if referenced_id != contract_id:
         raise ReleaseToolError(
             f"workflow revision does not reference endpoint contract: {contract_id}"
         )
+    entry_file(
+        catalog_root,
+        "runtime_contract",
+        referenced_id,
+        referenced_revision,
+        "runtime_contract",
+    )
 
     contract_dir = (
         catalog_root / "entries/runtime_contracts" / contract_id / contract_revision

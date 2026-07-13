@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -121,6 +122,52 @@ class RunpodEndpointReleaseToolTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 release_tool.ReleaseToolError,
                 "workflow revision does not reference endpoint contract",
+            ):
+                release_tool.promote_endpoint_image(
+                    catalog_root=catalog_root,
+                    workflow_id="workflow",
+                    workflow_revision="1.0.0",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+    def test_promote_rejects_wrong_endpoint_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            requirements_path = (
+                catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+            )
+            requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
+            requirements["contract_requirements"][0]["endpoint_contract_ref"][
+                "contract"
+            ] = "catalog/contracts/runtime_preset_revision"
+            requirements_path.write_text(json.dumps(requirements), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "uses an unexpected contract"
+            ):
+                release_tool.promote_endpoint_image(
+                    catalog_root=catalog_root,
+                    workflow_id="workflow",
+                    workflow_revision="1.0.0",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+    def test_promote_rejects_dangling_current_endpoint_contract_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            requirements_path = (
+                catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+            )
+            requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
+            requirements["contract_requirements"][0]["endpoint_contract_ref"][
+                "revision"
+            ] = "9.9.9"
+            requirements_path.write_text(json.dumps(requirements), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "catalog entry file does not exist"
             ):
                 release_tool.promote_endpoint_image(
                     catalog_root=catalog_root,
@@ -279,6 +326,38 @@ class RunpodEndpointReleaseToolTests(unittest.TestCase):
                 workflow_id="../workflow",
                 workflow_revision="1.0.0",
             )
+
+    def test_resolve_rejects_symlinked_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_root = root / "catalog"
+            shutil.copytree(CATALOG_ROOT, catalog_root)
+            metadata = (
+                catalog_root
+                / "entries/workflows"
+                / WORKFLOW_ID
+                / WORKFLOW_REVISION
+                / "metadata"
+            )
+            outside = root / "metadata"
+            shutil.copyfile(metadata, outside)
+            metadata.unlink()
+            metadata.symlink_to(outside)
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "must not be a symlink"
+            ):
+                release_tool.resolve_endpoint_build(
+                    catalog_root=catalog_root,
+                    workflow_id=WORKFLOW_ID,
+                    workflow_revision=WORKFLOW_REVISION,
+                )
+
+    def test_parse_semver_rejects_unicode_digits(self):
+        with self.assertRaisesRegex(
+            release_tool.ReleaseToolError, "invalid contract version"
+        ):
+            release_tool.parse_semver("\u0661.0.0")
 
     def test_endpoint_dockerfile_keeps_direct_runtime_build_inputs(self):
         dockerfile = ENDPOINT_DOCKERFILE_PATH.read_text(encoding="utf-8")
