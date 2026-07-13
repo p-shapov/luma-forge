@@ -16,7 +16,7 @@ pub fn generate() -> CodegenResult<()> {
             "manifest dir should have repo root parent",
         )
     })?;
-    let schema_dir = repo_root.join("new_bundled/catalog/schemas");
+    let schema_dir = repo_root.join("bundled/catalog/schemas");
     println!("cargo:rerun-if-changed={}", schema_dir.display());
 
     let mut schemas = Vec::new();

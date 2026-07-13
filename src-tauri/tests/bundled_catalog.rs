@@ -16,7 +16,7 @@ fn mapping_fixture() -> Catalog {
 
 #[tokio::test]
 async fn packaged_catalog_passes_full_audit() {
-    validate(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../new_bundled"))
+    validate(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../bundled"))
         .await
         .unwrap();
 }

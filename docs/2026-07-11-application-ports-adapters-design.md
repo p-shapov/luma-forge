@@ -4,7 +4,7 @@
 
 ## Scope
 
-This document defines the future application, port, adapter, and persistence boundaries for the active `src-tauri/src` refactor. It uses the current raw primitives in `src-tauri/src/infra` and the catalog shape under `new_bundled/catalog/entries` as the source context.
+This document defines the future application, port, adapter, and persistence boundaries for the active `src-tauri/src` refactor. It uses the current raw primitives in `src-tauri/src/infra` and the catalog shape under `bundled/catalog/entries` as the source context.
 
 The design covers:
 
