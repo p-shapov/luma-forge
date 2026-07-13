@@ -227,7 +227,6 @@ fn identity_response(response: myself::ResponseData) -> Result<IdentityResponse,
 fn placement_response(
     response: placement::ResponseData,
 ) -> Result<PlacementResponse, NetworkError> {
-    let identity = response.myself.ok_or(NetworkError::InvalidResponse)?;
     let gpu_types = response.gpu_types.map(|gpu_types| {
         gpu_types
             .into_iter()
@@ -240,7 +239,7 @@ fn placement_response(
             })
             .collect()
     });
-    let datacenters = identity.datacenters.map(|datacenters| {
+    let datacenters = response.data_centers.map(|datacenters| {
         datacenters
             .into_iter()
             .map(|datacenter| {

@@ -5,6 +5,7 @@ schema {
 type Query {
   myself: User
   gpuTypes: [GpuType]
+  dataCenters: [DataCenter]
 }
 
 type User {

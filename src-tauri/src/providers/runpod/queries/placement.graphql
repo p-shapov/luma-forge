@@ -4,15 +4,13 @@ query Placement {
     displayName
     memoryInGb
   }
-  myself {
-    datacenters {
-      id
-      name
-      gpuAvailability {
-        gpuTypeId
-        available
-        stockStatus
-      }
+  dataCenters {
+    id
+    name
+    gpuAvailability {
+      gpuTypeId
+      available
+      stockStatus
     }
   }
 }
