@@ -17,6 +17,7 @@ from workers.catalog_fs import (  # noqa: E402
     catalog_ref,
     dict_value,
     entry_file,
+    is_safe_identifier,
     load_json,
     next_revision,
     string_list_value,
@@ -33,7 +34,7 @@ def load_runtime_preset(path: Path) -> dict[str, Any]:
 
 
 def endpoint_contract_id(workflow_id: str) -> str:
-    if not _is_safe_identifier(workflow_id):
+    if not is_safe_identifier(workflow_id):
         raise ReleaseToolError("invalid workflow id")
     return f"runpod-endpoint-{workflow_id}"
 
@@ -118,7 +119,7 @@ def resolve_runtime_preset_path(
 ) -> Path:
     _preset, revision = find_workflow_revision(workflow_catalog, workflow_id, workflow_version)
     runtime_preset = _string_value(revision, "runtime_preset")
-    if not _is_safe_identifier(runtime_preset):
+    if not is_safe_identifier(runtime_preset):
         raise ReleaseToolError("invalid runtime preset id")
     path = runtime_presets_dir / f"{runtime_preset}.json"
     if not path.is_file():
@@ -131,7 +132,7 @@ def execution_schema_ref(workflow_revision: dict[str, Any]) -> tuple[str, str]:
     schema_ref = _dict_value(execution_contract, "schema_ref")
     schema_id = _string_value(schema_ref, "id")
     schema_version = _string_value(schema_ref, "version")
-    if not _is_safe_identifier(schema_id):
+    if not is_safe_identifier(schema_id):
         raise ReleaseToolError("invalid execution schema id")
     _parse_semver(schema_version)
     return schema_id, schema_version
@@ -318,7 +319,7 @@ def runtime_preset_outputs(
 
 
 def resolve_bundled_workflow_path(workflow_id: str) -> Path:
-    if not _is_safe_identifier(workflow_id):
+    if not is_safe_identifier(workflow_id):
         raise ReleaseToolError("invalid workflow id")
     repository_root = Path(__file__).resolve().parents[2]
     workflow_path = repository_root / "bundled" / "workflows" / f"{workflow_id}.json"
@@ -499,7 +500,7 @@ def _validate_runtime_preset(value: dict[str, Any], runtime_preset_path: Path) -
 
     runtime_preset_id = _string_value(runtime_preset, "id")
     runtime_preset_version = _string_value(runtime_preset, "version")
-    if not _is_safe_identifier(runtime_preset_id):
+    if not is_safe_identifier(runtime_preset_id):
         raise ReleaseToolError("invalid runtime preset id")
     _parse_semver(runtime_preset_version)
 
@@ -546,10 +547,6 @@ def _string_list_value(value: dict[str, Any], key: str) -> list[str]:
 def _validate_image_ref(value: str) -> None:
     if re.fullmatch(r"[^:@\s]+(?:/[^:@\s]+)*@sha256:[0-9a-f]{64}", value) is None:
         raise ReleaseToolError(f"worker image ref must be digest-pinned: {value}")
-
-
-def _is_safe_identifier(value: str) -> bool:
-    return re.fullmatch(r"[a-z][a-z0-9-]*", value) is not None
 
 
 def _parse_semver(value: str) -> tuple[int, int, int]:

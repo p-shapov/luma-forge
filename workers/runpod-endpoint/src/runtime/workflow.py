@@ -16,7 +16,7 @@ def load_workflow(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise WorkflowValidationError("Baked workflow must be a JSON object.")
     graph = value.get("graph")
-    if not isinstance(graph, dict):
+    if not isinstance(graph, dict) or not graph:
         raise WorkflowValidationError("Baked workflow must contain a graph object.")
     return graph
 

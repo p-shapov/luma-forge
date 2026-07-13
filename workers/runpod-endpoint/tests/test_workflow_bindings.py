@@ -57,6 +57,14 @@ class WorkflowBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(WorkflowValidationError, "graph object"):
                 load_workflow(source)
 
+    def test_load_workflow_rejects_empty_graph(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "workflow"
+            source.write_text(json.dumps({"graph": {}}), encoding="utf-8")
+
+            with self.assertRaisesRegex(WorkflowValidationError, "graph object"):
+                load_workflow(source)
+
     def test_treats_non_template_string_as_literal_constant(self):
         workflow = {
             "nodes": [
