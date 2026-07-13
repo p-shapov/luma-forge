@@ -18,7 +18,7 @@ impl HuggingFaceProvider {
         })
     }
 
-    #[crate::diagnostics::diagnostic(show_output)]
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
     pub async fn identity(
         &self,
         #[diagnostic(show)] request: IdentityRequest,
