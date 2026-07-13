@@ -12,6 +12,49 @@ WORKFLOW_ID = "comfyui-hidream-o1-dev"
 WORKFLOW_REVISION = "1.0.0"
 ENDPOINT_DOCKERFILE_PATH = ROOT / "workers/runpod-endpoint/Dockerfile"
 
+WORKFLOW_DOCUMENTS = {
+    "metadata": {"name": "Workflow"},
+    "model_assets": {"model_assets": []},
+    "contract_requirements": {
+        "contract_requirements": [
+            {
+                "runtime_type": "runpod",
+                "endpoint_contract_ref": {
+                    "contract": "catalog/contracts/runtime_contract_revision",
+                    "id": "runpod-endpoint-workflow",
+                    "revision": "1.0.0",
+                },
+                "provisioner_contract_ref": {
+                    "contract": "catalog/contracts/runtime_contract_revision",
+                    "id": "provisioner",
+                    "revision": "1.0.0",
+                },
+            }
+        ],
+    },
+    "execution_contract": {"schema_ref": {}, "input_bindings": []},
+    "workflow": {"nodes": [], "links": []},
+}
+
+
+def _image_ref(digit: str) -> str:
+    return f"ghcr.io/example/worker@sha256:{digit * 64}"
+
+
+def _write_catalog_tree(root: Path) -> Path:
+    catalog_root = root / "catalog"
+    workflow = catalog_root / "entries/workflows/workflow/1.0.0"
+    workflow.mkdir(parents=True)
+    for name, value in WORKFLOW_DOCUMENTS.items():
+        (workflow / name).write_text(json.dumps(value), encoding="utf-8")
+    contract = (
+        catalog_root
+        / "entries/runtime_contracts/runpod-endpoint-workflow/1.0.0/runtime_contract"
+    )
+    contract.parent.mkdir(parents=True)
+    contract.write_text(json.dumps({"image_ref": _image_ref("2")}), encoding="utf-8")
+    return catalog_root
+
 spec = importlib.util.spec_from_file_location("runpod_endpoint_release_tool", TOOL_PATH)
 release_tool = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
@@ -19,6 +62,115 @@ spec.loader.exec_module(release_tool)
 
 
 class RunpodEndpointReleaseToolTests(unittest.TestCase):
+    def test_promote_creates_contract_and_workflow_revisions_without_mutating_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            source_requirements = (
+                catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+            ).read_text(encoding="utf-8")
+
+            contract_path, workflow_path = release_tool.promote_endpoint_image(
+                catalog_root=catalog_root,
+                workflow_id="workflow",
+                workflow_revision="1.0.0",
+                contract_revision="1.0.1",
+                image_ref=_image_ref("4"),
+            )
+
+            self.assertEqual(
+                {"image_ref": _image_ref("4")},
+                json.loads(contract_path.read_text(encoding="utf-8")),
+            )
+            promoted = json.loads(
+                (workflow_path / "contract_requirements").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "1.0.1",
+                promoted["contract_requirements"][0]["endpoint_contract_ref"]["revision"],
+            )
+            self.assertEqual(
+                source_requirements,
+                (
+                    catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+                ).read_text(encoding="utf-8"),
+            )
+
+    def test_promote_rejects_mutable_image_ref(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "digest-pinned"):
+                release_tool.promote_endpoint_image(
+                    catalog_root=catalog_root,
+                    workflow_id="workflow",
+                    workflow_revision="1.0.0",
+                    contract_revision="1.0.1",
+                    image_ref="ghcr.io/example/worker:latest",
+                )
+
+    def test_promote_rejects_mismatched_endpoint_contract_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            requirements_path = (
+                catalog_root / "entries/workflows/workflow/1.0.0/contract_requirements"
+            )
+            requirements = json.loads(requirements_path.read_text(encoding="utf-8"))
+            requirements["contract_requirements"][0]["endpoint_contract_ref"]["id"] = "other"
+            requirements_path.write_text(json.dumps(requirements), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError,
+                "workflow revision does not reference endpoint contract",
+            ):
+                release_tool.promote_endpoint_image(
+                    catalog_root=catalog_root,
+                    workflow_id="workflow",
+                    workflow_revision="1.0.0",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+    def test_promote_cli_writes_relative_revision_outputs(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            catalog_root = _write_catalog_tree(Path(directory)).relative_to(ROOT)
+            output_path = Path(directory) / "github-output"
+
+            exit_code = release_tool.main(
+                [
+                    "promote-endpoint-image",
+                    "--catalog-root",
+                    str(catalog_root),
+                    "--workflow-id",
+                    "workflow",
+                    "--workflow-revision",
+                    "1.0.0",
+                    "--contract-revision",
+                    "1.0.1",
+                    "--image-ref",
+                    _image_ref("4"),
+                    "--github-output",
+                    str(output_path),
+                ]
+            )
+
+            self.assertEqual(0, exit_code)
+            outputs = dict(
+                line.split("=", 1)
+                for line in output_path.read_text(encoding="utf-8").splitlines()
+            )
+            self.assertEqual(
+                str(
+                    catalog_root
+                    / "entries/runtime_contracts/runpod-endpoint-workflow/1.0.1/runtime_contract"
+                ),
+                outputs["runtime_contract_path"],
+            )
+            self.assertEqual(
+                str(catalog_root / "entries/workflows/workflow/1.0.1"),
+                outputs["workflow_revision_path"],
+            )
+            self.assertEqual("1.0.1", outputs["promoted_workflow_revision"])
+
     def test_resolve_outputs_direct_catalog_documents(self):
         outputs = release_tool.resolve_endpoint_build(
             catalog_root=CATALOG_ROOT,

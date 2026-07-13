@@ -25,19 +25,19 @@ docker build -t luma-forge-runpod-endpoint-worker -f Dockerfile \
   --build-arg LUMA_FORGE_COMFYUI_REVISION=ea62dc11c9a10dae52186fdcc3da033eb46018a1 \
   --build-arg LUMA_FORGE_PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu126 \
   --build-arg 'LUMA_FORGE_PYTORCH_PACKAGES_JSON=["torch==2.9.1","torchvision==0.24.1","torchaudio==2.9.1"]' \
-  --build-arg LUMA_FORGE_BUNDLED_WORKFLOW_PATH=bundled/workflows/comfyui-hidream-o1-dev.json \
-  --build-arg LUMA_FORGE_WORKFLOW_ID=comfyui-hidream-o1-dev \
-  --build-arg LUMA_FORGE_WORKFLOW_VERSION=1.0.0 \
+  --build-arg LUMA_FORGE_WORKFLOW_PATH=bundled/catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0/workflow \
+  --build-arg LUMA_FORGE_EXECUTION_CONTRACT_PATH=bundled/catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0/execution_contract \
+  --build-arg LUMA_FORGE_EXECUTION_SCHEMA_PATH=bundled/catalog/entries/execution_schemas/text-to-image/1.0.0/execution_schema \
   ../..
 ```
 
 ## Deployment
 
-Publish an endpoint image by pushing a `runpod-endpoint-v*` tag or running the `Deploy RunPod Endpoint` GitHub Actions workflow manually with `workflow_id` and `workflow_version`.
+Publish an endpoint image by pushing a `runpod-endpoint-v*` tag or running the `Deploy RunPod Endpoint` GitHub Actions workflow manually with `workflow_id` and `workflow_revision`.
 
-The workflow resolves the selected workflow revision's runtime preset, validates the endpoint contract tooling and endpoint package, builds `ghcr.io/<owner>/<repo>/runpod-endpoint-worker`, and resolves the pushed digest. The build bakes `bundled/workflows/{workflow_id}.json` into `/opt/luma-forge/runtime/workflows/workflow.json`.
+The workflow resolves the selected workflow revision's runtime preset, execution contract, and execution schema directly from `bundled/catalog`, validates the endpoint tooling and package, builds `ghcr.io/<owner>/<repo>/runpod-endpoint-worker`, and resolves the pushed digest. The selected documents are baked into the runtime paths below.
 
-After publication, the workflow opens a Runtime Contracts promotion PR. That PR appends the new endpoint contract revision to `bundled/runtime-contracts.json` and updates the matching Workflow Preset in `bundled/workflow-catalog.json`.
+After publication, the workflow opens a promotion PR containing a new runtime contract revision with the digest-pinned image and a new workflow revision that references it. The selected source revisions remain unchanged.
 
 New Workspaces use the image only after the promotion PR is reviewed, merged, and bundled into the app. Existing Workspaces remain pinned to their persisted endpoint image snapshot.
 
