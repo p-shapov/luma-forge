@@ -53,13 +53,9 @@ enum BootstrapError {
 
 pub fn run() {
     let facade_builder = facade::builder();
-    let mut app_builder = tauri::Builder::default()
+    let app_builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(facade_builder.invoke_handler());
-    #[cfg(debug_assertions)]
-    {
-        app_builder = app_builder.plugin(tauri_plugin_mcp_bridge::init());
-    }
 
     app_builder
         .setup(move |app| {
