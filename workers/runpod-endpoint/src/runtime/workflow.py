@@ -15,7 +15,10 @@ def load_workflow(path: Path) -> dict[str, Any]:
         raise WorkflowValidationError("Baked workflow could not be loaded.") from error
     if not isinstance(value, dict):
         raise WorkflowValidationError("Baked workflow must be a JSON object.")
-    return value
+    graph = value.get("graph")
+    if not isinstance(graph, dict):
+        raise WorkflowValidationError("Baked workflow must contain a graph object.")
+    return graph
 
 
 def load_execution_contract(path: Path) -> dict[str, Any]:

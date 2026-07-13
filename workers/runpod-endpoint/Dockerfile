@@ -12,29 +12,27 @@ ARG LUMA_FORGE_RUNTIME_PYTHON_VERSION
 ARG LUMA_FORGE_COMFYUI_REVISION
 ARG LUMA_FORGE_PYTORCH_INDEX_URL
 ARG LUMA_FORGE_PYTORCH_PACKAGES_JSON
-ARG LUMA_FORGE_BUNDLED_WORKFLOW_PATH
-ARG LUMA_FORGE_WORKFLOW_ID
-ARG LUMA_FORGE_WORKFLOW_VERSION
+ARG LUMA_FORGE_WORKFLOW_PATH
+ARG LUMA_FORGE_EXECUTION_CONTRACT_PATH
+ARG LUMA_FORGE_EXECUTION_SCHEMA_PATH
 
 WORKDIR /runtime-build
-COPY ${LUMA_FORGE_BUNDLED_WORKFLOW_PATH} ./workflow.json
-COPY bundled/workflow-catalog.json ./workflow-catalog.json
-COPY bundled/execution-schemas.json ./execution-schemas.json
+COPY ${LUMA_FORGE_WORKFLOW_PATH} ./workflow.json
+COPY ${LUMA_FORGE_EXECUTION_CONTRACT_PATH} ./catalog-execution-contract.json
+COPY ${LUMA_FORGE_EXECUTION_SCHEMA_PATH} ./execution-schema.json
 COPY workers/runpod-endpoint/src/tools/build_metadata.py ./extract_runtime_metadata.py
 
 RUN test -n "$LUMA_FORGE_RUNTIME_PYTHON_VERSION" \
     && test -n "$LUMA_FORGE_COMFYUI_REVISION" \
     && test -n "$LUMA_FORGE_PYTORCH_INDEX_URL" \
     && test -n "$LUMA_FORGE_PYTORCH_PACKAGES_JSON" \
-    && test -n "$LUMA_FORGE_BUNDLED_WORKFLOW_PATH" \
-    && test -n "$LUMA_FORGE_WORKFLOW_ID" \
-    && test -n "$LUMA_FORGE_WORKFLOW_VERSION"
+    && test -n "$LUMA_FORGE_WORKFLOW_PATH" \
+    && test -n "$LUMA_FORGE_EXECUTION_CONTRACT_PATH" \
+    && test -n "$LUMA_FORGE_EXECUTION_SCHEMA_PATH"
 
 RUN python /runtime-build/extract_runtime_metadata.py \
-    --workflow-catalog /runtime-build/workflow-catalog.json \
-    --execution-schemas /runtime-build/execution-schemas.json \
-    --workflow-id "$LUMA_FORGE_WORKFLOW_ID" \
-    --workflow-version "$LUMA_FORGE_WORKFLOW_VERSION" \
+    --execution-contract /runtime-build/catalog-execution-contract.json \
+    --execution-schema /runtime-build/execution-schema.json \
     --execution-contract-output /runtime-build/execution-contract.json
 
 RUN mkdir -p /opt/luma-forge/runtime \

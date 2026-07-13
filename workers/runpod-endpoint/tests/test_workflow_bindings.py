@@ -7,7 +7,10 @@ from app.errors import WorkflowValidationError
 from runtime.workflow import apply_input_bindings, load_workflow, write_patched_workflow
 
 
-WORKFLOW_PATH = Path(__file__).resolve().parents[3] / "bundled/workflows/comfyui-hidream-o1-dev.json"
+WORKFLOW_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "bundled/catalog/entries/workflows/comfyui-hidream-o1-dev/1.0.0/workflow"
+)
 
 
 def contract():
@@ -45,6 +48,14 @@ class WorkflowBindingTests(unittest.TestCase):
 
         original_values = {str(node["id"]): node["widgets_values"][0] for node in workflow["nodes"] if node["id"] in (171, 154, 177)}
         self.assertNotEqual(original_values["171"], "a glass lamp")
+
+    def test_load_workflow_requires_graph_document(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "workflow"
+            source.write_text(json.dumps({"nodes": []}), encoding="utf-8")
+
+            with self.assertRaisesRegex(WorkflowValidationError, "graph object"):
+                load_workflow(source)
 
     def test_treats_non_template_string_as_literal_constant(self):
         workflow = {
@@ -91,7 +102,10 @@ class WorkflowBindingTests(unittest.TestCase):
             source = Path(directory) / "workflow.json"
             destination = Path(directory) / "patched.json"
             contract_path = Path(directory) / "execution-contract.json"
-            source.write_text(json.dumps({"nodes": [{"id": 1, "widgets_values": ["old"]}]}), encoding="utf-8")
+            source.write_text(
+                json.dumps({"graph": {"nodes": [{"id": 1, "widgets_values": ["old"]}]}}),
+                encoding="utf-8",
+            )
             contract_path.write_text(
                 json.dumps(
                     {
