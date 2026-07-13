@@ -1,4 +1,7 @@
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, SqlErr};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
+    QueryOrder, QuerySelect, SqlErr,
+};
 
 use crate::{
     application::{
@@ -77,9 +80,23 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
     }
 
     #[diagnostic(show_output, show_error)]
-    async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
-        let rows = workspaces::Entity::find()
+    async fn page(
+        &self,
+        #[diagnostic(show)] offset: u64,
+        #[diagnostic(show)] limit: u64,
+    ) -> Result<(Vec<Workspace>, u64), WorkspaceRepositoryError> {
+        let query = workspaces::Entity::find();
+        let total = query
+            .clone()
+            .count(&self.connection)
+            .await
+            .map_err(|_| WorkspaceRepositoryError::Unavailable)?;
+        let rows = query
             .find_also_related(workspace_runtimes::Entity)
+            .order_by_desc(workspaces::Column::CreatedAt)
+            .order_by_desc(workspaces::Column::Id)
+            .offset(offset)
+            .limit(limit)
             .all(&self.connection)
             .await
             .map_err(|_| WorkspaceRepositoryError::Unavailable)?;
@@ -96,7 +113,8 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
                 .await
                 .map_err(map_runtime_error)?;
 
-        rows.into_iter()
+        let workspaces = rows
+            .into_iter()
             .map(|(workspace, anchor)| {
                 let runtime = anchor
                     .map(|anchor| {
@@ -108,7 +126,8 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
                     .transpose()?;
                 Ok(map_workspace(workspace, runtime))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((workspaces, total))
     }
 
     #[diagnostic(show_output, show_error)]

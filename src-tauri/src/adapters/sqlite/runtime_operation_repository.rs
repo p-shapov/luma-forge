@@ -1,4 +1,7 @@
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -56,31 +59,32 @@ impl SqliteRuntimeOperationRepository {
 #[async_trait::async_trait]
 impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
     #[diagnostic(show_output, show_error)]
-    async fn recent(
+    async fn page(
         &self,
+        #[diagnostic(show)] workspace_id: Option<&str>,
+        #[diagnostic(show)] offset: u64,
         #[diagnostic(show)] limit: u64,
-    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-        self.load(
-            runtime_operations::Entity::find()
-                .order_by_desc(runtime_operations::Column::CreatedAt)
-                .limit(limit),
-        )
-        .await
-    }
-
-    #[diagnostic(show_output, show_error)]
-    async fn recent_for_workspace(
-        &self,
-        #[diagnostic(show)] workspace_id: &str,
-        #[diagnostic(show)] limit: u64,
-    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-        self.load(
-            runtime_operations::Entity::find()
-                .filter(runtime_operations::Column::WorkspaceId.eq(workspace_id))
-                .order_by_desc(runtime_operations::Column::CreatedAt)
-                .limit(limit),
-        )
-        .await
+    ) -> Result<(Vec<RuntimeOperation>, u64), RuntimeOperationRepositoryError> {
+        let query = match workspace_id {
+            Some(workspace_id) => runtime_operations::Entity::find()
+                .filter(runtime_operations::Column::WorkspaceId.eq(workspace_id)),
+            None => runtime_operations::Entity::find(),
+        };
+        let total = query
+            .clone()
+            .count(&self.connection)
+            .await
+            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?;
+        let operations = self
+            .load(
+                query
+                    .order_by_desc(runtime_operations::Column::CreatedAt)
+                    .order_by_desc(runtime_operations::Column::Id)
+                    .offset(offset)
+                    .limit(limit),
+            )
+            .await?;
+        Ok((operations, total))
     }
 
     #[diagnostic(show_output, show_error)]

@@ -360,8 +360,22 @@ impl WorkspaceRepository for FakeWorkspaceRepository {
             .cloned())
     }
 
-    async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
-        Ok(self.0.lock().unwrap().clone())
+    async fn page(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<(Vec<Workspace>, u64), WorkspaceRepositoryError> {
+        let workspaces = self.0.lock().unwrap();
+        let total = workspaces.len() as u64;
+        Ok((
+            workspaces
+                .iter()
+                .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .cloned()
+                .collect(),
+            total,
+        ))
     }
 
     async fn delete(&self, id: &str) -> Result<bool, WorkspaceRepositoryError> {
@@ -409,34 +423,29 @@ struct FakeRuntimeOperationRepository(Mutex<Vec<RuntimeOperation>>);
 
 #[async_trait::async_trait]
 impl RuntimeOperationRepository for FakeRuntimeOperationRepository {
-    async fn recent(
+    async fn page(
         &self,
+        workspace_id: Option<&str>,
+        offset: u64,
         limit: u64,
-    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
+    ) -> Result<(Vec<RuntimeOperation>, u64), RuntimeOperationRepositoryError> {
+        let operations = self.0.lock().unwrap();
+        let operations = operations
             .iter()
-            .take(limit as usize)
-            .cloned()
-            .collect())
-    }
-
-    async fn recent_for_workspace(
-        &self,
-        workspace_id: &str,
-        limit: u64,
-    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|operation| operation.workspace_id == workspace_id)
-            .take(limit as usize)
-            .cloned()
-            .collect())
+            .filter(|operation| {
+                workspace_id.is_none_or(|workspace_id| operation.workspace_id == workspace_id)
+            })
+            .collect::<Vec<_>>();
+        let total = operations.len() as u64;
+        Ok((
+            operations
+                .into_iter()
+                .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .cloned()
+                .collect(),
+            total,
+        ))
     }
 
     async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {

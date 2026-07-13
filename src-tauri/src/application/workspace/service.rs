@@ -1,8 +1,9 @@
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::application::{
     events::{ApplicationEvent, ApplicationEventSink},
-    runtimes::{ports::RuntimeOperationRepository, CatalogRef},
+    runtimes::{ports::RuntimeOperationRepository, CatalogRef, WorkflowSummary},
     workspace::{
         ports::{WorkflowCatalog, WorkspaceRepository, WorkspaceRepositoryError},
         Workspace, WorkspaceError,
@@ -34,7 +35,6 @@ impl<'a> WorkspaceService<'a> {
     #[crate::diagnostics::diagnostic(show_output, show_error)]
     pub async fn create(
         &self,
-        #[diagnostic(show)] id: &str,
         #[diagnostic(show)] workflow: CatalogRef,
     ) -> Result<Workspace, WorkspaceError> {
         if self
@@ -50,7 +50,7 @@ impl<'a> WorkspaceService<'a> {
         let workspace = self
             .workspaces
             .create(Workspace {
-                id: id.to_owned(),
+                id: Uuid::new_v4().to_string(),
                 workflow,
                 created_at: OffsetDateTime::now_utc(),
                 runtime: None,
@@ -104,9 +104,33 @@ impl<'a> WorkspaceService<'a> {
     }
 
     #[crate::diagnostics::diagnostic(show_output, show_error)]
-    pub async fn list(&self) -> Result<Vec<Workspace>, WorkspaceError> {
+    pub async fn list_workflows(
+        &self,
+        #[diagnostic(show)] offset: u64,
+        #[diagnostic(show)] limit: u64,
+    ) -> Result<(Vec<WorkflowSummary>, u64), WorkspaceError> {
+        let summaries = self
+            .workflows
+            .list_summaries()
+            .await
+            .map_err(|_| WorkspaceError::CatalogUnavailable)?;
+        let total = summaries.len() as u64;
+        let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        Ok((
+            summaries.into_iter().skip(offset).take(limit).collect(),
+            total,
+        ))
+    }
+
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    pub async fn list(
+        &self,
+        #[diagnostic(show)] offset: u64,
+        #[diagnostic(show)] limit: u64,
+    ) -> Result<(Vec<Workspace>, u64), WorkspaceError> {
         self.workspaces
-            .list()
+            .page(offset, limit)
             .await
             .map_err(|_| WorkspaceError::PersistenceUnavailable)
     }
@@ -198,8 +222,22 @@ mod tests {
                 .cloned())
         }
 
-        async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError> {
-            Ok(self.workspaces.lock().unwrap().clone())
+        async fn page(
+            &self,
+            offset: u64,
+            limit: u64,
+        ) -> Result<(Vec<Workspace>, u64), WorkspaceRepositoryError> {
+            let workspaces = self.workspaces.lock().unwrap();
+            let total = workspaces.len() as u64;
+            Ok((
+                workspaces
+                    .iter()
+                    .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+                    .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                    .cloned()
+                    .collect(),
+                total,
+            ))
         }
 
         async fn delete(&self, id: &str) -> Result<bool, WorkspaceRepositoryError> {
@@ -212,13 +250,17 @@ mod tests {
 
     struct FakeWorkflowCatalog {
         gets: Mutex<Vec<CatalogRef>>,
-        workflow: Option<WorkflowDefinition>,
+        workflows: Vec<WorkflowDefinition>,
     }
 
     #[async_trait::async_trait]
     impl WorkflowCatalog for FakeWorkflowCatalog {
         async fn list_summaries(&self) -> Result<Vec<WorkflowSummary>, WorkflowCatalogError> {
-            Ok(Vec::new())
+            Ok(self
+                .workflows
+                .iter()
+                .map(|workflow| workflow.summary.clone())
+                .collect())
         }
 
         async fn get(
@@ -230,9 +272,11 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(CatalogRef::new(id, revision));
-            Ok(self.workflow.clone().filter(|workflow| {
-                workflow.summary.id == id && workflow.summary.revision == revision
-            }))
+            Ok(self
+                .workflows
+                .iter()
+                .find(|workflow| workflow.summary.id == id && workflow.summary.revision == revision)
+                .cloned())
         }
     }
 
@@ -243,19 +287,13 @@ mod tests {
 
     #[async_trait::async_trait]
     impl RuntimeOperationRepository for FakeRuntimeOperationRepository {
-        async fn recent(
+        async fn page(
             &self,
+            _workspace_id: Option<&str>,
+            _offset: u64,
             _limit: u64,
-        ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-            Ok(Vec::new())
-        }
-
-        async fn recent_for_workspace(
-            &self,
-            _workspace_id: &str,
-            _limit: u64,
-        ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-            Ok(Vec::new())
+        ) -> Result<(Vec<RuntimeOperation>, u64), RuntimeOperationRepositoryError> {
+            Ok((Vec::new(), 0))
         }
 
         async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
@@ -283,11 +321,15 @@ mod tests {
 
     impl Fakes {
         fn with_missing_workflow() -> Self {
-            Self::new(Vec::new(), false, None)
+            Self::new(Vec::new(), false, Vec::new())
         }
 
         fn with_workflow() -> Self {
-            Self::new(Vec::new(), false, Some(workflow()))
+            Self::new(Vec::new(), false, vec![workflow()])
+        }
+
+        fn with_workflows(workflows: Vec<WorkflowDefinition>) -> Self {
+            Self::new(Vec::new(), false, workflows)
         }
 
         fn with_unprovisioned_workspace() -> Self {
@@ -299,12 +341,12 @@ mod tests {
                     runtime: None,
                 }],
                 false,
-                None,
+                Vec::new(),
             )
         }
 
         fn with_workspace(workspace: Workspace) -> Self {
-            Self::new(vec![workspace], false, None)
+            Self::new(vec![workspace], false, Vec::new())
         }
 
         fn with_unprovisioned_workspace_and_running_operation() -> Self {
@@ -316,20 +358,20 @@ mod tests {
                     runtime: None,
                 }],
                 true,
-                None,
+                Vec::new(),
             )
         }
 
         fn new(
             workspaces: Vec<Workspace>,
             has_running: bool,
-            workflow: Option<WorkflowDefinition>,
+            workflows: Vec<WorkflowDefinition>,
         ) -> Self {
             Self {
                 workspaces: FakeWorkspaceRepository::new(workspaces),
                 workflows: FakeWorkflowCatalog {
                     gets: Mutex::new(Vec::new()),
-                    workflow,
+                    workflows,
                 },
                 operations: FakeRuntimeOperationRepository {
                     has_running,
@@ -372,13 +414,42 @@ mod tests {
         }
     }
 
+    fn three_workflows() -> Vec<WorkflowDefinition> {
+        (1..=3)
+            .map(|index| {
+                let mut workflow = workflow();
+                workflow.summary.id = format!("workflow-{index}");
+                workflow
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn create_generates_a_uuid() {
+        let fakes = Fakes::with_workflow();
+        let workspace = fakes
+            .service()
+            .create(CatalogRef::new("workflow", "1.0.0"))
+            .await
+            .unwrap();
+        assert!(uuid::Uuid::parse_str(&workspace.id).is_ok());
+    }
+
+    #[tokio::test]
+    async fn workflow_page_returns_total_before_paging() {
+        let fakes = Fakes::with_workflows(three_workflows());
+        let (items, total) = fakes.service().list_workflows(1, 1).await.unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(items.len(), 1);
+    }
+
     #[tokio::test]
     async fn create_emits_the_committed_workspace() {
         let fakes = Fakes::with_workflow();
 
         let workspace = fakes
             .service()
-            .create("workspace-1", CatalogRef::new("workflow", "1.0.0"))
+            .create(CatalogRef::new("workflow", "1.0.0"))
             .await
             .unwrap();
 
@@ -408,9 +479,7 @@ mod tests {
         let fakes = Fakes::with_missing_workflow();
         let service = fakes.service();
 
-        let result = service
-            .create("workspace-1", CatalogRef::new("missing", "1.0.0"))
-            .await;
+        let result = service.create(CatalogRef::new("missing", "1.0.0")).await;
 
         assert_eq!(result, Err(WorkspaceError::WorkflowNotFound));
         assert!(fakes.workspaces.created().is_empty());

@@ -150,6 +150,34 @@ async fn workspace_hydrates_state_and_runpod_extension_through_dispatch() {
 }
 
 #[tokio::test]
+async fn workspace_page_is_stable_and_reports_total() {
+    let fixture = Fixture::new().await;
+    let mut expected = fixture.workspace("workspace-2");
+
+    for id in ["workspace-1", "workspace-2", "workspace-3"] {
+        let mut workspace = fixture.workspace(id);
+        fixture.workspaces.create(workspace.clone()).await.unwrap();
+        if id != "workspace-1" {
+            workspace.runtime = Some(runpod_runtime(RuntimeState::Ready, 100));
+            let operation = running_operation(id, RuntimeOperationKind::Provision);
+            fixture
+                .transitions
+                .save_transition(&workspace, &operation)
+                .await
+                .unwrap();
+            if id == "workspace-2" {
+                expected = workspace;
+            }
+        }
+    }
+
+    let (items, total) = fixture.workspaces.page(1, 1).await.unwrap();
+
+    assert_eq!(total, 3);
+    assert_eq!(items, vec![expected]);
+}
+
+#[tokio::test]
 async fn provider_failure_rolls_back_anchor_and_operation() {
     let fixture = Fixture::new().await;
     let mut workspace = fixture.workspace("workspace-1");
@@ -243,9 +271,10 @@ async fn cleanup_removes_runtime_but_keeps_dispatched_operation_progress() {
         .is_none());
     let stored = fixture
         .operations
-        .recent_for_workspace("workspace-1", 10)
+        .page(Some("workspace-1"), 0, 10)
         .await
         .unwrap()
+        .0
         .into_iter()
         .find(|stored| stored.id == operation.id)
         .unwrap();

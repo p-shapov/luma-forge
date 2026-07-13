@@ -10,15 +10,12 @@ pub enum RuntimeOperationRepositoryError {
 
 #[async_trait::async_trait]
 pub trait RuntimeOperationRepository: Send + Sync {
-    async fn recent(
+    async fn page(
         &self,
+        workspace_id: Option<&str>,
+        offset: u64,
         limit: u64,
-    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError>;
-    async fn recent_for_workspace(
-        &self,
-        workspace_id: &str,
-        limit: u64,
-    ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError>;
+    ) -> Result<(Vec<RuntimeOperation>, u64), RuntimeOperationRepositoryError>;
     async fn running(&self) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError>;
     async fn has_running(
         &self,

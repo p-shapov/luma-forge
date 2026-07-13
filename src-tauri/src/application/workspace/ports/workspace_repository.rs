@@ -14,6 +14,10 @@ pub enum WorkspaceRepositoryError {
 pub trait WorkspaceRepository: Send + Sync {
     async fn create(&self, workspace: Workspace) -> Result<Workspace, WorkspaceRepositoryError>;
     async fn get(&self, id: &str) -> Result<Option<Workspace>, WorkspaceRepositoryError>;
-    async fn list(&self) -> Result<Vec<Workspace>, WorkspaceRepositoryError>;
+    async fn page(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> Result<(Vec<Workspace>, u64), WorkspaceRepositoryError>;
     async fn delete(&self, id: &str) -> Result<bool, WorkspaceRepositoryError>;
 }
