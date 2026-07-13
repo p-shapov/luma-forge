@@ -1,9 +1,8 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import type { ReactNode } from "react";
 import type {
-  CommandError,
-  CreateRunpodWorkspaceRequest,
-  NativeStartupStatusResponse,
+  CreateWorkspaceRequest,
+  ProvisionWorkspaceRequest,
   WorkspaceIdRequest,
 } from "@/generated/commands";
 
@@ -48,24 +47,36 @@ const workspaceIdRequest = stringifyJson({
   workspaceId: "",
 });
 
+const pageRequest = { offset: 0, limit: 20 };
+
 const commandProbes: CommandProbe[] = [
   {
-    id: "get-workflow-catalog",
-    label: "getWorkflowCatalog",
+    id: "get-workflows",
+    label: "getWorkflows",
     inputType: "none",
-    run: commands.getWorkflowCatalog,
+    run: async () => commands.getWorkflows(pageRequest),
   },
   {
-    id: "get-runpod-placement-options",
-    label: "getRunpodPlacementOptions",
+    id: "get-workspaces",
+    label: "getWorkspaces",
     inputType: "none",
-    run: commands.getRunpodPlacementOptions,
+    run: async () => commands.getWorkspaces(pageRequest),
   },
   {
-    id: "get-workspace-catalog",
-    label: "getWorkspaceCatalog",
+    id: "get-runtime-operations",
+    label: "getRuntimeOperations",
     inputType: "none",
-    run: commands.getWorkspaceCatalog,
+    run: async () => commands.getRuntimeOperations({
+      workspaceId: null,
+      offset: 0,
+      limit: 20,
+    }),
+  },
+  {
+    id: "get-runpod-placement",
+    label: "getRunpodPlacement",
+    inputType: "none",
+    run: commands.getRunpodPlacement,
   },
   {
     id: "setup-runpod-api-key",
@@ -82,10 +93,10 @@ const commandProbes: CommandProbe[] = [
     },
   },
   {
-    id: "get-runpod-api-key-identity",
-    label: "getRunpodApiKeyIdentity",
+    id: "get-runpod-identity",
+    label: "getRunpodIdentity",
     inputType: "none",
-    run: commands.getRunpodApiKeyIdentity,
+    run: commands.getRunpodIdentity,
   },
   {
     id: "delete-runpod-api-key",
@@ -108,10 +119,10 @@ const commandProbes: CommandProbe[] = [
     },
   },
   {
-    id: "get-hugging-face-api-key-identity",
-    label: "getHuggingFaceApiKeyIdentity",
+    id: "get-hugging-face-identity",
+    label: "getHuggingFaceIdentity",
     inputType: "none",
-    run: commands.getHuggingFaceApiKeyIdentity,
+    run: commands.getHuggingFaceIdentity,
   },
   {
     id: "delete-hugging-face-api-key",
@@ -120,27 +131,33 @@ const commandProbes: CommandProbe[] = [
     run: commands.deleteHuggingFaceApiKey,
   },
   {
-    id: "create-runpod-workspace",
-    label: "createRunpodWorkspace",
+    id: "create-workspace",
+    label: "createWorkspace",
     inputType: "json",
     initialInput: stringifyJson({
-      workflowPresetId: "",
-      placement: {
-        datacenterId: "",
-        gpuId: "",
-        volumeSizeGb: 0,
+      workflow: {
+        id: "",
+        revision: "",
       },
     }),
     run: async request =>
-      commands.createRunpodWorkspace(request as CreateRunpodWorkspaceRequest),
+      commands.createWorkspace(request as CreateWorkspaceRequest),
   },
   {
     id: "provision-workspace",
     label: "provisionWorkspace",
     inputType: "json",
-    initialInput: workspaceIdRequest,
+    initialInput: stringifyJson({
+      workspaceId: "",
+      runtime: {
+        runtimeKind: "runpod",
+        datacenterId: "",
+        gpuId: "",
+        volumeSizeGb: 1,
+      },
+    }),
     run: async request =>
-      commands.provisionWorkspace(request as WorkspaceIdRequest),
+      commands.provisionWorkspace(request as ProvisionWorkspaceRequest),
   },
   {
     id: "cleanup-workspace",
@@ -158,26 +175,9 @@ const commandProbes: CommandProbe[] = [
     run: async request =>
       commands.deleteWorkspace(request as WorkspaceIdRequest),
   },
-  {
-    id: "get-running-lifecycle-operations",
-    label: "getRunningLifecycleOperations",
-    inputType: "none",
-    run: commands.getRunningLifecycleOperations,
-  },
-  {
-    id: "get-latest-lifecycle-operation",
-    label: "getLatestLifecycleOperation",
-    inputType: "json",
-    initialInput: workspaceIdRequest,
-    run: async request =>
-      commands.getLatestLifecycleOperation(request as WorkspaceIdRequest),
-  },
 ];
 
 export function HomePage() {
-  const [nativeStartupStatus, setNativeStartupStatus] = useState<
-    NativeStartupStatusResponse | "loading"
-  >("loading");
   const [commandInputs, setCommandInputs] = useState(() =>
     Object.fromEntries(
       commandProbes.map(probe => [
@@ -224,67 +224,35 @@ export function HomePage() {
 
   useEffect(() => {
     let isStopped = false;
-
-    async function loadNativeStartupStatus() {
-      const result = await commands.getNativeStartupStatus();
-
-      if (isStopped) {
-        return;
-      }
-
-      if (result.status === "ok") {
-        setNativeStartupStatus(result.data);
-      }
-      else {
-        setNativeStartupStatus({
-          status: "failed",
-          error: result.error,
-        });
-      }
-    }
-
-    void loadNativeStartupStatus();
-
-    return () => {
-      isStopped = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (nativeStartupStatus === "loading" || nativeStartupStatus.status !== "ready") {
-      return;
-    }
-
-    let isStopped = false;
     const unlistenFns: UnlistenFn[] = [];
 
     async function listenToNativeEvents() {
       try {
-        const lifecycleUnlisten = await events.lifecycleOperationChangedEvent.listen(
+        const runtimeOperationUnlisten = await events.runtimeOperation.listen(
           (event) => {
-            appendEventLog("lifecycle-operation-changed-event", event.payload);
+            appendEventLog("runtime-operation-event", event.payload);
           },
         );
-        const workspaceChangedUnlisten = await events.workspaceChangedEvent.listen(
+        const workspaceChangedUnlisten = await events.workspaceChanged.listen(
           (event) => {
             appendEventLog("workspace-changed-event", event.payload);
           },
         );
-        const workspaceDeletedUnlisten = await events.workspaceDeletedEvent.listen(
+        const workspaceDeletedUnlisten = await events.workspaceDeleted.listen(
           (event) => {
             appendEventLog("workspace-deleted-event", event.payload);
           },
         );
 
         if (isStopped) {
-          lifecycleUnlisten();
+          runtimeOperationUnlisten();
           workspaceChangedUnlisten();
           workspaceDeletedUnlisten();
           return;
         }
 
         unlistenFns.push(
-          lifecycleUnlisten,
+          runtimeOperationUnlisten,
           workspaceChangedUnlisten,
           workspaceDeletedUnlisten,
         );
@@ -302,15 +270,7 @@ export function HomePage() {
         unlisten();
       }
     };
-  }, [nativeStartupStatus]);
-
-  if (nativeStartupStatus === "loading") {
-    return <StartupLoadingPage />;
-  }
-
-  if (nativeStartupStatus.status === "failed") {
-    return <StartupErrorPage error={nativeStartupStatus.error} />;
-  }
+  }, []);
 
   async function runCommand(probe: CommandProbe) {
     setLatestCommandId(probe.id);
@@ -506,70 +466,6 @@ export function HomePage() {
             </Panel>
           </section>
         </section>
-      </section>
-    </main>
-  );
-}
-
-function StartupLoadingPage() {
-  return (
-    <main className="min-h-svh bg-background text-foreground">
-      <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
-        <Panel title="Native startup" description="Checking native initialization.">
-          <p className="text-sm text-muted-foreground">Loading startup status.</p>
-        </Panel>
-      </section>
-    </main>
-  );
-}
-
-function StartupErrorPage({
-  error,
-}: {
-  error: CommandError<string>;
-}) {
-  const storagePath = extractStoragePath(error.message);
-
-  return (
-    <main className="min-h-svh bg-background text-foreground">
-      <section className="mx-auto flex w-full max-w-3xl flex-col gap-6 py-10">
-        <header className="flex flex-col gap-2">
-          <p className="text-sm font-medium text-muted-foreground">
-            src-tauri diagnostics
-          </p>
-          <h1 className="text-2xl font-semibold tracking-normal">
-            Native startup failed
-          </h1>
-        </header>
-
-        <Panel
-          title="Startup error"
-          description="Native state was not initialized."
-        >
-          <div className="grid gap-4">
-            <div className="grid gap-1">
-              <p className="text-xs font-medium text-muted-foreground">Code</p>
-              <p className="font-mono text-sm">{error.code}</p>
-            </div>
-            <div className="grid gap-1">
-              <p className="text-xs font-medium text-muted-foreground">Message</p>
-              <p className="break-words font-mono text-sm">{error.message}</p>
-            </div>
-            {storagePath !== null
-              ? (
-                  <div className="grid gap-1">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Local storage
-                    </p>
-                    <p className="break-words font-mono text-sm">{storagePath}</p>
-                  </div>
-                )
-              : null}
-            <p className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-              Move or delete the incompatible local storage file, then restart the app.
-            </p>
-          </div>
-        </Panel>
       </section>
     </main>
   );
@@ -977,10 +873,4 @@ function formatError(error: unknown) {
   }
 
   return stringifyJson(error);
-}
-
-function extractStoragePath(message: string) {
-  const match = message.match(/ at (.*native\.sqlite): /);
-
-  return match?.[1] ?? null;
 }
