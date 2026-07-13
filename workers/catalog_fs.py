@@ -39,6 +39,7 @@ def entry_file(
         raise ReleaseToolError(f"invalid {kind.replace('_', ' ')} id")
     parse_semver(revision)
     path = catalog_root / "entries" / ENTRY_ROOTS[kind] / entry_id / revision / filename
+    validate_catalog_path(catalog_root, path)
     if not path.is_file():
         raise ReleaseToolError(f"catalog entry file does not exist: {path}")
     return path
@@ -70,7 +71,27 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
         handle.write("\n")
 
 
-def validate_workflow_revision(path: Path) -> None:
+def validate_catalog_path(catalog_root: Path, path: Path) -> None:
+    try:
+        relative = path.relative_to(catalog_root)
+    except ValueError as error:
+        raise ReleaseToolError(f"catalog path escapes catalog root: {path}") from error
+    if ".." in relative.parts:
+        raise ReleaseToolError(f"catalog path escapes catalog root: {path}")
+
+    current = catalog_root
+    if current.is_symlink():
+        raise ReleaseToolError(f"catalog path component must not be a symlink: {current}")
+    for part in relative.parts:
+        current /= part
+        if current.is_symlink():
+            raise ReleaseToolError(
+                f"catalog path component must not be a symlink: {current}"
+            )
+
+
+def validate_workflow_revision(catalog_root: Path, path: Path) -> None:
+    validate_catalog_path(catalog_root, path)
     if path.is_symlink():
         raise ReleaseToolError(
             f"workflow revision directory must not be a symlink: {path}"
@@ -79,6 +100,7 @@ def validate_workflow_revision(path: Path) -> None:
         raise ReleaseToolError(f"workflow revision directory does not exist: {path}")
     for name in WORKFLOW_FILES:
         document = path / name
+        validate_catalog_path(catalog_root, document)
         if document.is_symlink():
             raise ReleaseToolError(
                 f"workflow revision file must not be a symlink: {document}"
@@ -87,7 +109,8 @@ def validate_workflow_revision(path: Path) -> None:
             raise ReleaseToolError(f"workflow revision file does not exist: {document}")
 
 
-def ensure_destination_available(path: Path) -> None:
+def ensure_destination_available(catalog_root: Path, path: Path) -> None:
+    validate_catalog_path(catalog_root, path.parent)
     if path.exists() or path.is_symlink():
         raise ReleaseToolError(f"catalog promotion destination already exists: {path}")
 
@@ -144,23 +167,42 @@ def format_semver(value: tuple[int, int, int]) -> str:
     return f"{value[0]}.{value[1]}.{value[2]}"
 
 
-def latest_revision(entries_root: Path) -> tuple[str, Path]:
+def _revision_directories(catalog_root: Path, entries_root: Path) -> list[Path]:
+    validate_catalog_path(catalog_root, entries_root)
     if not entries_root.is_dir():
-        raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
-    revisions = [(parse_semver(path.name), path) for path in entries_root.iterdir() if path.is_dir()]
+        return []
+    revisions = []
+    for path in entries_root.iterdir():
+        validate_catalog_path(catalog_root, path)
+        if path.is_dir():
+            revisions.append(path)
+    return revisions
+
+
+def latest_revision(catalog_root: Path, entries_root: Path) -> tuple[str, Path]:
+    revisions = [
+        (parse_semver(path.name), path)
+        for path in _revision_directories(catalog_root, entries_root)
+    ]
     if not revisions:
         raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
     _version, path = max(revisions, key=lambda item: item[0])
     return path.name, path
 
 
-def next_revision(entries_root: Path, *, initial: str | None = None) -> str:
-    if not entries_root.is_dir() or not any(path.is_dir() for path in entries_root.iterdir()):
+def next_revision(
+    catalog_root: Path, entries_root: Path, *, initial: str | None = None
+) -> str:
+    revisions = _revision_directories(catalog_root, entries_root)
+    if not revisions:
         if initial is not None:
             parse_semver(initial)
             return initial
         raise ReleaseToolError(f"catalog entry has no revisions: {entries_root}")
-    revision, _path = latest_revision(entries_root)
+    revision, _path = max(
+        ((path.name, path) for path in revisions),
+        key=lambda item: parse_semver(item[0]),
+    )
     major, minor, patch = parse_semver(revision)
     return format_semver((major, minor, patch + 1))
 

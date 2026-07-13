@@ -78,7 +78,9 @@ def resolve_endpoint_build(
         "workflow_id": workflow_id,
         "workflow_revision": workflow_revision,
         "contract_id": contract_id,
-        "contract_revision": next_revision(contract_root, initial="1.0.0"),
+        "contract_revision": next_revision(
+            catalog_root, contract_root, initial="1.0.0"
+        ),
         "runtime_python_version": string_value(runtime, "python_version"),
         "comfyui_revision": comfyui_revision,
         "pytorch_index_url": string_value(pytorch, "index_url"),
@@ -102,7 +104,7 @@ def promote_endpoint_image(
     source = entry_file(
         catalog_root, "workflow", workflow_id, workflow_revision, "workflow"
     ).parent
-    validate_workflow_revision(source)
+    validate_workflow_revision(catalog_root, source)
     requirements_path = source / "contract_requirements"
     requirements = load_json(requirements_path)
     runpod = runpod_contract_requirements(requirements)
@@ -116,10 +118,10 @@ def promote_endpoint_image(
         catalog_root / "entries/runtime_contracts" / contract_id / contract_revision
     )
     workflow_root = catalog_root / "entries/workflows" / workflow_id
-    promoted_revision = next_revision(workflow_root)
+    promoted_revision = next_revision(catalog_root, workflow_root)
     promoted_dir = workflow_root / promoted_revision
-    ensure_destination_available(contract_dir)
-    ensure_destination_available(promoted_dir)
+    ensure_destination_available(catalog_root, contract_dir)
+    ensure_destination_available(catalog_root, promoted_dir)
 
     endpoint_ref["revision"] = contract_revision
     contract_dir.mkdir(parents=True)

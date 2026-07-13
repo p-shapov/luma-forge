@@ -192,6 +192,32 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
 
             self.assertFalse(contract_dir.exists())
 
+    def test_promote_rejects_symlinked_workflow_family_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_root = _write_catalog_tree(root)
+            workflow_family = catalog_root / "entries/workflows/workflow"
+            outside_family = root / "outside-workflow"
+            workflow_family.rename(outside_family)
+            workflow_family.symlink_to(outside_family, target_is_directory=True)
+            contract_destination = (
+                catalog_root / "entries/runtime_contracts/provisioner/1.0.1"
+            )
+            workflow_destination = outside_family / "1.0.1"
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "must not be a symlink"
+            ):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+            self.assertFalse(contract_destination.exists())
+            self.assertFalse(workflow_destination.exists())
+
     def test_promote_rejects_dangling_workflow_destination_before_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             catalog_root = _write_catalog_tree(Path(directory))
@@ -204,7 +230,7 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                release_tool.ReleaseToolError, "destination already exists"
+                release_tool.ReleaseToolError, "must not be a symlink"
             ):
                 release_tool.promote_provisioner_image(
                     catalog_root=catalog_root,

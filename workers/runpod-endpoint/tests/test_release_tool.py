@@ -166,7 +166,7 @@ class RunpodEndpointReleaseToolTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(
-                release_tool.ReleaseToolError, "destination already exists"
+                release_tool.ReleaseToolError, "must not be a symlink"
             ):
                 release_tool.promote_endpoint_image(
                     catalog_root=catalog_root,
@@ -177,6 +177,37 @@ class RunpodEndpointReleaseToolTests(unittest.TestCase):
                 )
 
             self.assertFalse(contract_dir.exists())
+
+    def test_promote_rejects_symlinked_contract_parent_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalog_root = _write_catalog_tree(root)
+            contract_root = catalog_root / (
+                "entries/runtime_contracts/runpod-endpoint-workflow"
+            )
+            outside_contract_root = root / "outside-runtime-contract"
+            contract_root.rename(outside_contract_root)
+            contract_root.symlink_to(
+                outside_contract_root, target_is_directory=True
+            )
+            contract_destination = outside_contract_root / "1.0.1"
+            workflow_destination = (
+                catalog_root / "entries/workflows/workflow/1.0.1"
+            )
+
+            with self.assertRaisesRegex(
+                release_tool.ReleaseToolError, "must not be a symlink"
+            ):
+                release_tool.promote_endpoint_image(
+                    catalog_root=catalog_root,
+                    workflow_id="workflow",
+                    workflow_revision="1.0.0",
+                    contract_revision="1.0.1",
+                    image_ref=_image_ref("4"),
+                )
+
+            self.assertFalse(contract_destination.exists())
+            self.assertFalse(workflow_destination.exists())
 
     def test_promote_cli_writes_relative_revision_outputs(self):
         with tempfile.TemporaryDirectory(dir=ROOT) as directory:

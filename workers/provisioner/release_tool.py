@@ -20,6 +20,7 @@ from workers.catalog_fs import (  # noqa: E402
     next_revision,
     parse_semver,
     runpod_contract_requirements,
+    validate_catalog_path,
     validate_image_ref,
     validate_workflow_revision,
     write_json,
@@ -35,6 +36,7 @@ def next_provisioner_contract_revision(
     if not is_safe_identifier(contract_id):
         raise ReleaseToolError("invalid runtime contract id")
     return next_revision(
+        catalog_root,
         catalog_root / "entries/runtime_contracts" / contract_id,
     )
 
@@ -53,24 +55,28 @@ def promote_provisioner_image(
     contract_dir = (
         catalog_root / "entries/runtime_contracts" / contract_id / contract_revision
     )
-    ensure_destination_available(contract_dir)
+    ensure_destination_available(catalog_root, contract_dir)
 
     promotions: list[tuple[Path, Path, dict[str, Any]]] = []
     workflows_root = catalog_root / "entries/workflows"
-    for workflow_root in sorted(
-        path for path in workflows_root.iterdir() if path.is_dir()
-    ):
+    validate_catalog_path(catalog_root, workflows_root)
+    workflow_roots = []
+    for path in workflows_root.iterdir():
+        validate_catalog_path(catalog_root, path)
+        if path.is_dir():
+            workflow_roots.append(path)
+    for workflow_root in sorted(workflow_roots):
         if not is_safe_identifier(workflow_root.name):
             raise ReleaseToolError("invalid workflow id")
-        _source_revision, source = latest_revision(workflow_root)
-        validate_workflow_revision(source)
+        _source_revision, source = latest_revision(catalog_root, workflow_root)
+        validate_workflow_revision(catalog_root, source)
         requirements = load_json(source / "contract_requirements")
         runpod = runpod_contract_requirements(requirements)
         reference = dict_value(runpod, "provisioner_contract_ref")
         if reference.get("id") != contract_id:
             continue
-        destination = workflow_root / next_revision(workflow_root)
-        ensure_destination_available(destination)
+        destination = workflow_root / next_revision(catalog_root, workflow_root)
+        ensure_destination_available(catalog_root, destination)
         reference["revision"] = contract_revision
         promotions.append((source, destination, requirements))
 
