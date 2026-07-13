@@ -2,7 +2,7 @@ use secrecy::ExposeSecret;
 
 use crate::providers::{http, http::ResponseExt, NetworkError};
 
-use super::{generated::WhoamiResponse, IdentityRequest, IdentityResponse};
+use super::{IdentityRequest, IdentityResponse};
 
 const WHOAMI_URL: &str = "https://huggingface.co/api/whoami-v2";
 
@@ -44,4 +44,23 @@ fn identity_response(response: WhoamiResponse) -> IdentityResponse {
         username: response.name,
         email: response.email,
     }
+}
+
+#[derive(serde::Deserialize)]
+struct WhoamiResponse {
+    auth: WhoamiAuth,
+    name: String,
+    email: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WhoamiAuth {
+    access_token: Option<WhoamiAccessToken>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WhoamiAccessToken {
+    display_name: String,
 }

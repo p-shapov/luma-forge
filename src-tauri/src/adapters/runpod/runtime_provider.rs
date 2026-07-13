@@ -23,7 +23,7 @@ use crate::{
 const ENDPOINT_WORKERS_MIN: i64 = 0;
 const ENDPOINT_WORKERS_MAX: i64 = 1;
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
-const POLL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+const NOT_FOUND_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 pub struct RunpodRuntimeProviderAdapter {
     provider: RunpodProvider,
@@ -106,14 +106,10 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         #[diagnostic(show)] workspace_id: &str,
         #[diagnostic(show)] pod_id: &str,
     ) -> Result<(), RunpodRuntimeProviderError> {
-        let deadline = Instant::now() + POLL_TIMEOUT;
+        let mut not_found_deadline = None;
 
         loop {
-            if Instant::now() >= deadline {
-                return Err(RunpodRuntimeProviderError::Unavailable);
-            }
-
-            let response = self
+            let response = match self
                 .provider
                 .provisioner_status(ProvisionerStatusRequest {
                     credential: api_key.clone(),
@@ -121,7 +117,19 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
                     pod_id: pod_id.to_owned(),
                 })
                 .await
-                .map_err(map_error)?;
+            {
+                Ok(response) => response,
+                Err(NetworkError::NotFound) => {
+                    let deadline = *not_found_deadline
+                        .get_or_insert_with(|| Instant::now() + NOT_FOUND_TIMEOUT);
+                    if Instant::now() >= deadline {
+                        return Err(RunpodRuntimeProviderError::Unavailable);
+                    }
+                    tokio::time::sleep(POLL_INTERVAL).await;
+                    continue;
+                }
+                Err(error) => return Err(map_error(error)),
+            };
             match response.status.as_str() {
                 "succeeded" => return Ok(()),
                 "failed" => return Err(RunpodRuntimeProviderError::ProvisionerFailed),

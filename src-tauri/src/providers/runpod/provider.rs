@@ -9,12 +9,6 @@ use sha2::Sha256;
 use crate::providers::{graphql::GraphqlResponseExt, http, http::ResponseExt, NetworkError};
 
 use super::{
-    generated::{
-        Endpoint, EndpointCreateInput, EndpointCreateInputComputeType,
-        EndpointCreateInputDataCenterIdsItem, EndpointCreateInputGpuTypeIdsItem, NetworkVolume,
-        NetworkVolumeCreateInput, Pod, PodCreateInput, PodCreateInputComputeType,
-        PodCreateInputDataCenterIdsItem, Template, TemplateCreateInput,
-    },
     queries::{myself, placement, Myself, Placement},
     CreateEndpointRequest, CreateEndpointResponse, CreateNetworkVolumeRequest,
     CreateNetworkVolumeResponse, CreatePodRequest, CreatePodResponse, CreateTemplateRequest,
@@ -89,7 +83,7 @@ impl RunpodProvider {
             .json(&network_volume_create_input(&request))
             .send()
             .await
-            .into_json::<NetworkVolume>()
+            .into_json::<CreatedResourceResponse>()
             .await?;
         Ok(CreateNetworkVolumeResponse { id: response.id })
     }
@@ -116,7 +110,7 @@ impl RunpodProvider {
             .json(&input)
             .send()
             .await
-            .into_json::<Pod>()
+            .into_json::<CreatedResourceResponse>()
             .await?;
         Ok(CreatePodResponse { id: response.id })
     }
@@ -144,7 +138,7 @@ impl RunpodProvider {
         &self,
         #[diagnostic(show)] request: CreateEndpointRequest,
     ) -> Result<CreateEndpointResponse, NetworkError> {
-        let input = endpoint_create_input(&request)?;
+        let input = endpoint_create_input(&request);
         let response = self
             .http
             .post(format!("{REST_BASE_URL}/endpoints"))
@@ -152,7 +146,7 @@ impl RunpodProvider {
             .json(&input)
             .send()
             .await
-            .into_json::<Endpoint>()
+            .into_json::<CreatedResourceResponse>()
             .await?;
         Ok(CreateEndpointResponse { id: response.id })
     }
@@ -169,7 +163,7 @@ impl RunpodProvider {
             .json(&template_create_input(&request))
             .send()
             .await
-            .into_json::<Template>()
+            .into_json::<CreatedResourceResponse>()
             .await?;
         Ok(CreateTemplateResponse { id: response.id })
     }
@@ -295,68 +289,35 @@ fn pod_create_input(request: &CreatePodRequest) -> Result<PodCreateInput, Networ
     }
 
     Ok(PodCreateInput {
-        compute_type: Some(PodCreateInputComputeType::Cpu),
-        data_center_ids: vec![request
-            .datacenter_id
-            .parse::<PodCreateInputDataCenterIdsItem>()
-            .map_err(|_| NetworkError::InvalidResponse)?],
+        compute_type: "CPU",
+        data_center_ids: vec![request.datacenter_id.clone()],
         env,
-        image_name: Some(request.provisioner_image_ref.clone()),
-        name: Some(resource_name(&request.workspace_id, "provisioner")),
-        network_volume_id: Some(request.network_volume_id.clone()),
+        image_name: request.provisioner_image_ref.clone(),
+        name: resource_name(&request.workspace_id, "provisioner"),
+        network_volume_id: request.network_volume_id.clone(),
         ports: vec![PROVISIONER_PORT.to_owned()],
-        ..Default::default()
     })
 }
 
-fn endpoint_create_input(
-    request: &CreateEndpointRequest,
-) -> Result<EndpointCreateInput, NetworkError> {
-    Ok(EndpointCreateInput {
-        allowed_cuda_versions: Vec::new(),
-        compute_type: Some(EndpointCreateInputComputeType::Gpu),
-        cpu_flavor_ids: Vec::new(),
-        data_center_ids: vec![request
-            .datacenter_id
-            .parse::<EndpointCreateInputDataCenterIdsItem>()
-            .map_err(|_| NetworkError::InvalidResponse)?],
-        execution_timeout_ms: None,
-        flashboot: None,
-        gpu_count: None,
-        gpu_type_ids: vec![request
-            .gpu_id
-            .parse::<EndpointCreateInputGpuTypeIdsItem>()
-            .map_err(|_| NetworkError::InvalidResponse)?],
-        idle_timeout: None,
-        min_cuda_version: None,
-        name: Some(resource_name(&request.workspace_id, "endpoint")),
-        network_volume_id: Some(request.network_volume_id.clone()),
-        network_volume_ids: Vec::new(),
-        scaler_type: None,
-        scaler_value: None,
+fn endpoint_create_input(request: &CreateEndpointRequest) -> EndpointCreateInput {
+    EndpointCreateInput {
+        compute_type: "GPU",
+        data_center_ids: vec![request.datacenter_id.clone()],
+        gpu_type_ids: vec![request.gpu_id.clone()],
+        name: resource_name(&request.workspace_id, "endpoint"),
+        network_volume_id: request.network_volume_id.clone(),
         template_id: request.template_id.clone(),
-        vcpu_count: None,
-        workers_max: Some(request.workers_max),
-        workers_min: Some(request.workers_min),
-    })
+        workers_max: request.workers_max,
+        workers_min: request.workers_min,
+    }
 }
 
 fn template_create_input(request: &CreateTemplateRequest) -> TemplateCreateInput {
     TemplateCreateInput {
-        category: None,
-        container_disk_in_gb: None,
-        container_registry_auth_id: None,
-        docker_entrypoint: Vec::new(),
-        docker_start_cmd: Vec::new(),
-        env: HashMap::new(),
         image_name: request.image_ref.clone(),
-        is_public: Some(false),
-        is_serverless: Some(true),
+        is_public: false,
+        is_serverless: true,
         name: resource_name(&request.workspace_id, "template"),
-        ports: Vec::new(),
-        readme: None,
-        volume_in_gb: None,
-        volume_mount_path: None,
     }
 }
 
@@ -372,4 +333,51 @@ fn derive_bearer_token(
 
 fn resource_name(workspace_id: &str, resource: &str) -> String {
     format!("{RESOURCE_PREFIX}-{workspace_id}-{resource}")
+}
+
+#[derive(serde::Deserialize)]
+struct CreatedResourceResponse {
+    id: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NetworkVolumeCreateInput {
+    data_center_id: String,
+    name: String,
+    size: i64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PodCreateInput {
+    compute_type: &'static str,
+    data_center_ids: Vec<String>,
+    env: HashMap<String, String>,
+    image_name: String,
+    name: String,
+    network_volume_id: String,
+    ports: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EndpointCreateInput {
+    compute_type: &'static str,
+    data_center_ids: Vec<String>,
+    gpu_type_ids: Vec<String>,
+    name: String,
+    network_volume_id: String,
+    template_id: String,
+    workers_max: i64,
+    workers_min: i64,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateCreateInput {
+    image_name: String,
+    is_public: bool,
+    is_serverless: bool,
+    name: String,
 }
