@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use secrecy::SecretString;
 
 use super::{
@@ -5,17 +7,18 @@ use super::{
     SecretStore, SecretStoreError, SecretsError,
 };
 
-pub struct SecretsService<'a> {
-    store: &'a dyn SecretStore,
-    runpod_identity: &'a dyn SecretIdentityProvider,
-    hugging_face_identity: &'a dyn SecretIdentityProvider,
+#[derive(Clone)]
+pub struct SecretsService {
+    store: Arc<dyn SecretStore>,
+    runpod_identity: Arc<dyn SecretIdentityProvider>,
+    hugging_face_identity: Arc<dyn SecretIdentityProvider>,
 }
 
-impl<'a> SecretsService<'a> {
+impl SecretsService {
     pub fn new(
-        store: &'a dyn SecretStore,
-        runpod_identity: &'a dyn SecretIdentityProvider,
-        hugging_face_identity: &'a dyn SecretIdentityProvider,
+        store: Arc<dyn SecretStore>,
+        runpod_identity: Arc<dyn SecretIdentityProvider>,
+        hugging_face_identity: Arc<dyn SecretIdentityProvider>,
     ) -> Self {
         Self {
             store,
@@ -103,8 +106,8 @@ impl<'a> SecretsService<'a> {
 
     fn provider(&self, kind: SecretKind) -> &dyn SecretIdentityProvider {
         match kind {
-            SecretKind::RunpodApiKey => self.runpod_identity,
-            SecretKind::HuggingFaceApiKey => self.hugging_face_identity,
+            SecretKind::RunpodApiKey => self.runpod_identity.as_ref(),
+            SecretKind::HuggingFaceApiKey => self.hugging_face_identity.as_ref(),
         }
     }
 }
@@ -191,9 +194,9 @@ mod tests {
     }
 
     struct Fakes {
-        store: FakeStore,
-        runpod: FakeIdentityProvider,
-        hugging_face: FakeIdentityProvider,
+        store: Arc<FakeStore>,
+        runpod: Arc<FakeIdentityProvider>,
+        hugging_face: Arc<FakeIdentityProvider>,
         calls: Arc<Mutex<Vec<&'static str>>>,
     }
 
@@ -209,24 +212,28 @@ mod tests {
         fn new(configured: Vec<SecretKind>) -> Self {
             let calls = Arc::new(Mutex::new(Vec::new()));
             Self {
-                store: FakeStore {
+                store: Arc::new(FakeStore {
                     configured: Mutex::new(configured),
                     calls: calls.clone(),
-                },
-                runpod: FakeIdentityProvider {
+                }),
+                runpod: Arc::new(FakeIdentityProvider {
                     kind: SecretKind::RunpodApiKey,
                     calls: calls.clone(),
-                },
-                hugging_face: FakeIdentityProvider {
+                }),
+                hugging_face: Arc::new(FakeIdentityProvider {
                     kind: SecretKind::HuggingFaceApiKey,
                     calls: calls.clone(),
-                },
+                }),
                 calls,
             }
         }
 
-        fn service(&self) -> SecretsService<'_> {
-            SecretsService::new(&self.store, &self.runpod, &self.hugging_face)
+        fn service(&self) -> SecretsService {
+            SecretsService::new(
+                self.store.clone(),
+                self.runpod.clone(),
+                self.hugging_face.clone(),
+            )
         }
 
         fn calls(&self) -> Vec<&'static str> {

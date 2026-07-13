@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -10,19 +12,20 @@ use crate::application::{
     },
 };
 
-pub struct WorkspaceService<'a> {
-    workspaces: &'a dyn WorkspaceRepository,
-    operations: &'a dyn RuntimeOperationRepository,
-    workflows: &'a dyn WorkflowCatalog,
-    events: &'a dyn ApplicationEventSink,
+#[derive(Clone)]
+pub struct WorkspaceService {
+    workspaces: Arc<dyn WorkspaceRepository>,
+    operations: Arc<dyn RuntimeOperationRepository>,
+    workflows: Arc<dyn WorkflowCatalog>,
+    events: Arc<dyn ApplicationEventSink>,
 }
 
-impl<'a> WorkspaceService<'a> {
+impl WorkspaceService {
     pub fn new(
-        workspaces: &'a dyn WorkspaceRepository,
-        operations: &'a dyn RuntimeOperationRepository,
-        workflows: &'a dyn WorkflowCatalog,
-        events: &'a dyn ApplicationEventSink,
+        workspaces: Arc<dyn WorkspaceRepository>,
+        operations: Arc<dyn RuntimeOperationRepository>,
+        workflows: Arc<dyn WorkflowCatalog>,
+        events: Arc<dyn ApplicationEventSink>,
     ) -> Self {
         Self {
             workspaces,
@@ -138,7 +141,7 @@ impl<'a> WorkspaceService<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use time::OffsetDateTime;
 
@@ -313,10 +316,10 @@ mod tests {
     }
 
     struct Fakes {
-        workspaces: FakeWorkspaceRepository,
-        workflows: FakeWorkflowCatalog,
-        operations: FakeRuntimeOperationRepository,
-        events: RecordingApplicationEventSink,
+        workspaces: Arc<FakeWorkspaceRepository>,
+        workflows: Arc<FakeWorkflowCatalog>,
+        operations: Arc<FakeRuntimeOperationRepository>,
+        events: Arc<RecordingApplicationEventSink>,
     }
 
     impl Fakes {
@@ -368,25 +371,25 @@ mod tests {
             workflows: Vec<WorkflowDefinition>,
         ) -> Self {
             Self {
-                workspaces: FakeWorkspaceRepository::new(workspaces),
-                workflows: FakeWorkflowCatalog {
+                workspaces: Arc::new(FakeWorkspaceRepository::new(workspaces)),
+                workflows: Arc::new(FakeWorkflowCatalog {
                     gets: Mutex::new(Vec::new()),
                     workflows,
-                },
-                operations: FakeRuntimeOperationRepository {
+                }),
+                operations: Arc::new(FakeRuntimeOperationRepository {
                     has_running,
                     running_checks: Mutex::new(Vec::new()),
-                },
-                events: RecordingApplicationEventSink::default(),
+                }),
+                events: Arc::new(RecordingApplicationEventSink::default()),
             }
         }
 
-        fn service(&self) -> WorkspaceService<'_> {
+        fn service(&self) -> WorkspaceService {
             WorkspaceService::new(
-                &self.workspaces,
-                &self.operations,
-                &self.workflows,
-                &self.events,
+                self.workspaces.clone(),
+                self.operations.clone(),
+                self.workflows.clone(),
+                self.events.clone(),
             )
         }
     }
