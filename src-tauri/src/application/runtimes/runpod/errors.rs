@@ -24,6 +24,8 @@ pub enum RunpodRuntimeError {
     NotProvisioned,
     #[error("required credential is not configured")]
     CredentialMissing,
+    #[error("runtime provider rejected the credential")]
+    InvalidCredential,
     #[error("runtime provider is unavailable")]
     ProviderUnavailable,
     #[error("application catalog is unavailable or invalid")]
@@ -35,8 +37,12 @@ pub enum RunpodRuntimeError {
 }
 
 impl From<RunpodRuntimeProviderError> for RunpodRuntimeError {
-    fn from(_: RunpodRuntimeProviderError) -> Self {
-        Self::ProviderUnavailable
+    fn from(error: RunpodRuntimeProviderError) -> Self {
+        match error {
+            RunpodRuntimeProviderError::Unauthorized => Self::InvalidCredential,
+            RunpodRuntimeProviderError::Unavailable
+            | RunpodRuntimeProviderError::ProvisionerFailed => Self::ProviderUnavailable,
+        }
     }
 }
 
@@ -73,5 +79,26 @@ impl From<SecretStoreError> for RunpodRuntimeError {
 impl From<RuntimeOperationError> for RunpodRuntimeError {
     fn from(_: RuntimeOperationError) -> Self {
         Self::InvalidTransition
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RunpodRuntimeError, RunpodRuntimeProviderError};
+
+    #[test]
+    fn provider_errors_preserve_invalid_credentials() {
+        assert_eq!(
+            RunpodRuntimeError::from(RunpodRuntimeProviderError::Unauthorized),
+            RunpodRuntimeError::InvalidCredential
+        );
+        assert_eq!(
+            RunpodRuntimeError::from(RunpodRuntimeProviderError::Unavailable),
+            RunpodRuntimeError::ProviderUnavailable
+        );
+        assert_eq!(
+            RunpodRuntimeError::from(RunpodRuntimeProviderError::ProvisionerFailed),
+            RunpodRuntimeError::ProviderUnavailable
+        );
     }
 }

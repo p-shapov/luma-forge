@@ -7,8 +7,9 @@ mod test_support;
 
 pub use errors::RunpodRuntimeError;
 pub use model::{
-    RunpodCleanupStep, RunpodContractRequirements, RunpodProgress, RunpodProvisionStep,
-    RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeDefinition, RunpodRuntimeResources,
+    RunpodCleanupStep, RunpodContractRequirements, RunpodPlacement, RunpodPlacementDatacenter,
+    RunpodPlacementGpu, RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
+    RunpodRuntimeDefinition, RunpodRuntimeResources, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
 pub use ports::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntimeCatalog,

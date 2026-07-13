@@ -18,9 +18,10 @@ use crate::application::{
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodProgress,
-    RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodPlacement,
+    RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
     RunpodRuntimeDefinition, RunpodRuntimeError, RunpodRuntimeProvider, StartProvisionerPod,
+    RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -138,6 +139,16 @@ impl RunpodRuntimeService {
             provider: dependencies.provider,
             transitions,
         }
+    }
+
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    pub async fn placement(&self) -> Result<RunpodPlacement, RunpodRuntimeError> {
+        let key = self
+            .secrets
+            .get(SecretKind::RunpodApiKey)
+            .await?
+            .ok_or(RunpodRuntimeError::CredentialMissing)?;
+        self.provider.placement(&key).await.map_err(Into::into)
     }
 
     #[crate::diagnostics::diagnostic]
@@ -273,7 +284,7 @@ impl RunpodRuntimeService {
         &self,
         #[diagnostic(show)] command: ProvisionRunpodRuntime,
     ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
-        if command.volume_size_gb > 4_000 {
+        if command.volume_size_gb > RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB {
             return Err(RunpodRuntimeError::InvalidTransition);
         }
         let mut workspace = self
@@ -567,7 +578,8 @@ mod tests {
 
     use crate::application::runtimes::runpod::{
         test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
-        RunpodRuntimeError, RunpodRuntimeResources,
+        RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodRuntimeError,
+        RunpodRuntimeResources,
     };
     use crate::application::{
         events::ApplicationEvent,
@@ -607,6 +619,38 @@ mod tests {
     fn runpod_progress(progress: RuntimeProgress) -> RunpodProgress {
         let RuntimeProgress::Runpod(progress) = progress;
         progress
+    }
+
+    #[tokio::test]
+    async fn placement_reads_the_stored_key_and_returns_normalized_options() {
+        let fakes = ProvisionFakes::ready();
+        fakes.provider.set_placement(RunpodPlacement {
+            max_volume_size_gb: 4_000,
+            datacenters: vec![RunpodPlacementDatacenter {
+                id: "EU-RO-1".into(),
+                name: "EU Romania".into(),
+                gpus: vec![RunpodPlacementGpu {
+                    id: "NVIDIA RTX 4090".into(),
+                    name: "RTX 4090".into(),
+                    vram_gb: 24,
+                }],
+            }],
+        });
+
+        let placement = fakes.service().placement().await.unwrap();
+        assert_eq!(placement.max_volume_size_gb, 4_000);
+        assert_eq!(placement.datacenters[0].gpus[0].vram_gb, 24);
+        assert_eq!(fakes.provider.calls(), vec!["placement"]);
+    }
+
+    #[tokio::test]
+    async fn placement_requires_the_runpod_key_before_calling_provider() {
+        let fakes = ProvisionFakes::ready_without_runpod_credential();
+        assert_eq!(
+            fakes.service().placement().await,
+            Err(RunpodRuntimeError::CredentialMissing)
+        );
+        assert!(fakes.provider.calls().is_empty());
     }
 
     #[tokio::test]

@@ -1,18 +1,20 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use secrecy::SecretString;
 use tokio::time::Instant;
 
 use crate::{
     application::runtimes::runpod::{
-        CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntimeProvider,
-        RunpodRuntimeProviderError, StartProvisionerPod,
+        CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodPlacement,
+        RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodRuntimeProvider,
+        RunpodRuntimeProviderError, StartProvisionerPod, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
     },
     providers::{
         runpod::{
             CreateEndpointRequest, CreateNetworkVolumeRequest, CreatePodRequest,
             CreateTemplateRequest, DeleteEndpointRequest, DeleteNetworkVolumeRequest,
-            DeletePodRequest, DeleteTemplateRequest, ProvisionerStatusRequest, RunpodProvider,
+            DeletePodRequest, DeleteTemplateRequest, PlacementRequest, PlacementResponse,
+            ProvisionerStatusRequest, RunpodProvider,
         },
         NetworkError,
     },
@@ -38,6 +40,21 @@ impl RunpodRuntimeProviderAdapter {
 #[crate::diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
+    #[diagnostic(show_output, show_error)]
+    async fn placement(
+        &self,
+        #[diagnostic(redact)] api_key: &SecretString,
+    ) -> Result<RunpodPlacement, RunpodRuntimeProviderError> {
+        let response = self
+            .provider
+            .placement(PlacementRequest {
+                credential: api_key.clone(),
+            })
+            .await
+            .map_err(map_error)?;
+        normalize_placement(response)
+    }
+
     #[diagnostic(show_output, show_error)]
     async fn create_network_volume(
         &self,
@@ -231,5 +248,136 @@ fn map_error(error: NetworkError) -> RunpodRuntimeProviderError {
     match error {
         NetworkError::Unauthorized => RunpodRuntimeProviderError::Unauthorized,
         _ => RunpodRuntimeProviderError::Unavailable,
+    }
+}
+
+fn normalize_placement(
+    response: PlacementResponse,
+) -> Result<RunpodPlacement, RunpodRuntimeProviderError> {
+    let gpus = response
+        .gpu_types
+        .ok_or(RunpodRuntimeProviderError::Unavailable)?
+        .into_iter()
+        .map(|gpu| {
+            let gpu = gpu.ok_or(RunpodRuntimeProviderError::Unavailable)?;
+            let id = gpu.id.ok_or(RunpodRuntimeProviderError::Unavailable)?;
+            let gpu = RunpodPlacementGpu {
+                id: id.clone(),
+                name: gpu
+                    .display_name
+                    .ok_or(RunpodRuntimeProviderError::Unavailable)?,
+                vram_gb: gpu
+                    .memory_gb
+                    .ok_or(RunpodRuntimeProviderError::Unavailable)?
+                    .try_into()
+                    .map_err(|_| RunpodRuntimeProviderError::Unavailable)?,
+            };
+            Ok((id, gpu))
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
+
+    let datacenters = response
+        .datacenters
+        .ok_or(RunpodRuntimeProviderError::Unavailable)?
+        .into_iter()
+        .map(|datacenter| {
+            let datacenter = datacenter.ok_or(RunpodRuntimeProviderError::Unavailable)?;
+            let datacenter_gpus = datacenter
+                .gpu_availability
+                .ok_or(RunpodRuntimeProviderError::Unavailable)?
+                .into_iter()
+                .map(|availability| {
+                    let id = availability
+                        .ok_or(RunpodRuntimeProviderError::Unavailable)?
+                        .gpu_type_id
+                        .ok_or(RunpodRuntimeProviderError::Unavailable)?;
+                    gpus.get(&id)
+                        .cloned()
+                        .ok_or(RunpodRuntimeProviderError::Unavailable)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(RunpodPlacementDatacenter {
+                id: datacenter
+                    .id
+                    .ok_or(RunpodRuntimeProviderError::Unavailable)?,
+                name: datacenter
+                    .name
+                    .ok_or(RunpodRuntimeProviderError::Unavailable)?,
+                gpus: datacenter_gpus,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(RunpodPlacement {
+        max_volume_size_gb: RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+        datacenters,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        application::runtimes::runpod::{
+            RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu,
+            RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+        },
+        providers::runpod::{
+            PlacementDatacenter, PlacementGpuAvailability, PlacementGpuType, PlacementResponse,
+        },
+    };
+
+    use super::{normalize_placement, RunpodRuntimeProviderError};
+
+    #[test]
+    fn placement_normalizes_complete_gpu_references_in_provider_order() {
+        let response = PlacementResponse {
+            gpu_types: Some(vec![Some(PlacementGpuType {
+                id: Some("NVIDIA RTX 4090".into()),
+                display_name: Some("RTX 4090".into()),
+                memory_gb: Some(24),
+            })]),
+            datacenters: Some(vec![Some(PlacementDatacenter {
+                id: Some("EU-RO-1".into()),
+                name: Some("EU Romania".into()),
+                gpu_availability: Some(vec![Some(PlacementGpuAvailability {
+                    gpu_type_id: Some("NVIDIA RTX 4090".into()),
+                    available: Some(false),
+                    stock_status: None,
+                })]),
+            })]),
+        };
+
+        assert_eq!(
+            normalize_placement(response),
+            Ok(RunpodPlacement {
+                max_volume_size_gb: RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+                datacenters: vec![RunpodPlacementDatacenter {
+                    id: "EU-RO-1".into(),
+                    name: "EU Romania".into(),
+                    gpus: vec![RunpodPlacementGpu {
+                        id: "NVIDIA RTX 4090".into(),
+                        name: "RTX 4090".into(),
+                        vram_gb: 24,
+                    }],
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn placement_rejects_malformed_gpu_data() {
+        let response = PlacementResponse {
+            gpu_types: Some(vec![Some(PlacementGpuType {
+                id: Some("gpu".into()),
+                display_name: Some("GPU".into()),
+                memory_gb: Some(-1),
+            })]),
+            datacenters: Some(vec![]),
+        };
+
+        assert_eq!(
+            normalize_placement(response),
+            Err(RunpodRuntimeProviderError::Unavailable)
+        );
     }
 }

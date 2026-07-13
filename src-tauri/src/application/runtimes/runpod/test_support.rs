@@ -31,10 +31,11 @@ use crate::application::{
 
 use super::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
-    RunpodContractRequirements, RunpodProgress, RunpodProvisionStep, RunpodRuntime,
-    RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeConfig, RunpodRuntimeDefinition,
-    RunpodRuntimeProvider, RunpodRuntimeProviderError, RunpodRuntimeResources,
-    RunpodRuntimeService, RunpodRuntimeServiceDependencies, StartProvisionerPod,
+    RunpodContractRequirements, RunpodPlacement, RunpodProgress, RunpodProvisionStep,
+    RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeConfig,
+    RunpodRuntimeDefinition, RunpodRuntimeProvider, RunpodRuntimeProviderError,
+    RunpodRuntimeResources, RunpodRuntimeService, RunpodRuntimeServiceDependencies,
+    StartProvisionerPod,
 };
 
 fn running_operation(
@@ -652,6 +653,7 @@ impl RuntimeTransitionRepository for FakeRuntimeTransitionRepository {
 #[derive(Default)]
 pub(super) struct FakeRunpodRuntimeProvider {
     calls: Mutex<Vec<&'static str>>,
+    placement: Mutex<Option<RunpodPlacement>>,
     fail_once: Mutex<Option<&'static str>>,
     block_first_call: AtomicBool,
     entered: tokio::sync::Notify,
@@ -661,6 +663,10 @@ pub(super) struct FakeRunpodRuntimeProvider {
 impl FakeRunpodRuntimeProvider {
     pub fn calls(&self) -> Vec<&'static str> {
         self.calls.lock().unwrap().clone()
+    }
+
+    pub fn set_placement(&self, placement: RunpodPlacement) {
+        *self.placement.lock().unwrap() = Some(placement);
     }
 
     pub fn fail_once(&self, method: &'static str) {
@@ -697,6 +703,18 @@ impl FakeRunpodRuntimeProvider {
 
 #[async_trait::async_trait]
 impl RunpodRuntimeProvider for FakeRunpodRuntimeProvider {
+    async fn placement(
+        &self,
+        _: &SecretString,
+    ) -> Result<RunpodPlacement, RunpodRuntimeProviderError> {
+        self.call("placement").await?;
+        self.placement
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or(RunpodRuntimeProviderError::Unavailable)
+    }
+
     async fn create_network_volume(
         &self,
         _: &SecretString,

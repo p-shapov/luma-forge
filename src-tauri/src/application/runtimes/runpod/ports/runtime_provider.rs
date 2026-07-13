@@ -1,5 +1,7 @@
 use secrecy::SecretString;
 
+use super::super::RunpodPlacement;
+
 #[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct CreateNetworkVolume {
     #[diagnostic(show)]
@@ -59,6 +61,10 @@ pub enum RunpodRuntimeProviderError {
 
 #[async_trait::async_trait]
 pub trait RunpodRuntimeProvider: Send + Sync {
+    async fn placement(
+        &self,
+        api_key: &SecretString,
+    ) -> Result<RunpodPlacement, RunpodRuntimeProviderError>;
     async fn create_network_volume(
         &self,
         api_key: &SecretString,
