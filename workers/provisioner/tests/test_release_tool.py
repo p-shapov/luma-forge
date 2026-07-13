@@ -24,217 +24,213 @@ class ProvisionerPromotionToolTests(unittest.TestCase):
         publish_index = workflow.index("Publish provisioner image")
         digest_index = workflow.index("Resolve pushed image digest")
         promotion_index = workflow.index("Promote provisioner image to catalog")
-        promotion_section = workflow.split("Promote provisioner image to catalog", maxsplit=1)[1].split(
-            "Verify provisioner promotion PR scope",
-            maxsplit=1,
-        )[0]
+        promotion_section = workflow.split(
+            "Promote provisioner image to catalog", maxsplit=1
+        )[1].split("Verify provisioner promotion PR scope", maxsplit=1)[0]
 
         self.assertLess(resolve_index, tag_index)
         self.assertLess(publish_index, digest_index)
         self.assertLess(digest_index, promotion_index)
         self.assertIn("docker inspect --format='{{index .RepoDigests 0}}'", workflow)
-        self.assertIn("workers/provisioner/release_tool.py resolve-provisioner", workflow)
+        self.assertIn("--catalog-root bundled/catalog", workflow)
         self.assertIn(
             "workers/provisioner/release_tool.py promote-provisioner-image",
             promotion_section,
         )
-        self.assertIn("--image-ref \"${{ steps.digest.outputs.provisioner_ref }}\"", promotion_section)
+        self.assertIn(
+            '--contract-revision "${{ steps.contract.outputs.contract_revision }}"',
+            promotion_section,
+        )
+        self.assertIn(
+            '--image-ref "${{ steps.digest.outputs.provisioner_ref }}"',
+            promotion_section,
+        )
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', promotion_section)
 
-    def test_provisioner_workflow_restricts_catalog_promotion_pr_to_catalog_files(self):
+    def test_provisioner_workflow_restricts_catalog_promotion_pr_scope(self):
         workflow = PROVISIONER_WORKFLOW_PATH.read_text(encoding="utf-8")
-        verify_section = workflow.split("Verify provisioner promotion PR scope", maxsplit=1)[1].split(
-            "Open provisioner promotion PR",
-            maxsplit=1,
-        )[0]
+        verify_section = workflow.split(
+            "Verify provisioner promotion PR scope", maxsplit=1
+        )[1].split("Open provisioner promotion PR", maxsplit=1)[0]
         pr_section = workflow.split("Open provisioner promotion PR", maxsplit=1)[1]
 
         self.assertIn("git status --porcelain --untracked-files=all", verify_section)
-        self.assertIn("grep -Evx 'bundled/(runtime-contracts|workflow-catalog)\\.json'", verify_section)
+        self.assertIn(
+            "bundled/catalog/entries/runtime_contracts/provisioner/${{ steps.contract.outputs.contract_revision }}/runtime_contract",
+            verify_section,
+        )
+        self.assertIn("bundled/catalog/entries/workflows/[a-z][a-z0-9-]*", verify_section)
+        self.assertIn("(metadata|model_assets|contract_requirements|execution_contract|workflow)", verify_section)
         self.assertIn("unexpected changed paths", verify_section)
         self.assertIn("add-paths:", pr_section)
-        self.assertIn("bundled/runtime-contracts.json", pr_section)
-        self.assertIn("bundled/workflow-catalog.json", pr_section)
-        self.assertIn("promote provisioner image", pr_section)
+        self.assertIn("${{ steps.promotion.outputs.runtime_contract_path }}", pr_section)
+        self.assertIn("bundled/catalog/entries/workflows", pr_section)
         self.assertIn(
-            "branch: provisioners/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}",
+            "branch: provisioners/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_revision }}",
             pr_section,
         )
         self.assertIn(
-            'commit-message: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"',
+            'commit-message: "chore(workers): promote provisioner image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_revision }}"',
             pr_section,
         )
-        self.assertIn("Published image: `${{ steps.digest.outputs.provisioner_ref }}`", pr_section)
-        self.assertIn("Catalog version: `${{ steps.contract.outputs.contract_version }}`", pr_section)
 
-    def test_next_provisioner_contract_version_uses_next_patch(self):
-        catalog = _provisioner_catalog()
-
-        version = release_tool.next_provisioner_contract_version(
-            catalog=catalog,
-            contract_id="provisioner",
-        )
-
-        self.assertEqual("1.0.1", version)
-
-    def test_promote_provisioner_image_appends_revision(self):
-        catalog = _provisioner_catalog()
-
-        updated = release_tool.promote_provisioner_image(
-            catalog=catalog,
-            contract_id="provisioner",
-            image_ref=_image_ref("4"),
-        )
-
-        revisions = updated["contracts"][0]["revisions"]
-        self.assertEqual(2, len(revisions))
-        self.assertEqual("1.0.0", revisions[0]["version"])
-        self.assertEqual("1.0.1", revisions[1]["version"])
-        self.assertEqual(_image_ref("4"), revisions[1]["image_ref"])
-
-    def test_promote_provisioner_image_rejects_duplicate_explicit_revision(self):
-        catalog = _provisioner_catalog()
-
-        with self.assertRaisesRegex(release_tool.ReleaseToolError, "already exists"):
-            release_tool.promote_provisioner_image(
-                catalog=catalog,
-                contract_id="provisioner",
-                image_ref=_image_ref("4"),
-                contract_version="1.0.0",
-            )
-
-    def test_promote_provisioner_image_rejects_mutable_image_refs(self):
-        catalog = _provisioner_catalog()
-
-        with self.assertRaisesRegex(release_tool.ReleaseToolError, "digest-pinned"):
-            release_tool.promote_provisioner_image(
-                catalog=catalog,
-                contract_id="provisioner",
-                image_ref="ghcr.io/luma-forge/provisioner-worker:latest",
-            )
-
-    def test_promote_provisioner_image_updates_workflow_catalog(self):
-        workflow_catalog = _workflow_catalog()
-
-        updated = release_tool.update_provisioner_workflow_catalog(
-            catalog=workflow_catalog,
-            contract_id="provisioner",
-            contract_version="1.0.1",
-        )
-
-        self.assertEqual(
-            "1.0.1",
-            updated["workflow_presets"][0]["revisions"][0]["contract_requirements"][0]["provisioner_contract"][
-                "version"
-            ],
-        )
-
-    def test_cli_resolve_provisioner_writes_next_catalog_revision(self):
+    def test_next_provisioner_contract_revision_uses_directory_names(self):
         with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "runtime-contracts.json"
-            output_path = Path(directory) / "github-output"
-            catalog_path.write_text(json.dumps(_provisioner_catalog()), encoding="utf-8")
-
-            exit_code = release_tool.main(
-                [
-                    "resolve-provisioner",
-                    "--catalog",
-                    str(catalog_path),
-                    "--github-output",
-                    str(output_path),
-                ]
-            )
-
-            self.assertEqual(0, exit_code)
-            output = output_path.read_text(encoding="utf-8")
-            self.assertIn("contract_id=provisioner", output)
-            self.assertIn("contract_version=1.0.1", output)
-
-    def test_cli_promote_provisioner_image_appends_revision_and_updates_workflow_catalog(self):
-        with tempfile.TemporaryDirectory() as directory:
-            catalog_path = Path(directory) / "runtime-contracts.json"
-            workflow_path = Path(directory) / "workflow-catalog.json"
-            catalog_path.write_text(json.dumps(_provisioner_catalog()), encoding="utf-8")
-            workflow_path.write_text(json.dumps(_workflow_catalog()), encoding="utf-8")
-
-            exit_code = release_tool.main(
-                [
-                    "promote-provisioner-image",
-                    "--catalog",
-                    str(catalog_path),
-                    "--workflow-catalog",
-                    str(workflow_path),
-                    "--contract-version",
-                    "1.0.1",
-                    "--image-ref",
-                    _image_ref("4"),
-                ]
-            )
-
-            self.assertEqual(0, exit_code)
-            updated_catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-            updated_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
-            self.assertEqual("1.0.1", updated_catalog["contracts"][0]["revisions"][1]["version"])
+            catalog_root = _write_catalog_tree(Path(directory))
             self.assertEqual(
                 "1.0.1",
-                updated_workflow["workflow_presets"][0]["revisions"][0]["contract_requirements"][0][
-                    "provisioner_contract"
-                ]["version"],
+                release_tool.next_provisioner_contract_revision(
+                    catalog_root, "provisioner"
+                ),
             )
 
-    def test_provisioner_contracts_reject_malformed_catalog(self):
-        with self.assertRaisesRegex(release_tool.ReleaseToolError, "contracts must be a list"):
-            release_tool.next_provisioner_contract_version(
-                catalog={"contracts": {}},
+    def test_promote_creates_new_contract_and_latest_workflow_revisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+            contract_path, workflows = release_tool.promote_provisioner_image(
+                catalog_root=catalog_root,
                 contract_id="provisioner",
+                contract_revision="1.0.1",
+                image_ref=_image_ref("4"),
+            )
+            self.assertEqual(
+                {"image_ref": _image_ref("4")},
+                json.loads(contract_path.read_text()),
+            )
+            self.assertEqual(
+                [catalog_root / "entries/workflows/workflow/1.0.1"], workflows
+            )
+            promoted = json.loads(
+                (workflows[0] / "contract_requirements").read_text()
+            )
+            self.assertEqual(
+                "1.0.1",
+                promoted["contract_requirements"][0][
+                    "provisioner_contract_ref"
+                ]["revision"],
+            )
+            self.assertEqual(
+                "1.0.0",
+                json.loads(
+                    (
+                        catalog_root
+                        / "entries/workflows/workflow/1.0.0/contract_requirements"
+                    ).read_text()
+                )["contract_requirements"][0]["provisioner_contract_ref"][
+                    "revision"
+                ],
+            )
+
+    def test_promote_rejects_mutable_image_ref(self):
+        with tempfile.TemporaryDirectory() as directory:
+            catalog_root = _write_catalog_tree(Path(directory))
+
+            with self.assertRaisesRegex(release_tool.ReleaseToolError, "digest-pinned"):
+                release_tool.promote_provisioner_image(
+                    catalog_root=catalog_root,
+                    contract_id="provisioner",
+                    contract_revision="1.0.1",
+                    image_ref="ghcr.io/luma-forge/provisioner-worker:latest",
+                )
+
+    def test_cli_writes_revision_outputs(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+            catalog_root = _write_catalog_tree(Path(directory)).relative_to(ROOT)
+            resolve_output = Path(directory) / "resolve-output"
+            promotion_output = Path(directory) / "promotion-output"
+
+            self.assertEqual(
+                0,
+                release_tool.main(
+                    [
+                        "resolve-provisioner",
+                        "--catalog-root",
+                        str(catalog_root),
+                        "--github-output",
+                        str(resolve_output),
+                    ]
+                ),
+            )
+            self.assertEqual(
+                {
+                    "contract_id": "provisioner",
+                    "contract_revision": "1.0.1",
+                },
+                _read_outputs(resolve_output),
+            )
+
+            self.assertEqual(
+                0,
+                release_tool.main(
+                    [
+                        "promote-provisioner-image",
+                        "--catalog-root",
+                        str(catalog_root),
+                        "--contract-revision",
+                        "1.0.1",
+                        "--image-ref",
+                        _image_ref("4"),
+                        "--github-output",
+                        str(promotion_output),
+                    ]
+                ),
+            )
+            self.assertEqual(
+                str(
+                    catalog_root
+                    / "entries/runtime_contracts/provisioner/1.0.1/runtime_contract"
+                ),
+                _read_outputs(promotion_output)["runtime_contract_path"],
             )
 
 
-def _provisioner_catalog():
-    return {
-        "contracts": [
-            {
-                "id": "provisioner",
-                "revisions": [
-                    {
-                        "version": "1.0.0",
-                        "image_ref": _image_ref("2"),
-                    }
-                ],
-            }
-        ],
+def _write_catalog_tree(root: Path) -> Path:
+    catalog_root = root / "catalog"
+    contract = (
+        catalog_root
+        / "entries/runtime_contracts/provisioner/1.0.0/runtime_contract"
+    )
+    contract.parent.mkdir(parents=True)
+    contract.write_text(json.dumps({"image_ref": _image_ref("2")}), encoding="utf-8")
+
+    workflow = catalog_root / "entries/workflows/workflow/1.0.0"
+    workflow.mkdir(parents=True)
+    documents = {
+        "metadata": {"name": "Workflow"},
+        "model_assets": {"model_assets": []},
+        "contract_requirements": {
+            "contract_requirements": [
+                {
+                    "runtime_type": "runpod",
+                    "endpoint_contract_ref": {
+                        "contract": "catalog/contracts/runtime_contract_revision",
+                        "id": "runpod-endpoint-workflow",
+                        "revision": "1.0.0",
+                    },
+                    "provisioner_contract_ref": {
+                        "contract": "catalog/contracts/runtime_contract_revision",
+                        "id": "provisioner",
+                        "revision": "1.0.0",
+                    },
+                }
+            ],
+        },
+        "execution_contract": {"schema_ref": {}, "input_bindings": []},
+        "workflow": {"nodes": [], "links": []},
     }
+    for name, value in documents.items():
+        (workflow / name).write_text(json.dumps(value), encoding="utf-8")
+    return catalog_root
 
 
-def _workflow_catalog():
-    return {
-        "workflow_presets": [
-            {
-                "id": "preset",
-                "revisions": [
-                    {
-                        "version": "1.0.0",
-                        "runtime_preset": "comfyui-py312-cu126-torch291",
-                        "contract_requirements": [
-                            {
-                                "runtime_type": "runpod",
-                                "endpoint_contract": {
-                                    "id": "runpod-endpoint-preset",
-                                    "version": "1.0.0",
-                                },
-                                "provisioner_contract": {
-                                    "id": "provisioner",
-                                    "version": "1.0.0",
-                                },
-                            }
-                        ],
-                    }
-                ],
-            }
-        ]
-    }
+def _read_outputs(path: Path) -> dict[str, str]:
+    return dict(
+        line.split("=", 1)
+        for line in path.read_text(encoding="utf-8").splitlines()
+    )
 
 
-def _image_ref(seed):
+def _image_ref(seed: str) -> str:
     return f"ghcr.io/luma-forge/test@sha256:{seed * 64}"
 
 
