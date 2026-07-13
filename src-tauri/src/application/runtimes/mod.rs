@@ -5,7 +5,7 @@ mod query;
 pub mod runpod;
 mod transition;
 
-pub use errors::RuntimeOperationError;
+pub use errors::{RuntimeError, RuntimeOperationError};
 #[cfg(test)]
 pub(crate) use model::progress_fixture;
 pub use model::{

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::application::{
-    runtimes::{ports::RuntimeOperationRepositoryError, runpod::RunpodRuntimeError},
+    runtimes::{ports::RuntimeOperationRepositoryError, RuntimeError},
     secrets::SecretsError,
     workspace::WorkspaceError,
 };
@@ -241,52 +241,44 @@ impl From<WorkspaceError> for CommandError<CleanupWorkspaceErrorCode> {
     }
 }
 
-impl From<RunpodRuntimeError> for CommandError<ProvisionWorkspaceErrorCode> {
-    fn from(value: RunpodRuntimeError) -> Self {
+impl From<RuntimeError> for CommandError<ProvisionWorkspaceErrorCode> {
+    fn from(value: RuntimeError) -> Self {
         error(match value {
-            RunpodRuntimeError::WorkspaceNotFound => ProvisionWorkspaceErrorCode::WorkspaceNotFound,
-            RunpodRuntimeError::WorkflowNotFound => ProvisionWorkspaceErrorCode::WorkflowNotFound,
-            RunpodRuntimeError::AlreadyProvisioned => {
-                ProvisionWorkspaceErrorCode::AlreadyProvisioned
-            }
-            RunpodRuntimeError::RuntimeFailed => ProvisionWorkspaceErrorCode::RuntimeFailed,
-            RunpodRuntimeError::OperationInProgress => {
-                ProvisionWorkspaceErrorCode::OperationInProgress
-            }
-            RunpodRuntimeError::CredentialMissing => ProvisionWorkspaceErrorCode::CredentialMissing,
-            RunpodRuntimeError::CatalogUnavailable => {
-                ProvisionWorkspaceErrorCode::CatalogUnavailable
-            }
-            RunpodRuntimeError::PersistenceUnavailable => {
+            RuntimeError::WorkspaceNotFound => ProvisionWorkspaceErrorCode::WorkspaceNotFound,
+            RuntimeError::WorkflowNotFound => ProvisionWorkspaceErrorCode::WorkflowNotFound,
+            RuntimeError::AlreadyProvisioned => ProvisionWorkspaceErrorCode::AlreadyProvisioned,
+            RuntimeError::RuntimeFailed => ProvisionWorkspaceErrorCode::RuntimeFailed,
+            RuntimeError::OperationInProgress => ProvisionWorkspaceErrorCode::OperationInProgress,
+            RuntimeError::CredentialMissing => ProvisionWorkspaceErrorCode::CredentialMissing,
+            RuntimeError::CatalogUnavailable => ProvisionWorkspaceErrorCode::CatalogUnavailable,
+            RuntimeError::PersistenceUnavailable => {
                 ProvisionWorkspaceErrorCode::PersistenceUnavailable
             }
-            RunpodRuntimeError::InvalidTransition => ProvisionWorkspaceErrorCode::InvalidTransition,
-            RunpodRuntimeError::NotProvisioned
-            | RunpodRuntimeError::InvalidCredential
-            | RunpodRuntimeError::ProviderUnavailable => ProvisionWorkspaceErrorCode::CommandError,
+            RuntimeError::InvalidTransition => ProvisionWorkspaceErrorCode::InvalidTransition,
+            RuntimeError::NotProvisioned
+            | RuntimeError::InvalidCredential
+            | RuntimeError::ProviderUnavailable => ProvisionWorkspaceErrorCode::CommandError,
         })
     }
 }
 
-impl From<RunpodRuntimeError> for CommandError<CleanupWorkspaceErrorCode> {
-    fn from(value: RunpodRuntimeError) -> Self {
+impl From<RuntimeError> for CommandError<CleanupWorkspaceErrorCode> {
+    fn from(value: RuntimeError) -> Self {
         error(match value {
-            RunpodRuntimeError::WorkspaceNotFound => CleanupWorkspaceErrorCode::WorkspaceNotFound,
-            RunpodRuntimeError::NotProvisioned => CleanupWorkspaceErrorCode::NotProvisioned,
-            RunpodRuntimeError::OperationInProgress => {
-                CleanupWorkspaceErrorCode::OperationInProgress
-            }
-            RunpodRuntimeError::CredentialMissing => CleanupWorkspaceErrorCode::CredentialMissing,
-            RunpodRuntimeError::PersistenceUnavailable => {
+            RuntimeError::WorkspaceNotFound => CleanupWorkspaceErrorCode::WorkspaceNotFound,
+            RuntimeError::NotProvisioned => CleanupWorkspaceErrorCode::NotProvisioned,
+            RuntimeError::OperationInProgress => CleanupWorkspaceErrorCode::OperationInProgress,
+            RuntimeError::CredentialMissing => CleanupWorkspaceErrorCode::CredentialMissing,
+            RuntimeError::PersistenceUnavailable => {
                 CleanupWorkspaceErrorCode::PersistenceUnavailable
             }
-            RunpodRuntimeError::InvalidTransition => CleanupWorkspaceErrorCode::InvalidTransition,
-            RunpodRuntimeError::WorkflowNotFound
-            | RunpodRuntimeError::AlreadyProvisioned
-            | RunpodRuntimeError::RuntimeFailed
-            | RunpodRuntimeError::InvalidCredential
-            | RunpodRuntimeError::ProviderUnavailable
-            | RunpodRuntimeError::CatalogUnavailable => CleanupWorkspaceErrorCode::CommandError,
+            RuntimeError::InvalidTransition => CleanupWorkspaceErrorCode::InvalidTransition,
+            RuntimeError::WorkflowNotFound
+            | RuntimeError::AlreadyProvisioned
+            | RuntimeError::RuntimeFailed
+            | RuntimeError::InvalidCredential
+            | RuntimeError::ProviderUnavailable
+            | RuntimeError::CatalogUnavailable => CleanupWorkspaceErrorCode::CommandError,
         })
     }
 }
@@ -302,23 +294,21 @@ impl From<RuntimeOperationRepositoryError> for CommandError<GetRuntimeOperations
     }
 }
 
-impl From<RunpodRuntimeError> for CommandError<GetRunpodPlacementErrorCode> {
-    fn from(value: RunpodRuntimeError) -> Self {
+impl From<RuntimeError> for CommandError<GetRunpodPlacementErrorCode> {
+    fn from(value: RuntimeError) -> Self {
         error(match value {
-            RunpodRuntimeError::CredentialMissing => GetRunpodPlacementErrorCode::CredentialMissing,
-            RunpodRuntimeError::InvalidCredential => GetRunpodPlacementErrorCode::InvalidCredential,
-            RunpodRuntimeError::ProviderUnavailable => {
-                GetRunpodPlacementErrorCode::ProviderUnavailable
-            }
-            RunpodRuntimeError::WorkspaceNotFound
-            | RunpodRuntimeError::WorkflowNotFound
-            | RunpodRuntimeError::AlreadyProvisioned
-            | RunpodRuntimeError::RuntimeFailed
-            | RunpodRuntimeError::OperationInProgress
-            | RunpodRuntimeError::NotProvisioned
-            | RunpodRuntimeError::CatalogUnavailable
-            | RunpodRuntimeError::PersistenceUnavailable
-            | RunpodRuntimeError::InvalidTransition => GetRunpodPlacementErrorCode::CommandError,
+            RuntimeError::CredentialMissing => GetRunpodPlacementErrorCode::CredentialMissing,
+            RuntimeError::InvalidCredential => GetRunpodPlacementErrorCode::InvalidCredential,
+            RuntimeError::ProviderUnavailable => GetRunpodPlacementErrorCode::ProviderUnavailable,
+            RuntimeError::WorkspaceNotFound
+            | RuntimeError::WorkflowNotFound
+            | RuntimeError::AlreadyProvisioned
+            | RuntimeError::RuntimeFailed
+            | RuntimeError::OperationInProgress
+            | RuntimeError::NotProvisioned
+            | RuntimeError::CatalogUnavailable
+            | RuntimeError::PersistenceUnavailable
+            | RuntimeError::InvalidTransition => GetRunpodPlacementErrorCode::CommandError,
         })
     }
 }
@@ -380,9 +370,9 @@ mod tests {
     #[test]
     fn unexpected_runtime_errors_map_to_command_error() {
         let provision: CommandError<ProvisionWorkspaceErrorCode> =
-            RunpodRuntimeError::ProviderUnavailable.into();
+            RuntimeError::ProviderUnavailable.into();
         let cleanup: CommandError<CleanupWorkspaceErrorCode> =
-            RunpodRuntimeError::InvalidCredential.into();
+            RuntimeError::InvalidCredential.into();
 
         assert_eq!(provision.code, ProvisionWorkspaceErrorCode::CommandError);
         assert_eq!(cleanup.code, CleanupWorkspaceErrorCode::CommandError);

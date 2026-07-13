@@ -5,7 +5,6 @@ mod service;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use errors::RunpodRuntimeError;
 pub use model::{
     RunpodCleanupStep, RunpodContractRequirements, RunpodPlacement, RunpodPlacementDatacenter,
     RunpodPlacementGpu, RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,

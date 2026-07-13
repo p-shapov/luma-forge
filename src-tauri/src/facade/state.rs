@@ -2,8 +2,8 @@ use secrecy::SecretString;
 
 use crate::application::{
     runtimes::{
-        runpod::{ProvisionRunpodRuntime, RunpodRuntimeError, RunpodRuntimeService},
-        RuntimeKind, RuntimeOperation, RuntimeOperationQueryService,
+        runpod::{ProvisionRunpodRuntime, RunpodRuntimeService},
+        RuntimeError, RuntimeKind, RuntimeOperation, RuntimeOperationQueryService,
     },
     secrets::{SecretKind, SecretsService},
     workspace::{Workspace, WorkspaceService},
@@ -25,7 +25,7 @@ impl RuntimeDispatcher {
         &self,
         workspace_id: String,
         input: ProvisionRuntimeInput,
-    ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
+    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
         match input {
             input @ ProvisionRuntimeInput::Runpod { .. } => {
                 self.runpod
@@ -38,7 +38,7 @@ impl RuntimeDispatcher {
     pub async fn cleanup(
         &self,
         workspace: Workspace,
-    ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
+    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
         match attached_runtime_kind(&workspace)? {
             RuntimeKind::Runpod => self.runpod.start_cleanup(workspace).await,
         }
@@ -47,7 +47,7 @@ impl RuntimeDispatcher {
     pub async fn recover_interrupted(
         &self,
         operations: Vec<RuntimeOperation>,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let mut runpod = Vec::new();
         for operation in operations {
             match operation.runtime_kind {
@@ -232,7 +232,7 @@ impl FacadeState {
         Ok(())
     }
 
-    pub async fn recover_interrupted(&self) -> Result<(), RunpodRuntimeError> {
+    pub async fn recover_interrupted(&self) -> Result<(), RuntimeError> {
         let operations = self.operations.running().await?;
         self.runtimes.recover_interrupted(operations).await
     }
@@ -256,12 +256,12 @@ fn runpod_provision_command(
     }
 }
 
-fn attached_runtime_kind(workspace: &Workspace) -> Result<RuntimeKind, RunpodRuntimeError> {
+fn attached_runtime_kind(workspace: &Workspace) -> Result<RuntimeKind, RuntimeError> {
     workspace
         .runtime
         .as_ref()
         .map(|runtime| runtime.provider.kind())
-        .ok_or(RunpodRuntimeError::NotProvisioned)
+        .ok_or(RuntimeError::NotProvisioned)
 }
 
 #[cfg(test)]
@@ -270,10 +270,8 @@ mod tests {
 
     use crate::application::{
         runtimes::{
-            runpod::{
-                RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeError, RunpodRuntimeResources,
-            },
-            CatalogRef, Runtime, RuntimeKind, RuntimeProvider, RuntimeState,
+            runpod::{RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources},
+            CatalogRef, Runtime, RuntimeError, RuntimeKind, RuntimeProvider, RuntimeState,
         },
         workspace::Workspace,
     };
@@ -330,7 +328,7 @@ mod tests {
         };
         assert_eq!(
             attached_runtime_kind(&workspace),
-            Err(RunpodRuntimeError::NotProvisioned)
+            Err(RuntimeError::NotProvisioned)
         );
     }
 }

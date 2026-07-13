@@ -6,9 +6,9 @@ use uuid::Uuid;
 use crate::application::{
     events::ApplicationEventSink,
     runtimes::{
-        ports::RuntimeTransitionRepository, Runtime, RuntimeContractRequirements, RuntimeKind,
-        RuntimeOperation, RuntimeOperationKind, RuntimeProgress, RuntimeProvider, RuntimeState,
-        RuntimeTransitionContext, WorkflowDefinition,
+        ports::RuntimeTransitionRepository, Runtime, RuntimeContractRequirements, RuntimeError,
+        RuntimeKind, RuntimeOperation, RuntimeOperationKind, RuntimeProgress, RuntimeProvider,
+        RuntimeState, RuntimeTransitionContext, WorkflowDefinition,
     },
     secrets::{SecretKind, SecretStore},
     workspace::{
@@ -20,7 +20,7 @@ use crate::application::{
 use super::{
     CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodPlacement,
     RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
-    RunpodRuntimeDefinition, RunpodRuntimeError, RunpodRuntimeProvider, StartProvisionerPod,
+    RunpodRuntimeDefinition, RunpodRuntimeProvider, StartProvisionerPod,
     RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
 
@@ -36,74 +36,72 @@ pub struct ProvisionRunpodRuntime {
     pub volume_size_gb: u64,
 }
 
-fn provision_conflict(state: RuntimeState) -> RunpodRuntimeError {
+fn provision_conflict(state: RuntimeState) -> RuntimeError {
     match state {
-        RuntimeState::Ready => RunpodRuntimeError::AlreadyProvisioned,
-        RuntimeState::Failed => RunpodRuntimeError::RuntimeFailed,
-        RuntimeState::Provisioning | RuntimeState::CleaningUp => {
-            RunpodRuntimeError::OperationInProgress
-        }
+        RuntimeState::Ready => RuntimeError::AlreadyProvisioned,
+        RuntimeState::Failed => RuntimeError::RuntimeFailed,
+        RuntimeState::Provisioning | RuntimeState::CleaningUp => RuntimeError::OperationInProgress,
     }
 }
 
-fn begin_cleanup(workspace: &mut Workspace) -> Result<(), RunpodRuntimeError> {
+fn begin_cleanup(workspace: &mut Workspace) -> Result<(), RuntimeError> {
     runpod(workspace)?;
     let runtime = workspace
         .runtime
         .as_mut()
-        .ok_or(RunpodRuntimeError::NotProvisioned)?;
+        .ok_or(RuntimeError::NotProvisioned)?;
     match runtime.state {
         RuntimeState::Ready | RuntimeState::Failed => {
             runtime.state = RuntimeState::CleaningUp;
             Ok(())
         }
         RuntimeState::Provisioning | RuntimeState::CleaningUp => {
-            Err(RunpodRuntimeError::OperationInProgress)
+            Err(RuntimeError::OperationInProgress)
         }
     }
 }
 
-fn mark_ready(workspace: &mut Workspace) -> Result<(), RunpodRuntimeError> {
+fn mark_ready(workspace: &mut Workspace) -> Result<(), RuntimeError> {
     let runtime = workspace
         .runtime
         .as_mut()
-        .ok_or(RunpodRuntimeError::NotProvisioned)?;
+        .ok_or(RuntimeError::NotProvisioned)?;
     if runtime.state != RuntimeState::Provisioning {
-        return Err(RunpodRuntimeError::InvalidTransition);
+        return Err(RuntimeError::InvalidTransition);
     }
     runtime.state = RuntimeState::Ready;
     Ok(())
 }
 
-fn mark_failed(workspace: &mut Workspace) -> Result<(), RunpodRuntimeError> {
+fn mark_failed(workspace: &mut Workspace) -> Result<(), RuntimeError> {
     let runtime = workspace
         .runtime
         .as_mut()
-        .ok_or(RunpodRuntimeError::NotProvisioned)?;
+        .ok_or(RuntimeError::NotProvisioned)?;
     match runtime.state {
         RuntimeState::Provisioning | RuntimeState::CleaningUp => {
             runtime.state = RuntimeState::Failed;
             Ok(())
         }
-        RuntimeState::Ready | RuntimeState::Failed => Err(RunpodRuntimeError::InvalidTransition),
+        RuntimeState::Ready | RuntimeState::Failed => Err(RuntimeError::InvalidTransition),
     }
 }
 
-fn runpod(workspace: &Workspace) -> Result<&RunpodRuntime, RunpodRuntimeError> {
+fn runpod(workspace: &Workspace) -> Result<&RunpodRuntime, RuntimeError> {
     match workspace.runtime.as_ref().map(|runtime| &runtime.provider) {
         Some(RuntimeProvider::Runpod(runtime)) => Ok(runtime),
-        None => Err(RunpodRuntimeError::NotProvisioned),
+        None => Err(RuntimeError::NotProvisioned),
     }
 }
 
-fn runpod_mut(workspace: &mut Workspace) -> Result<&mut RunpodRuntime, RunpodRuntimeError> {
+fn runpod_mut(workspace: &mut Workspace) -> Result<&mut RunpodRuntime, RuntimeError> {
     match workspace
         .runtime
         .as_mut()
         .map(|runtime| &mut runtime.provider)
     {
         Some(RuntimeProvider::Runpod(runtime)) => Ok(runtime),
-        None => Err(RunpodRuntimeError::NotProvisioned),
+        None => Err(RuntimeError::NotProvisioned),
     }
 }
 
@@ -142,12 +140,12 @@ impl RunpodRuntimeService {
     }
 
     #[crate::diagnostics::diagnostic(show_output, show_error)]
-    pub async fn placement(&self) -> Result<RunpodPlacement, RunpodRuntimeError> {
+    pub async fn placement(&self) -> Result<RunpodPlacement, RuntimeError> {
         let key = self
             .secrets
             .get(SecretKind::RunpodApiKey)
             .await?
-            .ok_or(RunpodRuntimeError::CredentialMissing)?;
+            .ok_or(RuntimeError::CredentialMissing)?;
         self.provider.placement(&key).await.map_err(Into::into)
     }
 
@@ -155,13 +153,13 @@ impl RunpodRuntimeService {
     pub async fn start_cleanup(
         &self,
         #[diagnostic(show)] mut workspace: Workspace,
-    ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
+    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
         let workspace_id = workspace.id.clone();
         let runpod_key = self
             .secrets
             .get(SecretKind::RunpodApiKey)
             .await?
-            .ok_or(RunpodRuntimeError::CredentialMissing)?;
+            .ok_or(RuntimeError::CredentialMissing)?;
         begin_cleanup(&mut workspace)?;
 
         let operation = RuntimeOperation::running(
@@ -189,7 +187,7 @@ impl RunpodRuntimeService {
         runpod_key: secrecy::SecretString,
         mut workspace: Workspace,
         mut operation: RuntimeOperation,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         if let Some(id) = runpod(&workspace)?.resources.endpoint_id.clone() {
             if let Err(error) = self.provider.delete_endpoint(&runpod_key, &id).await {
                 self.fail_transition(&mut workspace, &mut operation).await?;
@@ -254,7 +252,7 @@ impl RunpodRuntimeService {
     pub async fn recover_interrupted(
         &self,
         operations: Vec<RuntimeOperation>,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         for operation in operations {
             self.recover_one(operation).await?;
         }
@@ -262,17 +260,17 @@ impl RunpodRuntimeService {
     }
 
     #[crate::diagnostics::diagnostic(restore = operation.trace_id)]
-    async fn recover_one(&self, operation: RuntimeOperation) -> Result<(), RunpodRuntimeError> {
+    async fn recover_one(&self, operation: RuntimeOperation) -> Result<(), RuntimeError> {
         let mut operation = operation;
         if operation.runtime_kind != RuntimeKind::Runpod {
-            return Err(RunpodRuntimeError::PersistenceUnavailable);
+            return Err(RuntimeError::PersistenceUnavailable);
         }
         let mut workspace = self
             .workspaces
             .get(&operation.workspace_id)
             .await
-            .map_err(|_| RunpodRuntimeError::PersistenceUnavailable)?
-            .ok_or(RunpodRuntimeError::NotProvisioned)?;
+            .map_err(|_| RuntimeError::PersistenceUnavailable)?
+            .ok_or(RuntimeError::NotProvisioned)?;
         mark_failed(&mut workspace)?;
         operation.fail(OffsetDateTime::now_utc())?;
         self.transitions.save(&workspace, &operation).await?;
@@ -283,16 +281,16 @@ impl RunpodRuntimeService {
     pub async fn start_provision(
         &self,
         #[diagnostic(show)] command: ProvisionRunpodRuntime,
-    ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
+    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
         if command.volume_size_gb > RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB {
-            return Err(RunpodRuntimeError::InvalidTransition);
+            return Err(RuntimeError::InvalidTransition);
         }
         let mut workspace = self
             .workspaces
             .get(&command.workspace_id)
             .await
-            .map_err(|_| RunpodRuntimeError::PersistenceUnavailable)?
-            .ok_or(RunpodRuntimeError::WorkspaceNotFound)?;
+            .map_err(|_| RuntimeError::PersistenceUnavailable)?
+            .ok_or(RuntimeError::WorkspaceNotFound)?;
 
         if let Some(runtime) = &workspace.runtime {
             return Err(provision_conflict(runtime.state));
@@ -302,15 +300,15 @@ impl RunpodRuntimeService {
             .workflows
             .get(&workspace.workflow.id, &workspace.workflow.revision)
             .await
-            .map_err(|_| RunpodRuntimeError::CatalogUnavailable)?
-            .ok_or(RunpodRuntimeError::WorkflowNotFound)?;
+            .map_err(|_| RuntimeError::CatalogUnavailable)?
+            .ok_or(RuntimeError::WorkflowNotFound)?;
         let requirements = workflow
             .contract_requirements
             .first()
             .map(|requirements| match requirements {
                 RuntimeContractRequirements::Runpod(value) => value,
             })
-            .ok_or(RunpodRuntimeError::CatalogUnavailable)?;
+            .ok_or(RuntimeError::CatalogUnavailable)?;
         let definition = self
             .runtime_catalog
             .resolve(&workflow.runtime_preset_ref, requirements)
@@ -319,13 +317,13 @@ impl RunpodRuntimeService {
             .secrets
             .get(SecretKind::RunpodApiKey)
             .await?
-            .ok_or(RunpodRuntimeError::CredentialMissing)?;
+            .ok_or(RuntimeError::CredentialMissing)?;
         let hugging_face_api_key = if workflow.summary.requires_hugging_face_api_key {
             Some(
                 self.secrets
                     .get(SecretKind::HuggingFaceApiKey)
                     .await?
-                    .ok_or(RunpodRuntimeError::CredentialMissing)?,
+                    .ok_or(RuntimeError::CredentialMissing)?,
             )
         } else {
             None
@@ -380,7 +378,7 @@ impl RunpodRuntimeService {
         hugging_face_api_key: Option<secrecy::SecretString>,
         mut workspace: Workspace,
         mut operation: RuntimeOperation,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         let volume_id = match self
             .provider
             .create_network_volume(
@@ -531,7 +529,7 @@ impl RunpodRuntimeService {
         workspace: &Workspace,
         operation: &mut RuntimeOperation,
         step: RunpodProvisionStep,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         operation.set_progress(
             RuntimeProgress::Runpod(RunpodProgress::Provision(step)),
             OffsetDateTime::now_utc(),
@@ -547,7 +545,7 @@ impl RunpodRuntimeService {
         workspace: &Workspace,
         operation: &mut RuntimeOperation,
         step: RunpodCleanupStep,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         operation.set_progress(
             RuntimeProgress::Runpod(RunpodProgress::Cleanup(step)),
             OffsetDateTime::now_utc(),
@@ -562,7 +560,7 @@ impl RunpodRuntimeService {
         &self,
         workspace: &mut Workspace,
         operation: &mut RuntimeOperation,
-    ) -> Result<(), RunpodRuntimeError> {
+    ) -> Result<(), RuntimeError> {
         mark_failed(workspace)?;
         operation.fail(OffsetDateTime::now_utc())?;
         self.transitions
@@ -578,15 +576,14 @@ mod tests {
 
     use crate::application::runtimes::runpod::{
         test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
-        RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodRuntimeError,
-        RunpodRuntimeResources,
+        RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodRuntimeResources,
     };
     use crate::application::{
         events::ApplicationEvent,
         runtimes::{
             runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-            Runtime, RuntimeKind, RuntimeOperation, RuntimeOperationState, RuntimeProgress,
-            RuntimeProvider, RuntimeState,
+            Runtime, RuntimeError, RuntimeKind, RuntimeOperation, RuntimeOperationState,
+            RuntimeProgress, RuntimeProvider, RuntimeState,
         },
         workspace::Workspace,
     };
@@ -594,14 +591,14 @@ mod tests {
     #[crate::diagnostics::diagnostic(root)]
     async fn start_provision(
         fakes: &ProvisionFakes,
-    ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
+    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
         fakes.service().start_provision(provision_command()).await
     }
 
     #[crate::diagnostics::diagnostic(root)]
     async fn start_cleanup(
         fakes: &CleanupFakes,
-    ) -> Result<(Workspace, RuntimeOperation), RunpodRuntimeError> {
+    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
         fakes
             .service()
             .start_cleanup(fakes.workspace_snapshot())
@@ -609,7 +606,7 @@ mod tests {
     }
 
     #[crate::diagnostics::diagnostic(root)]
-    async fn fail_interrupted(fakes: &RecoveryFakes) -> Result<(), RunpodRuntimeError> {
+    async fn fail_interrupted(fakes: &RecoveryFakes) -> Result<(), RuntimeError> {
         fakes
             .service()
             .recover_interrupted(fakes.running_operations())
@@ -648,7 +645,7 @@ mod tests {
         let fakes = ProvisionFakes::ready_without_runpod_credential();
         assert_eq!(
             fakes.service().placement().await,
-            Err(RunpodRuntimeError::CredentialMissing)
+            Err(RuntimeError::CredentialMissing)
         );
         assert!(fakes.provider.calls().is_empty());
     }
@@ -705,7 +702,7 @@ mod tests {
 
     #[crate::diagnostics::diagnostic(root)]
     #[tokio::test]
-    async fn start_provision_persists_the_active_trace() -> Result<(), RunpodRuntimeError> {
+    async fn start_provision_persists_the_active_trace() -> Result<(), RuntimeError> {
         let trace_id = crate::diagnostics::current_trace_uuid().unwrap();
         let fakes = ProvisionFakes::ready();
 
@@ -859,7 +856,7 @@ mod tests {
 
         assert_eq!(
             start_provision(&fakes).await,
-            Err(RunpodRuntimeError::CredentialMissing)
+            Err(RuntimeError::CredentialMissing)
         );
         assert!(fakes.repository.saved_states().is_empty());
         assert!(fakes.provider.calls().is_empty());
@@ -874,7 +871,7 @@ mod tests {
 
         assert_eq!(
             fakes.service().start_provision(command).await,
-            Err(RunpodRuntimeError::InvalidTransition)
+            Err(RuntimeError::InvalidTransition)
         );
         assert!(fakes.repository.saved_states().is_empty());
         assert!(fakes.provider.calls().is_empty());
@@ -1000,7 +997,7 @@ mod tests {
 
         assert_eq!(
             start_cleanup(&fakes).await,
-            Err(RunpodRuntimeError::NotProvisioned)
+            Err(RuntimeError::NotProvisioned)
         );
         assert!(fakes.provider.calls().is_empty());
         assert!(fakes.events.events().is_empty());
@@ -1012,7 +1009,7 @@ mod tests {
 
         assert_eq!(
             start_cleanup(&fakes).await,
-            Err(RunpodRuntimeError::CredentialMissing)
+            Err(RuntimeError::CredentialMissing)
         );
         assert!(fakes.provider.calls().is_empty());
         assert!(fakes.events.events().is_empty());
