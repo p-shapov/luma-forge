@@ -27,7 +27,3 @@ workers/*/src/*.egg-info/
 *.njsproj
 *.sln
 *.sw?
-
-# OpenSpec directories
-openspec/changes
-.worktrees/
