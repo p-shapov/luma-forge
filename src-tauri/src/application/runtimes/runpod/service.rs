@@ -18,10 +18,10 @@ use crate::application::{
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep, RunpodPlacement,
-    RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
-    RunpodRuntimeDefinition, RunpodRuntimeProvider, StartProvisionerPod,
-    RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
+    RunpodContractRequirements, RunpodPlacement, RunpodProgress, RunpodProvisionStep,
+    RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig, RunpodRuntimeDefinition,
+    RunpodRuntimeProvider, StartProvisionerPod, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -88,21 +88,34 @@ fn mark_failed(workspace: &mut Workspace) -> Result<(), RuntimeError> {
 }
 
 fn runpod(workspace: &Workspace) -> Result<&RunpodRuntime, RuntimeError> {
-    match workspace.runtime.as_ref().map(|runtime| &runtime.provider) {
-        Some(RuntimeProvider::Runpod(runtime)) => Ok(runtime),
-        None => Err(RuntimeError::NotProvisioned),
-    }
+    let runtime = workspace
+        .runtime
+        .as_ref()
+        .ok_or(RuntimeError::NotProvisioned)?;
+    runtime
+        .provider
+        .as_runpod()
+        .ok_or(RuntimeError::InvalidTransition)
 }
 
 fn runpod_mut(workspace: &mut Workspace) -> Result<&mut RunpodRuntime, RuntimeError> {
-    match workspace
+    let runtime = workspace
         .runtime
         .as_mut()
-        .map(|runtime| &mut runtime.provider)
-    {
-        Some(RuntimeProvider::Runpod(runtime)) => Ok(runtime),
-        None => Err(RuntimeError::NotProvisioned),
-    }
+        .ok_or(RuntimeError::NotProvisioned)?;
+    runtime
+        .provider
+        .as_runpod_mut()
+        .ok_or(RuntimeError::InvalidTransition)
+}
+
+fn runpod_requirements(
+    requirements: &[RuntimeContractRequirements],
+) -> Result<&RunpodContractRequirements, RuntimeError> {
+    requirements
+        .iter()
+        .find_map(RuntimeContractRequirements::as_runpod)
+        .ok_or(RuntimeError::CatalogUnavailable)
 }
 
 #[derive(Clone)]
@@ -302,13 +315,7 @@ impl RunpodRuntimeService {
             .await
             .map_err(|_| RuntimeError::CatalogUnavailable)?
             .ok_or(RuntimeError::WorkflowNotFound)?;
-        let requirements = workflow
-            .contract_requirements
-            .first()
-            .map(|requirements| match requirements {
-                RuntimeContractRequirements::Runpod(value) => value,
-            })
-            .ok_or(RuntimeError::CatalogUnavailable)?;
+        let requirements = runpod_requirements(&workflow.contract_requirements)?;
         let definition = self
             .runtime_catalog
             .resolve(&workflow.runtime_preset_ref, requirements)
@@ -581,12 +588,30 @@ mod tests {
     use crate::application::{
         events::ApplicationEvent,
         runtimes::{
-            runpod::{RunpodCleanupStep, RunpodProgress, RunpodProvisionStep},
-            Runtime, RuntimeError, RuntimeKind, RuntimeOperation, RuntimeOperationState,
-            RuntimeProgress, RuntimeProvider, RuntimeState,
+            runpod::{
+                RunpodCleanupStep, RunpodContractRequirements, RunpodProgress, RunpodProvisionStep,
+            },
+            CatalogRef, Runtime, RuntimeContractRequirements, RuntimeError, RuntimeKind,
+            RuntimeOperation, RuntimeOperationState, RuntimeProgress, RuntimeProvider,
+            RuntimeState,
         },
         workspace::Workspace,
     };
+
+    #[test]
+    fn runpod_requirement_lookup_rejects_a_missing_requirement() {
+        let expected = RunpodContractRequirements {
+            provisioner_contract_ref: CatalogRef::new("provisioner", "1"),
+            endpoint_contract_ref: CatalogRef::new("endpoint", "1"),
+        };
+        let requirements = vec![RuntimeContractRequirements::Runpod(expected.clone())];
+
+        assert_eq!(super::runpod_requirements(&requirements), Ok(&expected));
+        assert_eq!(
+            super::runpod_requirements(&[]),
+            Err(RuntimeError::CatalogUnavailable)
+        );
+    }
 
     #[crate::diagnostics::diagnostic(root)]
     async fn start_provision(

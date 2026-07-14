@@ -28,6 +28,14 @@ pub enum RuntimeContractRequirements {
     Runpod(#[diagnostic(show)] RunpodContractRequirements),
 }
 
+impl RuntimeContractRequirements {
+    pub fn as_runpod(&self) -> Option<&RunpodContractRequirements> {
+        match self {
+            Self::Runpod(value) => Some(value),
+        }
+    }
+}
+
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct WorkflowSummary {
     #[diagnostic(show)]
@@ -79,6 +87,18 @@ impl RuntimeProvider {
     pub fn kind(&self) -> RuntimeKind {
         match self {
             Self::Runpod(_) => RuntimeKind::Runpod,
+        }
+    }
+
+    pub fn as_runpod(&self) -> Option<&RunpodRuntime> {
+        match self {
+            Self::Runpod(value) => Some(value),
+        }
+    }
+
+    pub fn as_runpod_mut(&mut self) -> Option<&mut RunpodRuntime> {
+        match self {
+            Self::Runpod(value) => Some(value),
         }
     }
 }
@@ -211,7 +231,8 @@ pub(crate) fn progress_fixture() -> RuntimeProgress {
 mod tests {
     use super::*;
     use crate::application::runtimes::runpod::{
-        RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
+        RunpodContractRequirements, RunpodProgress, RunpodProvisionStep, RunpodRuntime,
+        RunpodRuntimeConfig,
     };
 
     #[test]
@@ -228,6 +249,28 @@ mod tests {
         };
 
         assert_eq!(runtime.kind(), RuntimeKind::Runpod);
+    }
+
+    #[test]
+    fn runtime_unions_expose_their_runpod_values() {
+        let mut provider =
+            RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(RunpodRuntimeConfig {
+                datacenter_id: "EU-RO-1".into(),
+                gpu_id: "gpu-1".into(),
+                volume_size_gb: 100,
+            }));
+
+        assert_eq!(provider.as_runpod().unwrap().config.volume_size_gb, 100);
+        provider.as_runpod_mut().unwrap().config.volume_size_gb = 120;
+        assert_eq!(provider.as_runpod().unwrap().config.volume_size_gb, 120);
+
+        let expected = RunpodContractRequirements {
+            provisioner_contract_ref: CatalogRef::new("provisioner", "1"),
+            endpoint_contract_ref: CatalogRef::new("endpoint", "1"),
+        };
+        let requirements = RuntimeContractRequirements::Runpod(expected.clone());
+
+        assert_eq!(requirements.as_runpod(), Some(&expected));
     }
 
     #[test]
