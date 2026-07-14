@@ -18,7 +18,7 @@ use crate::application::{
         },
         CatalogRef, Runtime, RuntimeContractRequirements, RuntimeKind, RuntimeOperation,
         RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, RuntimeProvider,
-        RuntimeState, WorkflowDefinition, WorkflowSummary,
+        RuntimeService, RuntimeState, WorkflowDefinition, WorkflowSummary,
     },
     secrets::{SecretKind, SecretStore, SecretStoreError},
     workspace::{
@@ -161,6 +161,18 @@ impl ProvisionFakes {
 
     pub fn service(&self) -> RunpodRuntimeService {
         self.service_with_persistence(self.workspaces.clone(), self.repository.clone())
+    }
+
+    pub fn runtime_service(&self) -> RuntimeService {
+        RuntimeService::new(
+            self.workspaces.clone(),
+            self.operations.clone(),
+            self.service(),
+        )
+    }
+
+    pub fn saved_states(&self) -> Vec<(RuntimeState, RuntimeOperationState)> {
+        self.repository.saved_states()
     }
 
     pub fn service_with_persistence(
