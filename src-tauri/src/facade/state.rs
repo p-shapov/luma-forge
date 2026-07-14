@@ -3,66 +3,20 @@ use secrecy::SecretString;
 use crate::application::{
     runtimes::{
         runpod::{ProvisionRunpodRuntime, RunpodRuntimeService},
-        RuntimeError, RuntimeKind, RuntimeOperation, RuntimeOperationQueryService,
+        ProvisionRuntime, RuntimeError, RuntimeOperationQueryService, RuntimeService,
     },
     secrets::{SecretKind, SecretsService},
-    workspace::{Workspace, WorkspaceService},
+    workspace::WorkspaceService,
 };
 
 use super::{errors::*, model::*};
-
-#[derive(Clone)]
-pub struct RuntimeDispatcher {
-    runpod: RunpodRuntimeService,
-}
-
-impl RuntimeDispatcher {
-    pub fn new(runpod: RunpodRuntimeService) -> Self {
-        Self { runpod }
-    }
-
-    pub async fn provision(
-        &self,
-        workspace_id: String,
-        input: ProvisionRuntimeInput,
-    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
-        match input {
-            input @ ProvisionRuntimeInput::Runpod { .. } => {
-                self.runpod
-                    .start_provision(runpod_provision_command(&workspace_id, input))
-                    .await
-            }
-        }
-    }
-
-    pub async fn cleanup(
-        &self,
-        workspace: Workspace,
-    ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
-        match attached_runtime_kind(&workspace)? {
-            RuntimeKind::Runpod => self.runpod.start_cleanup(workspace).await,
-        }
-    }
-
-    pub async fn recover_interrupted(
-        &self,
-        operations: Vec<RuntimeOperation>,
-    ) -> Result<(), RuntimeError> {
-        let mut runpod = Vec::new();
-        for operation in operations {
-            match operation.runtime_kind {
-                RuntimeKind::Runpod => runpod.push(operation),
-            }
-        }
-        self.runpod.recover_interrupted(runpod).await
-    }
-}
 
 pub struct FacadeState {
     workspaces: WorkspaceService,
     secrets: SecretsService,
     operations: RuntimeOperationQueryService,
-    runtimes: RuntimeDispatcher,
+    runtimes: RuntimeService,
+    runpod: RunpodRuntimeService,
 }
 
 impl FacadeState {
@@ -70,13 +24,15 @@ impl FacadeState {
         workspaces: WorkspaceService,
         secrets: SecretsService,
         operations: RuntimeOperationQueryService,
-        runtimes: RuntimeDispatcher,
+        runtimes: RuntimeService,
+        runpod: RunpodRuntimeService,
     ) -> Self {
         Self {
             workspaces,
             secrets,
             operations,
             runtimes,
+            runpod,
         }
     }
 
@@ -132,7 +88,7 @@ impl FacadeState {
     ) -> CommandResult<WorkspaceOperationDto, ProvisionWorkspaceErrorCode> {
         let (workspace, operation) = self
             .runtimes
-            .provision(request.workspace_id, request.runtime)
+            .start_provision(provision_command(&request.workspace_id, request.runtime))
             .await?;
         Ok(WorkspaceOperationDto {
             workspace: workspace.try_into()?,
@@ -144,8 +100,7 @@ impl FacadeState {
         &self,
         request: WorkspaceIdRequest,
     ) -> CommandResult<WorkspaceOperationDto, CleanupWorkspaceErrorCode> {
-        let workspace = self.workspaces.get(&request.workspace_id).await?;
-        let (workspace, operation) = self.runtimes.cleanup(workspace).await?;
+        let (workspace, operation) = self.runtimes.start_cleanup(&request.workspace_id).await?;
         Ok(WorkspaceOperationDto {
             workspace: workspace.try_into()?,
             operation: operation.try_into()?,
@@ -173,7 +128,7 @@ impl FacadeState {
     pub async fn get_runpod_placement(
         &self,
     ) -> CommandResult<RunpodPlacementDto, GetRunpodPlacementErrorCode> {
-        Ok(self.runtimes.runpod.placement().await?.into())
+        Ok(self.runpod.placement().await?.into())
     }
 
     pub async fn setup_runpod_api_key(
@@ -233,74 +188,34 @@ impl FacadeState {
     }
 
     pub async fn recover_interrupted(&self) -> Result<(), RuntimeError> {
-        let operations = self.operations.running().await?;
-        self.runtimes.recover_interrupted(operations).await
+        self.runtimes.recover_interrupted().await
     }
 }
 
-fn runpod_provision_command(
-    workspace_id: &str,
-    input: ProvisionRuntimeInput,
-) -> ProvisionRunpodRuntime {
+fn provision_command(workspace_id: &str, input: ProvisionRuntimeInput) -> ProvisionRuntime {
     match input {
         ProvisionRuntimeInput::Runpod {
             datacenter_id,
             gpu_id,
             volume_size_gb,
-        } => ProvisionRunpodRuntime {
+        } => ProvisionRuntime::Runpod(ProvisionRunpodRuntime {
             workspace_id: workspace_id.to_owned(),
             datacenter_id,
             gpu_id,
             volume_size_gb,
-        },
+        }),
     }
-}
-
-fn attached_runtime_kind(workspace: &Workspace) -> Result<RuntimeKind, RuntimeError> {
-    workspace
-        .runtime
-        .as_ref()
-        .map(|runtime| runtime.provider.kind())
-        .ok_or(RuntimeError::NotProvisioned)
 }
 
 #[cfg(test)]
 mod tests {
-    use time::OffsetDateTime;
+    use crate::application::runtimes::ProvisionRuntime;
 
-    use crate::application::{
-        runtimes::{
-            runpod::{RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources},
-            CatalogRef, Runtime, RuntimeError, RuntimeKind, RuntimeProvider, RuntimeState,
-        },
-        workspace::Workspace,
-    };
-
-    use super::{attached_runtime_kind, runpod_provision_command};
-    use crate::facade::ProvisionRuntimeInput;
-
-    fn workspace_with_runpod_runtime() -> Workspace {
-        Workspace {
-            id: "workspace-1".into(),
-            workflow: CatalogRef::new("workflow-1", "1"),
-            created_at: OffsetDateTime::UNIX_EPOCH,
-            runtime: Some(Runtime {
-                state: RuntimeState::Ready,
-                provider: RuntimeProvider::Runpod(RunpodRuntime {
-                    config: RunpodRuntimeConfig {
-                        datacenter_id: "EU-RO-1".into(),
-                        gpu_id: "gpu-1".into(),
-                        volume_size_gb: 100,
-                    },
-                    resources: RunpodRuntimeResources::default(),
-                }),
-            }),
-        }
-    }
+    use super::{provision_command, ProvisionRuntimeInput};
 
     #[test]
-    fn provision_dispatch_maps_the_runpod_input() {
-        let command = runpod_provision_command(
+    fn provision_input_maps_to_the_application_command() {
+        let ProvisionRuntime::Runpod(command) = provision_command(
             "workspace-1",
             ProvisionRuntimeInput::Runpod {
                 datacenter_id: "EU-RO-1".into(),
@@ -312,23 +227,5 @@ mod tests {
         assert_eq!(command.datacenter_id, "EU-RO-1");
         assert_eq!(command.gpu_id, "gpu-1");
         assert_eq!(command.volume_size_gb, 100);
-    }
-
-    #[test]
-    fn cleanup_dispatch_selects_the_attached_provider() {
-        let workspace = workspace_with_runpod_runtime();
-        assert_eq!(attached_runtime_kind(&workspace), Ok(RuntimeKind::Runpod));
-    }
-
-    #[test]
-    fn cleanup_dispatch_rejects_an_unprovisioned_workspace() {
-        let workspace = Workspace {
-            runtime: None,
-            ..workspace_with_runpod_runtime()
-        };
-        assert_eq!(
-            attached_runtime_kind(&workspace),
-            Err(RuntimeError::NotProvisioned)
-        );
     }
 }

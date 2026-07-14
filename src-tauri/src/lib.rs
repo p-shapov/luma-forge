@@ -20,12 +20,12 @@ use adapters::{
 use application::{
     runtimes::{
         runpod::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
-        RuntimeOperationQueryService,
+        RuntimeOperationQueryService, RuntimeService,
     },
     secrets::SecretsService,
     workspace::WorkspaceService,
 };
-use facade::{FacadeState, RuntimeDispatcher, TauriEventSink};
+use facade::{FacadeState, TauriEventSink};
 use infra::sqlite::database::SqliteInfraDatabase;
 use tauri::Manager;
 
@@ -108,9 +108,9 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
         WorkspaceService::new(workspaces.clone(), bundled.clone(), events.clone());
     let secrets_service =
         SecretsService::new(secrets.clone(), runpod_identity, hugging_face_identity);
-    let operations_service = RuntimeOperationQueryService::new(operations);
+    let operations_service = RuntimeOperationQueryService::new(operations.clone());
     let runpod_service = RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
-        workspaces,
+        workspaces: workspaces.clone(),
         workflows: bundled.clone(),
         transitions,
         runtime_catalog: bundled,
@@ -118,11 +118,13 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
         provider: runpod_provider,
         events,
     });
+    let runtime_service = RuntimeService::new(workspaces, operations, runpod_service.clone());
     let facade_state = FacadeState::new(
         workspace_service,
         secrets_service,
         operations_service,
-        RuntimeDispatcher::new(runpod_service),
+        runtime_service,
+        runpod_service,
     );
 
     tauri::async_runtime::block_on(facade_state.recover_interrupted()).map_err(|error| {
