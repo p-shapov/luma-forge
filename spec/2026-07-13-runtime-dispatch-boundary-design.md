@@ -2,6 +2,8 @@
 
 **Status:** Approved for implementation planning
 
+> **Persistence update:** Provider-specific SQLite extension tables and persistence dispatch are superseded by [`2026-07-14-runtime-provider-payload-persistence-design.md`](./2026-07-14-runtime-provider-payload-persistence-design.md). The application lifecycle dispatch decisions in this document remain current.
+
 ## Goal
 
 Move runtime lifecycle dispatch out of the Tauri facade and into the application layer while keeping provider-specific persistence dispatch inside the composite SQLite adapter.
