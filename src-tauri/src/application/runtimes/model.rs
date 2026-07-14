@@ -1,5 +1,8 @@
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
+
+use crate::application::workspace::Workspace;
 
 use super::{
     errors::RuntimeOperationError,
@@ -70,6 +73,25 @@ pub enum RuntimeKind {
     Runpod,
 }
 
+impl RuntimeKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Runpod => "runpod",
+        }
+    }
+}
+
+impl std::str::FromStr for RuntimeKind {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "runpod" => Ok(Self::Runpod),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeState {
     Provisioning,
@@ -78,8 +100,10 @@ pub enum RuntimeState {
     Failed,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "provider", content = "payload", deny_unknown_fields)]
 pub enum RuntimeProvider {
+    #[serde(rename = "runpod")]
     Runpod(#[diagnostic(show)] RunpodRuntime),
 }
 
@@ -117,9 +141,27 @@ impl Runtime {
     }
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
+)]
+#[serde(tag = "provider", content = "payload", deny_unknown_fields)]
 pub enum RuntimeProgress {
+    #[serde(rename = "runpod")]
     Runpod(#[diagnostic(show)] RunpodProgress),
+}
+
+impl RuntimeProgress {
+    pub fn runtime_kind(self) -> RuntimeKind {
+        match self {
+            Self::Runpod(_) => RuntimeKind::Runpod,
+        }
+    }
+
+    pub fn operation_kind(self) -> RuntimeOperationKind {
+        match self {
+            Self::Runpod(progress) => progress.operation_kind(),
+        }
+    }
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +202,27 @@ pub struct RuntimeOperation {
 }
 
 impl RuntimeOperation {
+    pub fn validate_progress(&self) -> Result<(), RuntimeOperationError> {
+        (self.runtime_kind == self.progress.runtime_kind()
+            && self.kind == self.progress.operation_kind())
+        .then_some(())
+        .ok_or(RuntimeOperationError::InvalidTransition)
+    }
+
+    pub fn validate_transition(&self, workspace: &Workspace) -> Result<(), RuntimeOperationError> {
+        self.validate_progress()?;
+        (workspace.id == self.workspace_id
+            && match &workspace.runtime {
+                Some(runtime) => runtime.kind() == self.runtime_kind,
+                None => {
+                    self.kind == RuntimeOperationKind::Cleanup
+                        && self.state == RuntimeOperationState::Succeeded
+                }
+            })
+        .then_some(())
+        .ok_or(RuntimeOperationError::InvalidTransition)
+    }
+
     pub fn running(
         id: Uuid,
         workspace_id: &str,
@@ -230,10 +293,146 @@ pub(crate) fn progress_fixture() -> RuntimeProgress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::application::runtimes::runpod::{
-        RunpodContractRequirements, RunpodProgress, RunpodProvisionStep, RunpodRuntime,
-        RunpodRuntimeConfig,
+    use crate::application::{
+        runtimes::runpod::{
+            RunpodCleanupStep, RunpodContractRequirements, RunpodProgress, RunpodProvisionStep,
+            RunpodRuntime, RunpodRuntimeConfig,
+        },
+        workspace::Workspace,
     };
+
+    fn provider_payload_fixture() -> RuntimeProvider {
+        let mut runtime = RunpodRuntime::new_provisioning(RunpodRuntimeConfig {
+            datacenter_id: "EU-RO-1".into(),
+            gpu_id: "gpu-1".into(),
+            volume_size_gb: 100,
+        });
+        runtime.resources.network_volume_id = Some("network-volume-1".into());
+        runtime.resources.template_id = Some("template-1".into());
+        RuntimeProvider::Runpod(runtime)
+    }
+
+    #[test]
+    fn runtime_kind_uses_the_pinned_neutral_identifier() {
+        assert_eq!(RuntimeKind::Runpod.as_str(), "runpod");
+        assert_eq!("runpod".parse::<RuntimeKind>(), Ok(RuntimeKind::Runpod));
+        assert_eq!("Runpod".parse::<RuntimeKind>(), Err(()));
+    }
+
+    #[test]
+    fn provider_payload_is_tagged_round_trippable_and_strict() {
+        let provider = provider_payload_fixture();
+        let value = serde_json::to_value(&provider).unwrap();
+
+        assert_eq!(value["provider"], "runpod");
+        assert_eq!(value["payload"]["config"]["datacenter_id"], "EU-RO-1");
+        assert_eq!(value["payload"]["resources"]["template_id"], "template-1");
+        assert_eq!(
+            serde_json::from_value::<RuntimeProvider>(value.clone()).unwrap(),
+            provider
+        );
+
+        let mut unknown_field = value.clone();
+        unknown_field["payload"]["config"]["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<RuntimeProvider>(unknown_field).is_err());
+
+        let mut invalid_type = value;
+        invalid_type["payload"]["config"]["volume_size_gb"] = serde_json::json!("100");
+        assert!(serde_json::from_value::<RuntimeProvider>(invalid_type).is_err());
+        assert!(
+            serde_json::from_value::<RuntimeProvider>(serde_json::json!({
+                "provider": "unknown",
+                "payload": {}
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<RuntimeProvider>(serde_json::json!({
+                "provider": "runpod",
+                "config": {}
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn progress_payload_is_tagged_round_trippable_and_strict() {
+        let progress = RuntimeProgress::Runpod(RunpodProgress::Provision(
+            RunpodProvisionStep::CreateNetworkVolume,
+        ));
+        let value = serde_json::to_value(progress).unwrap();
+
+        assert_eq!(value["provider"], "runpod");
+        assert_eq!(value["payload"]["operation"], "provision");
+        assert_eq!(value["payload"]["step"], "create_network_volume");
+        assert_eq!(
+            serde_json::from_value::<RuntimeProgress>(value.clone()).unwrap(),
+            progress
+        );
+
+        let mut unknown_field = value;
+        unknown_field["payload"]["unexpected"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<RuntimeProgress>(unknown_field).is_err());
+        assert!(
+            serde_json::from_value::<RuntimeProgress>(serde_json::json!({
+                "provider": "runpod",
+                "payload": {
+                    "operation": "provision",
+                    "step": "unknown"
+                }
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn runtime_operation_validates_provider_neutral_transition_invariants() {
+        let mut workspace = Workspace {
+            id: "workspace-1".into(),
+            workflow: CatalogRef::new("workflow-1", "1"),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            runtime: Some(Runtime {
+                state: RuntimeState::CleaningUp,
+                provider: provider_payload_fixture(),
+            }),
+        };
+        let mut operation = RuntimeOperation::running(
+            Uuid::from_u128(1),
+            "workspace-1",
+            RuntimeKind::Runpod,
+            RuntimeOperationKind::Cleanup,
+            RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint)),
+            OffsetDateTime::UNIX_EPOCH,
+        );
+
+        assert_eq!(operation.validate_progress(), Ok(()));
+        assert_eq!(operation.validate_transition(&workspace), Ok(()));
+
+        operation.progress = RuntimeProgress::Runpod(RunpodProgress::Provision(
+            RunpodProvisionStep::CreateNetworkVolume,
+        ));
+        assert_eq!(
+            operation.validate_progress(),
+            Err(RuntimeOperationError::InvalidTransition)
+        );
+        operation.progress =
+            RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint));
+
+        workspace.id = "workspace-2".into();
+        assert_eq!(
+            operation.validate_transition(&workspace),
+            Err(RuntimeOperationError::InvalidTransition)
+        );
+        workspace.id = "workspace-1".into();
+        workspace.runtime = None;
+        assert_eq!(
+            operation.validate_transition(&workspace),
+            Err(RuntimeOperationError::InvalidTransition)
+        );
+
+        operation.succeed(OffsetDateTime::UNIX_EPOCH).unwrap();
+        assert_eq!(operation.validate_transition(&workspace), Ok(()));
+    }
 
     #[test]
     fn runtime_kind_comes_from_its_provider() {
