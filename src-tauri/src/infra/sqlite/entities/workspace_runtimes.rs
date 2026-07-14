@@ -8,16 +8,9 @@ pub struct Model {
     pub workspace_id: String,
     pub runtime_kind: String,
     pub state: String,
+    pub provider_payload: String,
     #[sea_orm(belongs_to, from = "workspace_id", to = "id", on_delete = "Cascade")]
     pub workspace: HasOne<super::workspaces::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-
-impl Related<super::runpod_workspace_runtimes::Entity> for Entity {
-    fn to() -> RelationDef {
-        super::runpod_workspace_runtimes::Relation::WorkspaceRuntimes
-            .def()
-            .rev()
-    }
-}

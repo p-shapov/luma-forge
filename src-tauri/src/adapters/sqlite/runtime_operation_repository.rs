@@ -13,8 +13,6 @@ use crate::{
     infra::sqlite::entities::runtime_operations,
 };
 
-use super::runtime_persistence_dispatcher;
-
 pub struct SqliteRuntimeOperationRepository {
     connection: DatabaseConnection,
 }
@@ -28,29 +26,12 @@ impl SqliteRuntimeOperationRepository {
         &self,
         query: sea_orm::Select<runtime_operations::Entity>,
     ) -> Result<Vec<RuntimeOperation>, RuntimeOperationRepositoryError> {
-        let operations = query
+        query
             .all(&self.connection)
             .await
-            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?;
-        let operation_kinds = operations
-            .iter()
-            .map(|operation| {
-                parse_runtime_kind(&operation.runtime_kind).map(|kind| (operation.id.clone(), kind))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let progress =
-            runtime_persistence_dispatcher::load_progress(&operation_kinds, &self.connection)
-                .await?;
-
-        operations
+            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
             .into_iter()
-            .map(|operation| {
-                let operation_progress = progress
-                    .get(&operation.id)
-                    .copied()
-                    .ok_or(RuntimeOperationRepositoryError::CorruptData)?;
-                map_operation(operation, operation_progress)
-            })
+            .map(map_operation)
             .collect()
     }
 }
@@ -113,7 +94,6 @@ impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
 
 fn map_operation(
     model: runtime_operations::Model,
-    progress: RuntimeProgress,
 ) -> Result<RuntimeOperation, RuntimeOperationRepositoryError> {
     let runtime_kind = parse_runtime_kind(&model.runtime_kind)?;
     let kind = match model.operation_kind.as_str() {
@@ -127,7 +107,9 @@ fn map_operation(
         "failed" => RuntimeOperationState::Failed,
         _ => return Err(RuntimeOperationRepositoryError::CorruptData),
     };
-    Ok(RuntimeOperation {
+    let progress = serde_json::from_str::<RuntimeProgress>(&model.progress_payload)
+        .map_err(|_| RuntimeOperationRepositoryError::CorruptData)?;
+    let operation = RuntimeOperation {
         id: Uuid::parse_str(&model.id).map_err(|_| RuntimeOperationRepositoryError::CorruptData)?,
         workspace_id: model.workspace_id,
         runtime_kind,
@@ -143,11 +125,16 @@ fn map_operation(
         created_at: model.created_at,
         updated_at: model.updated_at,
         finished_at: model.finished_at,
-    })
+    };
+    operation
+        .validate_progress()
+        .map_err(|_| RuntimeOperationRepositoryError::CorruptData)?;
+    Ok(operation)
 }
 
 fn parse_runtime_kind(value: &str) -> Result<RuntimeKind, RuntimeOperationRepositoryError> {
-    runtime_persistence_dispatcher::parse_runtime_kind(value)
+    value
+        .parse()
         .map_err(|_| RuntimeOperationRepositoryError::CorruptData)
 }
 
@@ -174,11 +161,14 @@ mod tests {
         runtime_operations::Model {
             id: Uuid::nil().to_string(),
             workspace_id: "workspace-1".into(),
-            runtime_kind: runtime_persistence_dispatcher::runtime_kind_value(RuntimeKind::Runpod)
-                .into(),
+            runtime_kind: RuntimeKind::Runpod.as_str().into(),
             operation_kind: "provision".into(),
             state: "running".into(),
             trace_id: trace_id.map(str::to_owned),
+            progress_payload: serde_json::to_string(
+                &crate::application::runtimes::progress_fixture(),
+            )
+            .unwrap(),
             created_at: time::OffsetDateTime::UNIX_EPOCH,
             updated_at: time::OffsetDateTime::UNIX_EPOCH,
             finished_at: None,
@@ -188,16 +178,15 @@ mod tests {
     #[test]
     fn trace_mapping_accepts_uuid_or_null_and_rejects_invalid_text() {
         let trace_id = Uuid::new_v4();
-        let progress = crate::application::runtimes::progress_fixture();
         assert_eq!(
-            map_operation(model(Some(&trace_id.to_string())), progress)
+            map_operation(model(Some(&trace_id.to_string())))
                 .unwrap()
                 .trace_id,
             Some(trace_id)
         );
-        assert_eq!(map_operation(model(None), progress).unwrap().trace_id, None);
+        assert_eq!(map_operation(model(None)).unwrap().trace_id, None);
         assert_eq!(
-            map_operation(model(Some("invalid")), progress),
+            map_operation(model(Some("invalid"))),
             Err(RuntimeOperationRepositoryError::CorruptData)
         );
     }

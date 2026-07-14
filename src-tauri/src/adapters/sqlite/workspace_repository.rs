@@ -15,8 +15,6 @@ use crate::{
     infra::sqlite::entities::{runtime_operations, workspace_runtimes, workspaces},
 };
 
-use super::runtime_persistence_dispatcher;
-
 pub struct SqliteWorkspaceRepository {
     connection: DatabaseConnection,
 }
@@ -63,20 +61,7 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
         else {
             return Ok(None);
         };
-        let runtime = match anchor {
-            Some(anchor) => {
-                let kind = parse_runtime_kind(&anchor.runtime_kind)?;
-                let provider = runtime_persistence_dispatcher::load_runtime(
-                    &anchor.workspace_id,
-                    kind,
-                    &self.connection,
-                )
-                .await
-                .map_err(map_runtime_error)?;
-                Some(map_runtime(anchor, provider)?)
-            }
-            None => None,
-        };
+        let runtime = anchor.map(map_runtime).transpose()?;
         Ok(Some(map_workspace(workspace, runtime)))
     }
 
@@ -101,30 +86,10 @@ impl WorkspaceRepository for SqliteWorkspaceRepository {
             .all(&self.connection)
             .await
             .map_err(|_| WorkspaceRepositoryError::Unavailable)?;
-        let runtime_ids = rows
-            .iter()
-            .filter_map(|(_, anchor)| anchor.as_ref())
-            .map(|anchor| {
-                parse_runtime_kind(&anchor.runtime_kind)
-                    .map(|kind| (anchor.workspace_id.clone(), kind))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut providers =
-            runtime_persistence_dispatcher::load_runtimes(&runtime_ids, &self.connection)
-                .await
-                .map_err(map_runtime_error)?;
-
         let workspaces = rows
             .into_iter()
             .map(|(workspace, anchor)| {
-                let runtime = anchor
-                    .map(|anchor| {
-                        let provider = providers
-                            .remove(&anchor.workspace_id)
-                            .ok_or(WorkspaceRepositoryError::CorruptData)?;
-                        map_runtime(anchor, provider)
-                    })
-                    .transpose()?;
+                let runtime = anchor.map(map_runtime).transpose()?;
                 Ok(map_workspace(workspace, runtime))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -201,10 +166,13 @@ fn map_workspace(model: workspaces::Model, runtime: Option<Runtime>) -> Workspac
     }
 }
 
-fn map_runtime(
-    anchor: workspace_runtimes::Model,
-    provider: RuntimeProvider,
-) -> Result<Runtime, WorkspaceRepositoryError> {
+fn map_runtime(anchor: workspace_runtimes::Model) -> Result<Runtime, WorkspaceRepositoryError> {
+    let kind = parse_runtime_kind(&anchor.runtime_kind)?;
+    let provider = serde_json::from_str::<RuntimeProvider>(&anchor.provider_payload)
+        .map_err(|_| WorkspaceRepositoryError::CorruptData)?;
+    if provider.kind() != kind {
+        return Err(WorkspaceRepositoryError::CorruptData);
+    }
     Ok(Runtime {
         state: parse_runtime_state(&anchor.state)?,
         provider,
@@ -212,7 +180,9 @@ fn map_runtime(
 }
 
 fn parse_runtime_kind(value: &str) -> Result<RuntimeKind, WorkspaceRepositoryError> {
-    runtime_persistence_dispatcher::parse_runtime_kind(value).map_err(map_runtime_error)
+    value
+        .parse()
+        .map_err(|_| WorkspaceRepositoryError::CorruptData)
 }
 
 fn parse_runtime_state(value: &str) -> Result<RuntimeState, WorkspaceRepositoryError> {
@@ -222,16 +192,5 @@ fn parse_runtime_state(value: &str) -> Result<RuntimeState, WorkspaceRepositoryE
         "cleaning_up" => Ok(RuntimeState::CleaningUp),
         "failed" => Ok(RuntimeState::Failed),
         _ => Err(WorkspaceRepositoryError::CorruptData),
-    }
-}
-
-fn map_runtime_error(
-    error: crate::application::runtimes::ports::RuntimePersistenceError,
-) -> WorkspaceRepositoryError {
-    match error {
-        crate::application::runtimes::ports::RuntimePersistenceError::Unavailable => {
-            WorkspaceRepositoryError::Unavailable
-        }
-        _ => WorkspaceRepositoryError::CorruptData,
     }
 }

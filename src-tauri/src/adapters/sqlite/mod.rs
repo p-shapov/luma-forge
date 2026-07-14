@@ -1,6 +1,4 @@
-mod runpod_runtime_persistence;
 mod runtime_operation_repository;
-mod runtime_persistence_dispatcher;
 mod runtime_transition_repository;
 mod workspace_repository;
 

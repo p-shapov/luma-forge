@@ -11,6 +11,7 @@ pub struct Model {
     pub operation_kind: String,
     pub state: String,
     pub trace_id: Option<String>,
+    pub progress_payload: String,
     pub created_at: TimeDateTimeWithTimeZone,
     pub updated_at: TimeDateTimeWithTimeZone,
     pub finished_at: Option<TimeDateTimeWithTimeZone>,
