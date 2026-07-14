@@ -74,6 +74,7 @@ fn mark_ready(workspace: &mut Workspace) -> Result<(), RuntimeError> {
 }
 
 fn mark_failed(workspace: &mut Workspace) -> Result<(), RuntimeError> {
+    runpod(workspace)?;
     let runtime = workspace
         .runtime
         .as_mut()

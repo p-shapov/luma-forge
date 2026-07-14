@@ -131,6 +131,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cleanup_reports_an_unprovisioned_workspace() {
+        let fakes = ProvisionFakes::without_runtime();
+
+        assert_eq!(
+            fakes.runtime_service().start_cleanup("workspace-1").await,
+            Err(RuntimeError::NotProvisioned)
+        );
+    }
+
+    #[tokio::test]
     async fn recovery_loads_and_groups_running_operations() {
         let fakes = ProvisionFakes::with_running_provision_and_cleanup();
 
