@@ -9,7 +9,7 @@ use crate::application::{
     workspace::WorkspaceService,
 };
 
-use super::{errors::*, model::*};
+use super::{errors::*, models::*};
 
 pub struct FacadeState {
     workspaces: WorkspaceService,

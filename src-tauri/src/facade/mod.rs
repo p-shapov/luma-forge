@@ -1,13 +1,13 @@
 mod commands;
 mod errors;
 mod events;
-mod model;
+mod models;
 mod state;
 
 pub use commands::*;
 pub use errors::*;
 pub use events::*;
-pub use model::*;
+pub use models::*;
 pub use state::*;
 
 pub fn builder() -> tauri_specta::Builder<tauri::Wry> {

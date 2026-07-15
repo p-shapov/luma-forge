@@ -1,11 +1,11 @@
 mod errors;
-mod model;
+mod models;
 pub mod ports;
 mod service;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use model::{
+pub use models::{
     RunpodCleanupStep, RunpodContractRequirements, RunpodPlacement, RunpodPlacementDatacenter,
     RunpodPlacementGpu, RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
     RunpodRuntimeDefinition, RunpodRuntimeResources, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,

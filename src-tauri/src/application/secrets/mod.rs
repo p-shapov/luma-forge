@@ -1,10 +1,10 @@
 mod errors;
-mod model;
+mod models;
 pub mod ports;
 mod service;
 
 pub use errors::SecretsError;
-pub use model::{Identity, SecretKind, SecretStatus};
+pub use models::{Identity, SecretKind, SecretStatus};
 pub use ports::{
     SecretIdentityProvider, SecretIdentityProviderError, SecretStore, SecretStoreError,
 };

@@ -6,7 +6,7 @@ use crate::application::{
     workspace::WorkspaceError,
 };
 
-use super::model::{FacadeMappingError, InvalidPagination};
+use super::models::{FacadeMappingError, InvalidPagination};
 
 #[derive(
     crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
