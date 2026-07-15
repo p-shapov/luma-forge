@@ -1,0 +1,6 @@
+{
+  "entries_path": "catalog/entries/runtime_presets",
+  "required_files": [
+    { "name": "runtime_preset", "schema": "luma-forge://schema/runtime_preset" }
+  ]
+}

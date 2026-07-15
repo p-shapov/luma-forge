@@ -1,0 +1,12 @@
+{
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "outputs": {
+    "type": "image_set"
+  }
+}

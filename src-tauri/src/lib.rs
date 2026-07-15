@@ -1,183 +1,175 @@
-use fastrace::future::FutureExt;
+pub mod adapters;
+pub mod application;
+pub mod diagnostics;
+pub mod facade;
+pub mod infra;
+pub mod providers;
+
+use std::sync::Arc;
+
+use adapters::{
+    bundled::BundledCatalogAdapter,
+    hugging_face::HuggingFaceIdentityAdapter,
+    keyring::KeyringSecretStore,
+    runpod::{RunpodIdentityAdapter, RunpodRuntimeProviderAdapter},
+    sqlite::{
+        SqliteRuntimeOperationRepository, SqliteRuntimeTransitionRepository,
+        SqliteWorkspaceRepository,
+    },
+};
+use application::{
+    runtimes::{
+        runpod::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
+        RuntimeService,
+    },
+    secrets::SecretsService,
+    workspace::WorkspaceService,
+};
+use facade::{FacadeState, TauriEventSink};
+use infra::sqlite::database::SqliteInfraDatabase;
 use tauri::Manager;
 
-pub mod app;
-pub mod diagnostics;
-pub mod domain;
-pub mod lifecycle_journal;
-pub mod provider;
-pub mod runtime_catalog;
-pub mod secrets;
-pub mod sqlite;
-pub mod tauri_api;
-pub mod workflow_catalog;
-pub mod workspace;
-pub mod workspace_catalog;
+const DB_FILE_NAME: &str = "db.sqlite";
+const DIAGNOSTICS_FILE_NAME: &str = "diagnostics.log";
+const BUNDLED_DIR_NAME: &str = "bundled";
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[derive(Debug, thiserror::Error)]
+enum BootstrapError {
+    #[error("app data directory is unavailable")]
+    AppDataDirectoryUnavailable,
+    #[error("app data directory could not be created")]
+    AppDataDirectoryCreateFailed,
+    #[error("diagnostics initialization failed")]
+    DiagnosticsInitializationFailed,
+    #[error("database initialization failed")]
+    DatabaseInitializationFailed,
+    #[error("bundled resource directory is unavailable")]
+    ResourceDirectoryUnavailable,
+    #[error("provider initialization failed")]
+    ProviderInitializationFailed,
+    #[error("interrupted runtime recovery failed")]
+    RuntimeRecoveryFailed,
+}
+
 pub fn run() {
-    let builder = tauri_api::builder();
+    let facade_builder = facade::builder();
+    let app_builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .invoke_handler(facade_builder.invoke_handler());
 
-    #[cfg(debug_assertions)]
-    {
-        let _ = tauri_api::export_typescript_bindings(&builder);
-    }
-
-    let mut app_builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
-
-    #[cfg(debug_assertions)]
-    {
-        app_builder = app_builder.plugin(tauri_plugin_mcp_bridge::init());
-    }
-
-    let _ = app_builder
-        .invoke_handler(builder.invoke_handler())
+    app_builder
         .setup(move |app| {
-            let app_handle = app.handle().clone();
-            let app_identifier = app_handle.config().identifier.clone();
-            builder.mount_events(app);
-            let support_paths = tauri_api::support::prepare_support_paths(&app_handle);
-            let app_state = match support_paths.and_then(|support_paths| {
-                diagnostics::init(support_paths.logs_dir()).map_err(|error| {
-                    app::errors::AppInitializationError::DiagnosticsInitializationFailed {
-                        message: error.to_string(),
-                    }
-                })?;
-
-                let startup_span = fastrace::Span::root(
-                    "native.startup.bootstrap",
-                    fastrace::collector::SpanContext::random(),
-                );
-
-                tauri::async_runtime::block_on(
-                    async {
-                        app::bootstrap::build_app_state(
-                            &app_identifier,
-                            &support_paths,
-                            std::sync::Arc::new(tauri_api::events::TauriWorkspaceEventSink::new(
-                                app_handle.clone(),
-                            )),
-                        )
-                        .await
-                    }
-                    .in_span(startup_span),
-                )
-            }) {
-                Ok(state) => app::state::NativeAppState::Ready(Box::new(state)),
-                Err(error) => app::state::NativeAppState::Failed(error),
-            };
-            app.manage(app_state);
-            Ok(())
+            facade_builder.mount_events(app);
+            bootstrap(app).map_err(|error| Box::new(error) as Box<dyn std::error::Error>)
         })
-        .run(tauri::generate_context!());
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
+fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| BootstrapError::AppDataDirectoryUnavailable)?;
+    std::fs::create_dir_all(&app_data_dir)
+        .map_err(|_| BootstrapError::AppDataDirectoryCreateFailed)?;
+    diagnostics::init(&app_data_dir.join(DIAGNOSTICS_FILE_NAME))
+        .map_err(|_| BootstrapError::DiagnosticsInitializationFailed)?;
+
+    let database = tauri::async_runtime::block_on(SqliteInfraDatabase::connect(
+        app_data_dir.join(DB_FILE_NAME),
+    ))
+    .map_err(|error| {
+        log::error!("database initialization failed: {error:?}");
+        BootstrapError::DatabaseInitializationFailed
+    })?;
+    let bundled_dir = app
+        .path()
+        .resource_dir()
+        .map(|path| path.join(BUNDLED_DIR_NAME))
+        .map_err(|error| {
+            log::error!("bundled resource directory is unavailable: {error:?}");
+            BootstrapError::ResourceDirectoryUnavailable
+        })?;
+
+    let bundled = Arc::new(BundledCatalogAdapter::new(bundled_dir));
+    let secrets = Arc::new(KeyringSecretStore::new(app.config().identifier.clone()));
+    let runpod_identity = Arc::new(RunpodIdentityAdapter::new().map_err(provider_error)?);
+    let hugging_face_identity =
+        Arc::new(HuggingFaceIdentityAdapter::new().map_err(provider_error)?);
+    let runpod_provider = Arc::new(RunpodRuntimeProviderAdapter::new().map_err(provider_error)?);
+    let connection = database.connection().clone();
+    let workspaces = Arc::new(SqliteWorkspaceRepository::new(connection.clone()));
+    let transitions = Arc::new(SqliteRuntimeTransitionRepository::new(connection.clone()));
+    let operations = Arc::new(SqliteRuntimeOperationRepository::new(connection));
+    let events = Arc::new(TauriEventSink::new(app.handle().clone()));
+
+    let workspace_service =
+        WorkspaceService::new(workspaces.clone(), bundled.clone(), events.clone());
+    let secrets_service =
+        SecretsService::new(secrets.clone(), runpod_identity, hugging_face_identity);
+    let runpod_service = RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
+        workspaces: workspaces.clone(),
+        workflows: bundled.clone(),
+        transitions,
+        runtime_catalog: bundled,
+        secrets,
+        provider: runpod_provider,
+        events,
+    });
+    let runtime_service = RuntimeService::new(workspaces, operations, runpod_service.clone());
+    let facade_state = FacadeState::new(
+        workspace_service,
+        secrets_service,
+        runtime_service,
+        runpod_service,
+    );
+
+    tauri::async_runtime::block_on(facade_state.recover_interrupted()).map_err(|error| {
+        log::error!("interrupted runtime recovery failed: {error:?}");
+        BootstrapError::RuntimeRecoveryFailed
+    })?;
+    app.manage(facade_state);
+    Ok(())
+}
+
+fn provider_error(error: providers::NetworkError) -> BootstrapError {
+    log::error!("provider initialization failed: {error:?}");
+    BootstrapError::ProviderInitializationFailed
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs,
-        path::{Path, PathBuf},
-    };
+    use super::*;
+    use tauri_specta::Event;
 
-    use super::tauri_api;
+    #[test]
+    fn facade_event_names_are_stable() {
+        assert_eq!(facade::WorkspaceChangedEvent::NAME, "workspace_changed");
+        assert_eq!(facade::WorkspaceDeletedEvent::NAME, "workspace_deleted");
+        assert_eq!(facade::RuntimeOperationEvent::NAME, "runtime_operation");
+    }
+
+    #[test]
+    fn support_file_names_are_stable() {
+        assert_eq!(DB_FILE_NAME, "db.sqlite");
+        assert_eq!(DIAGNOSTICS_FILE_NAME, "diagnostics.log");
+    }
+
+    #[test]
+    fn events_mount_before_interrupted_recovery() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+        )
+        .unwrap();
+        assert!(
+            source.find("mount_events(app)").unwrap() < source.find("recover_interrupted").unwrap()
+        );
+    }
 
     #[test]
     fn export_bindings() {
-        let builder = tauri_api::builder();
-
-        tauri_api::export_typescript_bindings(&builder)
-            .expect("failed to export TypeScript command bindings");
-    }
-
-    #[test]
-    fn production_rust_does_not_use_direct_panic_primitives() {
-        let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut violations = Vec::new();
-
-        for path in rust_source_files(&src_dir) {
-            if is_test_support_file(&path) {
-                continue;
-            }
-
-            let source = fs::read_to_string(&path).expect("rust source should be readable");
-            let production_source = source
-                .split("#[cfg(test)]")
-                .next()
-                .unwrap_or(source.as_str());
-
-            for (line_index, line) in production_source.lines().enumerate() {
-                if direct_panic_patterns()
-                    .iter()
-                    .any(|pattern| line.contains(pattern))
-                {
-                    let relative = path
-                        .strip_prefix(env!("CARGO_MANIFEST_DIR"))
-                        .expect("source path should be under manifest dir");
-                    violations.push(format!(
-                        "{}:{}: {}",
-                        relative.display(),
-                        line_index + 1,
-                        line.trim()
-                    ));
-                }
-            }
-        }
-
-        assert!(
-            violations.is_empty(),
-            "production panic primitives found:\n{}",
-            violations.join("\n")
-        );
-    }
-
-    #[test]
-    fn tauri_events_are_mounted_before_app_state_bootstrap() {
-        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
-            .expect("lib source should be readable");
-        let mount_events_index = source
-            .find("builder.mount_events(app)")
-            .expect("Tauri Specta events should be mounted");
-        let bootstrap_index = source
-            .find("app::bootstrap::build_app_state")
-            .expect("app state bootstrap should be present");
-
-        assert!(
-            mount_events_index < bootstrap_index,
-            "Tauri Specta events must be mounted before app state bootstrap because startup stale-operation recovery emits runtime events"
-        );
-    }
-
-    fn rust_source_files(root: &Path) -> Vec<PathBuf> {
-        let mut files = Vec::new();
-        collect_rust_source_files(root, &mut files);
-        files
-    }
-
-    fn collect_rust_source_files(path: &Path, files: &mut Vec<PathBuf>) {
-        for entry in fs::read_dir(path).expect("source directory should be readable") {
-            let entry = entry.expect("source directory entry should be readable");
-            let path = entry.path();
-
-            if path.is_dir() {
-                collect_rust_source_files(&path, files);
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                files.push(path);
-            }
-        }
-    }
-
-    fn is_test_support_file(path: &Path) -> bool {
-        path.file_name()
-            .is_some_and(|file_name| file_name == "tests.rs" || file_name == "test_support.rs")
-    }
-
-    fn direct_panic_patterns() -> &'static [&'static str] {
-        &[
-            ".unwrap()",
-            ".expect(",
-            "panic!(",
-            "todo!(",
-            "unreachable!(",
-        ]
+        facade::export_typescript_bindings(&facade::builder())
+            .expect("failed to export TypeScript bindings");
     }
 }

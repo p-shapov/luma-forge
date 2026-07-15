@@ -1,0 +1,44 @@
+schema {
+  query: Query
+}
+
+type Query {
+  myself: User
+  gpuTypes: [GpuType]
+  dataCenters: [DataCenter]
+}
+
+type User {
+  id: String
+  email: String
+  datacenters: [DataCenter]
+}
+
+type DataCenter {
+  id: String
+  name: String
+  gpuAvailability(input: GpuAvailabilityInput): [GpuAvailability]
+}
+
+input GpuAvailabilityInput {
+  gpuCount: Int
+  minDisk: Int
+  minMemoryInGb: Int
+  minVcpuCount: Int
+  secureCloud: Boolean
+  allowedCudaVersions: [String]
+  minCudaVersion: String
+  includeAiApi: Boolean
+}
+
+type GpuAvailability {
+  available: Boolean
+  stockStatus: String
+  gpuTypeId: String
+}
+
+type GpuType {
+  id: String
+  displayName: String
+  memoryInGb: Int
+}

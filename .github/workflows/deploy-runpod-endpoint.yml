@@ -11,8 +11,8 @@ on:
         required: true
         type: string
         default: comfyui-hidream-o1-dev
-      workflow_version:
-        description: Workflow version
+      workflow_revision:
+        description: Workflow revision
         required: true
         type: string
         default: 1.0.0
@@ -23,7 +23,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: deploy-runpod-endpoint-${{ github.ref }}-${{ inputs.workflow_id || 'comfyui-hidream-o1-dev' }}-${{ inputs.workflow_version || '1.0.0' }}
+  group: deploy-runpod-endpoint-${{ github.ref }}-${{ inputs.workflow_id || 'comfyui-hidream-o1-dev' }}-${{ inputs.workflow_revision || '1.0.0' }}
   cancel-in-progress: false
 
 jobs:
@@ -47,13 +47,12 @@ jobs:
         id: contract
         env:
           WORKFLOW_ID: ${{ inputs.workflow_id || 'comfyui-hidream-o1-dev' }}
-          WORKFLOW_VERSION: ${{ inputs.workflow_version || '1.0.0' }}
+          WORKFLOW_REVISION: ${{ inputs.workflow_revision || '1.0.0' }}
         run: |
           python workers/runpod-endpoint/release_tool.py resolve \
-            --workflow-catalog bundled/workflow-catalog.json \
+            --catalog-root bundled/catalog \
             --workflow-id "$WORKFLOW_ID" \
-            --workflow-version "$WORKFLOW_VERSION" \
-            --catalog bundled/runtime-contracts.json \
+            --workflow-revision "$WORKFLOW_REVISION" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Validate workers
@@ -67,10 +66,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
           CONTRACT_ID: ${{ steps.contract.outputs.contract_id }}
-          CONTRACT_VERSION: ${{ steps.contract.outputs.contract_version }}
+          CONTRACT_REVISION: ${{ steps.contract.outputs.contract_revision }}
         run: |
           base="ghcr.io/$(printf '%s' "${REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          suffix="${CONTRACT_ID}-${CONTRACT_VERSION}"
+          suffix="${CONTRACT_ID}-${CONTRACT_REVISION}"
           printf 'endpoint_tag=%s\n' "${base}/runpod-endpoint-worker:${suffix}-sha-${SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build endpoint image
@@ -80,9 +79,9 @@ jobs:
             --build-arg LUMA_FORGE_COMFYUI_REVISION="${{ steps.contract.outputs.comfyui_revision }}" \
             --build-arg LUMA_FORGE_PYTORCH_INDEX_URL="${{ steps.contract.outputs.pytorch_index_url }}" \
             --build-arg LUMA_FORGE_PYTORCH_PACKAGES_JSON='${{ steps.contract.outputs.pytorch_packages_json }}' \
-            --build-arg LUMA_FORGE_BUNDLED_WORKFLOW_PATH="${{ steps.contract.outputs.bundled_workflow_path }}" \
-            --build-arg LUMA_FORGE_WORKFLOW_ID="${{ steps.contract.outputs.workflow_id }}" \
-            --build-arg LUMA_FORGE_WORKFLOW_VERSION="${{ steps.contract.outputs.workflow_version }}" \
+            --build-arg LUMA_FORGE_WORKFLOW_PATH="${{ steps.contract.outputs.workflow_path }}" \
+            --build-arg LUMA_FORGE_EXECUTION_CONTRACT_PATH="${{ steps.contract.outputs.execution_contract_path }}" \
+            --build-arg LUMA_FORGE_EXECUTION_SCHEMA_PATH="${{ steps.contract.outputs.execution_schema_path }}" \
             --tag "${{ steps.image.outputs.endpoint_tag }}" .
 
       - name: Log in to GHCR
@@ -113,33 +112,31 @@ jobs:
           printf 'endpoint_ref=%s\n' "$endpoint_digest" >> "$GITHUB_OUTPUT"
 
       - name: Promote endpoint image to catalog
+        id: promotion
         run: |
           python workers/runpod-endpoint/release_tool.py promote-endpoint-image \
-            --runtime-preset "${{ steps.contract.outputs.runtime_preset }}" \
+            --catalog-root bundled/catalog \
             --workflow-id "${{ steps.contract.outputs.workflow_id }}" \
-            --workflow-version "${{ steps.contract.outputs.workflow_version }}" \
-            --catalog bundled/runtime-contracts.json \
-            --workflow-catalog bundled/workflow-catalog.json \
-            --contract-version "${{ steps.contract.outputs.contract_version }}" \
-            --image-ref "${{ steps.digest.outputs.endpoint_ref }}"
+            --workflow-revision "${{ steps.contract.outputs.workflow_revision }}" \
+            --contract-revision "${{ steps.contract.outputs.contract_revision }}" \
+            --image-ref "${{ steps.digest.outputs.endpoint_ref }}" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Verify endpoint promotion PR scope
         run: |
-          changed_paths="$(git status --porcelain --untracked-files=all | cut -c4-)"
-          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/runtime-contracts.json'; then
-            echo "::error::Catalog promotion did not modify bundled/runtime-contracts.json"
-            exit 1
-          fi
-
-          if ! printf '%s\n' "$changed_paths" | grep -qx 'bundled/workflow-catalog.json'; then
-            echo "::error::Catalog promotion did not modify bundled/workflow-catalog.json"
-            exit 1
-          fi
-
-          unexpected_paths="$(printf '%s\n' "$changed_paths" | sed '/^$/d' | grep -Evx 'bundled/(runtime-contracts|workflow-catalog)\.json' || true)"
-          if [ -n "$unexpected_paths" ]; then
-            echo "::error::Catalog promotion produced unexpected changed paths:"
-            printf '%s\n' "$unexpected_paths"
+          runtime_contract_path="${{ steps.promotion.outputs.runtime_contract_path }}"
+          workflow_revision_path="${{ steps.promotion.outputs.workflow_revision_path }}"
+          expected_paths="$(printf '%s\n' \
+            "$runtime_contract_path" \
+            "$workflow_revision_path/metadata" \
+            "$workflow_revision_path/model_assets" \
+            "$workflow_revision_path/contract_requirements" \
+            "$workflow_revision_path/execution_contract" \
+            "$workflow_revision_path/workflow" | sort)"
+          changed_paths="$(git status --porcelain --untracked-files=all | cut -c4- | sort)"
+          if [ "$changed_paths" != "$expected_paths" ]; then
+            echo "::error::Catalog promotion did not produce the exact expected revisions"
+            printf 'Expected:\n%s\nActual:\n%s\n' "$expected_paths" "$changed_paths"
             exit 1
           fi
 
@@ -147,11 +144,11 @@ jobs:
         uses: peter-evans/create-pull-request@v8
         with:
           add-paths: |
-            bundled/runtime-contracts.json
-            bundled/workflow-catalog.json
-          branch: runpod-endpoints/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_version }}
-          title: "chore(workers): promote endpoint image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
-          commit-message: "chore(workers): promote endpoint image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_version }}"
+            ${{ steps.promotion.outputs.runtime_contract_path }}
+            ${{ steps.promotion.outputs.workflow_revision_path }}
+          branch: runpod-endpoints/${{ steps.contract.outputs.contract_id }}-${{ steps.contract.outputs.contract_revision }}
+          title: "chore(workers): promote endpoint image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_revision }}"
+          commit-message: "chore(workers): promote endpoint image ${{ steps.contract.outputs.contract_id }} ${{ steps.contract.outputs.contract_revision }}"
           body: |
-            Promotes the validated RunPod endpoint image and points the selected Workflow Preset revision at it.
+            Promotes the validated RunPod endpoint image as immutable runtime contract and workflow revisions.
           labels: runpod-endpoint

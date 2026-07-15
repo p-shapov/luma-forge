@@ -1,40 +1,41 @@
 # Native Backend
 
-This directory contains the active Tauri native backend. Business workflows live in application services, Tauri commands stay as adapters, and domain models stay independent from Tauri runtime APIs, persistence adapters, UI concerns, and provider SDK details.
+This directory contains the Tauri native backend. Application services own business workflows, Tauri commands stay at the inbound facade, and application models remain independent from Tauri, persistence, UI, and provider transport details.
 
-## Domain Entities
+## Architecture
 
-`Workspace` is the persisted user runtime instance. It has a stable identity, references the selected workflow version, records the current lifecycle state, and stores runtime-specific data needed to manage the configured execution environment.
+- `facade/` defines Tauri commands and events, Specta-generated UI contracts, request mapping, and UI-safe error mapping.
+- `application/` owns workspace, runtime, and secret models, services, events, and ports.
+- `adapters/` implements application ports with the bundled catalog, SQLite, the OS keyring, and provider integrations.
+- `infra/` owns low-level bundled catalog, SQLite, and keyring mechanisms.
+- `providers/` owns RunPod and Hugging Face HTTP and GraphQL transport.
+- `lib.rs` is the composition root and fails startup if diagnostics, persistence, bundled resources, providers, or interrupted-operation recovery cannot initialize.
 
-`WorkspaceState` is the native lifecycle status for a workspace: not provisioned, provisioning, ready, cleaning up, or invalid. Application services update it as lifecycle operations progress, and Tauri commands expose it to the UI as the authoritative workspace status.
+## Core Models
 
-`WorkspaceRuntime` is the runtime-specific part of a workspace. It keeps runtime configuration and implementation details out of shared workspace rules. The current runtime variant is `Runpod`.
+`Workspace` is a persisted identity with an exact workflow `CatalogRef` and an optional `Runtime`. The absence of a runtime means the workspace is not provisioned; there is no separate workspace lifecycle state.
 
-`WorkflowCatalog` is the bundled catalog of curated workflow presets available to the app. A `WorkflowPreset` is a named workflow option, and each `WorkflowRevision` describes one version: runtime preset, execution schema and input bindings, required model assets, required storage size, credential requirements, and runtime contract requirements.
+`Runtime` combines provider-neutral `RuntimeState` with a tagged `RuntimeProvider`. Shared states are `Provisioning`, `Ready`, `CleaningUp`, and `Failed`. The current provider is RunPod; its placement configuration and remote resource identifiers stay in native application state, while facade DTOs omit resource identifiers.
 
-`RuntimeCatalog` is the bundled catalog of worker/runtime contracts. A `RuntimeContract` groups available revisions for a runtime contract, while `RuntimeContractReference` pins the exact contract id and version a workflow needs during workspace lifecycle operations.
+`RuntimeOperation` is the durable journal entry for a background provision or cleanup. It stores the runtime kind, operation kind and state, provider-specific progress, timestamps, and an optional diagnostics trace ID. Operation history remains after successful cleanup removes the runtime.
 
-`LifecycleOperation` is the durable record for a background workspace operation such as provision or cleanup. It belongs to a workspace, tracks operation state and timestamps, and may include runtime-specific step payload so progress can resume, report status, and diagnose failures.
+`WorkflowSummary` and `WorkflowDefinition` are application projections of the revisioned bundled catalog. A workflow revision resolves metadata, model assets, execution data, a runtime preset, and exact provisioner and endpoint runtime contracts.
 
-`RunpodRuntime` is the RunPod-specific workspace runtime data. It combines the chosen `RunpodPlacementPlan` with `RunpodResources`, the RunPod resource identifiers created during provisioning: network volume, provisioner pod, endpoint, and template. The native backend uses those identifiers to find the existing RunPod resources for later progress updates, cleanup and delete.
+## Application Flow
 
-`RunpodPlacementOptions` are RunPod-discovered choices available before workspace creation: datacenters, GPU types, VRAM, and maximum supported volume size. A `RunpodPlacementPlan` is the selected datacenter, GPU type, and volume size persisted into the workspace.
+`WorkspaceService` validates workflow references and owns workspace creation, listing, and deletion. `RuntimeService` is the provider-neutral entry point for provision, cleanup, operation queries, and interrupted-operation recovery. It uses closed enum dispatch to `RunpodRuntimeService`, which owns RunPod-specific lifecycle orchestration; there is no runtime registry, factory, or facade-owned lifecycle routing.
 
-## Workspace Service and Runtimes
+Runtime transitions persist the workspace runtime and operation atomically through `RuntimeTransitionRepository`. SQLite keeps provider state and operation progress as typed tagged JSON payloads on the provider-neutral `workspace_runtimes` and `runtime_operations` rows. Events are emitted only after the transaction commits.
 
-`WorkspaceService` is the application service that manages the workspace lifecycle. It creates workspaces, starts provision/cleanup/delete tasks in the background, records lifecycle journal state and emits workspace events.
+The facade exposes UI-safe commands and the `workspace_changed`, `workspace_deleted`, and `runtime_operation` events. It maps transport DTOs and errors but does not access SQLite, bundled files, provider clients, or keyring storage directly.
 
-`WorkspaceRuntime` is the service-facing trait for runtime-specific lifecycle operations: provision, cleanup, and delete. The dispatcher inside `WorkspaceService` selects the implementation from the workspace runtime data while the service keeps the shared lifecycle rules and persistence flow.
-
-At the moment, `provider/runpod` is the concrete implementation. `RunpodWorkspaceRuntime` implements `WorkspaceRuntime` for `Runpod(RunpodRuntime)` workspaces, keeps resources provision and cleanup steps, RunPod API calls, provisioner coordination, and runtime catalog access behind the provider boundary.
-
-When adding a new workspace runtime, extend `WorkspaceService` only where the shared lifecycle contract needs a new runtime entry point or dispatch case. Keep provider-specific orchestration behind a `WorkspaceRuntime` implementation, and use `WorkspaceRuntimeContext` to persist workspace and lifecycle journal progress.
+RunPod and Hugging Face API keys are validated before being stored in the OS keyring. They are write-only from the UI perspective: commands may set, inspect identity for, or delete a credential, but never return the raw secret.
 
 ## Native Support Files
 
 During pre-production development, local SQLite schema bootstrap or compatibility checks may reject stale state from an earlier build. Stop the app before deleting the local database file.
 
-Native support files are configured centrally in `src/app/support.rs` and live under the Tauri `app_data_dir()`. On macOS, the path pattern is:
+Native support files are configured centrally in `src/lib.rs` and live under the Tauri `app_data_dir()`. On macOS, the path pattern is:
 
 ```text
 ~/Library/Application Support/com.luma-forge/
@@ -42,19 +43,18 @@ Native support files are configured centrally in `src/app/support.rs` and live u
 
 Current support files:
 
-- `native.sqlite`: native SQLite database for workspace catalog and lifecycle journal state.
-- `logs/`: native diagnostics logs, including `luma-forge.log`.
+- `db.sqlite`: native SQLite database for workspaces, attached runtime state, and runtime operation history.
+- `diagnostics.log`: native diagnostics log.
 
-Deleting `native.sqlite` removes local native state only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
+Deleting `db.sqlite` removes local native state only. It does not clean up remote provider resources such as RunPod volumes, pods, endpoints, or templates. Manual deletion is developer troubleshooting guidance for pre-production state; it is not a supported production migration or downgrade path.
 
 ### Using Logs
 
-Native diagnostics are structured `tracing` logs. UI-facing errors stay safe and compact; native failure logs keep the trace ID, operation context, redacted `error.code`, redacted `error.message`, redacted `error.chain`, and span close timing needed to debug failures.
+Native diagnostics are JSON call logs produced by `#[diagnostic]`. Commands create root traces, nested operations share that trace, and detached runtime work preserves or restores it. Values are omitted by default and appear only when explicitly marked safe or redacted.
 
-- For command failures, copy `traceId` from `NativeCommandError` and search the log file for that exact value.
-- For lifecycle operation failures, copy `traceId` from `LifecycleOperationChangedEvent` and search the log file for that exact value.
-- Use the matching log entry to identify the command or lifecycle operation, native `error.code`, `error.chain`, operation ID, workspace ID, and redacted error message.
-- Trace backward from the logged boundary: command adapter to application service to provider/storage call, or lifecycle runner to lifecycle step to provider/worker call.
+- For command failures, copy `traceId` from `CommandError` and search the log file for that exact value.
+- For background runtime failures, use `RuntimeOperationEvent.operation.traceId` when present.
+- Follow matching `call.start`, `call.success`, and `call.error` records by their `function`, trace ID, and span ID to find the failing command, service, adapter, or provider boundary.
 
 ## Verification
 

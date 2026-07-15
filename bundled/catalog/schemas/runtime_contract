@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "luma-forge://schema/runtime_contract",
+  "title": "RuntimeContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image_ref"],
+  "properties": {
+    "image_ref": { "type": "string", "minLength": 1 }
+  }
+}

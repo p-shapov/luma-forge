@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "luma-forge://schema/execution_schema",
+  "title": "ExecutionSchema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["inputs", "outputs"],
+  "properties": {
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "required"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+          "type": { "type": "string", "enum": ["string"] },
+          "required": { "type": "boolean" },
+          "max_length": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string", "enum": ["image_set"] }
+      }
+    }
+  }
+}

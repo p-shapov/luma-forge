@@ -1,0 +1,16 @@
+query Placement {
+  gpuTypes {
+    id
+    displayName
+    memoryInGb
+  }
+  dataCenters {
+    id
+    name
+    gpuAvailability {
+      gpuTypeId
+      available
+      stockStatus
+    }
+  }
+}

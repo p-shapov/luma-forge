@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "luma-forge://schema/workflow_contract_requirements",
+  "title": "WorkflowContractRequirements",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_requirements"],
+  "properties": {
+    "contract_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["runtime_type", "endpoint_contract_ref", "provisioner_contract_ref"],
+            "properties": {
+              "runtime_type": { "const": "runpod" },
+              "endpoint_contract_ref": { "$ref": "luma-forge://schema/reference" },
+              "provisioner_contract_ref": { "$ref": "luma-forge://schema/reference" }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

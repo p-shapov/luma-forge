@@ -1,0 +1,22 @@
+error[E0277]: the trait bound `Plain: DiagnosticValue` is not satisfied
+  --> tests/ui/fail/show_plain_error.rs:19:1
+   |
+19 | #[diagnostic(show_error)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `DiagnosticValue` is not implemented for `Plain`
+  --> tests/ui/fail/show_plain_error.rs:17:1
+   |
+17 | struct Plain;
+   | ^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> tests/ui/fail/show_plain_error.rs:4:5
+   |
+ 4 |     pub trait DiagnosticValue: std::fmt::Debug {}
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `shown`
+  --> tests/ui/fail/show_plain_error.rs:13:21
+   |
+13 |     pub fn shown<T: DiagnosticValue>(value: &T) -> &T { value }
+   |                     ^^^^^^^^^^^^^^^ required by this bound in `shown`
+   = note: this error originates in the attribute macro `diagnostic` (in Nightly builds, run with -Z macro-backtrace for more info)

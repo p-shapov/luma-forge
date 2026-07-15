@@ -1,0 +1,17 @@
+{
+  "contract_requirements": [
+    {
+      "runtime_type": "runpod",
+      "endpoint_contract_ref": {
+        "contract": "catalog/contracts/runtime_contract_revision",
+        "id": "runpod-endpoint-comfyui-hidream-o1-dev",
+        "revision": "1.0.0"
+      },
+      "provisioner_contract_ref": {
+        "contract": "catalog/contracts/runtime_contract_revision",
+        "id": "provisioner",
+        "revision": "1.0.0"
+      }
+    }
+  ]
+}

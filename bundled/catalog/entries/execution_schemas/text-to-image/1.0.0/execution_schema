@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "string",
+      "required": true,
+      "max_length": 4000
+    }
+  ],
+  "outputs": {
+    "type": "image_set"
+  }
+}

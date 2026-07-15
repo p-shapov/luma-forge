@@ -1,0 +1,6 @@
+query Myself {
+  myself {
+    id
+    email
+  }
+}

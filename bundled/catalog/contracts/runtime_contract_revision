@@ -1,0 +1,6 @@
+{
+  "entries_path": "catalog/entries/runtime_contracts",
+  "required_files": [
+    { "name": "runtime_contract", "schema": "luma-forge://schema/runtime_contract" }
+  ]
+}

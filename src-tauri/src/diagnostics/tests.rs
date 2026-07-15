@@ -1,520 +1,388 @@
-use super::*;
-use std::error::Error;
-use std::fmt;
+use super::{DiagnosticDebug, DiagnosticValue, Field, Fields};
+use fastrace::collector::SpanContext;
+use std::sync::{Mutex, Once, OnceLock};
 
-use logforth::filter::FilterResult;
-use logforth::kv::{KeyOwned, ValueOwned};
-use logforth::record::{FilterCriteria, Level};
-use logforth::Filter;
-use logforth::Layout;
-use serde::Serialize;
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum TestError {
-    UnitFailure,
-    StructuredFailure {
-        message: String,
-        #[serde(skip)]
-        source: Option<Box<TestError>>,
-    },
+#[derive(Clone)]
+struct Record {
+    message: String,
+    fields: String,
+    keys: String,
 }
 
-impl fmt::Display for TestError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TestError::UnitFailure => formatter.write_str("unit failure"),
-            TestError::StructuredFailure { message, .. } => formatter.write_str(message),
-        }
+struct Recorder;
+
+impl log::Log for Recorder {
+    fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        let mut fields = String::new();
+        let mut keys = String::new();
+        record
+            .key_values()
+            .visit(&mut StringVisitor {
+                values: &mut fields,
+                keys: &mut keys,
+            })
+            .unwrap();
+        records().lock().unwrap().push(Record {
+            message: record.args().to_string(),
+            fields,
+            keys,
+        });
+    }
+
+    fn flush(&self) {}
+}
+
+struct StringVisitor<'a> {
+    values: &'a mut String,
+    keys: &'a mut String,
+}
+
+impl<'kvs> log::kv::VisitSource<'kvs> for StringVisitor<'_> {
+    fn visit_pair(
+        &mut self,
+        key: log::kv::Key<'kvs>,
+        value: log::kv::Value<'kvs>,
+    ) -> Result<(), log::kv::Error> {
+        use std::fmt::Write;
+        write!(self.values, "{value:?};").unwrap();
+        write!(self.keys, "{key};").unwrap();
+        Ok(())
     }
 }
 
-impl Error for TestError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            TestError::UnitFailure => None,
-            TestError::StructuredFailure { source, .. } => source
-                .as_ref()
-                .map(|source| source.as_ref() as &(dyn Error + 'static)),
-        }
+fn records() -> &'static Mutex<Vec<Record>> {
+    static RECORDS: OnceLock<Mutex<Vec<Record>>> = OnceLock::new();
+    RECORDS.get_or_init(Default::default)
+}
+
+fn init_test_logger() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        log::set_logger(&Recorder).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
+    });
+}
+
+fn records_for(function: &str) -> Vec<Record> {
+    records()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|record| record.fields.contains(function))
+        .cloned()
+        .collect()
+}
+
+#[derive(Debug)]
+struct TestError;
+
+impl DiagnosticValue for TestError {}
+
+#[super::diagnostic]
+async fn traced_child() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic]
+async fn standalone() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic(detached)]
+async fn detached() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic(restore = trace_id)]
+async fn restored(trace_id: Option<uuid::Uuid>) -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[super::diagnostic(root)]
+async fn traced_root() -> Result<(SpanContext, SpanContext), TestError> {
+    let root = SpanContext::current_local_parent().unwrap();
+    assert_eq!(
+        super::current_trace_uuid(),
+        Some(uuid::Uuid::from_u128(root.trace_id.0))
+    );
+    Ok((root, traced_child().await?))
+}
+
+#[super::diagnostic(show_output, show_error)]
+async fn successful(
+    #[diagnostic(show)] id: String,
+    #[diagnostic(redact)] secret: String,
+    omitted: String,
+) -> Result<String, TestError> {
+    let _ = (secret, omitted);
+    return Ok(id);
+}
+
+#[super::diagnostic]
+async fn failing() -> Result<(), TestError> {
+    Err(TestError)
+}
+
+#[tokio::test]
+async fn diagnostic_logs_start_then_success_with_selected_values() {
+    init_test_logger();
+    let result = successful("workspace-1".into(), "secret".into(), "hidden".into())
+        .await
+        .unwrap();
+    assert_eq!(result, "workspace-1");
+    let records = records_for("successful");
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call.start", "call.success"]
+    );
+    assert!(records[0].fields.contains("workspace-1"));
+    assert!(records[0].fields.contains("[REDACTED]"));
+    assert!(!records[0].fields.contains(": \"secret\""));
+    assert!(!records[0].fields.contains("hidden"));
+}
+
+#[tokio::test]
+async fn diagnostic_logs_error_type_without_omitted_error_value() {
+    init_test_logger();
+    assert!(failing().await.is_err());
+    let records = records_for("failing");
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call.start", "call.error"]
+    );
+    assert!(records[1].keys.contains("error_type"));
+    assert!(!records[1].keys.split(';').any(|key| key == "error"));
+}
+
+#[derive(DiagnosticDebug)]
+#[allow(dead_code)]
+struct Request {
+    #[diagnostic(show)]
+    workspace_id: String,
+    #[diagnostic(redact)]
+    api_key: String,
+    body: serde_json::Value,
+}
+
+fn assert_diagnostic<T: DiagnosticValue>(_: &T) {}
+
+#[test]
+fn diagnostic_debug_shows_redacts_and_omits_fields() {
+    let request = Request {
+        workspace_id: "workspace-1".into(),
+        api_key: "secret".into(),
+        body: serde_json::json!({"large": true}),
+    };
+    assert_diagnostic(&request);
+    let formatted = format!("{request:?}");
+    assert!(formatted.contains("workspace-1"));
+    assert!(formatted.contains("api_key: [REDACTED]"));
+    assert!(!formatted.contains("secret"));
+    assert!(!formatted.contains("body"));
+}
+
+#[test]
+fn named_fields_preserve_names_and_redaction() {
+    let workspace_id = "workspace-1";
+    let fields = [
+        ("workspace_id", Field::shown(&workspace_id)),
+        ("api_key", Field::redacted()),
+    ];
+    let formatted = format!("{:?}", Fields::new(&fields));
+    assert!(formatted.contains("workspace_id"));
+    assert!(formatted.contains("workspace-1"));
+    assert!(formatted.contains("api_key"));
+    assert!(formatted.contains("[REDACTED]"));
+}
+
+#[test]
+fn standard_json_layout_preserves_call_fields() {
+    use logforth::kv::{Key, Value};
+    use logforth::Layout;
+
+    let fields = [
+        (Key::new("function"), Value::static_str("successful")),
+        (Key::new("workspace_id"), Value::static_str("workspace-1")),
+    ];
+    let record = logforth::record::Record::builder()
+        .payload(format_args!("call.start"))
+        .key_values(fields.as_slice())
+        .build();
+    let formatted = logforth::layout::JsonLayout::default()
+        .format(&record, &[])
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&formatted).unwrap();
+
+    assert_eq!(json["message"], "call.start");
+    assert_eq!(json["kvs"]["function"], "successful");
+    assert_eq!(json["kvs"]["workspace_id"], "workspace-1");
+}
+
+#[tokio::test]
+async fn nested_calls_share_trace_but_use_distinct_spans() {
+    let (root, child) = traced_root().await.unwrap();
+
+    assert_eq!(root.trace_id, child.trace_id);
+    assert_ne!(root.span_id, child.span_id);
+}
+
+#[tokio::test]
+async fn standalone_call_creates_root_context() {
+    assert!(standalone().await.unwrap().trace_id.0 != 0);
+}
+
+#[tokio::test]
+async fn detached_call_captures_parent_before_spawn() {
+    let parent = SpanContext::random();
+    let root = fastrace::Span::root("diagnostics.detached_parent", parent);
+    let _guard = root.set_local_parent();
+    let future = detached();
+    drop(_guard);
+
+    let child = tokio::spawn(future).await.unwrap().unwrap();
+    assert_eq!(child.trace_id, parent.trace_id);
+    assert_ne!(child.span_id, parent.span_id);
+}
+
+#[tokio::test]
+async fn restore_uses_saved_trace_or_falls_back_to_root() {
+    let saved = uuid::Uuid::new_v4();
+    let restored = restored(Some(saved)).await.unwrap();
+    let fallback = self::restored(None).await.unwrap();
+
+    assert_eq!(restored.trace_id.0, saved.as_u128());
+    assert_ne!(fallback.trace_id, restored.trace_id);
+}
+
+#[test]
+fn initialization_reports_file_setup_failure_without_installing_logger() {
+    let temp_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
+    std::fs::write(&temp_dir, b"not a directory").unwrap();
+
+    let result = super::init(&temp_dir.join("diagnostics.log"));
+
+    std::fs::remove_file(temp_dir).unwrap();
+    assert!(matches!(
+        result,
+        Err(super::DiagnosticsInitializationError::SetupFailed { .. })
+    ));
+}
+
+const INSTALL_FAILURE_SUBPROCESS: &str = "LUMA_FORGE_INSTALL_FAILURE_SUBPROCESS";
+const INSTALL_FAILURE_LOGS_DIR: &str = "LUMA_FORGE_INSTALL_FAILURE_LOGS_DIR";
+const TRACE_FIELDS_SUBPROCESS: &str = "LUMA_FORGE_TRACE_FIELDS_SUBPROCESS";
+const TRACE_FIELDS_LOGS_DIR: &str = "LUMA_FORGE_TRACE_FIELDS_LOGS_DIR";
+
+#[test]
+fn initialization_reports_logger_install_failure_in_subprocess() {
+    let logs_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "diagnostics::tests::initialization_install_failure_subprocess_helper",
+            "--nocapture",
+        ])
+        .env(INSTALL_FAILURE_SUBPROCESS, "1")
+        .env(INSTALL_FAILURE_LOGS_DIR, &logs_dir)
+        .status()
+        .unwrap();
+
+    std::fs::remove_dir_all(logs_dir).unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn initialization_install_failure_subprocess_helper() {
+    if std::env::var_os(INSTALL_FAILURE_SUBPROCESS).is_none() {
+        return;
     }
+
+    let temp_dir = std::env::var_os(INSTALL_FAILURE_LOGS_DIR).unwrap();
+    let log_path = std::path::Path::new(&temp_dir).join("diagnostics.log");
+    super::init(&log_path).unwrap();
+    let result = super::init(&log_path);
+
+    assert!(matches!(
+        result,
+        Err(super::DiagnosticsInitializationError::InstallFailed { .. })
+    ));
 }
 
-impl HasDiagnosticCode for TestError {
-    fn diagnostic_code(&self) -> &'static str {
-        match self {
-            TestError::UnitFailure => "unit_failure",
-            TestError::StructuredFailure { .. } => "structured_failure",
-        }
+#[test]
+fn initialized_logger_writes_trace_and_span_ids_in_subprocess() {
+    let logs_dir = std::env::temp_dir().join(format!("luma-forge-{}", uuid::Uuid::new_v4()));
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "diagnostics::tests::initialized_logger_trace_fields_subprocess_helper",
+            "--nocapture",
+        ])
+        .env(TRACE_FIELDS_SUBPROCESS, "1")
+        .env(TRACE_FIELDS_LOGS_DIR, &logs_dir)
+        .status()
+        .unwrap();
+
+    std::fs::remove_dir_all(logs_dir).unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn initialized_logger_trace_fields_subprocess_helper() {
+    if std::env::var_os(TRACE_FIELDS_SUBPROCESS).is_none() {
+        return;
     }
 
-    fn diagnostic_source(&self) -> Option<&dyn HasDiagnosticCode> {
-        match self {
-            TestError::UnitFailure => None,
-            TestError::StructuredFailure { source, .. } => source
-                .as_ref()
-                .map(|source| source.as_ref() as &dyn HasDiagnosticCode),
-        }
-    }
+    let temp_dir = std::env::var_os(TRACE_FIELDS_LOGS_DIR).unwrap();
+    let log_path = std::path::Path::new(&temp_dir).join("diagnostics.log");
+    super::init(&log_path).unwrap();
+    assert!(log_path.is_file());
+    let span = fastrace::Span::root("diagnostics.file_test", SpanContext::random());
+    let _guard = span.set_local_parent();
+    log::info!("trace fields");
+    log::logger().flush();
+
+    let record = std::fs::read_to_string(log_path).unwrap();
+    let json: serde_json::Value = serde_json::from_str(record.trim()).unwrap();
+
+    assert!(json["diags"]["trace_id"].is_string());
+    assert!(json["diags"]["span_id"].is_string());
 }
 
 #[test]
-fn error_diagnostics_shape_includes_chain() {
-    let diagnostics = ErrorDiagnostics {
-        code: "structured_failure".to_string(),
-        message: "top-level".to_string(),
-        chain: vec![ErrorDiagnosticFrame {
-            code: "structured_failure".to_string(),
-            message: "top-level".to_string(),
-        }],
+fn application_filter_accepts_info_and_rejects_other_targets_or_debug() {
+    use logforth::filter::FilterResult;
+    use logforth::record::{FilterCriteria, Level};
+    use logforth::Filter;
+
+    let criteria = |target, level| {
+        FilterCriteria::builder()
+            .target(target)
+            .level(level)
+            .build()
     };
 
-    assert_eq!(diagnostics.code, "structured_failure");
-    assert_eq!(diagnostics.message, "top-level");
     assert_eq!(
-        diagnostics.chain,
-        vec![ErrorDiagnosticFrame {
-            code: "structured_failure".to_string(),
-            message: "top-level".to_string(),
-        }]
-    );
-}
-
-#[test]
-fn error_diagnostics_reports_code_message_and_chain() {
-    let error = TestError::StructuredFailure {
-        message: "top-level".to_string(),
-        source: Some(Box::new(TestError::StructuredFailure {
-            message: "middle".to_string(),
-            source: Some(Box::new(TestError::StructuredFailure {
-                message: "leaf".to_string(),
-                source: None,
-            })),
-        })),
-    };
-
-    let diagnostics = error_diagnostics(&error);
-
-    assert_eq!(diagnostics.code, "structured_failure");
-    assert_eq!(diagnostics.message, "top-level");
-    assert_eq!(
-        diagnostics.chain,
-        vec![
-            ErrorDiagnosticFrame {
-                code: "structured_failure".to_string(),
-                message: "top-level".to_string(),
-            },
-            ErrorDiagnosticFrame {
-                code: "structured_failure".to_string(),
-                message: "middle".to_string(),
-            },
-            ErrorDiagnosticFrame {
-                code: "structured_failure".to_string(),
-                message: "leaf".to_string(),
-            },
-        ]
-    );
-}
-
-#[test]
-fn error_diagnostics_reports_unit_variant_code() {
-    let diagnostics = error_diagnostics(&TestError::UnitFailure);
-
-    assert_eq!(diagnostics.code, "unit_failure");
-    assert_eq!(diagnostics.message, "unit failure");
-    assert_eq!(
-        diagnostics.chain,
-        vec![ErrorDiagnosticFrame {
-            code: "unit_failure".to_string(),
-            message: "unit failure".to_string(),
-        }]
-    );
-}
-
-#[test]
-fn error_diagnostics_redacts_sensitive_strings_in_message() {
-    let error = TestError::StructuredFailure {
-            message: "request failed for Bearer top-secret-token at https://example.com/download?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef&foo=bar".to_string(),
-            source: Some(Box::new(TestError::StructuredFailure {
-                message: "Authorization: Basic super-secret".to_string(),
-                source: Some(Box::new(TestError::StructuredFailure {
-                    message: "worker rejected hf_abcdefghijklmnopqrstuvwxyz123456 access_token=native-secret".to_string(),
-                    source: None,
-                })),
-            })),
-        };
-
-    let diagnostics = error_diagnostics(&error);
-
-    assert_eq!(diagnostics.code, "structured_failure");
-    assert_eq!(
-        diagnostics.message,
-        "request failed for Bearer [REDACTED] at [REDACTED_URL]"
+        super::ApplicationFilter
+            .enabled(&criteria("luma_forge_lib::diagnostics", Level::Info), &[]),
+        FilterResult::Neutral
     );
     assert_eq!(
-        diagnostics.chain,
-        vec![
-            ErrorDiagnosticFrame {
-                code: "structured_failure".to_string(),
-                message: "request failed for Bearer [REDACTED] at [REDACTED_URL]".to_string(),
-            },
-            ErrorDiagnosticFrame {
-                code: "structured_failure".to_string(),
-                message: "Authorization: [REDACTED]".to_string(),
-            },
-            ErrorDiagnosticFrame {
-                code: "structured_failure".to_string(),
-                message: "worker rejected [REDACTED] access_token=[REDACTED]".to_string(),
-            },
-        ]
+        super::ApplicationFilter.enabled(&criteria("dependency", Level::Info), &[]),
+        FilterResult::Reject
     );
-    assert!(!diagnostics.message.contains("top-secret-token"));
-    assert!(!diagnostics.message.contains("deadbeef"));
-    assert!(!diagnostics.message.contains("https://example.com/download"));
-}
-
-#[test]
-fn error_diagnostics_redacts_colon_and_quoted_sensitive_key_forms_in_message() {
-    let error = TestError::StructuredFailure {
-        message:
-            r#"api_key: secret-one "access_token":"secret-two" authorization: Bearer secret-three"#
-                .to_string(),
-        source: Some(Box::new(TestError::StructuredFailure {
-            message: r#""token":"secret-four""#.to_string(),
-            source: Some(Box::new(TestError::StructuredFailure {
-                message: r#"provider said access_token: secret-five"#.to_string(),
-                source: None,
-            })),
-        })),
-    };
-
-    let diagnostics = error_diagnostics(&error);
-
     assert_eq!(
-        diagnostics.message,
-        r#"api_key: [REDACTED] "access_token":"[REDACTED]" authorization: [REDACTED]"#
+        super::ApplicationFilter
+            .enabled(&criteria("luma_forge_lib::diagnostics", Level::Debug), &[],),
+        FilterResult::Reject
     );
-}
-
-#[test]
-fn error_diagnostics_suppresses_body_like_and_oversized_strings() {
-    let oversized = "x".repeat(5000);
-    let error = TestError::StructuredFailure {
-        message: oversized,
-        source: Some(Box::new(TestError::StructuredFailure {
-            message:
-                r#"provider response body: {"status":"ok","items":[1,2,3],"nested":{"step":"run"}}"#
-                    .to_string(),
-            source: Some(Box::new(TestError::StructuredFailure {
-                message: r#"request body: {"prompt":"draw","workflow":{"id":"wf_123"}}"#
-                    .to_string(),
-                source: None,
-            })),
-        })),
-    };
-
-    let diagnostics = error_diagnostics(&error);
-
-    assert_eq!(diagnostics.message, "[REDACTED_LARGE_DIAGNOSTIC]");
-}
-
-#[test]
-fn error_diagnostics_keeps_safe_bracketed_messages_visible() {
-    let error = TestError::StructuredFailure {
-        message: "[workspace invalid] missing endpoint".to_string(),
-        source: Some(Box::new(TestError::StructuredFailure {
-            message: "{workspace invalid}".to_string(),
-            source: None,
-        })),
-    };
-
-    let diagnostics = error_diagnostics(&error);
-
-    assert_eq!(diagnostics.message, "[workspace invalid] missing endpoint");
-}
-
-#[test]
-fn error_diagnostics_suppresses_plain_text_body_markers() {
-    let error = TestError::StructuredFailure {
-        message: "request body: not json but sensitive".to_string(),
-        source: Some(Box::new(TestError::StructuredFailure {
-            message: "payload: plain text secret".to_string(),
-            source: Some(Box::new(TestError::StructuredFailure {
-                message: "response body: not-json".to_string(),
-                source: None,
-            })),
-        })),
-    };
-
-    let diagnostics = error_diagnostics(&error);
-
-    assert_eq!(diagnostics.message, "[REDACTED_BODY]");
-}
-
-#[test]
-fn sanitizing_json_layout_redacts_payload_and_key_values() {
-    let layout = SanitizingJsonLayout;
-    let key_values = [
-            (
-                KeyOwned::new("payload"),
-                ValueOwned::str("provider response body: not json but sensitive"),
-            ),
-            (
-                KeyOwned::new("download_url"),
-                ValueOwned::str(
-                    "https://example.com/download?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=deadbeef",
-                ),
-            ),
-        ];
-    let record = logforth::record::Record::builder()
-        .level(Level::Info)
-        .target_static("luma_forge_lib::diagnostics")
-        .file_static("src/diagnostics.rs")
-        .line(Some(123))
-        .payload(format_args!("Authorization: Bearer top-secret-token"))
-        .key_values(&key_values[..])
-        .build();
-
-    let formatted = layout.format(&record, &[]).expect("record should format");
-    let json: serde_json::Value =
-        serde_json::from_slice(&formatted).expect("formatted line should be valid json");
-
-    assert_eq!(json["message"], "Authorization: [REDACTED]");
-    assert_eq!(json["ctx"]["payload"], "[REDACTED_BODY]");
-    assert_eq!(json["ctx"]["download_url"], "[REDACTED_URL]");
-    assert!(!formatted
-        .windows("top-secret-token".len())
-        .any(|window| window == b"top-secret-token"));
-    assert!(!formatted
-        .windows("deadbeef".len())
-        .any(|window| window == b"deadbeef"));
-}
-
-#[test]
-fn sanitizing_json_layout_redacts_nested_structured_key_values() {
-    let layout = SanitizingJsonLayout;
-    let request_value = ValueOwned::map([
-        (
-            KeyOwned::new("authorization"),
-            ValueOwned::str("Basic secret"),
-        ),
-        (
-            KeyOwned::new("nested"),
-            ValueOwned::map([
-                (KeyOwned::new("api_key"), ValueOwned::str("abc")),
-                (KeyOwned::new("access_token"), ValueOwned::str("xyz")),
-            ]),
-        ),
-        (
-            KeyOwned::new("body"),
-            ValueOwned::map([
-                (KeyOwned::new("prompt"), ValueOwned::str("draw")),
-                (
-                    KeyOwned::new("workflow"),
-                    ValueOwned::map([(KeyOwned::new("id"), ValueOwned::str("wf_123"))]),
-                ),
-            ]),
-        ),
-        (
-            KeyOwned::new("payload"),
-            ValueOwned::list([ValueOwned::map([(
-                KeyOwned::new("token"),
-                ValueOwned::str("array-secret"),
-            )])]),
-        ),
-        (
-            KeyOwned::new("safe"),
-            ValueOwned::str("Bearer top-secret-token"),
-        ),
-    ]);
-    let key_values = [(KeyOwned::new("details"), request_value)];
-    let record = logforth::record::Record::builder()
-        .level(Level::Info)
-        .target_static("luma_forge_lib::diagnostics")
-        .file_static("src/diagnostics.rs")
-        .line(Some(123))
-        .payload(format_args!("structured request"))
-        .key_values(&key_values[..])
-        .build();
-
-    let formatted = layout.format(&record, &[]).expect("record should format");
-    let json: serde_json::Value =
-        serde_json::from_slice(&formatted).expect("formatted line should be valid json");
-
-    assert_eq!(json["ctx"]["details"]["authorization"], "[REDACTED]");
-    assert_eq!(json["ctx"]["details"]["nested"]["api_key"], "[REDACTED]");
-    assert_eq!(
-        json["ctx"]["details"]["nested"]["access_token"],
-        "[REDACTED]"
-    );
-    assert_eq!(json["ctx"]["details"]["body"], "[REDACTED_BODY]");
-    assert_eq!(json["ctx"]["details"]["payload"], "[REDACTED_BODY]");
-    assert_eq!(json["ctx"]["details"]["safe"], "Bearer [REDACTED]");
-    assert!(!formatted
-        .windows("Basic secret".len())
-        .any(|window| window == b"Basic secret"));
-    assert!(!formatted
-        .windows("array-secret".len())
-        .any(|window| window == b"array-secret"));
-}
-
-#[test]
-fn sanitizing_json_layout_redacts_colon_and_quoted_sensitive_key_forms() {
-    let layout = SanitizingJsonLayout;
-    let key_values = [(
-        KeyOwned::new("details"),
-        ValueOwned::str(r#"api_key: secret-one "token":"secret-two""#),
-    )];
-    let record = logforth::record::Record::builder()
-        .level(Level::Info)
-        .target_static("luma_forge_lib::diagnostics")
-        .file_static("src/diagnostics.rs")
-        .line(Some(123))
-        .payload(format_args!(r#"authorization: Bearer secret-three"#))
-        .key_values(&key_values[..])
-        .build();
-
-    let formatted = layout.format(&record, &[]).expect("record should format");
-    let json: serde_json::Value =
-        serde_json::from_slice(&formatted).expect("formatted line should be valid json");
-
-    assert_eq!(json["message"], "authorization: [REDACTED]");
-    assert_eq!(
-        json["ctx"]["details"],
-        r#"api_key: [REDACTED] "token":"[REDACTED]""#
-    );
-}
-
-#[test]
-fn sanitizing_json_layout_lifts_error_key_value_to_top_level() {
-    let layout = SanitizingJsonLayout;
-    let key_values = [(
-        KeyOwned::new("error"),
-        ValueOwned::map([
-            (
-                KeyOwned::new("code"),
-                ValueOwned::str("runtime_provider_api_key_unavailable"),
-            ),
-            (
-                KeyOwned::new("message"),
-                ValueOwned::str("runpod placement options failed"),
-            ),
-            (
-                KeyOwned::new("chain"),
-                ValueOwned::list([
-                    ValueOwned::map([
-                        (
-                            KeyOwned::new("code"),
-                            ValueOwned::str("runpod_placement_options_failed"),
-                        ),
-                        (
-                            KeyOwned::new("message"),
-                            ValueOwned::str("runpod placement options failed"),
-                        ),
-                    ]),
-                    ValueOwned::map([
-                        (
-                            KeyOwned::new("code"),
-                            ValueOwned::str("runtime_provider_api_key_unavailable"),
-                        ),
-                        (
-                            KeyOwned::new("message"),
-                            ValueOwned::str("runtime provider api key unavailable"),
-                        ),
-                    ]),
-                    ValueOwned::map([
-                        (
-                            KeyOwned::new("code"),
-                            ValueOwned::str("secure_storage_unavailable"),
-                        ),
-                        (
-                            KeyOwned::new("message"),
-                            ValueOwned::str("secure storage is unavailable"),
-                        ),
-                    ]),
-                ]),
-            ),
-        ]),
-    )];
-    let record = logforth::record::Record::builder()
-        .level(Level::Error)
-        .target_static("luma_forge_lib::diagnostics")
-        .file_static("src/diagnostics.rs")
-        .line(Some(123))
-        .payload(format_args!("tauri command failed"))
-        .key_values(&key_values[..])
-        .build();
-
-    let formatted = layout.format(&record, &[]).expect("record should format");
-    let json: serde_json::Value =
-        serde_json::from_slice(&formatted).expect("formatted line should be valid json");
-
-    assert_eq!(
-        json["error"]["code"],
-        "runtime_provider_api_key_unavailable"
-    );
-    assert_eq!(json["error"]["message"], "runpod placement options failed");
-    assert_eq!(json["error"]["chain"].as_array().unwrap().len(), 3);
-    assert!(json["ctx"].get("error").is_none());
-}
-
-#[test]
-fn sanitizing_json_layout_lifts_json_string_error_key_value_to_top_level() {
-    let error = TestError::StructuredFailure {
-        message: "top-level".to_string(),
-        source: Some(Box::new(TestError::StructuredFailure {
-            message: "leaf".to_string(),
-            source: None,
-        })),
-    };
-    let error_json = error_diagnostics_log_json(&error);
-    assert!(error_json.starts_with(r#"{"code":"structured_failure""#));
-    assert!(!error_json.contains("ErrorDiagnostics"));
-
-    let layout = SanitizingJsonLayout;
-    let key_values = [(KeyOwned::new("error"), ValueOwned::str(error_json))];
-    let record = logforth::record::Record::builder()
-        .level(Level::Error)
-        .target_static("luma_forge_lib::diagnostics")
-        .file_static("src/diagnostics.rs")
-        .line(Some(123))
-        .payload(format_args!("tauri command failed"))
-        .key_values(&key_values[..])
-        .build();
-
-    let formatted = layout.format(&record, &[]).expect("record should format");
-    let json: serde_json::Value =
-        serde_json::from_slice(&formatted).expect("formatted line should be valid json");
-
-    assert_eq!(json["error"]["code"], "structured_failure");
-    assert_eq!(json["error"]["message"], "top-level");
-    assert_eq!(json["error"]["chain"].as_array().unwrap().len(), 2);
-    assert!(json["ctx"].get("error").is_none());
-}
-
-#[test]
-fn app_log_filter_rejects_non_app_targets_and_sub_info_levels() {
-    let filter = AppLogFilter;
-
-    let app_info = FilterCriteria::builder()
-        .level(Level::Info)
-        .target("luma_forge_lib::provider")
-        .build();
-    let app_error = FilterCriteria::builder()
-        .level(Level::Error)
-        .target("luma_forge::tauri")
-        .build();
-    let app_debug = FilterCriteria::builder()
-        .level(Level::Debug)
-        .target("luma_forge_lib::provider")
-        .build();
-    let dependency_info = FilterCriteria::builder()
-        .level(Level::Info)
-        .target("reqwest::connect")
-        .build();
-
-    assert_eq!(filter.enabled(&app_info, &[]), FilterResult::Neutral);
-    assert_eq!(filter.enabled(&app_error, &[]), FilterResult::Neutral);
-    assert_eq!(filter.enabled(&app_debug, &[]), FilterResult::Reject);
-    assert_eq!(filter.enabled(&dependency_info, &[]), FilterResult::Reject);
 }

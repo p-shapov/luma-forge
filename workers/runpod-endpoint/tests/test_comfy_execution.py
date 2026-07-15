@@ -54,12 +54,14 @@ def _write_valid_workflow(directory: str) -> Path:
     workflow.write_text(
         json.dumps(
             {
-                "nodes": [
-                    {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
-                    {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
-                    {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
-                    {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
-                ]
+                "graph": {
+                    "nodes": [
+                        {"id": 171, "type": "PrimitiveStringMultiline", "title": "User Prompt", "widgets_values": ["old"]},
+                        {"id": 154, "type": "PrimitiveBoolean", "title": "Switch to Image Edit", "widgets_values": [True]},
+                        {"id": 177, "type": "PrimitiveBoolean", "title": "Enable Prompt Refine?", "widgets_values": [True]},
+                        {"id": 227, "type": "SaveImage", "widgets_values": ["hidream_o1"]},
+                    ]
+                }
             }
         ),
         encoding="utf-8",

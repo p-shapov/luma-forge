@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "luma-forge://schema/workflow_metadata",
+  "title": "WorkflowMetadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "runtime_preset_ref", "requires_hugging_face_api_key", "required_volume_size_gb"],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "runtime_preset_ref": { "$ref": "luma-forge://schema/reference" },
+    "requires_hugging_face_api_key": { "type": "boolean" },
+    "required_volume_size_gb": { "type": "integer", "minimum": 1 }
+  }
+}

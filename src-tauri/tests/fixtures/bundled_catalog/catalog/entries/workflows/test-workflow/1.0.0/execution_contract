@@ -1,0 +1,14 @@
+{
+  "schema_ref": {
+    "contract": "catalog/contracts/execution_schema_revision",
+    "id": "test-schema",
+    "revision": "1.0.0"
+  },
+  "input_bindings": [
+    {
+      "value": "test",
+      "node_id": "1",
+      "path": ["inputs", "text"]
+    }
+  ]
+}

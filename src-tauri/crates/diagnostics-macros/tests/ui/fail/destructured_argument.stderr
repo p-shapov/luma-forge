@@ -1,0 +1,5 @@
+error: diagnostic functions require identifier parameters
+ --> tests/ui/fail/destructured_argument.rs:4:14
+  |
+4 | fn operation((left, right): (u8, u8)) -> Result<(), ()> { Ok(()) }
+  |              ^^^^^^^^^^^^^

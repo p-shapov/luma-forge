@@ -1,0 +1,5 @@
+error: duplicate or conflicting diagnostic field policy
+  --> tests/ui/fail/conflicting_field_policy.rs:11:24
+   |
+11 |     #[diagnostic(show, redact)]
+   |                        ^^^^^^
