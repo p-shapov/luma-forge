@@ -63,7 +63,7 @@ pub struct CreateNetworkVolumeRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
     #[diagnostic(show)]
-    pub workspace_id: String,
+    pub name: String,
     #[diagnostic(show)]
     pub datacenter_id: String,
     #[diagnostic(show)]
@@ -92,6 +92,8 @@ pub struct CreatePodRequest {
     pub hugging_face_credential: Option<SecretString>,
     #[diagnostic(show)]
     pub workspace_id: String,
+    #[diagnostic(show)]
+    pub name: String,
     #[diagnostic(show)]
     pub datacenter_id: String,
     #[diagnostic(show)]
@@ -138,7 +140,7 @@ pub struct CreateEndpointRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
     #[diagnostic(show)]
-    pub workspace_id: String,
+    pub name: String,
     #[diagnostic(show)]
     pub datacenter_id: String,
     #[diagnostic(show)]
@@ -164,7 +166,7 @@ pub struct CreateTemplateRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
     #[diagnostic(show)]
-    pub workspace_id: String,
+    pub name: String,
     #[diagnostic(show)]
     pub image_ref: String,
 }

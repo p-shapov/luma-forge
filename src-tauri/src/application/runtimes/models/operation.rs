@@ -7,7 +7,7 @@ use crate::application::{
     workspace::Workspace,
 };
 
-use super::RuntimeKind;
+use super::{RuntimeKind, RuntimeState};
 
 #[derive(
     crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
@@ -77,18 +77,51 @@ impl RuntimeOperation {
         .ok_or(RuntimeOperationError::InvalidTransition)
     }
 
+    #[allow(clippy::match_like_matches_macro)]
     pub fn validate_transition(&self, workspace: &Workspace) -> Result<(), RuntimeOperationError> {
         self.validate_progress()?;
+        let valid_state = match (
+            self.kind,
+            self.state,
+            workspace.runtime.as_ref().map(|runtime| runtime.state),
+        ) {
+            (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Running,
+                Some(RuntimeState::Provisioning),
+            )
+            | (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Succeeded,
+                Some(RuntimeState::Ready),
+            )
+            | (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Failed,
+                Some(RuntimeState::Failed),
+            )
+            | (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Running,
+                Some(RuntimeState::CleaningUp),
+            )
+            | (RuntimeOperationKind::Cleanup, RuntimeOperationState::Succeeded, None)
+            | (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Failed,
+                Some(RuntimeState::Failed),
+            ) => true,
+            _ => false,
+        };
+
         (workspace.id == self.workspace_id
-            && match &workspace.runtime {
-                Some(runtime) => runtime.kind() == self.runtime_kind,
-                None => {
-                    self.kind == RuntimeOperationKind::Cleanup
-                        && self.state == RuntimeOperationState::Succeeded
-                }
-            })
-        .then_some(())
-        .ok_or(RuntimeOperationError::InvalidTransition)
+            && workspace
+                .runtime
+                .as_ref()
+                .is_none_or(|runtime| runtime.kind() == self.runtime_kind)
+            && valid_state)
+            .then_some(())
+            .ok_or(RuntimeOperationError::InvalidTransition)
     }
 
     pub fn running(
@@ -202,52 +235,131 @@ mod tests {
     }
 
     #[test]
-    fn runtime_operation_validates_provider_neutral_transition_invariants() {
-        let mut workspace = Workspace {
-            id: "workspace-1".into(),
+    fn runtime_operation_enforces_lifecycle_state_matrix() {
+        let workspace = |id: &str, state: Option<RuntimeState>| Workspace {
+            id: id.into(),
             workflow: CatalogRef::new("workflow-1", "1"),
             created_at: OffsetDateTime::UNIX_EPOCH,
-            runtime: Some(Runtime {
-                state: RuntimeState::CleaningUp,
+            runtime: state.map(|state| Runtime {
+                state,
                 provider: provider_payload_fixture(),
             }),
         };
-        let mut operation = RuntimeOperation::running(
-            Uuid::from_u128(1),
-            "workspace-1",
-            RuntimeKind::Runpod,
-            RuntimeOperationKind::Cleanup,
-            RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint)),
-            OffsetDateTime::UNIX_EPOCH,
+        let operation = |kind, state| {
+            let progress = match kind {
+                RuntimeOperationKind::Provision => RuntimeProgress::Runpod(
+                    RunpodProgress::Provision(RunpodProvisionStep::CreateNetworkVolume),
+                ),
+                RuntimeOperationKind::Cleanup => RuntimeProgress::Runpod(RunpodProgress::Cleanup(
+                    RunpodCleanupStep::DeleteEndpoint,
+                )),
+            };
+            let mut operation = RuntimeOperation::running(
+                Uuid::from_u128(1),
+                "workspace-1",
+                RuntimeKind::Runpod,
+                kind,
+                progress,
+                OffsetDateTime::UNIX_EPOCH,
+            );
+            operation.state = state;
+            operation
+        };
+
+        for (kind, state, runtime_state) in [
+            (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Running,
+                Some(RuntimeState::Provisioning),
+            ),
+            (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Succeeded,
+                Some(RuntimeState::Ready),
+            ),
+            (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Failed,
+                Some(RuntimeState::Failed),
+            ),
+            (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Running,
+                Some(RuntimeState::CleaningUp),
+            ),
+            (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Succeeded,
+                None,
+            ),
+            (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Failed,
+                Some(RuntimeState::Failed),
+            ),
+        ] {
+            assert_eq!(
+                operation(kind, state)
+                    .validate_transition(&workspace("workspace-1", runtime_state)),
+                Ok(())
+            );
+        }
+
+        for (kind, state, runtime_state) in [
+            (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Running,
+                Some(RuntimeState::Ready),
+            ),
+            (
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Succeeded,
+                Some(RuntimeState::Provisioning),
+            ),
+            (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Running,
+                Some(RuntimeState::Failed),
+            ),
+            (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Succeeded,
+                Some(RuntimeState::CleaningUp),
+            ),
+            (
+                RuntimeOperationKind::Cleanup,
+                RuntimeOperationState::Failed,
+                None,
+            ),
+        ] {
+            assert_eq!(
+                operation(kind, state)
+                    .validate_transition(&workspace("workspace-1", runtime_state)),
+                Err(RuntimeOperationError::InvalidTransition)
+            );
+        }
+
+        assert_eq!(
+            operation(
+                RuntimeOperationKind::Provision,
+                RuntimeOperationState::Running,
+            )
+            .validate_transition(&workspace("workspace-2", Some(RuntimeState::Provisioning))),
+            Err(RuntimeOperationError::InvalidTransition)
         );
 
-        assert_eq!(operation.validate_progress(), Ok(()));
-        assert_eq!(operation.validate_transition(&workspace), Ok(()));
-
-        operation.progress = RuntimeProgress::Runpod(RunpodProgress::Provision(
+        let mut mismatched_progress = operation(
+            RuntimeOperationKind::Cleanup,
+            RuntimeOperationState::Running,
+        );
+        mismatched_progress.progress = RuntimeProgress::Runpod(RunpodProgress::Provision(
             RunpodProvisionStep::CreateNetworkVolume,
         ));
         assert_eq!(
-            operation.validate_progress(),
+            mismatched_progress
+                .validate_transition(&workspace("workspace-1", Some(RuntimeState::CleaningUp),)),
             Err(RuntimeOperationError::InvalidTransition)
         );
-        operation.progress =
-            RuntimeProgress::Runpod(RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint));
-
-        workspace.id = "workspace-2".into();
-        assert_eq!(
-            operation.validate_transition(&workspace),
-            Err(RuntimeOperationError::InvalidTransition)
-        );
-        workspace.id = "workspace-1".into();
-        workspace.runtime = None;
-        assert_eq!(
-            operation.validate_transition(&workspace),
-            Err(RuntimeOperationError::InvalidTransition)
-        );
-
-        operation.succeed(OffsetDateTime::UNIX_EPOCH).unwrap();
-        assert_eq!(operation.validate_transition(&workspace), Ok(()));
     }
 
     #[test]

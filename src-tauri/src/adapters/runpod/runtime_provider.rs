@@ -64,7 +64,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         self.provider
             .create_network_volume(CreateNetworkVolumeRequest {
                 credential: api_key.clone(),
-                workspace_id: command.workspace_id,
+                name: command.name,
                 datacenter_id: command.datacenter_id,
                 size_gb: command
                     .size_gb
@@ -87,6 +87,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
             .create_pod(CreatePodRequest {
                 credential: api_key.clone(),
                 hugging_face_credential: command.hugging_face_api_key,
+                name: command.name,
                 workspace_id: command.workspace_id,
                 datacenter_id: command.datacenter_id,
                 provisioner_image_ref: command.provisioner_image_ref,
@@ -164,7 +165,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         self.provider
             .create_template(CreateTemplateRequest {
                 credential: api_key.clone(),
-                workspace_id: command.workspace_id,
+                name: command.name,
                 image_ref: command.image_ref,
             })
             .await
@@ -182,7 +183,7 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
         self.provider
             .create_endpoint(CreateEndpointRequest {
                 credential: api_key.clone(),
-                workspace_id: command.workspace_id,
+                name: command.name,
                 datacenter_id: command.datacenter_id,
                 gpu_id: command.gpu_id,
                 network_volume_id: command.network_volume_id,

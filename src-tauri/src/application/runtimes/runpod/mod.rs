@@ -10,8 +10,9 @@ pub use models::{
     RunpodPlacementGpu, RunpodProgress, RunpodProvisionStep, RunpodRuntime, RunpodRuntimeConfig,
     RunpodRuntimeDefinition, RunpodRuntimeResources, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
+pub(crate) use ports::resource_name;
 pub use ports::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodRuntimeCatalog,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodResourceKind, RunpodRuntimeCatalog,
     RunpodRuntimeCatalogError, RunpodRuntimeProvider, RunpodRuntimeProviderError,
     StartProvisionerPod,
 };

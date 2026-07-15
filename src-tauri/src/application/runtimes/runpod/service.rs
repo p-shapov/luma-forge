@@ -18,10 +18,11 @@ use crate::application::{
 };
 
 use super::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
+    resource_name, CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
     RunpodContractRequirements, RunpodPlacement, RunpodProgress, RunpodProvisionStep,
-    RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig, RunpodRuntimeDefinition,
-    RunpodRuntimeProvider, StartProvisionerPod, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+    RunpodResourceKind, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
+    RunpodRuntimeDefinition, RunpodRuntimeProvider, StartProvisionerPod,
+    RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -337,9 +338,11 @@ impl RunpodRuntimeService {
             None
         };
 
+        let operation_id = Uuid::new_v4();
         workspace.runtime = Some(Runtime {
             state: RuntimeState::Provisioning,
             provider: RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(
+                operation_id,
                 RunpodRuntimeConfig {
                     datacenter_id: command.datacenter_id.clone(),
                     gpu_id: command.gpu_id.clone(),
@@ -348,7 +351,7 @@ impl RunpodRuntimeService {
             )),
         });
         let operation = RuntimeOperation::running(
-            Uuid::new_v4(),
+            operation_id,
             &command.workspace_id,
             RuntimeKind::Runpod,
             RuntimeOperationKind::Provision,
@@ -387,12 +390,17 @@ impl RunpodRuntimeService {
         mut workspace: Workspace,
         mut operation: RuntimeOperation,
     ) -> Result<(), RuntimeError> {
+        let provision_operation_id = runpod(&workspace)?.provision_operation_id;
         let volume_id = match self
             .provider
             .create_network_volume(
                 &runpod_key,
                 CreateNetworkVolume {
-                    workspace_id: command.workspace_id.clone(),
+                    name: resource_name(
+                        &command.workspace_id,
+                        provision_operation_id,
+                        RunpodResourceKind::NetworkVolume,
+                    ),
                     datacenter_id: command.datacenter_id.clone(),
                     size_gb: command.volume_size_gb,
                 },
@@ -419,6 +427,11 @@ impl RunpodRuntimeService {
                 &runpod_key,
                 StartProvisionerPod {
                     workspace_id: command.workspace_id.clone(),
+                    name: resource_name(
+                        &command.workspace_id,
+                        provision_operation_id,
+                        RunpodResourceKind::ProvisionerPod,
+                    ),
                     datacenter_id: command.datacenter_id.clone(),
                     network_volume_id: volume_id.clone(),
                     provisioner_image_ref: definition.provisioner_image_ref,
@@ -484,7 +497,11 @@ impl RunpodRuntimeService {
             .create_template(
                 &runpod_key,
                 CreateTemplate {
-                    workspace_id: command.workspace_id.clone(),
+                    name: resource_name(
+                        &command.workspace_id,
+                        provision_operation_id,
+                        RunpodResourceKind::Template,
+                    ),
                     image_ref: definition.endpoint_image_ref,
                 },
             )
@@ -509,7 +526,11 @@ impl RunpodRuntimeService {
             .create_endpoint(
                 &runpod_key,
                 CreateEndpoint {
-                    workspace_id: command.workspace_id.clone(),
+                    name: resource_name(
+                        &command.workspace_id,
+                        provision_operation_id,
+                        RunpodResourceKind::Endpoint,
+                    ),
                     datacenter_id: command.datacenter_id,
                     gpu_id: command.gpu_id,
                     network_volume_id: volume_id,
@@ -684,6 +705,7 @@ mod tests {
         let (workspace, operation) = start_provision(&fakes).await.unwrap();
         let RuntimeProvider::Runpod(runtime) = workspace.runtime.as_ref().unwrap().provider.clone();
 
+        assert_eq!(runtime.provision_operation_id, operation.id);
         assert_eq!(
             workspace.runtime.as_ref().unwrap().state,
             RuntimeState::Provisioning

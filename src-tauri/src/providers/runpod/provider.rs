@@ -20,7 +20,6 @@ use super::{
 
 const GRAPHQL_URL: &str = "https://api.runpod.io/graphql";
 const REST_BASE_URL: &str = "https://rest.runpod.io/v1";
-const RESOURCE_PREFIX: &str = "luma-forge";
 const PROVISIONER_PORT: &str = "8000/http";
 
 #[derive(Clone)]
@@ -265,7 +264,7 @@ fn placement_response(
 fn network_volume_create_input(request: &CreateNetworkVolumeRequest) -> NetworkVolumeCreateInput {
     NetworkVolumeCreateInput {
         data_center_id: request.datacenter_id.clone(),
-        name: resource_name(&request.workspace_id, "volume"),
+        name: request.name.clone(),
         size: request.size_gb,
     }
 }
@@ -293,7 +292,7 @@ fn pod_create_input(request: &CreatePodRequest) -> Result<PodCreateInput, Networ
         data_center_ids: vec![request.datacenter_id.clone()],
         env,
         image_name: request.provisioner_image_ref.clone(),
-        name: resource_name(&request.workspace_id, "provisioner"),
+        name: request.name.clone(),
         network_volume_id: request.network_volume_id.clone(),
         ports: vec![PROVISIONER_PORT.to_owned()],
     })
@@ -304,7 +303,7 @@ fn endpoint_create_input(request: &CreateEndpointRequest) -> EndpointCreateInput
         compute_type: "GPU",
         data_center_ids: vec![request.datacenter_id.clone()],
         gpu_type_ids: vec![request.gpu_id.clone()],
-        name: resource_name(&request.workspace_id, "endpoint"),
+        name: request.name.clone(),
         network_volume_id: request.network_volume_id.clone(),
         template_id: request.template_id.clone(),
         workers_max: request.workers_max,
@@ -317,7 +316,7 @@ fn template_create_input(request: &CreateTemplateRequest) -> TemplateCreateInput
         image_name: request.image_ref.clone(),
         is_public: false,
         is_serverless: true,
-        name: resource_name(&request.workspace_id, "template"),
+        name: request.name.clone(),
     }
 }
 
@@ -329,10 +328,6 @@ fn derive_bearer_token(
         .map_err(|_| NetworkError::RequestFailed)?;
     mac.update(workspace_id.as_bytes());
     Ok(hex::encode(mac.finalize().into_bytes()))
-}
-
-fn resource_name(workspace_id: &str, resource: &str) -> String {
-    format!("{RESOURCE_PREFIX}-{workspace_id}-{resource}")
 }
 
 #[derive(serde::Deserialize)]

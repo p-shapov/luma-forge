@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,6 +38,9 @@ pub struct RunpodRuntimeResources {
 #[serde(deny_unknown_fields)]
 pub struct RunpodRuntime {
     #[diagnostic(show)]
+    #[serde(rename = "provision_operation_id")]
+    pub provision_operation_id: Uuid,
+    #[diagnostic(show)]
     #[serde(rename = "config")]
     pub config: RunpodRuntimeConfig,
     #[diagnostic(show)]
@@ -45,8 +49,9 @@ pub struct RunpodRuntime {
 }
 
 impl RunpodRuntime {
-    pub fn new_provisioning(config: RunpodRuntimeConfig) -> Self {
+    pub fn new_provisioning(provision_operation_id: Uuid, config: RunpodRuntimeConfig) -> Self {
         Self {
+            provision_operation_id,
             config,
             resources: RunpodRuntimeResources::default(),
         }

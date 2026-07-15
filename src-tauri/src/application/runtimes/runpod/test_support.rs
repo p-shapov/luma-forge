@@ -79,7 +79,7 @@ impl ProvisionFakes {
     }
 
     pub fn ready_runtime() -> Self {
-        let mut runtime = runtime(RuntimeState::Ready);
+        let mut runtime = runtime(Uuid::from_u128(1), RuntimeState::Ready);
         runpod_mut(&mut runtime).resources = RunpodRuntimeResources {
             network_volume_id: Some("volume-1".into()),
             provisioner_pod_id: Some("pod-1".into()),
@@ -96,7 +96,7 @@ impl ProvisionFakes {
     }
 
     pub fn failed_partial_runtime() -> Self {
-        let mut runtime = runtime(RuntimeState::Failed);
+        let mut runtime = runtime(Uuid::from_u128(1), RuntimeState::Failed);
         runpod_mut(&mut runtime).resources = RunpodRuntimeResources {
             network_volume_id: Some("volume-1".into()),
             provisioner_pod_id: None,
@@ -113,7 +113,10 @@ impl ProvisionFakes {
     pub fn with_running_provision_and_cleanup() -> Self {
         let now = OffsetDateTime::UNIX_EPOCH;
         let fakes = Self::new(
-            workspace(Some(runtime(RuntimeState::Provisioning))),
+            workspace(Some(runtime(
+                Uuid::from_u128(1),
+                RuntimeState::Provisioning,
+            ))),
             vec![
                 running_operation(
                     Uuid::from_u128(1),
@@ -147,9 +150,13 @@ impl ProvisionFakes {
                 ),
             ],
         );
-        let mut workspace_2 = workspace(Some(runtime(RuntimeState::CleaningUp)));
+        let mut workspace_2 =
+            workspace(Some(runtime(Uuid::from_u128(2), RuntimeState::CleaningUp)));
         workspace_2.id = "workspace-2".into();
-        let mut workspace_3 = workspace(Some(runtime(RuntimeState::Provisioning)));
+        let mut workspace_3 = workspace(Some(runtime(
+            Uuid::from_u128(5),
+            RuntimeState::Provisioning,
+        )));
         workspace_3.id = "workspace-3".into();
         fakes
             .workspace_rows
@@ -348,10 +355,11 @@ fn runtime_definition() -> RunpodRuntimeDefinition {
     }
 }
 
-fn runtime(state: RuntimeState) -> Runtime {
+fn runtime(provision_operation_id: Uuid, state: RuntimeState) -> Runtime {
     Runtime {
         state,
         provider: RuntimeProvider::Runpod(RunpodRuntime {
+            provision_operation_id,
             config: RunpodRuntimeConfig {
                 datacenter_id: "dc-1".into(),
                 gpu_id: "gpu-1".into(),
