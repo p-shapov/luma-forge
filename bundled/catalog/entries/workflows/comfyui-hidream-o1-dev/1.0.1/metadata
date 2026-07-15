@@ -1,0 +1,11 @@
+{
+  "name": "ComfyUI HiDream O1 Dev",
+  "description": "Generate images with the ComfyUI HiDream O1 Dev workflow.",
+  "runtime_preset_ref": {
+    "contract": "catalog/contracts/runtime_preset_revision",
+    "id": "comfyui-py312-cu126-torch291",
+    "revision": "1.0.0"
+  },
+  "requires_hugging_face_api_key": true,
+  "required_volume_size_gb": 19
+}
