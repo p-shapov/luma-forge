@@ -1,7 +1,6 @@
 mod errors;
 mod models;
 pub mod ports;
-mod query;
 pub mod runpod;
 mod service;
 mod transition;
@@ -14,6 +13,5 @@ pub use models::{
     RuntimeOperationKind, RuntimeOperationState, RuntimeProgress, RuntimeProvider, RuntimeState,
     WorkflowDefinition, WorkflowSummary,
 };
-pub use query::RuntimeOperationQueryService;
 pub use service::{ProvisionRuntime, RuntimeService};
 pub use transition::RuntimeTransitionContext;

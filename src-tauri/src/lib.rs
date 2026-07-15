@@ -20,7 +20,7 @@ use adapters::{
 use application::{
     runtimes::{
         runpod::{RunpodRuntimeService, RunpodRuntimeServiceDependencies},
-        RuntimeOperationQueryService, RuntimeService,
+        RuntimeService,
     },
     secrets::SecretsService,
     workspace::WorkspaceService,
@@ -108,7 +108,6 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
         WorkspaceService::new(workspaces.clone(), bundled.clone(), events.clone());
     let secrets_service =
         SecretsService::new(secrets.clone(), runpod_identity, hugging_face_identity);
-    let operations_service = RuntimeOperationQueryService::new(operations.clone());
     let runpod_service = RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
         workspaces: workspaces.clone(),
         workflows: bundled.clone(),
@@ -122,7 +121,6 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
     let facade_state = FacadeState::new(
         workspace_service,
         secrets_service,
-        operations_service,
         runtime_service,
         runpod_service,
     );

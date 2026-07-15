@@ -3,7 +3,7 @@ use secrecy::SecretString;
 use crate::application::{
     runtimes::{
         runpod::{ProvisionRunpodRuntime, RunpodRuntimeService},
-        ProvisionRuntime, RuntimeError, RuntimeOperationQueryService, RuntimeService,
+        ProvisionRuntime, RuntimeError, RuntimeService,
     },
     secrets::{SecretKind, SecretsService},
     workspace::WorkspaceService,
@@ -14,7 +14,6 @@ use super::{errors::*, models::*};
 pub struct FacadeState {
     workspaces: WorkspaceService,
     secrets: SecretsService,
-    operations: RuntimeOperationQueryService,
     runtimes: RuntimeService,
     runpod: RunpodRuntimeService,
 }
@@ -23,14 +22,12 @@ impl FacadeState {
     pub fn new(
         workspaces: WorkspaceService,
         secrets: SecretsService,
-        operations: RuntimeOperationQueryService,
         runtimes: RuntimeService,
         runpod: RunpodRuntimeService,
     ) -> Self {
         Self {
             workspaces,
             secrets,
-            operations,
             runtimes,
             runpod,
         }
@@ -113,8 +110,8 @@ impl FacadeState {
     ) -> CommandResult<RuntimeOperationPageDto, GetRuntimeOperationsErrorCode> {
         let (offset, limit) = validate_operation_page(&request)?;
         let (operations, total) = self
-            .operations
-            .page(request.workspace_id.as_deref(), offset, limit)
+            .runtimes
+            .list_operations(request.workspace_id.as_deref(), offset, limit)
             .await?;
         Ok(RuntimeOperationPageDto {
             operations: operations

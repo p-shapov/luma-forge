@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::application::workspace::{ports::WorkspaceRepository, Workspace};
 
 use super::{
-    ports::RuntimeOperationRepository,
+    ports::{RuntimeOperationRepository, RuntimeOperationRepositoryError},
     runpod::{ProvisionRunpodRuntime, RunpodRuntimeService},
     RuntimeError, RuntimeKind, RuntimeOperation,
 };
@@ -62,6 +62,16 @@ impl RuntimeService {
         match kind {
             RuntimeKind::Runpod => self.runpod.start_cleanup(workspace).await,
         }
+    }
+
+    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    pub async fn list_operations(
+        &self,
+        #[diagnostic(show)] workspace_id: Option<&str>,
+        #[diagnostic(show)] offset: u64,
+        #[diagnostic(show)] limit: u64,
+    ) -> Result<(Vec<RuntimeOperation>, u64), RuntimeOperationRepositoryError> {
+        self.operations.page(workspace_id, offset, limit).await
     }
 
     #[crate::diagnostics::diagnostic(show_error)]
