@@ -6,15 +6,17 @@ Its main goal is to automate the setup of GPU infrastructure, runtime environmen
 
 ## Core Concepts
 
-A `Workspace` is a user-created working area for one selected ComfyUI workflow preset. It connects the workflow choice with runtime configuration and its lifecycle state. Users can reuse a workspace while its runtime is available, then clean it up when they no longer need it.
+A `Workspace` is a persisted working area pinned to one exact bundled workflow revision. A workspace may have one attached runtime at a time; users can provision it, reuse it while ready, and clean up the runtime without deleting the workspace.
 
-A `WorkspaceRuntime` is the execution environment behind a workspace. It owns runtime-specific setup, execution, and cleanup details so the UI can work with workspace status instead of runtime internals. The current implementation is RunPod; future implementations may run locally or use other providers.
+A `Runtime` is the remote execution environment attached to a workspace. It has provider-neutral lifecycle state and provider-specific configuration. The current provider is RunPod; provider resource identifiers stay inside the native backend and are not exposed to the UI.
 
-A `WorkflowPreset` is a reusable ComfyUI workflow definition available in the app. It describes what can be run, which runtime image and model assets it needs, and which user inputs are mapped into the ComfyUI graph.
+A `RuntimeOperation` is the durable record of a background provision or cleanup operation. It keeps status, provider-specific progress, timestamps, and optional trace correlation even after cleanup removes the runtime.
+
+The bundled catalog is the revisioned source of workflow metadata, ComfyUI graphs, model assets, execution contracts and schemas, runtime presets, and worker image contracts. Catalog references always pin an immutable `(id, revision)` pair.
 
 ## Development
 
-Native backend architecture and extension notes live in [src-tauri/README.md](./src-tauri/README.md).
+Native backend architecture and extension notes live in [src-tauri/README.md](./src-tauri/README.md). Worker-specific setup and contracts live in [workers/provisioner/README.md](./workers/provisioner/README.md) and [workers/runpod-endpoint/README.md](./workers/runpod-endpoint/README.md).
 
 ## Support Files
 
@@ -38,9 +40,9 @@ Current native support files:
 | `bun run lint`                                                                                         | Run ESLint.                                 |
 | `bun run lint:fix`                                                                                     | Apply ESLint autofixes.                     |
 | `bun run format`                                                                                       | Format frontend files with ESLint fixes.    |
-| `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run active native shell tests.              |
-| `cargo fmt --manifest-path src-tauri/Cargo.toml --check`                                               | Check active native shell formatting.       |
-| `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict active native shell linting.     |
+| `cargo test --manifest-path src-tauri/Cargo.toml`                                                      | Run native backend tests.                   |
+| `cargo fmt --manifest-path src-tauri/Cargo.toml --check`                                               | Check native backend formatting.            |
+| `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`        | Run strict native backend linting.          |
 | `PYTHONPATH=workers/provisioner/src python3 -m unittest discover -s workers/provisioner/tests`         | Run provisioner worker tests.               |
 | `PYTHONPATH=workers/runpod-endpoint/src python3 -m unittest discover -s workers/runpod-endpoint/tests` | Run RunPod endpoint worker tests.           |
 
@@ -48,9 +50,9 @@ Current native support files:
 
 Generated files live in `src/generated` and should not be edited manually.
 
-| Command                        | Purpose                                                                                   |
-| ------------------------------ | ----------------------------------------------------------------------------------------- |
-| `bun run codegen`              | Regenerate all generated frontend contracts.                                              |
-| `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` after `src/routes/**` changes.                |
-| `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                              |
-| `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` after active Tauri shell command contract changes. |
+| Command                        | Purpose                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `bun run codegen`              | Regenerate all generated frontend contracts.                                          |
+| `bun run codegen:routes`       | Regenerate `src/generated/routeTree.gen.ts` after `src/routes/**` changes.            |
+| `bun run codegen:routes:watch` | Watch `src/routes` and regenerate the route tree on changes.                          |
+| `bun run codegen:commands`     | Regenerate `src/generated/commands.ts` after Tauri command or event contract changes. |
