@@ -7,10 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && tsc",
-    "codegen": "bun run codegen:routes && bun run codegen:commands",
     "codegen:commands": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings",
-    "codegen:routes": "tsr generate",
-    "codegen:routes:watch": "tsr watch",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "eslint . --fix",

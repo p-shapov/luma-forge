@@ -22,8 +22,6 @@
 ## Generated Files
 
 - Do not manually edit `generated/**`.
-- If `routes/**` changes, run `bun run codegen:routes`.
-- If generated command bindings change from Native contract updates, consume them from `generated/commands.ts`; do not hand-edit the file.
 
 ---
 
