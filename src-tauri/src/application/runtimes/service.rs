@@ -90,6 +90,7 @@ impl RuntimeService {
 #[cfg(test)]
 mod tests {
     use crate::application::runtimes::{
+        ports::RuntimeOperationRepositoryError,
         runpod::test_support::{provision_command, ProvisionFakes},
         RuntimeError, RuntimeKind, RuntimeOperationKind, RuntimeOperationState, RuntimeState,
     };
@@ -164,5 +165,22 @@ mod tests {
                 (RuntimeState::Failed, RuntimeOperationState::Failed),
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn initial_running_operation_query_errors_remain_fatal() {
+        for error in [
+            RuntimeOperationRepositoryError::Unavailable,
+            RuntimeOperationRepositoryError::CorruptData,
+        ] {
+            let fakes = ProvisionFakes::with_running_provision_and_cleanup();
+            fakes.fail_running_operations_with(error);
+
+            assert_eq!(
+                fakes.runtime_service().recover_interrupted().await,
+                Err(RuntimeError::PersistenceUnavailable)
+            );
+            assert!(fakes.saved_states().is_empty());
+        }
     }
 }

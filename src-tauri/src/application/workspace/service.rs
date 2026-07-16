@@ -502,6 +502,7 @@ mod tests {
             runtime: Some(Runtime {
                 state: RuntimeState::Ready,
                 provider: RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(
+                    uuid::Uuid::from_u128(1),
                     RunpodRuntimeConfig {
                         datacenter_id: "dc-1".into(),
                         gpu_id: "gpu-1".into(),

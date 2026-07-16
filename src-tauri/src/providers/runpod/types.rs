@@ -63,7 +63,7 @@ pub struct CreateNetworkVolumeRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
     #[diagnostic(show)]
-    pub workspace_id: String,
+    pub name: String,
     #[diagnostic(show)]
     pub datacenter_id: String,
     #[diagnostic(show)]
@@ -74,6 +74,21 @@ pub struct CreateNetworkVolumeRequest {
 pub struct CreateNetworkVolumeResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug)]
+pub struct ListNetworkVolumesRequest {
+    #[diagnostic(redact)]
+    pub credential: SecretString,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkVolumeSummary {
+    pub id: String,
+    pub name: String,
+    pub data_center_id: String,
+    pub size: u64,
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -93,6 +108,8 @@ pub struct CreatePodRequest {
     #[diagnostic(show)]
     pub workspace_id: String,
     #[diagnostic(show)]
+    pub name: String,
+    #[diagnostic(show)]
     pub datacenter_id: String,
     #[diagnostic(show)]
     pub provisioner_image_ref: String,
@@ -105,6 +122,27 @@ pub struct CreatePodRequest {
 pub struct CreatePodResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug)]
+pub struct ListPodsRequest {
+    #[diagnostic(redact)]
+    pub credential: SecretString,
+    #[diagnostic(show)]
+    pub name: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodSummary {
+    pub id: String,
+    pub name: String,
+    pub network_volume: Option<NetworkVolumeReference>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct NetworkVolumeReference {
+    pub id: String,
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -138,7 +176,7 @@ pub struct CreateEndpointRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
     #[diagnostic(show)]
-    pub workspace_id: String,
+    pub name: String,
     #[diagnostic(show)]
     pub datacenter_id: String,
     #[diagnostic(show)]
@@ -160,11 +198,27 @@ pub struct CreateEndpointResponse {
 }
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
+pub struct ListEndpointsRequest {
+    #[diagnostic(redact)]
+    pub credential: SecretString,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndpointSummary {
+    pub id: String,
+    pub name: String,
+    pub gpu_type_ids: Vec<String>,
+    pub network_volume_id: Option<String>,
+    pub template_id: Option<String>,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug)]
 pub struct CreateTemplateRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
     #[diagnostic(show)]
-    pub workspace_id: String,
+    pub name: String,
     #[diagnostic(show)]
     pub image_ref: String,
 }
@@ -173,6 +227,21 @@ pub struct CreateTemplateRequest {
 pub struct CreateTemplateResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug)]
+pub struct ListTemplatesRequest {
+    #[diagnostic(redact)]
+    pub credential: SecretString,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateSummary {
+    pub id: String,
+    pub name: String,
+    pub is_public: bool,
+    pub is_serverless: bool,
 }
 
 macro_rules! delete_request {

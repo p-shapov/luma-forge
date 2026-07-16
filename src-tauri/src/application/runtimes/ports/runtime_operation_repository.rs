@@ -1,4 +1,5 @@
 use crate::application::runtimes::RuntimeOperation;
+use uuid::Uuid;
 
 #[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimeOperationRepositoryError {
@@ -10,6 +11,10 @@ pub enum RuntimeOperationRepositoryError {
 
 #[async_trait::async_trait]
 pub trait RuntimeOperationRepository: Send + Sync {
+    async fn get(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<RuntimeOperation>, RuntimeOperationRepositoryError>;
     async fn page(
         &self,
         workspace_id: Option<&str>,

@@ -54,8 +54,10 @@ impl Fixture {
         let fixture = Self::new().await;
         let mut workspace = fixture.workspace("workspace-1");
         fixture.workspaces.create(workspace.clone()).await.unwrap();
-        workspace.runtime = Some(runpod_runtime(RuntimeState::Ready, 100));
-        let mut operation = running_operation(&workspace.id, RuntimeOperationKind::Provision);
+        let operation_id = Uuid::new_v4();
+        workspace.runtime = Some(runpod_runtime(operation_id, RuntimeState::Ready, 100));
+        let mut operation =
+            running_operation(operation_id, &workspace.id, RuntimeOperationKind::Provision);
         operation.succeed(OffsetDateTime::UNIX_EPOCH).unwrap();
         fixture
             .transitions
@@ -75,18 +77,25 @@ impl Fixture {
     }
 }
 
-fn runpod_runtime(state: RuntimeState, volume_size_gb: u64) -> Runtime {
+fn runpod_runtime(
+    provision_operation_id: Uuid,
+    state: RuntimeState,
+    volume_size_gb: u64,
+) -> Runtime {
     Runtime {
         state,
-        provider: RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(RunpodRuntimeConfig {
-            datacenter_id: "EU-RO-1".into(),
-            gpu_id: "gpu-1".into(),
-            volume_size_gb,
-        })),
+        provider: RuntimeProvider::Runpod(RunpodRuntime::new_provisioning(
+            provision_operation_id,
+            RunpodRuntimeConfig {
+                datacenter_id: "EU-RO-1".into(),
+                gpu_id: "gpu-1".into(),
+                volume_size_gb,
+            },
+        )),
     }
 }
 
-fn running_operation(workspace_id: &str, kind: RuntimeOperationKind) -> RuntimeOperation {
+fn running_operation(id: Uuid, workspace_id: &str, kind: RuntimeOperationKind) -> RuntimeOperation {
     let progress = match kind {
         RuntimeOperationKind::Provision => {
             RunpodProgress::Provision(RunpodProvisionStep::CreateNetworkVolume)
@@ -94,7 +103,7 @@ fn running_operation(workspace_id: &str, kind: RuntimeOperationKind) -> RuntimeO
         RuntimeOperationKind::Cleanup => RunpodProgress::Cleanup(RunpodCleanupStep::DeleteEndpoint),
     };
     RuntimeOperation::running(
-        Uuid::new_v4(),
+        id,
         workspace_id,
         RuntimeKind::Runpod,
         kind,
@@ -108,7 +117,12 @@ async fn workspace_get_and_page_round_trip_inline_provider_payload() {
     let fixture = Fixture::new().await;
     let mut workspace = fixture.workspace("workspace-1");
     fixture.workspaces.create(workspace.clone()).await.unwrap();
-    workspace.runtime = Some(runpod_runtime(RuntimeState::Provisioning, 100));
+    let provision_operation_id = Uuid::from_u128(1);
+    workspace.runtime = Some(runpod_runtime(
+        provision_operation_id,
+        RuntimeState::Provisioning,
+        100,
+    ));
     let runpod = workspace
         .runtime
         .as_mut()
@@ -118,7 +132,11 @@ async fn workspace_get_and_page_round_trip_inline_provider_payload() {
         .unwrap();
     runpod.resources.network_volume_id = Some("network-volume-1".into());
     runpod.resources.template_id = Some("template-1".into());
-    let operation = running_operation(&workspace.id, RuntimeOperationKind::Provision);
+    let operation = running_operation(
+        provision_operation_id,
+        &workspace.id,
+        RuntimeOperationKind::Provision,
+    );
 
     fixture
         .transitions
@@ -126,10 +144,21 @@ async fn workspace_get_and_page_round_trip_inline_provider_payload() {
         .await
         .unwrap();
 
+    let stored = fixture.workspaces.get(&workspace.id).await.unwrap();
     assert_eq!(
-        fixture.workspaces.get(&workspace.id).await.unwrap(),
-        Some(workspace.clone())
+        stored
+            .as_ref()
+            .unwrap()
+            .runtime
+            .as_ref()
+            .unwrap()
+            .provider
+            .as_runpod()
+            .unwrap()
+            .provision_operation_id,
+        provision_operation_id
     );
+    assert_eq!(stored, Some(workspace.clone()));
     assert_eq!(
         fixture.workspaces.page(0, 10).await.unwrap(),
         (vec![workspace.clone()], 1)
@@ -157,8 +186,13 @@ async fn workspace_page_is_stable_and_reports_total() {
         let mut workspace = fixture.workspace(id);
         fixture.workspaces.create(workspace.clone()).await.unwrap();
         if id != "workspace-1" {
-            workspace.runtime = Some(runpod_runtime(RuntimeState::Ready, 100));
-            let operation = running_operation(id, RuntimeOperationKind::Provision);
+            let operation_id = Uuid::new_v4();
+            workspace.runtime = Some(runpod_runtime(
+                operation_id,
+                RuntimeState::Provisioning,
+                100,
+            ));
+            let operation = running_operation(operation_id, id, RuntimeOperationKind::Provision);
             fixture
                 .transitions
                 .save_transition(&workspace, &operation)
@@ -187,7 +221,8 @@ async fn operation_reads_keep_progress_filtering_ordering_totals_and_recovery() 
         .unwrap()
         .unwrap();
     cleanup_workspace.runtime.as_mut().unwrap().state = RuntimeState::CleaningUp;
-    let mut cleanup = running_operation("workspace-1", RuntimeOperationKind::Cleanup);
+    let mut cleanup =
+        running_operation(Uuid::new_v4(), "workspace-1", RuntimeOperationKind::Cleanup);
     cleanup.created_at = OffsetDateTime::UNIX_EPOCH + Duration::seconds(1);
     cleanup.updated_at = cleanup.created_at;
     fixture
@@ -202,8 +237,14 @@ async fn operation_reads_keep_progress_filtering_ordering_totals_and_recovery() 
         .create(provision_workspace.clone())
         .await
         .unwrap();
-    provision_workspace.runtime = Some(runpod_runtime(RuntimeState::Provisioning, 120));
-    let mut provision = running_operation("workspace-2", RuntimeOperationKind::Provision);
+    let provision_id = Uuid::new_v4();
+    provision_workspace.runtime = Some(runpod_runtime(
+        provision_id,
+        RuntimeState::Provisioning,
+        120,
+    ));
+    let mut provision =
+        running_operation(provision_id, "workspace-2", RuntimeOperationKind::Provision);
     provision.created_at = OffsetDateTime::UNIX_EPOCH + Duration::seconds(2);
     provision.updated_at = provision.created_at;
     fixture
@@ -227,6 +268,14 @@ async fn operation_reads_keep_progress_filtering_ordering_totals_and_recovery() 
         .unwrap();
     assert_eq!(workspace_total, 2);
     assert_eq!(workspace_operations.first(), Some(&cleanup));
+    assert_eq!(
+        fixture.operations.get(provision.id).await,
+        Ok(Some(provision.clone()))
+    );
+    assert_eq!(
+        fixture.operations.get(Uuid::from_u128(u128::MAX)).await,
+        Ok(None)
+    );
 
     let mut running = fixture.operations.running().await.unwrap();
     running.sort_by_key(|operation| operation.created_at);
@@ -246,8 +295,13 @@ async fn database_failure_rolls_back_anchor_and_operation() {
     let fixture = Fixture::new().await;
     let mut workspace = fixture.workspace("workspace-1");
     fixture.workspaces.create(workspace.clone()).await.unwrap();
-    workspace.runtime = Some(runpod_runtime(RuntimeState::Provisioning, 100));
-    let operation = running_operation(&workspace.id, RuntimeOperationKind::Provision);
+    let operation_id = Uuid::new_v4();
+    workspace.runtime = Some(runpod_runtime(
+        operation_id,
+        RuntimeState::Provisioning,
+        100,
+    ));
+    let operation = running_operation(operation_id, &workspace.id, RuntimeOperationKind::Provision);
     fixture
         .database
         .connection()
@@ -287,8 +341,13 @@ async fn progress_family_mismatch_is_rejected_on_write_and_read() {
     let fixture = Fixture::new().await;
     let mut workspace = fixture.workspace("workspace-1");
     fixture.workspaces.create(workspace.clone()).await.unwrap();
-    workspace.runtime = Some(runpod_runtime(RuntimeState::CleaningUp, 100));
-    let mut invalid = running_operation(&workspace.id, RuntimeOperationKind::Cleanup);
+    workspace.runtime = Some(runpod_runtime(
+        Uuid::new_v4(),
+        RuntimeState::CleaningUp,
+        100,
+    ));
+    let mut invalid =
+        running_operation(Uuid::new_v4(), &workspace.id, RuntimeOperationKind::Cleanup);
     invalid.progress = RuntimeProgress::Runpod(RunpodProgress::Provision(
         RunpodProvisionStep::CreateNetworkVolume,
     ));
@@ -313,8 +372,9 @@ async fn progress_family_mismatch_is_rejected_on_write_and_read() {
         .unwrap()
         .is_none());
 
-    workspace.runtime.as_mut().unwrap().state = RuntimeState::Provisioning;
-    let valid = running_operation(&workspace.id, RuntimeOperationKind::Provision);
+    let valid_id = Uuid::new_v4();
+    workspace.runtime = Some(runpod_runtime(valid_id, RuntimeState::Provisioning, 100));
+    let valid = running_operation(valid_id, &workspace.id, RuntimeOperationKind::Provision);
     fixture
         .transitions
         .save_transition(&workspace, &valid)
@@ -348,17 +408,14 @@ async fn provision_admission_rejection_rolls_back_operation_and_anchor_changes()
         .await
         .unwrap()
         .unwrap();
+    let operation_id = Uuid::new_v4();
     let mut attempted = original.clone();
-    attempted
-        .runtime
-        .as_mut()
-        .unwrap()
-        .provider
-        .as_runpod_mut()
-        .unwrap()
-        .config
-        .volume_size_gb = 200;
-    let operation = running_operation("workspace-1", RuntimeOperationKind::Provision);
+    attempted.runtime = Some(runpod_runtime(
+        operation_id,
+        RuntimeState::Provisioning,
+        200,
+    ));
+    let operation = running_operation(operation_id, "workspace-1", RuntimeOperationKind::Provision);
 
     assert_eq!(
         fixture
@@ -400,7 +457,7 @@ async fn cleanup_admission_rejects_an_anchor_already_in_transition() {
     anchor.state = Set("cleaning_up".into());
     anchor.update(fixture.database.connection()).await.unwrap();
 
-    let operation = running_operation("workspace-1", RuntimeOperationKind::Cleanup);
+    let operation = running_operation(Uuid::new_v4(), "workspace-1", RuntimeOperationKind::Cleanup);
 
     assert_eq!(
         fixture
@@ -432,7 +489,8 @@ async fn successful_cleanup_removes_anchor_and_keeps_terminal_progress() {
         .unwrap()
         .unwrap();
     workspace.runtime = None;
-    let mut operation = running_operation("workspace-1", RuntimeOperationKind::Cleanup);
+    let mut operation =
+        running_operation(Uuid::new_v4(), "workspace-1", RuntimeOperationKind::Cleanup);
     operation.progress = RuntimeProgress::Runpod(RunpodProgress::Cleanup(
         RunpodCleanupStep::DeleteNetworkVolume,
     ));
@@ -510,8 +568,13 @@ async fn malformed_progress_payload_fails_operation_page_and_running() {
     let fixture = Fixture::new().await;
     let mut workspace = fixture.workspace("workspace-1");
     fixture.workspaces.create(workspace.clone()).await.unwrap();
-    workspace.runtime = Some(runpod_runtime(RuntimeState::Provisioning, 100));
-    let operation = running_operation(&workspace.id, RuntimeOperationKind::Provision);
+    let operation_id = Uuid::new_v4();
+    workspace.runtime = Some(runpod_runtime(
+        operation_id,
+        RuntimeState::Provisioning,
+        100,
+    ));
+    let operation = running_operation(operation_id, &workspace.id, RuntimeOperationKind::Provision);
     fixture
         .transitions
         .save_transition(&workspace, &operation)

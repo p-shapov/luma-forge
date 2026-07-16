@@ -115,7 +115,7 @@ mod tests {
     use time::OffsetDateTime;
 
     use crate::application::runtimes::{
-        runpod::{RunpodRuntime, RunpodRuntimeConfig, RunpodRuntimeResources},
+        runpod::{RunpodRuntime, RunpodRuntimeConfig},
         CatalogRef, Runtime, RuntimeProvider, RuntimeState,
     };
 
@@ -128,16 +128,17 @@ mod tests {
             created_at: OffsetDateTime::UNIX_EPOCH,
             runtime: Some(Runtime {
                 state: RuntimeState::Ready,
-                provider: RuntimeProvider::Runpod(RunpodRuntime {
-                    config: RunpodRuntimeConfig {
-                        datacenter_id: "EU-RO-1".into(),
-                        gpu_id: "gpu-1".into(),
-                        volume_size_gb: 100,
-                    },
-                    resources: RunpodRuntimeResources {
-                        endpoint_id: Some("endpoint-1".into()),
-                        ..Default::default()
-                    },
+                provider: RuntimeProvider::Runpod({
+                    let mut runtime = RunpodRuntime::new_provisioning(
+                        uuid::Uuid::from_u128(1),
+                        RunpodRuntimeConfig {
+                            datacenter_id: "EU-RO-1".into(),
+                            gpu_id: "gpu-1".into(),
+                            volume_size_gb: 100,
+                        },
+                    );
+                    runtime.resources.endpoint_id = Some("endpoint-1".into());
+                    runtime
                 }),
             }),
         }
