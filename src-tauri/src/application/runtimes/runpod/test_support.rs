@@ -378,6 +378,20 @@ impl RecordingApplicationEventSink {
     }
 }
 
+pub(super) fn runpod_progress(progress: RuntimeProgress) -> RunpodProgress {
+    let RuntimeProgress::Runpod(progress) = progress;
+    progress
+}
+
+pub(super) async fn yield_until(mut condition: impl FnMut() -> bool) {
+    for _ in 0..100 {
+        if condition() {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
 pub fn provision_command() -> super::ProvisionRunpodRuntime {
     super::ProvisionRunpodRuntime {
         workspace_id: "workspace-1".into(),

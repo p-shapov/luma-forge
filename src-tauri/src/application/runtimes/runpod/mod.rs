@@ -1,6 +1,9 @@
+mod cleanup;
 mod errors;
 mod models;
 pub mod ports;
+mod provision;
+mod recovery;
 mod service;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -17,4 +20,5 @@ pub use ports::{
     RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeProvider,
     RunpodRuntimeProviderError, StartProvisionerPod,
 };
-pub use service::{ProvisionRunpodRuntime, RunpodRuntimeService, RunpodRuntimeServiceDependencies};
+pub use provision::ProvisionRunpodRuntime;
+pub use service::{RunpodRuntimeService, RunpodRuntimeServiceDependencies};
