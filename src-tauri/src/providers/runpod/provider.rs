@@ -13,9 +13,11 @@ use super::{
     CreateEndpointRequest, CreateEndpointResponse, CreateNetworkVolumeRequest,
     CreateNetworkVolumeResponse, CreatePodRequest, CreatePodResponse, CreateTemplateRequest,
     CreateTemplateResponse, DeleteEndpointRequest, DeleteNetworkVolumeRequest, DeletePodRequest,
-    DeleteTemplateRequest, IdentityRequest, IdentityResponse, PlacementDatacenter,
-    PlacementGpuAvailability, PlacementGpuType, PlacementRequest, PlacementResponse,
-    ProvisionerStatusRequest, ProvisionerStatusResponse,
+    DeleteTemplateRequest, EndpointSummary, IdentityRequest, IdentityResponse,
+    ListEndpointsRequest, ListNetworkVolumesRequest, ListPodsRequest, ListTemplatesRequest,
+    NetworkVolumeSummary, PlacementDatacenter, PlacementGpuAvailability, PlacementGpuType,
+    PlacementRequest, PlacementResponse, PodSummary, ProvisionerStatusRequest,
+    ProvisionerStatusResponse, TemplateSummary,
 };
 
 const GRAPHQL_URL: &str = "https://api.runpod.io/graphql";
@@ -88,6 +90,20 @@ impl RunpodProvider {
     }
 
     #[crate::diagnostics::diagnostic(show_error)]
+    pub async fn list_network_volumes(
+        &self,
+        #[diagnostic(show)] request: ListNetworkVolumesRequest,
+    ) -> Result<Vec<NetworkVolumeSummary>, NetworkError> {
+        self.http
+            .get(format!("{REST_BASE_URL}/networkvolumes"))
+            .bearer_auth(request.credential.expose_secret())
+            .send()
+            .await
+            .into_json()
+            .await
+    }
+
+    #[crate::diagnostics::diagnostic(show_error)]
     pub async fn delete_network_volume(
         &self,
         #[diagnostic(show)] request: DeleteNetworkVolumeRequest,
@@ -112,6 +128,24 @@ impl RunpodProvider {
             .into_json::<CreatedResourceResponse>()
             .await?;
         Ok(CreatePodResponse { id: response.id })
+    }
+
+    #[crate::diagnostics::diagnostic(show_error)]
+    pub async fn list_pods(
+        &self,
+        #[diagnostic(show)] request: ListPodsRequest,
+    ) -> Result<Vec<PodSummary>, NetworkError> {
+        self.http
+            .get(format!("{REST_BASE_URL}/pods"))
+            .bearer_auth(request.credential.expose_secret())
+            .query(&[
+                ("name", request.name.as_str()),
+                ("includeNetworkVolume", "true"),
+            ])
+            .send()
+            .await
+            .into_json()
+            .await
     }
 
     #[crate::diagnostics::diagnostic(show_output, show_error)]
@@ -150,6 +184,20 @@ impl RunpodProvider {
         Ok(CreateEndpointResponse { id: response.id })
     }
 
+    #[crate::diagnostics::diagnostic(show_error)]
+    pub async fn list_endpoints(
+        &self,
+        #[diagnostic(show)] request: ListEndpointsRequest,
+    ) -> Result<Vec<EndpointSummary>, NetworkError> {
+        self.http
+            .get(format!("{REST_BASE_URL}/endpoints"))
+            .bearer_auth(request.credential.expose_secret())
+            .send()
+            .await
+            .into_json()
+            .await
+    }
+
     #[crate::diagnostics::diagnostic(show_output, show_error)]
     pub async fn create_template(
         &self,
@@ -165,6 +213,21 @@ impl RunpodProvider {
             .into_json::<CreatedResourceResponse>()
             .await?;
         Ok(CreateTemplateResponse { id: response.id })
+    }
+
+    #[crate::diagnostics::diagnostic(show_error)]
+    pub async fn list_templates(
+        &self,
+        #[diagnostic(show)] request: ListTemplatesRequest,
+    ) -> Result<Vec<TemplateSummary>, NetworkError> {
+        self.http
+            .get(format!("{REST_BASE_URL}/templates"))
+            .bearer_auth(request.credential.expose_secret())
+            .query(&[("includeEndpointBoundTemplates", "true")])
+            .send()
+            .await
+            .into_json()
+            .await
     }
 
     #[crate::diagnostics::diagnostic(show_error)]
@@ -375,4 +438,50 @@ struct TemplateCreateInput {
     is_public: bool,
     is_serverless: bool,
     name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::providers::runpod::{
+        EndpointSummary, NetworkVolumeSummary, PodSummary, TemplateSummary,
+    };
+
+    #[test]
+    fn runpod_list_payloads_deserialize_the_observation_fields() {
+        let volumes: Vec<NetworkVolumeSummary> = serde_json::from_str(
+            r#"[{"id":"volume-1","name":"volume","dataCenterId":"dc-1","size":19}]"#,
+        )
+        .unwrap();
+        assert_eq!(volumes[0].id, "volume-1");
+        assert_eq!(volumes[0].name, "volume");
+        assert_eq!(volumes[0].data_center_id, "dc-1");
+        assert_eq!(volumes[0].size, 19);
+
+        let pods: Vec<PodSummary> = serde_json::from_str(
+            r#"[{"id":"pod-1","name":"pod","networkVolume":{"id":"volume-1"}}]"#,
+        )
+        .unwrap();
+        assert_eq!(pods[0].id, "pod-1");
+        assert_eq!(pods[0].name, "pod");
+        assert_eq!(pods[0].network_volume.as_ref().unwrap().id, "volume-1");
+
+        let templates: Vec<TemplateSummary> = serde_json::from_str(
+            r#"[{"id":"template-1","name":"template","isPublic":false,"isServerless":true}]"#,
+        )
+        .unwrap();
+        assert_eq!(templates[0].id, "template-1");
+        assert_eq!(templates[0].name, "template");
+        assert!(!templates[0].is_public);
+        assert!(templates[0].is_serverless);
+
+        let endpoints: Vec<EndpointSummary> = serde_json::from_str(
+            r#"[{"id":"endpoint-1","name":"endpoint","gpuTypeIds":["gpu-1"],"networkVolumeId":"volume-1","templateId":"template-1"}]"#,
+        )
+        .unwrap();
+        assert_eq!(endpoints[0].id, "endpoint-1");
+        assert_eq!(endpoints[0].name, "endpoint");
+        assert_eq!(endpoints[0].gpu_type_ids, ["gpu-1"]);
+        assert_eq!(endpoints[0].network_volume_id.as_deref(), Some("volume-1"));
+        assert_eq!(endpoints[0].template_id.as_deref(), Some("template-1"));
+    }
 }

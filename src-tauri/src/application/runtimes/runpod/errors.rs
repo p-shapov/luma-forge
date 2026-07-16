@@ -7,6 +7,8 @@ impl From<RunpodRuntimeProviderError> for RuntimeError {
         match error {
             RunpodRuntimeProviderError::Unauthorized => Self::InvalidCredential,
             RunpodRuntimeProviderError::Unavailable
+            | RunpodRuntimeProviderError::CreateOutcomeUnknown
+            | RunpodRuntimeProviderError::ObserveUnavailable
             | RunpodRuntimeProviderError::ProvisionerFailed => Self::ProviderUnavailable,
         }
     }
@@ -36,6 +38,14 @@ mod tests {
         );
         assert_eq!(
             RuntimeError::from(RunpodRuntimeProviderError::ProvisionerFailed),
+            RuntimeError::ProviderUnavailable
+        );
+        assert_eq!(
+            RuntimeError::from(RunpodRuntimeProviderError::CreateOutcomeUnknown),
+            RuntimeError::ProviderUnavailable
+        );
+        assert_eq!(
+            RuntimeError::from(RunpodRuntimeProviderError::ObserveUnavailable),
             RuntimeError::ProviderUnavailable
         );
     }

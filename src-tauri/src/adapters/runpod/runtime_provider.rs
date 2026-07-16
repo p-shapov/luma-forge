@@ -5,16 +5,19 @@ use tokio::time::Instant;
 
 use crate::{
     application::runtimes::runpod::{
-        CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodPlacement,
-        RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodRuntimeProvider,
+        CreateEndpoint, CreateNetworkVolume, CreateTemplate, ObserveEndpoint, ObserveNetworkVolume,
+        ObserveProvisionerPod, ObserveTemplate, RunpodPlacement, RunpodPlacementDatacenter,
+        RunpodPlacementGpu, RunpodResourceObservation, RunpodRuntimeProvider,
         RunpodRuntimeProviderError, StartProvisionerPod, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
     },
     providers::{
         runpod::{
             CreateEndpointRequest, CreateNetworkVolumeRequest, CreatePodRequest,
             CreateTemplateRequest, DeleteEndpointRequest, DeleteNetworkVolumeRequest,
-            DeletePodRequest, DeleteTemplateRequest, PlacementRequest, PlacementResponse,
-            ProvisionerStatusRequest, RunpodProvider,
+            DeletePodRequest, DeleteTemplateRequest, EndpointSummary, ListEndpointsRequest,
+            ListNetworkVolumesRequest, ListPodsRequest, ListTemplatesRequest, NetworkVolumeSummary,
+            PlacementRequest, PlacementResponse, PodSummary, ProvisionerStatusRequest,
+            RunpodProvider, TemplateSummary,
         },
         NetworkError,
     },
@@ -56,6 +59,99 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
     }
 
     #[diagnostic(show_output, show_error)]
+    async fn observe_network_volume(
+        &self,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: ObserveNetworkVolume,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError> {
+        Ok(classify_observation(
+            self.provider
+                .list_network_volumes(ListNetworkVolumesRequest {
+                    credential: api_key.clone(),
+                })
+                .await
+                .map_err(map_observation_error)?
+                .into_iter()
+                .filter(|volume| volume.name == command.name)
+                .map(|volume| {
+                    let valid = network_volume_is_valid(&volume, &command);
+                    (volume.id, valid)
+                })
+                .collect(),
+        ))
+    }
+
+    #[diagnostic(show_output, show_error)]
+    async fn observe_provisioner_pod(
+        &self,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: ObserveProvisionerPod,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError> {
+        Ok(classify_observation(
+            self.provider
+                .list_pods(ListPodsRequest {
+                    credential: api_key.clone(),
+                    name: command.name.clone(),
+                })
+                .await
+                .map_err(map_observation_error)?
+                .into_iter()
+                .filter(|pod| pod.name == command.name)
+                .map(|pod| {
+                    let valid = provisioner_pod_is_valid(&pod, &command);
+                    (pod.id, valid)
+                })
+                .collect(),
+        ))
+    }
+
+    #[diagnostic(show_output, show_error)]
+    async fn observe_template(
+        &self,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: ObserveTemplate,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError> {
+        Ok(classify_observation(
+            self.provider
+                .list_templates(ListTemplatesRequest {
+                    credential: api_key.clone(),
+                })
+                .await
+                .map_err(map_observation_error)?
+                .into_iter()
+                .filter(|template| template.name == command.name)
+                .map(|template| {
+                    let valid = template_is_valid(&template, &command);
+                    (template.id, valid)
+                })
+                .collect(),
+        ))
+    }
+
+    #[diagnostic(show_output, show_error)]
+    async fn observe_endpoint(
+        &self,
+        #[diagnostic(redact)] api_key: &SecretString,
+        #[diagnostic(show)] command: ObserveEndpoint,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError> {
+        Ok(classify_observation(
+            self.provider
+                .list_endpoints(ListEndpointsRequest {
+                    credential: api_key.clone(),
+                })
+                .await
+                .map_err(map_observation_error)?
+                .into_iter()
+                .filter(|endpoint| endpoint.name == command.name)
+                .map(|endpoint| {
+                    let valid = endpoint_is_valid(&endpoint, &command);
+                    (endpoint.id, valid)
+                })
+                .collect(),
+        ))
+    }
+
+    #[diagnostic(show_output, show_error)]
     async fn create_network_volume(
         &self,
         #[diagnostic(redact)] api_key: &SecretString,
@@ -72,9 +168,9 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
                     .map_err(|_| RunpodRuntimeProviderError::Unavailable)?,
             })
             .await
-            .map_err(map_error)?
+            .map_err(map_create_error)?
             .id
-            .ok_or(RunpodRuntimeProviderError::Unavailable)
+            .ok_or(RunpodRuntimeProviderError::CreateOutcomeUnknown)
     }
 
     #[diagnostic(show_output, show_error)]
@@ -95,9 +191,9 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
                 required_model_assets: command.required_model_assets,
             })
             .await
-            .map_err(map_error)?
+            .map_err(map_create_error)?
             .id
-            .ok_or(RunpodRuntimeProviderError::Unavailable)
+            .ok_or(RunpodRuntimeProviderError::CreateOutcomeUnknown)
     }
 
     #[diagnostic(show_error)]
@@ -169,9 +265,9 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
                 image_ref: command.image_ref,
             })
             .await
-            .map_err(map_error)?
+            .map_err(map_create_error)?
             .id
-            .ok_or(RunpodRuntimeProviderError::Unavailable)
+            .ok_or(RunpodRuntimeProviderError::CreateOutcomeUnknown)
     }
 
     #[diagnostic(show_output, show_error)]
@@ -192,9 +288,9 @@ impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
                 workers_max: ENDPOINT_WORKERS_MAX,
             })
             .await
-            .map_err(map_error)?
+            .map_err(map_create_error)?
             .id
-            .ok_or(RunpodRuntimeProviderError::Unavailable)
+            .ok_or(RunpodRuntimeProviderError::CreateOutcomeUnknown)
     }
 
     #[diagnostic(show_error)]
@@ -258,6 +354,51 @@ fn map_error(error: NetworkError) -> RunpodRuntimeProviderError {
         NetworkError::Unauthorized => RunpodRuntimeProviderError::Unauthorized,
         _ => RunpodRuntimeProviderError::Unavailable,
     }
+}
+
+fn map_create_error(error: NetworkError) -> RunpodRuntimeProviderError {
+    match error {
+        NetworkError::Unauthorized => RunpodRuntimeProviderError::Unauthorized,
+        NetworkError::Timeout | NetworkError::RequestFailed | NetworkError::InvalidResponse => {
+            RunpodRuntimeProviderError::CreateOutcomeUnknown
+        }
+        NetworkError::NotFound
+        | NetworkError::InsufficientPermissions
+        | NetworkError::RateLimited => RunpodRuntimeProviderError::Unavailable,
+    }
+}
+
+fn map_observation_error(_: NetworkError) -> RunpodRuntimeProviderError {
+    RunpodRuntimeProviderError::ObserveUnavailable
+}
+
+fn classify_observation(exact_matches: Vec<(String, bool)>) -> RunpodResourceObservation {
+    match exact_matches.as_slice() {
+        [] => RunpodResourceObservation::Absent,
+        [(id, true)] => RunpodResourceObservation::Found(id.clone()),
+        matches => {
+            RunpodResourceObservation::Ambiguous(matches.iter().map(|(id, _)| id.clone()).collect())
+        }
+    }
+}
+
+fn network_volume_is_valid(volume: &NetworkVolumeSummary, command: &ObserveNetworkVolume) -> bool {
+    volume.data_center_id == command.datacenter_id && volume.size == command.size_gb
+}
+
+fn provisioner_pod_is_valid(pod: &PodSummary, command: &ObserveProvisionerPod) -> bool {
+    pod.network_volume.as_ref().map(|volume| volume.id.as_str())
+        == Some(command.network_volume_id.as_str())
+}
+
+fn template_is_valid(template: &TemplateSummary, _: &ObserveTemplate) -> bool {
+    !template.is_public && template.is_serverless
+}
+
+fn endpoint_is_valid(endpoint: &EndpointSummary, command: &ObserveEndpoint) -> bool {
+    endpoint.gpu_type_ids == vec![command.gpu_id.clone()]
+        && endpoint.network_volume_id.as_deref() == Some(command.network_volume_id.as_str())
+        && endpoint.template_id.as_deref() == Some(command.template_id.as_str())
 }
 
 fn normalize_placement(
@@ -327,15 +468,276 @@ fn normalize_placement(
 mod tests {
     use crate::{
         application::runtimes::runpod::{
+            ObserveEndpoint, ObserveNetworkVolume, ObserveProvisionerPod, ObserveTemplate,
             RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu,
-            RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+            RunpodResourceObservation, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
         },
         providers::runpod::{
-            PlacementDatacenter, PlacementGpuAvailability, PlacementGpuType, PlacementResponse,
+            EndpointSummary, NetworkVolumeReference, NetworkVolumeSummary, PlacementDatacenter,
+            PlacementGpuAvailability, PlacementGpuType, PlacementResponse, PodSummary,
+            TemplateSummary,
         },
+        providers::NetworkError,
     };
 
-    use super::{normalize_placement, RunpodRuntimeProviderError};
+    use super::{
+        classify_observation, cleanup, endpoint_is_valid, map_create_error, map_observation_error,
+        network_volume_is_valid, normalize_placement, provisioner_pod_is_valid, template_is_valid,
+        RunpodRuntimeProviderError,
+    };
+
+    #[test]
+    fn create_errors_distinguish_definite_and_unknown_outcomes() {
+        for (error, expected) in [
+            (
+                NetworkError::Unauthorized,
+                RunpodRuntimeProviderError::Unauthorized,
+            ),
+            (
+                NetworkError::Timeout,
+                RunpodRuntimeProviderError::CreateOutcomeUnknown,
+            ),
+            (
+                NetworkError::RequestFailed,
+                RunpodRuntimeProviderError::CreateOutcomeUnknown,
+            ),
+            (
+                NetworkError::InvalidResponse,
+                RunpodRuntimeProviderError::CreateOutcomeUnknown,
+            ),
+            (
+                NetworkError::NotFound,
+                RunpodRuntimeProviderError::Unavailable,
+            ),
+            (
+                NetworkError::InsufficientPermissions,
+                RunpodRuntimeProviderError::Unavailable,
+            ),
+            (
+                NetworkError::RateLimited,
+                RunpodRuntimeProviderError::Unavailable,
+            ),
+        ] {
+            assert_eq!(map_create_error(error), expected);
+        }
+    }
+
+    #[test]
+    fn observation_error_is_never_absent() {
+        for error in [
+            NetworkError::NotFound,
+            NetworkError::Unauthorized,
+            NetworkError::InsufficientPermissions,
+            NetworkError::RateLimited,
+            NetworkError::Timeout,
+            NetworkError::RequestFailed,
+            NetworkError::InvalidResponse,
+        ] {
+            assert_eq!(
+                map_observation_error(error),
+                RunpodRuntimeProviderError::ObserveUnavailable
+            );
+        }
+    }
+
+    #[test]
+    fn delete_not_found_is_idempotent_success() {
+        assert_eq!(cleanup(Err(NetworkError::NotFound)), Ok(()));
+    }
+
+    #[test]
+    fn observation_classifies_absent_found_and_ambiguous_matches() {
+        for (matches, expected) in [
+            (vec![], RunpodResourceObservation::Absent),
+            (
+                vec![("resource-1".into(), true)],
+                RunpodResourceObservation::Found("resource-1".into()),
+            ),
+            (
+                vec![("resource-1".into(), true), ("resource-2".into(), true)],
+                RunpodResourceObservation::Ambiguous(vec![
+                    "resource-1".into(),
+                    "resource-2".into(),
+                ]),
+            ),
+            (
+                vec![("resource-1".into(), true), ("resource-2".into(), false)],
+                RunpodResourceObservation::Ambiguous(vec![
+                    "resource-1".into(),
+                    "resource-2".into(),
+                ]),
+            ),
+        ] {
+            assert_eq!(classify_observation(matches), expected);
+        }
+    }
+
+    #[test]
+    fn observation_rejects_immutable_field_mismatches() {
+        let volume_command = ObserveNetworkVolume {
+            name: "volume".into(),
+            datacenter_id: "dc-1".into(),
+            size_gb: 19,
+        };
+        let pod_command = ObserveProvisionerPod {
+            name: "pod".into(),
+            network_volume_id: "volume-1".into(),
+        };
+        let template_command = ObserveTemplate {
+            name: "template".into(),
+        };
+        let endpoint_command = ObserveEndpoint {
+            name: "endpoint".into(),
+            gpu_id: "gpu-1".into(),
+            network_volume_id: "volume-1".into(),
+            template_id: "template-1".into(),
+        };
+
+        assert!(network_volume_is_valid(
+            &NetworkVolumeSummary {
+                id: "volume-1".into(),
+                name: "volume".into(),
+                data_center_id: "dc-1".into(),
+                size: 19,
+            },
+            &volume_command,
+        ));
+        assert!(provisioner_pod_is_valid(
+            &PodSummary {
+                id: "pod-1".into(),
+                name: "pod".into(),
+                network_volume: Some(NetworkVolumeReference {
+                    id: "volume-1".into(),
+                }),
+            },
+            &pod_command,
+        ));
+        assert!(template_is_valid(
+            &TemplateSummary {
+                id: "template-1".into(),
+                name: "template".into(),
+                is_public: false,
+                is_serverless: true,
+            },
+            &template_command,
+        ));
+        assert!(endpoint_is_valid(
+            &EndpointSummary {
+                id: "endpoint-1".into(),
+                name: "endpoint".into(),
+                gpu_type_ids: vec!["gpu-1".into()],
+                network_volume_id: Some("volume-1".into()),
+                template_id: Some("template-1".into()),
+            },
+            &endpoint_command,
+        ));
+
+        for (id, valid) in [
+            (
+                "wrong-datacenter",
+                network_volume_is_valid(
+                    &NetworkVolumeSummary {
+                        id: "volume-1".into(),
+                        name: "volume".into(),
+                        data_center_id: "dc-2".into(),
+                        size: 19,
+                    },
+                    &volume_command,
+                ),
+            ),
+            (
+                "wrong-size",
+                network_volume_is_valid(
+                    &NetworkVolumeSummary {
+                        id: "volume-1".into(),
+                        name: "volume".into(),
+                        data_center_id: "dc-1".into(),
+                        size: 20,
+                    },
+                    &volume_command,
+                ),
+            ),
+            (
+                "wrong-volume",
+                provisioner_pod_is_valid(
+                    &PodSummary {
+                        id: "pod-1".into(),
+                        name: "pod".into(),
+                        network_volume: None,
+                    },
+                    &pod_command,
+                ),
+            ),
+            (
+                "public-template",
+                template_is_valid(
+                    &TemplateSummary {
+                        id: "template-1".into(),
+                        name: "template".into(),
+                        is_public: true,
+                        is_serverless: true,
+                    },
+                    &template_command,
+                ),
+            ),
+            (
+                "non-serverless-template",
+                template_is_valid(
+                    &TemplateSummary {
+                        id: "template-1".into(),
+                        name: "template".into(),
+                        is_public: false,
+                        is_serverless: false,
+                    },
+                    &template_command,
+                ),
+            ),
+            (
+                "wrong-gpu",
+                endpoint_is_valid(
+                    &EndpointSummary {
+                        id: "endpoint-1".into(),
+                        name: "endpoint".into(),
+                        gpu_type_ids: vec!["gpu-2".into()],
+                        network_volume_id: Some("volume-1".into()),
+                        template_id: Some("template-1".into()),
+                    },
+                    &endpoint_command,
+                ),
+            ),
+            (
+                "wrong-endpoint-volume",
+                endpoint_is_valid(
+                    &EndpointSummary {
+                        id: "endpoint-1".into(),
+                        name: "endpoint".into(),
+                        gpu_type_ids: vec!["gpu-1".into()],
+                        network_volume_id: None,
+                        template_id: Some("template-1".into()),
+                    },
+                    &endpoint_command,
+                ),
+            ),
+            (
+                "wrong-template",
+                endpoint_is_valid(
+                    &EndpointSummary {
+                        id: "endpoint-1".into(),
+                        name: "endpoint".into(),
+                        gpu_type_ids: vec!["gpu-1".into()],
+                        network_volume_id: Some("volume-1".into()),
+                        template_id: None,
+                    },
+                    &endpoint_command,
+                ),
+            ),
+        ] {
+            assert_eq!(
+                classify_observation(vec![(id.into(), valid)]),
+                RunpodResourceObservation::Ambiguous(vec![id.into()])
+            );
+        }
+    }
 
     #[test]
     fn placement_normalizes_complete_gpu_references_in_provider_order() {

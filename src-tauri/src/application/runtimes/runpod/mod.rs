@@ -12,8 +12,9 @@ pub use models::{
 };
 pub(crate) use ports::resource_name;
 pub use ports::{
-    CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodResourceKind, RunpodRuntimeCatalog,
-    RunpodRuntimeCatalogError, RunpodRuntimeProvider, RunpodRuntimeProviderError,
-    StartProvisionerPod,
+    CreateEndpoint, CreateNetworkVolume, CreateTemplate, ObserveEndpoint, ObserveNetworkVolume,
+    ObserveProvisionerPod, ObserveTemplate, RunpodResourceKind, RunpodResourceObservation,
+    RunpodRuntimeCatalog, RunpodRuntimeCatalogError, RunpodRuntimeProvider,
+    RunpodRuntimeProviderError, StartProvisionerPod,
 };
 pub use service::{ProvisionRunpodRuntime, RunpodRuntimeService, RunpodRuntimeServiceDependencies};

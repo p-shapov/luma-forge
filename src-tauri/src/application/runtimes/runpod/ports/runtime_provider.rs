@@ -11,6 +11,39 @@ pub enum RunpodResourceKind {
     Endpoint,
 }
 
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+pub struct ObserveNetworkVolume {
+    pub name: String,
+    pub datacenter_id: String,
+    pub size_gb: u64,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+pub struct ObserveProvisionerPod {
+    pub name: String,
+    pub network_volume_id: String,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+pub struct ObserveTemplate {
+    pub name: String,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+pub struct ObserveEndpoint {
+    pub name: String,
+    pub gpu_id: String,
+    pub network_volume_id: String,
+    pub template_id: String,
+}
+
+#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+pub enum RunpodResourceObservation {
+    Absent,
+    Found(String),
+    Ambiguous(Vec<String>),
+}
+
 impl RunpodResourceKind {
     pub const fn suffix(self) -> &'static str {
         match self {
@@ -88,6 +121,10 @@ pub enum RunpodRuntimeProviderError {
     Unauthorized,
     #[error("runtime provider is unavailable")]
     Unavailable,
+    #[error("runtime provider create outcome is unknown")]
+    CreateOutcomeUnknown,
+    #[error("runtime provider resource observation is unavailable")]
+    ObserveUnavailable,
     #[error("runtime provisioner failed")]
     ProvisionerFailed,
 }
@@ -98,6 +135,26 @@ pub trait RunpodRuntimeProvider: Send + Sync {
         &self,
         api_key: &SecretString,
     ) -> Result<RunpodPlacement, RunpodRuntimeProviderError>;
+    async fn observe_network_volume(
+        &self,
+        api_key: &SecretString,
+        command: ObserveNetworkVolume,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError>;
+    async fn observe_provisioner_pod(
+        &self,
+        api_key: &SecretString,
+        command: ObserveProvisionerPod,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError>;
+    async fn observe_template(
+        &self,
+        api_key: &SecretString,
+        command: ObserveTemplate,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError>;
+    async fn observe_endpoint(
+        &self,
+        api_key: &SecretString,
+        command: ObserveEndpoint,
+    ) -> Result<RunpodResourceObservation, RunpodRuntimeProviderError>;
     async fn create_network_volume(
         &self,
         api_key: &SecretString,

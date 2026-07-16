@@ -18,11 +18,12 @@ use crate::application::{
 };
 
 use super::{
-    resource_name, CreateEndpoint, CreateNetworkVolume, CreateTemplate, RunpodCleanupStep,
+    resource_name, CreateEndpoint, CreateNetworkVolume, CreateTemplate, ObserveEndpoint,
+    ObserveNetworkVolume, ObserveProvisionerPod, ObserveTemplate, RunpodCleanupStep,
     RunpodContractRequirements, RunpodPlacement, RunpodProgress, RunpodProvisionStep,
-    RunpodResourceKind, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeConfig,
-    RunpodRuntimeDefinition, RunpodRuntimeProvider, StartProvisionerPod,
-    RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
+    RunpodResourceKind, RunpodResourceObservation, RunpodRuntime, RunpodRuntimeCatalog,
+    RunpodRuntimeConfig, RunpodRuntimeDefinition, RunpodRuntimeProvider,
+    RunpodRuntimeProviderError, StartProvisionerPod, RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB,
 };
 
 #[derive(crate::diagnostics::DiagnosticDebug)]
@@ -391,16 +392,17 @@ impl RunpodRuntimeService {
         mut operation: RuntimeOperation,
     ) -> Result<(), RuntimeError> {
         let provision_operation_id = runpod(&workspace)?.provision_operation_id;
+        let volume_name = resource_name(
+            &command.workspace_id,
+            provision_operation_id,
+            RunpodResourceKind::NetworkVolume,
+        );
         let volume_id = match self
             .provider
             .create_network_volume(
                 &runpod_key,
                 CreateNetworkVolume {
-                    name: resource_name(
-                        &command.workspace_id,
-                        provision_operation_id,
-                        RunpodResourceKind::NetworkVolume,
-                    ),
+                    name: volume_name.clone(),
                     datacenter_id: command.datacenter_id.clone(),
                     size_gb: command.volume_size_gb,
                 },
@@ -408,30 +410,70 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(value) => value,
+            Err(RunpodRuntimeProviderError::CreateOutcomeUnknown) => {
+                match self
+                    .provider
+                    .observe_network_volume(
+                        &runpod_key,
+                        ObserveNetworkVolume {
+                            name: volume_name,
+                            datacenter_id: command.datacenter_id.clone(),
+                            size_gb: command.volume_size_gb,
+                        },
+                    )
+                    .await
+                {
+                    Ok(RunpodResourceObservation::Found(id)) => id,
+                    Ok(RunpodResourceObservation::Absent) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Ok(RunpodResourceObservation::Ambiguous(ids)) => {
+                        for id in ids {
+                            let _ = self.provider.delete_network_volume(&runpod_key, &id).await;
+                        }
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Err(error) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(error.into());
+                    }
+                }
+            }
             Err(error) => {
                 self.fail_transition(&mut workspace, &mut operation).await?;
                 return Err(error.into());
             }
         };
         runpod_mut(&mut workspace)?.resources.network_volume_id = Some(volume_id.clone());
-        self.set_provision_step(
-            &workspace,
-            &mut operation,
-            RunpodProvisionStep::StartProvisionerPod,
-        )
-        .await?;
+        if let Err(error) = self
+            .set_provision_step(
+                &workspace,
+                &mut operation,
+                RunpodProvisionStep::StartProvisionerPod,
+            )
+            .await
+        {
+            let _ = self
+                .provider
+                .delete_network_volume(&runpod_key, &volume_id)
+                .await;
+            return Err(error);
+        }
 
+        let pod_name = resource_name(
+            &command.workspace_id,
+            provision_operation_id,
+            RunpodResourceKind::ProvisionerPod,
+        );
         let pod_id = match self
             .provider
             .start_provisioner_pod(
                 &runpod_key,
                 StartProvisionerPod {
                     workspace_id: command.workspace_id.clone(),
-                    name: resource_name(
-                        &command.workspace_id,
-                        provision_operation_id,
-                        RunpodResourceKind::ProvisionerPod,
-                    ),
+                    name: pod_name.clone(),
                     datacenter_id: command.datacenter_id.clone(),
                     network_volume_id: volume_id.clone(),
                     provisioner_image_ref: definition.provisioner_image_ref,
@@ -442,18 +484,59 @@ impl RunpodRuntimeService {
             .await
         {
             Ok(value) => value,
+            Err(RunpodRuntimeProviderError::CreateOutcomeUnknown) => {
+                match self
+                    .provider
+                    .observe_provisioner_pod(
+                        &runpod_key,
+                        ObserveProvisionerPod {
+                            name: pod_name,
+                            network_volume_id: volume_id.clone(),
+                        },
+                    )
+                    .await
+                {
+                    Ok(RunpodResourceObservation::Found(id)) => id,
+                    Ok(RunpodResourceObservation::Absent) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Ok(RunpodResourceObservation::Ambiguous(ids)) => {
+                        for id in ids {
+                            let _ = self
+                                .provider
+                                .terminate_provisioner_pod(&runpod_key, &id)
+                                .await;
+                        }
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Err(error) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(error.into());
+                    }
+                }
+            }
             Err(error) => {
                 self.fail_transition(&mut workspace, &mut operation).await?;
                 return Err(error.into());
             }
         };
         runpod_mut(&mut workspace)?.resources.provisioner_pod_id = Some(pod_id.clone());
-        self.set_provision_step(
-            &workspace,
-            &mut operation,
-            RunpodProvisionStep::PollProvisioner,
-        )
-        .await?;
+        if let Err(error) = self
+            .set_provision_step(
+                &workspace,
+                &mut operation,
+                RunpodProvisionStep::PollProvisioner,
+            )
+            .await
+        {
+            let _ = self
+                .provider
+                .terminate_provisioner_pod(&runpod_key, &pod_id)
+                .await;
+            return Err(error);
+        }
 
         match self
             .provider
@@ -492,64 +575,141 @@ impl RunpodRuntimeService {
         )
         .await?;
 
+        let template_name = resource_name(
+            &command.workspace_id,
+            provision_operation_id,
+            RunpodResourceKind::Template,
+        );
         let template_id = match self
             .provider
             .create_template(
                 &runpod_key,
                 CreateTemplate {
-                    name: resource_name(
-                        &command.workspace_id,
-                        provision_operation_id,
-                        RunpodResourceKind::Template,
-                    ),
+                    name: template_name.clone(),
                     image_ref: definition.endpoint_image_ref,
                 },
             )
             .await
         {
             Ok(value) => value,
+            Err(RunpodRuntimeProviderError::CreateOutcomeUnknown) => {
+                match self
+                    .provider
+                    .observe_template(
+                        &runpod_key,
+                        ObserveTemplate {
+                            name: template_name,
+                        },
+                    )
+                    .await
+                {
+                    Ok(RunpodResourceObservation::Found(id)) => id,
+                    Ok(RunpodResourceObservation::Absent) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Ok(RunpodResourceObservation::Ambiguous(ids)) => {
+                        for id in ids {
+                            let _ = self.provider.delete_template(&runpod_key, &id).await;
+                        }
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Err(error) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(error.into());
+                    }
+                }
+            }
             Err(error) => {
                 self.fail_transition(&mut workspace, &mut operation).await?;
                 return Err(error.into());
             }
         };
         runpod_mut(&mut workspace)?.resources.template_id = Some(template_id.clone());
-        self.set_provision_step(
-            &workspace,
-            &mut operation,
-            RunpodProvisionStep::CreateEndpoint,
-        )
-        .await?;
+        if let Err(error) = self
+            .set_provision_step(
+                &workspace,
+                &mut operation,
+                RunpodProvisionStep::CreateEndpoint,
+            )
+            .await
+        {
+            let _ = self
+                .provider
+                .delete_template(&runpod_key, &template_id)
+                .await;
+            return Err(error);
+        }
 
+        let endpoint_name = resource_name(
+            &command.workspace_id,
+            provision_operation_id,
+            RunpodResourceKind::Endpoint,
+        );
         let endpoint_id = match self
             .provider
             .create_endpoint(
                 &runpod_key,
                 CreateEndpoint {
-                    name: resource_name(
-                        &command.workspace_id,
-                        provision_operation_id,
-                        RunpodResourceKind::Endpoint,
-                    ),
-                    datacenter_id: command.datacenter_id,
-                    gpu_id: command.gpu_id,
-                    network_volume_id: volume_id,
-                    template_id,
+                    name: endpoint_name.clone(),
+                    datacenter_id: command.datacenter_id.clone(),
+                    gpu_id: command.gpu_id.clone(),
+                    network_volume_id: volume_id.clone(),
+                    template_id: template_id.clone(),
                 },
             )
             .await
         {
             Ok(value) => value,
+            Err(RunpodRuntimeProviderError::CreateOutcomeUnknown) => {
+                match self
+                    .provider
+                    .observe_endpoint(
+                        &runpod_key,
+                        ObserveEndpoint {
+                            name: endpoint_name,
+                            gpu_id: command.gpu_id,
+                            network_volume_id: volume_id,
+                            template_id,
+                        },
+                    )
+                    .await
+                {
+                    Ok(RunpodResourceObservation::Found(id)) => id,
+                    Ok(RunpodResourceObservation::Absent) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Ok(RunpodResourceObservation::Ambiguous(ids)) => {
+                        for id in ids {
+                            let _ = self.provider.delete_endpoint(&runpod_key, &id).await;
+                        }
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(RuntimeError::ProviderUnavailable);
+                    }
+                    Err(error) => {
+                        self.fail_transition(&mut workspace, &mut operation).await?;
+                        return Err(error.into());
+                    }
+                }
+            }
             Err(error) => {
                 self.fail_transition(&mut workspace, &mut operation).await?;
                 return Err(error.into());
             }
         };
-        runpod_mut(&mut workspace)?.resources.endpoint_id = Some(endpoint_id);
+        runpod_mut(&mut workspace)?.resources.endpoint_id = Some(endpoint_id.clone());
 
         mark_ready(&mut workspace)?;
         operation.succeed(OffsetDateTime::now_utc())?;
-        self.transitions.save(&workspace, &operation).await?;
+        if let Err(error) = self.transitions.save(&workspace, &operation).await {
+            let _ = self
+                .provider
+                .delete_endpoint(&runpod_key, &endpoint_id)
+                .await;
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -605,7 +765,8 @@ mod tests {
 
     use crate::application::runtimes::runpod::{
         test_support::{provision_command, CleanupFakes, ProvisionFakes, RecoveryFakes},
-        RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodRuntimeResources,
+        RunpodPlacement, RunpodPlacementDatacenter, RunpodPlacementGpu, RunpodResourceKind,
+        RunpodResourceObservation, RunpodRuntimeProviderError, RunpodRuntimeResources,
     };
     use crate::application::{
         events::ApplicationEvent,
@@ -663,6 +824,16 @@ mod tests {
     fn runpod_progress(progress: RuntimeProgress) -> RunpodProgress {
         let RuntimeProgress::Runpod(progress) = progress;
         progress
+    }
+
+    async fn wait_for_deletion_attempts(fakes: &ProvisionFakes, count: usize) {
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while fakes.provider.deletion_attempts().len() < count {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -899,6 +1070,163 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unknown_create_adopts_one_observed_resource_before_advancing() {
+        let fakes = ProvisionFakes::ready();
+        fakes.provider.fail_once_with(
+            "create_network_volume",
+            RunpodRuntimeProviderError::CreateOutcomeUnknown,
+        );
+        fakes.provider.set_observation(
+            RunpodResourceKind::NetworkVolume,
+            RunpodResourceObservation::Found("observed-volume".into()),
+        );
+
+        let (_, operation) = start_provision(&fakes).await.unwrap();
+        fakes.events.wait_for_terminal_operation(operation.id).await;
+
+        assert_eq!(
+            fakes.provider.calls()[..3],
+            [
+                "create_network_volume",
+                "observe_network_volume",
+                "start_provisioner_pod",
+            ]
+        );
+        assert_eq!(
+            fakes
+                .repository
+                .resources_at_provision_step(RunpodProvisionStep::StartProvisionerPod)
+                .unwrap()
+                .network_volume_id
+                .as_deref(),
+            Some("observed-volume")
+        );
+        assert_eq!(
+            fakes
+                .repository
+                .last_snapshot()
+                .0
+                .resources
+                .network_volume_id
+                .as_deref(),
+            Some("observed-volume")
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_create_absence_fails_without_starting_the_next_acquisition() {
+        let fakes = ProvisionFakes::ready();
+        fakes.provider.fail_once_with(
+            "create_network_volume",
+            RunpodRuntimeProviderError::CreateOutcomeUnknown,
+        );
+        fakes.provider.set_observation(
+            RunpodResourceKind::NetworkVolume,
+            RunpodResourceObservation::Absent,
+        );
+
+        let (_, operation) = start_provision(&fakes).await.unwrap();
+        fakes.events.wait_for_terminal_operation(operation.id).await;
+
+        assert_eq!(
+            fakes.provider.calls(),
+            vec!["create_network_volume", "observe_network_volume"]
+        );
+        assert_eq!(
+            fakes.repository.last_operation_state(),
+            RuntimeOperationState::Failed
+        );
+        assert!(fakes.provider.deletion_attempts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn unknown_create_ambiguity_compensates_every_match_and_selects_none() {
+        let fakes = ProvisionFakes::ready();
+        fakes.provider.fail_once_with(
+            "create_network_volume",
+            RunpodRuntimeProviderError::CreateOutcomeUnknown,
+        );
+        fakes.provider.fail_once_with(
+            "delete_network_volume",
+            RunpodRuntimeProviderError::Unavailable,
+        );
+        fakes.provider.set_observation(
+            RunpodResourceKind::NetworkVolume,
+            RunpodResourceObservation::Ambiguous(vec!["volume-a".into(), "volume-b".into()]),
+        );
+
+        let (_, operation) = start_provision(&fakes).await.unwrap();
+        fakes.events.wait_for_terminal_operation(operation.id).await;
+
+        assert_eq!(
+            fakes.provider.deletion_attempts(),
+            vec![
+                (RunpodResourceKind::NetworkVolume, "volume-a".into()),
+                (RunpodResourceKind::NetworkVolume, "volume-b".into()),
+            ]
+        );
+        assert_eq!(
+            fakes
+                .repository
+                .last_snapshot()
+                .0
+                .resources
+                .network_volume_id,
+            None
+        );
+        assert!(!fakes.provider.calls().contains(&"start_provisioner_pod"));
+    }
+
+    #[tokio::test]
+    async fn unknown_create_observation_failure_is_not_treated_as_absence() {
+        let fakes = ProvisionFakes::ready();
+        fakes.provider.fail_once_with(
+            "create_network_volume",
+            RunpodRuntimeProviderError::CreateOutcomeUnknown,
+        );
+        fakes.provider.fail_once_with(
+            "observe_network_volume",
+            RunpodRuntimeProviderError::ObserveUnavailable,
+        );
+
+        let (_, operation) = start_provision(&fakes).await.unwrap();
+        fakes.events.wait_for_terminal_operation(operation.id).await;
+
+        assert_eq!(
+            fakes.provider.calls(),
+            vec!["create_network_volume", "observe_network_volume"]
+        );
+        assert_eq!(
+            fakes.repository.last_operation_state(),
+            RuntimeOperationState::Failed
+        );
+        assert!(fakes.provider.deletion_attempts().is_empty());
+    }
+
+    #[tokio::test]
+    async fn created_resource_is_compensated_when_its_id_cannot_be_persisted() {
+        let fakes = ProvisionFakes::ready();
+        fakes.repository.fail_transition_after_initial_commit();
+
+        let (_, operation) = start_provision(&fakes).await.unwrap();
+        fakes.repository.wait_for_failed_transition().await;
+        wait_for_deletion_attempts(&fakes, 1).await;
+
+        assert_eq!(
+            fakes.provider.deletion_attempts(),
+            vec![(RunpodResourceKind::NetworkVolume, "volume-1".into())]
+        );
+        assert!(!fakes.provider.calls().contains(&"start_provisioner_pod"));
+        let durable_operations = fakes.running_operations();
+        assert_eq!(durable_operations.len(), 1);
+        assert_eq!(durable_operations[0].id, operation.id);
+        assert_eq!(
+            runpod_progress(durable_operations[0].progress).provision_step(),
+            Some(RunpodProvisionStep::CreateNetworkVolume)
+        );
+    }
+
+    #[tokio::test]
     async fn provision_preflight_failure_does_not_save_emit_or_call_provider() {
         let fakes = ProvisionFakes::ready_without_runpod_credential();
 
@@ -937,7 +1265,10 @@ mod tests {
         fakes.provider.release_first_call();
         fakes.repository.wait_for_failed_transition().await;
 
-        assert_eq!(fakes.provider.calls(), vec!["create_network_volume"]);
+        assert_eq!(
+            fakes.provider.calls(),
+            vec!["create_network_volume", "delete_network_volume"]
+        );
         assert_eq!(
             fakes.repository.last_workspace_snapshot(),
             (workspace, operation.clone())
