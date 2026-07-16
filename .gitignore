@@ -18,8 +18,7 @@ workers/*/build/
 workers/*/src/*.egg-info/
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode
 .idea
 .DS_Store
 *.suo
