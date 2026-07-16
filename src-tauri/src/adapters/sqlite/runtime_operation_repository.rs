@@ -40,6 +40,19 @@ impl SqliteRuntimeOperationRepository {
 #[async_trait::async_trait]
 impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
     #[diagnostic(show_output, show_error)]
+    async fn get(
+        &self,
+        #[diagnostic(show)] id: Uuid,
+    ) -> Result<Option<RuntimeOperation>, RuntimeOperationRepositoryError> {
+        runtime_operations::Entity::find_by_id(id.to_string())
+            .one(&self.connection)
+            .await
+            .map_err(|_| RuntimeOperationRepositoryError::Unavailable)?
+            .map(map_operation)
+            .transpose()
+    }
+
+    #[diagnostic(show_output, show_error)]
     async fn page(
         &self,
         #[diagnostic(show)] workspace_id: Option<&str>,

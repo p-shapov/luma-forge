@@ -268,6 +268,14 @@ async fn operation_reads_keep_progress_filtering_ordering_totals_and_recovery() 
         .unwrap();
     assert_eq!(workspace_total, 2);
     assert_eq!(workspace_operations.first(), Some(&cleanup));
+    assert_eq!(
+        fixture.operations.get(provision.id).await,
+        Ok(Some(provision.clone()))
+    );
+    assert_eq!(
+        fixture.operations.get(Uuid::from_u128(u128::MAX)).await,
+        Ok(None)
+    );
 
     let mut running = fixture.operations.running().await.unwrap();
     running.sort_by_key(|operation| operation.created_at);

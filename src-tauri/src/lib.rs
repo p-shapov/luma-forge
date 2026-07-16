@@ -110,6 +110,7 @@ fn bootstrap(app: &mut tauri::App) -> Result<(), BootstrapError> {
         SecretsService::new(secrets.clone(), runpod_identity, hugging_face_identity);
     let runpod_service = RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
         workspaces: workspaces.clone(),
+        operations: operations.clone(),
         workflows: bundled.clone(),
         transitions,
         runtime_catalog: bundled,

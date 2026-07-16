@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
@@ -193,6 +193,7 @@ impl ProvisionFakes {
     ) -> RunpodRuntimeService {
         RunpodRuntimeService::new(RunpodRuntimeServiceDependencies {
             workspaces,
+            operations: self.operations.clone(),
             workflows: self.workflows.clone(),
             transitions,
             runtime_catalog: self.runtime_catalog.clone(),
@@ -294,6 +295,17 @@ impl RecordingApplicationEventSink {
             }
             changed.await;
         }
+    }
+
+    pub fn has_terminal_operation(&self, id: Uuid) -> bool {
+        self.events.lock().unwrap().iter().any(|event| {
+            matches!(
+                event,
+                ApplicationEvent::RuntimeOperationChanged(operation)
+                    if operation.id == id
+                        && operation.state != RuntimeOperationState::Running
+            )
+        })
     }
 
     pub fn runtime_operation_event_count(&self) -> usize {
@@ -472,6 +484,19 @@ struct FakeRuntimeOperationRepository(Arc<Mutex<Vec<RuntimeOperation>>>);
 
 #[async_trait::async_trait]
 impl RuntimeOperationRepository for FakeRuntimeOperationRepository {
+    async fn get(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<RuntimeOperation>, RuntimeOperationRepositoryError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|operation| operation.id == id)
+            .cloned())
+    }
+
     async fn page(
         &self,
         workspace_id: Option<&str>,
@@ -555,6 +580,7 @@ pub(super) struct FakeRuntimeTransitionRepository {
     operation_rows: Arc<Mutex<Vec<RuntimeOperation>>>,
     save_count: AtomicUsize,
     fail_on_save: AtomicUsize,
+    fail_all_after_initial_commit: AtomicBool,
     failed_write_attempted: AtomicBool,
     changed: tokio::sync::Notify,
 }
@@ -570,6 +596,7 @@ impl FakeRuntimeTransitionRepository {
             operation_rows,
             save_count: AtomicUsize::new(0),
             fail_on_save: AtomicUsize::new(usize::MAX),
+            fail_all_after_initial_commit: AtomicBool::new(false),
             failed_write_attempted: AtomicBool::new(false),
             changed: tokio::sync::Notify::new(),
         }
@@ -577,6 +604,15 @@ impl FakeRuntimeTransitionRepository {
 
     pub fn fail_transition_after_initial_commit(&self) {
         self.fail_on_save.store(2, Ordering::SeqCst);
+    }
+
+    pub fn fail_all_transitions_after_initial_commit(&self) {
+        self.fail_all_after_initial_commit
+            .store(true, Ordering::SeqCst);
+    }
+
+    pub fn failed_write_was_attempted(&self) -> bool {
+        self.failed_write_attempted.load(Ordering::SeqCst)
     }
 
     pub async fn wait_for_failed_transition(&self) {
@@ -701,7 +737,9 @@ impl RuntimeTransitionRepository for FakeRuntimeTransitionRepository {
         operation: &RuntimeOperation,
     ) -> Result<(), RuntimePersistenceError> {
         let save_number = self.save_count.fetch_add(1, Ordering::SeqCst) + 1;
-        if save_number == self.fail_on_save.load(Ordering::SeqCst) {
+        if save_number == self.fail_on_save.load(Ordering::SeqCst)
+            || (save_number > 1 && self.fail_all_after_initial_commit.load(Ordering::SeqCst))
+        {
             self.failed_write_attempted.store(true, Ordering::SeqCst);
             self.changed.notify_waiters();
             return Err(RuntimePersistenceError::Unavailable);
@@ -734,9 +772,11 @@ pub(super) struct FakeRunpodRuntimeProvider {
     calls: Mutex<Vec<&'static str>>,
     placement: Mutex<Option<RunpodPlacement>>,
     fail_once: Mutex<HashMap<&'static str, RunpodRuntimeProviderError>>,
+    panic_once: Mutex<HashSet<&'static str>>,
     observations: Mutex<HashMap<RunpodResourceKind, RunpodResourceObservation>>,
     deletion_attempts: Mutex<Vec<(RunpodResourceKind, String)>>,
     block_first_call: AtomicBool,
+    first_call_cancelled: AtomicBool,
     entered: tokio::sync::Notify,
     release: tokio::sync::Notify,
 }
@@ -758,6 +798,10 @@ impl FakeRunpodRuntimeProvider {
         self.fail_once.lock().unwrap().insert(method, error);
     }
 
+    pub fn panic_once(&self, method: &'static str) {
+        self.panic_once.lock().unwrap().insert(method);
+    }
+
     pub fn set_observation(
         &self,
         kind: RunpodResourceKind,
@@ -771,7 +815,12 @@ impl FakeRunpodRuntimeProvider {
     }
 
     pub fn block_first_call(&self) {
+        self.first_call_cancelled.store(false, Ordering::SeqCst);
         self.block_first_call.store(true, Ordering::SeqCst);
+    }
+
+    pub fn first_call_was_cancelled(&self) -> bool {
+        self.first_call_cancelled.load(Ordering::SeqCst)
     }
 
     pub async fn wait_until_first_call(&self) {
@@ -786,7 +835,15 @@ impl FakeRunpodRuntimeProvider {
         self.calls.lock().unwrap().push(method);
         if self.block_first_call.swap(false, Ordering::SeqCst) {
             self.entered.notify_one();
+            let mut blocked = BlockedProviderCall {
+                cancelled: &self.first_call_cancelled,
+                completed: false,
+            };
             self.release.notified().await;
+            blocked.completed = true;
+        }
+        if self.panic_once.lock().unwrap().remove(method) {
+            panic!("fake provider panic");
         }
         if let Some(error) = self.fail_once.lock().unwrap().remove(method) {
             return Err(error);
@@ -817,6 +874,19 @@ impl FakeRunpodRuntimeProvider {
             .unwrap()
             .push((kind, id.to_owned()));
         self.call(method).await
+    }
+}
+
+struct BlockedProviderCall<'a> {
+    cancelled: &'a AtomicBool,
+    completed: bool,
+}
+
+impl Drop for BlockedProviderCall<'_> {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.cancelled.store(true, Ordering::SeqCst);
+        }
     }
 }
 
