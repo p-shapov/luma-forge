@@ -2,18 +2,16 @@
 
 The native backend is LumaForge's authoritative local API. It owns durable state, credentials, provider access, validation, and long-running Runtime operations.
 
-The frontend accesses it only through generated Tauri commands and events. Application models stay independent from Tauri, UI, persistence, and provider transport details.
-
 ## Core Concepts
 
-- **Workspace** is a persisted identity pinned to an exact workflow revision. It has an optional Runtime; no Runtime means the Workspace is not provisioned.
-- **Runtime** combines provider-neutral lifecycle state with provider-specific configuration. Its states are `provisioning`, `ready`, `cleaning_up`, and `failed`.
-- **RuntimeOperation** is the durable history of a background provision or cleanup. It stores progress, timestamps, result state, and an optional diagnostics trace ID.
-- **Workflow revision** resolves the bundled metadata, model assets, execution data, runtime preset, and exact worker contracts used by a Workspace.
+LumaForge creates a Workspace for a bundled Workflow revision, attaches a remote GPU environment to it as a Runtime, and records each provision or cleanup attempt as a RuntimeOperation.
+
+- **Workspace** is a persisted local record for one exact Workflow revision. It exists before provisioning, can have at most one Runtime attached, and remains after that Runtime is cleaned up.
+- **Workflow revision** is an immutable, versioned workflow definition. It pins the ComfyUI graph, required models, execution contract, runtime preset, and worker contracts.
+- **Runtime** is the remote GPU environment attached to a Workspace and used to execute its workflow. It combines provider-neutral lifecycle state (`provisioning`, `ready`, `cleaning_up`, or `failed`) with provider-specific configuration and resource details.
+- **RuntimeOperation** is the durable record of one background provision or cleanup attempt. It tracks progress, outcome, timestamps, and optional trace correlation, and remains available after Runtime cleanup.
 
 ## Runtime Lifecycle
-
-`WorkspaceService` owns Workspace creation, listing, and deletion. `RuntimeService` owns provider-neutral provision, cleanup, operation queries, and interrupted-operation recovery. It dispatches provider-specific runtime work to the corresponding service — for RunPod, this is RunpodRuntimeService.
 
 A typical provision flow is:
 
@@ -25,8 +23,6 @@ commands.createWorkspace
 ```
 
 Provision and cleanup return their initial Workspace and operation snapshots immediately. Provider work continues in the background and can be observed through events or `commands.getRuntimeOperations`.
-
-Each Runtime transition persists the Workspace Runtime and operation atomically. Events are emitted only after the transaction commits.
 
 ## Frontend Contract
 
@@ -51,13 +47,11 @@ type CommandResult<Data, Code>
     | { status: "error"; error: CommandError<Code> };
 ```
 
-Branch on the command-specific `error.code`. Use `error.traceId` to find matching diagnostics records. JavaScript `Error` instances are rethrown instead of being wrapped in the application error envelope.
+Use `error.traceId` to find matching diagnostics records.
 
 ### Commands
 
 Each entry uses the generated TypeScript method name. The underlying Tauri command uses the corresponding `snake_case` name defined in `facade/commands.rs`.
-
-`Input` shows the request payload. `Output data` shows the successful `data` value; failures use the common error envelope described above.
 
 #### Workflows and Workspaces
 
@@ -85,7 +79,7 @@ Lists bundled workflow revisions available for new Workspaces.
 
 ##### `commands.getWorkspaces`
 
-Lists authoritative Workspace snapshots, including any attached Runtime.
+Lists Workspace snapshots, including any attached Runtime.
 
 **Input**
 
@@ -140,7 +134,7 @@ Deletes a Workspace with no attached Runtime or running operation.
 
 ##### `commands.provisionWorkspace`
 
-Starts Runtime provisioning and returns the initial snapshots. RunPod is currently the only Runtime kind.
+Starts Runtime provisioning and returns the initial snapshots.
 
 **Input**
 
