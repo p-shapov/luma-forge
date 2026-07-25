@@ -26,7 +26,7 @@ pub fn expand(input: DeriveInput) -> Result<TokenStream> {
             }
         }
 
-        impl #impl_generics crate::diagnostics::DiagnosticValue for #name #type_generics #where_clause {}
+        impl #impl_generics ::luma_diagnostics::DiagnosticValue for #name #type_generics #where_clause {}
     })
 }
 
@@ -170,17 +170,17 @@ fn field_entry(
             debug.field(#value);
         },
         (ValuePolicy::Redact, Some(name)) => quote! {
-            debug.field(stringify!(#name), &crate::diagnostics::Redacted);
+            debug.field(stringify!(#name), &::luma_diagnostics::__private::Redacted);
         },
         (ValuePolicy::Redact, None) => quote! {
-            debug.field(&crate::diagnostics::Redacted);
+            debug.field(&::luma_diagnostics::__private::Redacted);
         },
     };
 
     if matches!(policy, ValuePolicy::Show) {
         Ok(quote! {
             {
-                fn assert_diagnostic<T: crate::diagnostics::DiagnosticValue + ?Sized>(_: &T) {}
+                fn assert_diagnostic<T: ::luma_diagnostics::DiagnosticValue + ?Sized>(_: &T) {}
                 #entry
             }
         })

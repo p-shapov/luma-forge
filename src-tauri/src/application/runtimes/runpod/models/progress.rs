@@ -2,9 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::application::runtimes::RuntimeOperationKind;
 
-#[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunpodProvisionStep {
     #[serde(rename = "create_network_volume")]
     CreateNetworkVolume,
@@ -20,9 +18,7 @@ pub enum RunpodProvisionStep {
     CreateEndpoint,
 }
 
-#[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunpodCleanupStep {
     #[serde(rename = "delete_endpoint")]
     DeleteEndpoint,
@@ -34,9 +30,7 @@ pub enum RunpodCleanupStep {
     DeleteNetworkVolume,
 }
 
-#[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "step", deny_unknown_fields)]
 pub enum RunpodProgress {
     #[serde(rename = "provision")]

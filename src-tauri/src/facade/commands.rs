@@ -2,7 +2,7 @@ use super::*;
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn get_workflows(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: PageRequest,
@@ -12,7 +12,7 @@ pub async fn get_workflows(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn get_workspaces(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: PageRequest,
@@ -22,7 +22,7 @@ pub async fn get_workspaces(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn create_workspace(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: CreateWorkspaceRequest,
@@ -32,7 +32,7 @@ pub async fn create_workspace(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn delete_workspace(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: WorkspaceIdRequest,
@@ -42,7 +42,7 @@ pub async fn delete_workspace(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn provision_workspace(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: ProvisionWorkspaceRequest,
@@ -52,7 +52,7 @@ pub async fn provision_workspace(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn cleanup_workspace(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: WorkspaceIdRequest,
@@ -62,7 +62,7 @@ pub async fn cleanup_workspace(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn get_runtime_operations(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: RuntimeOperationPageRequest,
@@ -72,7 +72,7 @@ pub async fn get_runtime_operations(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn get_runpod_placement(
     state: tauri::State<'_, FacadeState>,
 ) -> Result<RunpodPlacementDto, CommandError<GetRunpodPlacementErrorCode>> {
@@ -81,7 +81,7 @@ pub async fn get_runpod_placement(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn setup_runpod_api_key(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: SetupApiKeyRequest,
@@ -91,7 +91,7 @@ pub async fn setup_runpod_api_key(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn setup_hugging_face_api_key(
     state: tauri::State<'_, FacadeState>,
     #[diagnostic(show)] request: SetupApiKeyRequest,
@@ -101,7 +101,7 @@ pub async fn setup_hugging_face_api_key(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn get_runpod_identity(
     state: tauri::State<'_, FacadeState>,
 ) -> Result<IdentityDto, CommandError<GetIdentityErrorCode>> {
@@ -110,7 +110,7 @@ pub async fn get_runpod_identity(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn get_hugging_face_identity(
     state: tauri::State<'_, FacadeState>,
 ) -> Result<IdentityDto, CommandError<GetIdentityErrorCode>> {
@@ -119,7 +119,7 @@ pub async fn get_hugging_face_identity(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn delete_runpod_api_key(
     state: tauri::State<'_, FacadeState>,
 ) -> Result<(), CommandError<DeleteApiKeyErrorCode>> {
@@ -128,7 +128,7 @@ pub async fn delete_runpod_api_key(
 
 #[tauri::command]
 #[specta::specta]
-#[crate::diagnostics::diagnostic(root, show_output, show_error)]
+#[luma_diagnostics::diagnostic(root, show_output, show_error)]
 pub async fn delete_hugging_face_api_key(
     state: tauri::State<'_, FacadeState>,
 ) -> Result<(), CommandError<DeleteApiKeyErrorCode>> {

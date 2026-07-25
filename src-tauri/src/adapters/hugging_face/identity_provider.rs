@@ -20,7 +20,7 @@ impl HuggingFaceIdentityAdapter {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl SecretIdentityProvider for HuggingFaceIdentityAdapter {
     #[diagnostic(show_output, show_error)]

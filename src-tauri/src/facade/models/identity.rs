@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::application::secrets::Identity;
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct SetupApiKeyRequest {
@@ -12,7 +12,7 @@ pub struct SetupApiKeyRequest {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityDto {

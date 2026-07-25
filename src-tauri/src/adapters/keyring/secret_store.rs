@@ -20,7 +20,7 @@ impl KeyringSecretStore {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl SecretStore for KeyringSecretStore {
     #[diagnostic(show_output, show_error)]

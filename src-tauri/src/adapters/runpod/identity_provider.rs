@@ -20,7 +20,7 @@ impl RunpodIdentityAdapter {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl SecretIdentityProvider for RunpodIdentityAdapter {
     #[diagnostic(show_output, show_error)]

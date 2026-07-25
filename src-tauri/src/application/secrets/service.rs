@@ -27,7 +27,7 @@ impl SecretsService {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn set(
         &self,
         #[diagnostic(show)] kind: SecretKind,
@@ -59,7 +59,7 @@ impl SecretsService {
         Ok(identity)
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn status(
         &self,
         #[diagnostic(show)] kind: SecretKind,
@@ -77,7 +77,7 @@ impl SecretsService {
             .map_err(|_| SecretsError::StorageUnavailable)
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn identity(
         &self,
         #[diagnostic(show)] kind: SecretKind,
@@ -94,7 +94,7 @@ impl SecretsService {
             .map_err(map_identity_error)
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn delete(&self, #[diagnostic(show)] kind: SecretKind) -> Result<(), SecretsError> {
         self.store.delete(kind).await.map_err(|error| match error {
             SecretStoreError::NotFound => SecretsError::NotConfigured,

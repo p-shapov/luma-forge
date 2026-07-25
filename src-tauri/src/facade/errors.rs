@@ -9,10 +9,10 @@ use crate::application::{
 use super::models::{FacadeMappingError, InvalidPagination};
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
-pub struct CommandError<Code: crate::diagnostics::DiagnosticValue> {
+pub struct CommandError<Code: luma_diagnostics::DiagnosticValue> {
     #[diagnostic(show)]
     pub code: Code,
     #[diagnostic(show)]
@@ -21,10 +21,10 @@ pub struct CommandError<Code: crate::diagnostics::DiagnosticValue> {
 
 pub type CommandResult<T, Code> = Result<T, CommandError<Code>>;
 
-fn error<Code: crate::diagnostics::DiagnosticValue>(code: Code) -> CommandError<Code> {
+fn error<Code: luma_diagnostics::DiagnosticValue>(code: Code) -> CommandError<Code> {
     CommandError {
         code,
-        trace_id: crate::diagnostics::current_trace_uuid()
+        trace_id: luma_diagnostics::current_trace_uuid()
             .map(|id| id.to_string())
             .unwrap_or_else(|| "trace-unavailable".to_owned()),
     }
@@ -33,7 +33,7 @@ fn error<Code: crate::diagnostics::DiagnosticValue>(code: Code) -> CommandError<
 macro_rules! error_code {
     ($name:ident { $($variant:ident),+ $(,)? }) => {
         #[derive(
-            crate::diagnostics::DiagnosticDebug,
+            luma_diagnostics::DiagnosticDebug,
             Clone,
             Copy,
             PartialEq,

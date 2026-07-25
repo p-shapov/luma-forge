@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use super::super::RunpodPlacement;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RunpodResourceKind {
     NetworkVolume,
     ProvisionerPod,
@@ -11,25 +11,25 @@ pub enum RunpodResourceKind {
     Endpoint,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct ObserveNetworkVolume {
     pub name: String,
     pub datacenter_id: String,
     pub size_gb: u64,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct ObserveProvisionerPod {
     pub name: String,
     pub network_volume_id: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct ObserveTemplate {
     pub name: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct ObserveEndpoint {
     pub name: String,
     pub gpu_id: String,
@@ -37,7 +37,7 @@ pub struct ObserveEndpoint {
     pub template_id: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub enum RunpodResourceObservation {
     Absent,
     Found(String),
@@ -66,7 +66,7 @@ pub(crate) fn resource_name(
     )
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateNetworkVolume {
     #[diagnostic(show)]
     pub name: String,
@@ -76,7 +76,7 @@ pub struct CreateNetworkVolume {
     pub size_gb: u64,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct StartProvisionerPod {
     #[diagnostic(show)]
     pub workspace_id: String,
@@ -93,7 +93,7 @@ pub struct StartProvisionerPod {
     pub hugging_face_api_key: Option<SecretString>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateTemplate {
     #[diagnostic(show)]
     pub name: String,
@@ -101,7 +101,7 @@ pub struct CreateTemplate {
     pub image_ref: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateEndpoint {
     #[diagnostic(show)]
     pub name: String,
@@ -115,7 +115,7 @@ pub struct CreateEndpoint {
     pub template_id: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeProviderError {
     #[error("runtime provider rejected the credential")]
     Unauthorized,

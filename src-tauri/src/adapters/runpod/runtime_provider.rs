@@ -40,7 +40,7 @@ impl RunpodRuntimeProviderAdapter {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RunpodRuntimeProvider for RunpodRuntimeProviderAdapter {
     #[diagnostic(show_output, show_error)]

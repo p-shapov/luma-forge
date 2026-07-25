@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::application::runtimes::{CatalogRef, WorkflowSummary};
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowPageDto {
@@ -12,7 +12,7 @@ pub struct WorkflowPageDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogRefDto {
@@ -38,7 +38,7 @@ impl From<CatalogRefDto> for CatalogRef {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowDto {

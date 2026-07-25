@@ -9,9 +9,7 @@ use crate::application::{
 
 use super::{RuntimeKind, RuntimeState};
 
-#[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "provider", content = "payload", deny_unknown_fields)]
 pub enum RuntimeProgress {
     #[serde(rename = "runpod")]
@@ -32,20 +30,20 @@ impl RuntimeProgress {
     }
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeOperationState {
     Running,
     Succeeded,
     Failed,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeOperationKind {
     Provision,
     Cleanup,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RuntimeOperation {
     #[diagnostic(show)]
     pub id: Uuid,
@@ -138,7 +136,7 @@ impl RuntimeOperation {
             runtime_kind,
             kind,
             state: RuntimeOperationState::Running,
-            trace_id: crate::diagnostics::current_trace_uuid(),
+            trace_id: luma_diagnostics::current_trace_uuid(),
             progress,
             created_at: now,
             updated_at: now,

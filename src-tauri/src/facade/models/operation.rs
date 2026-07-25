@@ -8,7 +8,7 @@ use crate::application::runtimes::{
 use super::{mapping::timestamp, FacadeMappingError, RuntimeKindDto};
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeOperationPageRequest {
@@ -21,7 +21,7 @@ pub struct RuntimeOperationPageRequest {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeOperationPageDto {
@@ -37,7 +37,7 @@ pub struct RuntimeOperationEvent {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,
@@ -62,7 +62,7 @@ impl From<RuntimeOperationKind> for RuntimeOperationKindDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,
@@ -89,7 +89,7 @@ impl From<RuntimeOperationState> for RuntimeOperationStateDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,
@@ -122,7 +122,7 @@ impl From<RunpodProvisionStep> for RunpodProvisionStepDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,
@@ -151,7 +151,7 @@ impl From<RunpodCleanupStep> for RunpodCleanupStepDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(tag = "progressKind", rename_all = "snake_case")]
 pub enum RuntimeProgressDto {
@@ -173,7 +173,7 @@ impl From<RuntimeProgress> for RuntimeProgressDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeOperationDto {

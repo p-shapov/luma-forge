@@ -2,13 +2,13 @@ use crate::application::secrets::SecretStoreError;
 
 use super::ports::{RuntimeOperationRepositoryError, RuntimePersistenceError};
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimeOperationError {
     #[error("runtime operation transition is invalid")]
     InvalidTransition,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimeError {
     #[error("workspace was not found")]
     WorkspaceNotFound,

@@ -25,7 +25,7 @@ impl SqliteWorkspaceRepository {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl WorkspaceRepository for SqliteWorkspaceRepository {
     #[diagnostic(show_output, show_error)]

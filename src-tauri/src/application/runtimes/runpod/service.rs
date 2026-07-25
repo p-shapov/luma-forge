@@ -19,7 +19,7 @@ use crate::application::{
 
 use super::{RunpodPlacement, RunpodRuntime, RunpodRuntimeCatalog, RunpodRuntimeProvider};
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy)]
 enum LifecycleTermination {
     BodyError,
     Deadline,
@@ -101,7 +101,7 @@ impl RunpodRuntimeService {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn placement(&self) -> Result<RunpodPlacement, RuntimeError> {
         let key = self
             .secrets
@@ -122,7 +122,7 @@ impl RunpodRuntimeService {
         });
     }
 
-    #[crate::diagnostics::diagnostic(detached, show_error)]
+    #[luma_diagnostics::diagnostic(detached, show_error)]
     async fn supervise(
         self,
         #[diagnostic(show)] operation_id: Uuid,
@@ -159,7 +159,7 @@ impl RunpodRuntimeService {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(restore = operation.trace_id, show_error)]
+    #[luma_diagnostics::diagnostic(restore = operation.trace_id, show_error)]
     async fn terminalize_supervised_operation(
         &self,
         mut workspace: Workspace,

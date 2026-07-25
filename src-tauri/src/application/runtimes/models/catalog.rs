@@ -1,6 +1,6 @@
 use crate::application::runtimes::runpod::RunpodContractRequirements;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Hash)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Hash)]
 pub struct CatalogRef {
     #[diagnostic(show)]
     pub id: String,
@@ -17,7 +17,7 @@ impl CatalogRef {
     }
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub enum RuntimeContractRequirements {
     Runpod(#[diagnostic(show)] RunpodContractRequirements),
 }
@@ -30,7 +30,7 @@ impl RuntimeContractRequirements {
     }
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct WorkflowSummary {
     #[diagnostic(show)]
     pub id: String,
@@ -46,7 +46,7 @@ pub struct WorkflowSummary {
     pub requires_hugging_face_api_key: bool,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq)]
 pub struct WorkflowDefinition {
     #[diagnostic(show)]
     pub summary: WorkflowSummary,

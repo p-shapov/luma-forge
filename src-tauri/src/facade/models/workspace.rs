@@ -7,7 +7,7 @@ use super::{
 };
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspacePageDto {
@@ -16,7 +16,7 @@ pub struct WorkspacePageDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct CreateWorkspaceRequest {
@@ -25,7 +25,7 @@ pub struct CreateWorkspaceRequest {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceIdRequest {
@@ -34,7 +34,7 @@ pub struct WorkspaceIdRequest {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct ProvisionWorkspaceRequest {
@@ -45,7 +45,7 @@ pub struct ProvisionWorkspaceRequest {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(
     tag = "runtimeKind",
@@ -64,7 +64,7 @@ pub enum ProvisionRuntimeInput {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceOperationDto {
@@ -73,7 +73,7 @@ pub struct WorkspaceOperationDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceDto {

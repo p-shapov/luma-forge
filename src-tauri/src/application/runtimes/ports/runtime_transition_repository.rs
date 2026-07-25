@@ -1,6 +1,6 @@
 use crate::application::{runtimes::RuntimeOperation, workspace::Workspace};
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimePersistenceError {
     #[error("runtime already exists")]
     AlreadyExists,

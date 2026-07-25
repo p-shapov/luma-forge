@@ -2,7 +2,7 @@ use time::OffsetDateTime;
 
 use crate::application::runtimes::{CatalogRef, Runtime};
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct Workspace {
     #[diagnostic(show)]
     pub id: String,

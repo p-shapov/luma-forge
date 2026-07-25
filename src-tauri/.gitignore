@@ -2,3 +2,5 @@
 /gen
 /crates/diagnostics-macros/target
 /crates/diagnostics-macros/Cargo.lock
+/crates/diagnostics/target
+/crates/diagnostics/Cargo.lock

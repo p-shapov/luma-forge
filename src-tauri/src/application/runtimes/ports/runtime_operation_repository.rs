@@ -1,7 +1,7 @@
 use crate::application::runtimes::RuntimeOperation;
 use uuid::Uuid;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RuntimeOperationRepositoryError {
     #[error("runtime operation journal is unavailable")]
     Unavailable,

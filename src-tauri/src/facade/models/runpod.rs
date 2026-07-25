@@ -5,7 +5,7 @@ use crate::application::runtimes::runpod::{
 };
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RunpodPlacementDto {
@@ -23,7 +23,7 @@ impl From<RunpodPlacement> for RunpodPlacementDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RunpodPlacementDatacenterDto {
@@ -43,7 +43,7 @@ impl From<RunpodPlacementDatacenter> for RunpodPlacementDatacenterDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RunpodPlacementGpuDto {

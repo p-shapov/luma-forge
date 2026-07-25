@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::application::runtimes::{Runtime, RuntimeKind, RuntimeProvider, RuntimeState};
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeDto {
@@ -21,7 +21,7 @@ impl From<Runtime> for RuntimeDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
+    luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type,
 )]
 #[serde(
     tag = "runtimeKind",
@@ -49,7 +49,7 @@ impl From<RuntimeProvider> for RuntimeProviderDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,
@@ -72,7 +72,7 @@ impl From<RuntimeKind> for RuntimeKindDto {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,

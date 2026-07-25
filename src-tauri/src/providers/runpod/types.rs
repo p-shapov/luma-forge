@@ -1,12 +1,12 @@
 use secrecy::SecretString;
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct IdentityRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct IdentityResponse {
     #[diagnostic(show)]
     pub user_id: Option<String>,
@@ -14,13 +14,13 @@ pub struct IdentityResponse {
     pub email: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct PlacementRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct PlacementResponse {
     #[diagnostic(show)]
     pub gpu_types: Option<Vec<Option<PlacementGpuType>>>,
@@ -28,7 +28,7 @@ pub struct PlacementResponse {
     pub datacenters: Option<Vec<Option<PlacementDatacenter>>>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct PlacementGpuType {
     #[diagnostic(show)]
     pub id: Option<String>,
@@ -38,7 +38,7 @@ pub struct PlacementGpuType {
     pub memory_gb: Option<i64>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct PlacementDatacenter {
     #[diagnostic(show)]
     pub id: Option<String>,
@@ -48,7 +48,7 @@ pub struct PlacementDatacenter {
     pub gpu_availability: Option<Vec<Option<PlacementGpuAvailability>>>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct PlacementGpuAvailability {
     #[diagnostic(show)]
     pub gpu_type_id: Option<String>,
@@ -58,7 +58,7 @@ pub struct PlacementGpuAvailability {
     pub stock_status: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateNetworkVolumeRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -70,13 +70,13 @@ pub struct CreateNetworkVolumeRequest {
     pub size_gb: i64,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateNetworkVolumeResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct ListNetworkVolumesRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -91,7 +91,7 @@ pub struct NetworkVolumeSummary {
     pub size: u64,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct DeleteNetworkVolumeRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -99,7 +99,7 @@ pub struct DeleteNetworkVolumeRequest {
     pub id: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreatePodRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -118,13 +118,13 @@ pub struct CreatePodRequest {
     pub required_model_assets: serde_json::Value,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreatePodResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct ListPodsRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -145,7 +145,7 @@ pub struct NetworkVolumeReference {
     pub id: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct ProvisionerStatusRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -155,7 +155,7 @@ pub struct ProvisionerStatusRequest {
     pub pod_id: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, serde::Deserialize)]
+#[derive(luma_diagnostics::DiagnosticDebug, serde::Deserialize)]
 pub struct ProvisionerStatusResponse {
     #[diagnostic(show)]
     pub status: String,
@@ -163,7 +163,7 @@ pub struct ProvisionerStatusResponse {
     pub error: Option<ProvisionerFailure>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, serde::Deserialize)]
+#[derive(luma_diagnostics::DiagnosticDebug, serde::Deserialize)]
 pub struct ProvisionerFailure {
     #[diagnostic(show)]
     pub code: String,
@@ -171,7 +171,7 @@ pub struct ProvisionerFailure {
     pub message: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateEndpointRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -191,13 +191,13 @@ pub struct CreateEndpointRequest {
     pub workers_max: i64,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateEndpointResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct ListEndpointsRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -213,7 +213,7 @@ pub struct EndpointSummary {
     pub template_id: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateTemplateRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -223,13 +223,13 @@ pub struct CreateTemplateRequest {
     pub image_ref: String,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct CreateTemplateResponse {
     #[diagnostic(show)]
     pub id: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct ListTemplatesRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
@@ -246,7 +246,7 @@ pub struct TemplateSummary {
 
 macro_rules! delete_request {
     ($name:ident) => {
-        #[derive(crate::diagnostics::DiagnosticDebug)]
+        #[derive(luma_diagnostics::DiagnosticDebug)]
         pub struct $name {
             #[diagnostic(redact)]
             pub credential: SecretString,

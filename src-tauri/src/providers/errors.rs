@@ -1,4 +1,4 @@
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum NetworkError {
     #[error("network resource was not found")]
     NotFound,

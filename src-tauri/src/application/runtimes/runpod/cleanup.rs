@@ -38,7 +38,7 @@ fn begin_cleanup(workspace: &mut Workspace) -> Result<(), RuntimeError> {
 }
 
 impl RunpodRuntimeService {
-    #[crate::diagnostics::diagnostic]
+    #[luma_diagnostics::diagnostic]
     pub async fn start_cleanup(
         &self,
         #[diagnostic(show)] mut workspace: Workspace,
@@ -73,7 +73,7 @@ impl RunpodRuntimeService {
         Ok((initial_workspace, initial_operation))
     }
 
-    #[crate::diagnostics::diagnostic(detached, show_error)]
+    #[luma_diagnostics::diagnostic(detached, show_error)]
     async fn run_cleanup(
         self,
         #[diagnostic(show)] workspace_id: String,
@@ -364,7 +364,7 @@ mod tests {
 
     use super::CLEANUP_DEADLINE;
 
-    #[crate::diagnostics::diagnostic(root)]
+    #[luma_diagnostics::diagnostic(root)]
     async fn start_cleanup(
         fakes: &CleanupFakes,
     ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
