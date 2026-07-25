@@ -121,7 +121,7 @@ async fn successful(
     omitted: String,
 ) -> Result<String, TestError> {
     let _ = (secret, omitted);
-    Ok(id)
+    return Ok(id);
 }
 
 #[diagnostic]
