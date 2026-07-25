@@ -2,7 +2,7 @@ use crate::application::runtimes::CatalogRef;
 
 use super::super::{RunpodContractRequirements, RunpodRuntimeDefinition};
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum RunpodRuntimeCatalogError {
     #[error("runtime catalog is invalid")]
     InvalidCatalog,

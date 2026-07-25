@@ -18,7 +18,7 @@ use super::BundledCatalogAdapter;
 const RUNTIME_PRESET_CONTRACT: &str = "catalog/contracts/runtime_preset_revision";
 const RUNTIME_CONTRACT: &str = "catalog/contracts/runtime_contract_revision";
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl WorkflowCatalog for BundledCatalogAdapter {
     #[diagnostic(show_output, show_error)]

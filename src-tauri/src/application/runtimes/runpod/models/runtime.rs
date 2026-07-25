@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunpodRuntimeConfig {
     #[diagnostic(show)]
@@ -16,7 +16,7 @@ pub struct RunpodRuntimeConfig {
 }
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug, Clone, Default, PartialEq, Eq, Serialize, Deserialize,
+    luma_diagnostics::DiagnosticDebug, Clone, Default, PartialEq, Eq, Serialize, Deserialize,
 )]
 #[serde(deny_unknown_fields)]
 pub struct RunpodRuntimeResources {
@@ -34,7 +34,7 @@ pub struct RunpodRuntimeResources {
     pub endpoint_id: Option<String>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunpodRuntime {
     #[diagnostic(show)]

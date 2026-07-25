@@ -8,7 +8,7 @@ use super::{
     RuntimeError, RuntimeKind, RuntimeOperation,
 };
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub enum ProvisionRuntime {
     Runpod(#[diagnostic(show)] ProvisionRunpodRuntime),
 }
@@ -32,7 +32,7 @@ impl RuntimeService {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn start_provision(
         &self,
         #[diagnostic(show)] command: ProvisionRuntime,
@@ -42,7 +42,7 @@ impl RuntimeService {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn start_cleanup(
         &self,
         #[diagnostic(show)] workspace_id: &str,
@@ -64,7 +64,7 @@ impl RuntimeService {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn list_operations(
         &self,
         #[diagnostic(show)] workspace_id: Option<&str>,
@@ -74,7 +74,7 @@ impl RuntimeService {
         self.operations.page(workspace_id, offset, limit).await
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn recover_interrupted(&self) -> Result<(), RuntimeError> {
         let operations = self.operations.running().await?;
         let mut runpod = Vec::new();

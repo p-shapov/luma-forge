@@ -32,7 +32,7 @@ impl WorkspaceService {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn create(
         &self,
         #[diagnostic(show)] workflow: CatalogRef,
@@ -68,7 +68,7 @@ impl WorkspaceService {
         Ok(workspace)
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn delete(&self, #[diagnostic(show)] id: &str) -> Result<(), WorkspaceError> {
         self.workspaces
             .delete(id)
@@ -88,7 +88,7 @@ impl WorkspaceService {
         Ok(())
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn get(&self, #[diagnostic(show)] id: &str) -> Result<Workspace, WorkspaceError> {
         self.workspaces
             .get(id)
@@ -97,7 +97,7 @@ impl WorkspaceService {
             .ok_or(WorkspaceError::NotFound)
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn list_workflows(
         &self,
         #[diagnostic(show)] offset: u64,
@@ -117,7 +117,7 @@ impl WorkspaceService {
         ))
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn list(
         &self,
         #[diagnostic(show)] offset: u64,

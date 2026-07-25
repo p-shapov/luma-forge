@@ -19,7 +19,7 @@ pub fn expand(args: FunctionArgs, input: TokenStream) -> Result<TokenStream> {
         || !matches!(args.error, ValuePolicy::Omit)
     {
         return Err(syn::Error::new_spanned(
-            &implementation.impl_token,
+            implementation.impl_token,
             "diagnostic policies belong on impl methods",
         ));
     }
@@ -78,11 +78,15 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
     let fields = input_fields(signature)?;
     let fields_ident = syn::Ident::new("__diagnostic_fields", Span::mixed_site());
     let start = if fields.is_empty() {
-        quote!(log::info!(function = fastrace::func_path!(); "call.start");)
+        quote!(::luma_diagnostics::__private::log::info!(function = ::luma_diagnostics::__private::fastrace::func_path!(); "call.start");)
     } else {
         quote!({
             let #fields_ident = [#(#fields),*];
-            log::info!(function = fastrace::func_path!(), input:? = crate::diagnostics::Fields::new(&#fields_ident); "call.start");
+            ::luma_diagnostics::__private::log::info!(
+                function = ::luma_diagnostics::__private::fastrace::func_path!(),
+                input:? = ::luma_diagnostics::__private::Fields::new(&#fields_ident);
+                "call.start"
+            );
         })
     };
     let original = body.clone();
@@ -100,21 +104,23 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
         #result
     });
     let ambient = quote! {
-        fastrace::collector::SpanContext::current_local_parent()
-            .unwrap_or_else(fastrace::collector::SpanContext::random)
+        ::luma_diagnostics::__private::fastrace::collector::SpanContext::current_local_parent()
+            .unwrap_or_else(::luma_diagnostics::__private::fastrace::collector::SpanContext::random)
     };
     let context = match &args.span {
         SpanMode::Ambient | SpanMode::Detached => ambient,
-        SpanMode::Root => quote!(fastrace::collector::SpanContext::random()),
+        SpanMode::Root => {
+            quote!(::luma_diagnostics::__private::fastrace::collector::SpanContext::random())
+        }
         SpanMode::Restore(expression) => quote! {
             (#expression)
-                .map(|trace_id: uuid::Uuid| {
-                    fastrace::collector::SpanContext::new(
-                        fastrace::collector::TraceId(trace_id.as_u128()),
-                        fastrace::collector::SpanId::default(),
+                .map(|trace_id: ::luma_diagnostics::__private::uuid::Uuid| {
+                    ::luma_diagnostics::__private::fastrace::collector::SpanContext::new(
+                        ::luma_diagnostics::__private::fastrace::collector::TraceId(trace_id.as_u128()),
+                        ::luma_diagnostics::__private::fastrace::collector::SpanId::default(),
                     )
                 })
-                .unwrap_or_else(fastrace::collector::SpanContext::random)
+                .unwrap_or_else(::luma_diagnostics::__private::fastrace::collector::SpanContext::random)
         },
     };
 
@@ -123,22 +129,22 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
         let output = result_type(&signature.output)?.clone();
         signature.asyncness = None;
         signature.output = parse_quote!(
-            -> impl std::future::Future<Output = #output> + Send + 'static
+            -> impl ::std::future::Future<Output = #output> + Send + 'static
         );
         quote!({
             let #context_ident = #context;
-            fastrace::future::FutureExt::in_span(
+            ::luma_diagnostics::__private::fastrace::future::FutureExt::in_span(
                 async move #instrumented,
-                fastrace::Span::root(fastrace::func_path!(), #context_ident),
+                ::luma_diagnostics::__private::fastrace::Span::root(::luma_diagnostics::__private::fastrace::func_path!(), #context_ident),
             )
         })
     } else if signature.asyncness.is_some() {
         let context_ident = syn::Ident::new("__diagnostic_context", Span::mixed_site());
         quote!({
             let #context_ident = #context;
-            fastrace::future::FutureExt::in_span(
+            ::luma_diagnostics::__private::fastrace::future::FutureExt::in_span(
                 async move #instrumented,
-                fastrace::Span::root(fastrace::func_path!(), #context_ident),
+                ::luma_diagnostics::__private::fastrace::Span::root(::luma_diagnostics::__private::fastrace::func_path!(), #context_ident),
             )
             .await
         })
@@ -146,8 +152,8 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
         let root = syn::Ident::new("__diagnostic_root", Span::mixed_site());
         let guard = syn::Ident::new("__diagnostic_guard", Span::mixed_site());
         quote!({
-            let #root = fastrace::Span::root(
-                fastrace::func_path!(),
+            let #root = ::luma_diagnostics::__private::fastrace::Span::root(
+                ::luma_diagnostics::__private::fastrace::func_path!(),
                 #context,
             );
             let #guard = #root.set_local_parent();
@@ -162,7 +168,7 @@ fn instrument(signature: &mut Signature, body: &mut Block, args: &FunctionArgs) 
 fn validate_detached(signature: &Signature) -> Result<()> {
     if signature.asyncness.is_none() {
         return Err(syn::Error::new_spanned(
-            &signature.fn_token,
+            signature.fn_token,
             "detached diagnostic functions must be async",
         ));
     }
@@ -251,10 +257,10 @@ fn input_fields(signature: &mut Signature) -> Result<Vec<TokenStream>> {
         match policy {
             ValuePolicy::Omit => {}
             ValuePolicy::Show => fields.push(quote! {
-                (stringify!(#name), crate::diagnostics::Field::shown(&#name))
+                (stringify!(#name), ::luma_diagnostics::__private::Field::shown(&#name))
             }),
             ValuePolicy::Redact => fields.push(quote! {
-                (stringify!(#name), crate::diagnostics::Field::redacted())
+                (stringify!(#name), ::luma_diagnostics::__private::Field::redacted())
             }),
         }
     }
@@ -263,23 +269,25 @@ fn input_fields(signature: &mut Signature) -> Result<Vec<TokenStream>> {
 
 fn terminal_records(result: &syn::Ident, output: ValuePolicy, error: ValuePolicy) -> TokenStream {
     let success = match output {
-        ValuePolicy::Omit => quote!(log::info!(function = fastrace::func_path!(); "call.success")),
+        ValuePolicy::Omit => quote!(
+            ::luma_diagnostics::__private::log::info!(function = ::luma_diagnostics::__private::fastrace::func_path!(); "call.success")
+        ),
         ValuePolicy::Show => quote!(
-            log::info!(function = fastrace::func_path!(), output:? = crate::diagnostics::shown(value); "call.success")
+            ::luma_diagnostics::__private::log::info!(function = ::luma_diagnostics::__private::fastrace::func_path!(), output:? = ::luma_diagnostics::__private::shown(value); "call.success")
         ),
         ValuePolicy::Redact => quote!(
-            log::info!(function = fastrace::func_path!(), output:? = crate::diagnostics::Redacted; "call.success")
+            ::luma_diagnostics::__private::log::info!(function = ::luma_diagnostics::__private::fastrace::func_path!(), output:? = ::luma_diagnostics::__private::Redacted; "call.success")
         ),
     };
     let failure = match error {
         ValuePolicy::Omit => quote!(
-            log::error!(function = fastrace::func_path!(), error_type = std::any::type_name_of_val(error); "call.error")
+            ::luma_diagnostics::__private::log::error!(function = ::luma_diagnostics::__private::fastrace::func_path!(), error_type = ::std::any::type_name_of_val(error); "call.error")
         ),
         ValuePolicy::Show => quote!(
-            log::error!(function = fastrace::func_path!(), error_type = std::any::type_name_of_val(error), error:? = crate::diagnostics::shown(error); "call.error")
+            ::luma_diagnostics::__private::log::error!(function = ::luma_diagnostics::__private::fastrace::func_path!(), error_type = ::std::any::type_name_of_val(error), error:? = ::luma_diagnostics::__private::shown(error); "call.error")
         ),
         ValuePolicy::Redact => quote!(
-            log::error!(function = fastrace::func_path!(), error_type = std::any::type_name_of_val(error), error:? = crate::diagnostics::Redacted; "call.error")
+            ::luma_diagnostics::__private::log::error!(function = ::luma_diagnostics::__private::fastrace::func_path!(), error_type = ::std::any::type_name_of_val(error), error:? = ::luma_diagnostics::__private::Redacted; "call.error")
         ),
     };
 

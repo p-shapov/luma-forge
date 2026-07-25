@@ -1,6 +1,6 @@
 pub const RUNPOD_NETWORK_VOLUME_MAX_SIZE_GB: u64 = 4_000;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodPlacement {
     #[diagnostic(show)]
     pub max_volume_size_gb: u64,
@@ -8,7 +8,7 @@ pub struct RunpodPlacement {
     pub datacenters: Vec<RunpodPlacementDatacenter>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodPlacementDatacenter {
     #[diagnostic(show)]
     pub id: String,
@@ -18,7 +18,7 @@ pub struct RunpodPlacementDatacenter {
     pub gpus: Vec<RunpodPlacementGpu>,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct RunpodPlacementGpu {
     #[diagnostic(show)]
     pub id: String,

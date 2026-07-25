@@ -45,7 +45,10 @@ impl Parse for FunctionArgs {
                 set_span_mode(&mut args.span, SpanMode::Detached, &meta)?;
             } else if path.is_ident("restore") {
                 let syn::Meta::NameValue(name_value) = &meta else {
-                    return Err(syn::Error::new_spanned(meta, "expected `restore = expression`"));
+                    return Err(syn::Error::new_spanned(
+                        meta,
+                        "expected `restore = expression`",
+                    ));
                 };
                 set_span_mode(
                     &mut args.span,

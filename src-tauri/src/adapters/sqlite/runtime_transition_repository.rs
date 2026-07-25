@@ -27,7 +27,7 @@ impl SqliteRuntimeTransitionRepository {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RuntimeTransitionRepository for SqliteRuntimeTransitionRepository {
     #[diagnostic(show_error)]

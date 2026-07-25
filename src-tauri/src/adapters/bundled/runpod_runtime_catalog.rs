@@ -14,7 +14,7 @@ use crate::{
 
 use super::BundledCatalogAdapter;
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RunpodRuntimeCatalog for BundledCatalogAdapter {
     #[diagnostic(show_output, show_error)]

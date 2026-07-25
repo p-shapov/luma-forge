@@ -1,12 +1,12 @@
 use secrecy::SecretString;
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct IdentityRequest {
     #[diagnostic(redact)]
     pub credential: SecretString,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct IdentityResponse {
     #[diagnostic(show)]
     pub key_name: Option<String>,

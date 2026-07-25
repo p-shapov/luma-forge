@@ -1,4 +1,197 @@
+use std::sync::{Mutex, Once, OnceLock};
+
+use fastrace::collector::SpanContext;
 use luma_diagnostics::__private::{Field, Fields};
+use luma_diagnostics::{current_trace_uuid, diagnostic, DiagnosticDebug, DiagnosticValue};
+
+#[derive(Clone)]
+struct Record {
+    message: String,
+    fields: String,
+    keys: String,
+}
+
+struct Recorder;
+
+impl log::Log for Recorder {
+    fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        let mut fields = String::new();
+        let mut keys = String::new();
+        record
+            .key_values()
+            .visit(&mut StringVisitor {
+                values: &mut fields,
+                keys: &mut keys,
+            })
+            .unwrap();
+        records().lock().unwrap().push(Record {
+            message: record.args().to_string(),
+            fields,
+            keys,
+        });
+    }
+
+    fn flush(&self) {}
+}
+
+struct StringVisitor<'a> {
+    values: &'a mut String,
+    keys: &'a mut String,
+}
+
+impl<'kvs> log::kv::VisitSource<'kvs> for StringVisitor<'_> {
+    fn visit_pair(
+        &mut self,
+        key: log::kv::Key<'kvs>,
+        value: log::kv::Value<'kvs>,
+    ) -> Result<(), log::kv::Error> {
+        use std::fmt::Write;
+        write!(self.values, "{value:?};").unwrap();
+        write!(self.keys, "{key};").unwrap();
+        Ok(())
+    }
+}
+
+fn records() -> &'static Mutex<Vec<Record>> {
+    static RECORDS: OnceLock<Mutex<Vec<Record>>> = OnceLock::new();
+    RECORDS.get_or_init(Default::default)
+}
+
+fn init_test_logger() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        log::set_logger(&Recorder).unwrap();
+        log::set_max_level(log::LevelFilter::Trace);
+    });
+}
+
+fn records_for(function: &str) -> Vec<Record> {
+    records()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|record| record.fields.contains(function))
+        .cloned()
+        .collect()
+}
+
+#[derive(Debug)]
+struct TestError;
+
+impl DiagnosticValue for TestError {}
+
+#[diagnostic]
+async fn traced_child() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[diagnostic]
+async fn standalone() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[diagnostic(detached)]
+async fn detached() -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[diagnostic(restore = trace_id)]
+async fn restored(trace_id: Option<uuid::Uuid>) -> Result<SpanContext, TestError> {
+    Ok(SpanContext::current_local_parent().unwrap())
+}
+
+#[diagnostic(root)]
+async fn traced_root() -> Result<(SpanContext, SpanContext), TestError> {
+    let root = SpanContext::current_local_parent().unwrap();
+    assert_eq!(
+        current_trace_uuid(),
+        Some(uuid::Uuid::from_u128(root.trace_id.0))
+    );
+    Ok((root, traced_child().await?))
+}
+
+#[diagnostic(show_output, show_error)]
+async fn successful(
+    #[diagnostic(show)] id: String,
+    #[diagnostic(redact)] secret: String,
+    omitted: String,
+) -> Result<String, TestError> {
+    let _ = (secret, omitted);
+    Ok(id)
+}
+
+#[diagnostic]
+async fn failing() -> Result<(), TestError> {
+    Err(TestError)
+}
+
+#[tokio::test]
+async fn diagnostic_logs_start_then_success_with_selected_values() {
+    init_test_logger();
+    let result = successful("workspace-1".into(), "secret".into(), "hidden".into())
+        .await
+        .unwrap();
+    assert_eq!(result, "workspace-1");
+    let records = records_for("successful");
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call.start", "call.success"]
+    );
+    assert!(records[0].fields.contains("workspace-1"));
+    assert!(records[0].fields.contains("[REDACTED]"));
+    assert!(!records[0].fields.contains(": \"secret\""));
+    assert!(!records[0].fields.contains("hidden"));
+}
+
+#[tokio::test]
+async fn diagnostic_logs_error_type_without_omitted_error_value() {
+    init_test_logger();
+    assert!(failing().await.is_err());
+    let records = records_for("failing");
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| record.message.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call.start", "call.error"]
+    );
+    assert!(records[1].keys.contains("error_type"));
+    assert!(!records[1].keys.split(';').any(|key| key == "error"));
+}
+
+#[derive(DiagnosticDebug)]
+#[allow(dead_code)]
+struct Request {
+    #[diagnostic(show)]
+    workspace_id: String,
+    #[diagnostic(redact)]
+    api_key: String,
+    body: serde_json::Value,
+}
+
+fn assert_diagnostic<T: DiagnosticValue>(_: &T) {}
+
+#[test]
+fn diagnostic_debug_shows_redacts_and_omits_fields() {
+    let request = Request {
+        workspace_id: "workspace-1".into(),
+        api_key: "secret".into(),
+        body: serde_json::json!({"large": true}),
+    };
+    assert_diagnostic(&request);
+    let formatted = format!("{request:?}");
+    assert!(formatted.contains("workspace-1"));
+    assert!(formatted.contains("api_key: [REDACTED]"));
+    assert!(!formatted.contains("secret"));
+    assert!(!formatted.contains("body"));
+}
 
 #[test]
 fn named_fields_preserve_names_and_redaction() {
@@ -12,4 +205,40 @@ fn named_fields_preserve_names_and_redaction() {
     assert!(formatted.contains("workspace-1"));
     assert!(formatted.contains("api_key"));
     assert!(formatted.contains("[REDACTED]"));
+}
+
+#[tokio::test]
+async fn nested_calls_share_trace_but_use_distinct_spans() {
+    let (root, child) = traced_root().await.unwrap();
+
+    assert_eq!(root.trace_id, child.trace_id);
+    assert_ne!(root.span_id, child.span_id);
+}
+
+#[tokio::test]
+async fn standalone_call_creates_root_context() {
+    assert!(standalone().await.unwrap().trace_id.0 != 0);
+}
+
+#[tokio::test]
+async fn detached_call_captures_parent_before_spawn() {
+    let parent = SpanContext::random();
+    let root = fastrace::Span::root("diagnostics.detached_parent", parent);
+    let _guard = root.set_local_parent();
+    let future = detached();
+    drop(_guard);
+
+    let child = tokio::spawn(future).await.unwrap().unwrap();
+    assert_eq!(child.trace_id, parent.trace_id);
+    assert_ne!(child.span_id, parent.span_id);
+}
+
+#[tokio::test]
+async fn restore_uses_saved_trace_or_falls_back_to_root() {
+    let saved = uuid::Uuid::new_v4();
+    let restored = restored(Some(saved)).await.unwrap();
+    let fallback = self::restored(None).await.unwrap();
+
+    assert_eq!(restored.trace_id.0, saved.as_u128());
+    assert_ne!(fallback.trace_id, restored.trace_id);
 }

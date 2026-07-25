@@ -1,4 +1,4 @@
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SecretsError {
     #[error("secret is already configured")]
     AlreadyConfigured,

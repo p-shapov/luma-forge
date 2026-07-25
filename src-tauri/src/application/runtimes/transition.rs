@@ -28,7 +28,7 @@ impl RuntimeTransitionContext {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn save(
         &self,
         #[diagnostic(show)] workspace: &Workspace,

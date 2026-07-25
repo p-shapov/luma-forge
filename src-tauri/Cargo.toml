@@ -19,14 +19,13 @@ typify = "0.7.0"
 
 [dependencies]
 async-trait = "0.1"
-fastrace = { version = "0.7", features = ["enable"] }
 graphql_client = "0.16"
 hex = "0.4"
 hmac = "0.12"
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
 log = { version = "0.4", features = ["kv"] }
 logforth = { version = "0.30", features = ["append-file", "bridge-log", "diagnostic-fastrace", "layout-json"] }
-luma-diagnostics-macros = { path = "crates/diagnostics-macros" }
+luma-diagnostics = { path = "crates/diagnostics" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 regress = "0.11.1"
 sea-orm = { version = "=2.0.0-rc.41", default-features = false, features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros", "entity-registry", "schema-sync", "with-time"] }
@@ -45,4 +44,5 @@ tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync", 
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
+fastrace = { version = "0.7", features = ["enable"] }
 jsonschema = { version = "0.46.6", default-features = false }

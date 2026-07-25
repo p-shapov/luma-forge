@@ -10,10 +10,3 @@ proc-macro = true
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "visit-mut"] }
-
-[dev-dependencies]
-async-trait = "0.1"
-fastrace = { version = "0.7", features = ["enable"] }
-log = { version = "0.4", features = ["kv"] }
-trybuild = "1"
-uuid = { version = "1", features = ["v4"] }

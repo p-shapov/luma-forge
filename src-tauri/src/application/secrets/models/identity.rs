@@ -1,4 +1,4 @@
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct Identity {
     #[diagnostic(show)]
     pub key_name: Option<String>,

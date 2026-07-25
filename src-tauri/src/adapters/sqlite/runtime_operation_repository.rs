@@ -36,7 +36,7 @@ impl SqliteRuntimeOperationRepository {
     }
 }
 
-#[crate::diagnostics::diagnostic]
+#[luma_diagnostics::diagnostic]
 #[async_trait::async_trait]
 impl RuntimeOperationRepository for SqliteRuntimeOperationRepository {
     #[diagnostic(show_output, show_error)]

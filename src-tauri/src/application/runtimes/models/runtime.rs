@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::application::runtimes::runpod::RunpodRuntime;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeKind {
     Runpod,
 }
@@ -26,7 +26,7 @@ impl std::str::FromStr for RuntimeKind {
     }
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeState {
     Provisioning,
     Ready,
@@ -34,7 +34,7 @@ pub enum RuntimeState {
     Failed,
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "provider", content = "payload", deny_unknown_fields)]
 pub enum RuntimeProvider {
     #[serde(rename = "runpod")]
@@ -61,7 +61,7 @@ impl RuntimeProvider {
     }
 }
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, PartialEq, Eq)]
 pub struct Runtime {
     #[diagnostic(show)]
     pub state: RuntimeState,

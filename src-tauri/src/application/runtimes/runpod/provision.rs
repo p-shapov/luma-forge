@@ -23,7 +23,7 @@ use super::{
 
 const PROVISION_DEADLINE: Duration = Duration::from_secs(2 * 60 * 60);
 
-#[derive(crate::diagnostics::DiagnosticDebug)]
+#[derive(luma_diagnostics::DiagnosticDebug)]
 pub struct ProvisionRunpodRuntime {
     #[diagnostic(show)]
     pub workspace_id: String,
@@ -65,7 +65,7 @@ fn runpod_requirements(
 }
 
 impl RunpodRuntimeService {
-    #[crate::diagnostics::diagnostic]
+    #[luma_diagnostics::diagnostic]
     pub async fn start_provision(
         &self,
         #[diagnostic(show)] command: ProvisionRunpodRuntime,
@@ -155,7 +155,7 @@ impl RunpodRuntimeService {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[crate::diagnostics::diagnostic(detached, show_error)]
+    #[luma_diagnostics::diagnostic(detached, show_error)]
     async fn run_provision(
         self,
         #[diagnostic(show)] command: ProvisionRunpodRuntime,
@@ -522,7 +522,7 @@ mod tests {
         );
     }
 
-    #[crate::diagnostics::diagnostic(root)]
+    #[luma_diagnostics::diagnostic(root)]
     async fn start_provision(
         fakes: &ProvisionFakes,
     ) -> Result<(Workspace, RuntimeOperation), RuntimeError> {
@@ -590,10 +590,10 @@ mod tests {
         );
     }
 
-    #[crate::diagnostics::diagnostic(root)]
+    #[luma_diagnostics::diagnostic(root)]
     #[tokio::test]
     async fn start_provision_persists_the_active_trace() -> Result<(), RuntimeError> {
-        let trace_id = crate::diagnostics::current_trace_uuid().unwrap();
+        let trace_id = luma_diagnostics::current_trace_uuid().unwrap();
         let fakes = ProvisionFakes::ready();
 
         let (_, operation) = fakes.service().start_provision(provision_command()).await?;

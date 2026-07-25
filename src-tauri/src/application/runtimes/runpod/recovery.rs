@@ -15,7 +15,7 @@ use super::{
     RunpodProgress, RunpodProvisionStep, RunpodResourceKind, RunpodResourceObservation,
 };
 
-#[derive(crate::diagnostics::DiagnosticDebug, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, thiserror::Error)]
 enum RunpodRecoveryError {
     #[error("runtime recovery found corrupt persistence")]
     CorruptData,
@@ -24,7 +24,7 @@ enum RunpodRecoveryError {
 }
 
 impl RunpodRuntimeService {
-    #[crate::diagnostics::diagnostic]
+    #[luma_diagnostics::diagnostic]
     pub async fn recover_interrupted(
         &self,
         operations: Vec<RuntimeOperation>,
@@ -41,7 +41,7 @@ impl RunpodRuntimeService {
         Ok(())
     }
 
-    #[crate::diagnostics::diagnostic(restore = operation.trace_id)]
+    #[luma_diagnostics::diagnostic(restore = operation.trace_id)]
     async fn recover_one(&self, operation: RuntimeOperation) -> Result<(), RunpodRecoveryError> {
         let mut operation = operation;
         if operation.runtime_kind != RuntimeKind::Runpod {
@@ -268,7 +268,7 @@ mod tests {
         workspace::ports::WorkspaceRepositoryError,
     };
 
-    #[crate::diagnostics::diagnostic(root)]
+    #[luma_diagnostics::diagnostic(root)]
     async fn fail_interrupted(fakes: &RecoveryFakes) -> Result<(), RuntimeError> {
         fakes
             .service()

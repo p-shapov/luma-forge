@@ -15,7 +15,7 @@ impl KeyringStorage {
         }
     }
 
-    #[crate::diagnostics::diagnostic(show_output)]
+    #[luma_diagnostics::diagnostic(show_output)]
     pub async fn exists(
         &self,
         #[diagnostic(show)] account: &str,
@@ -33,7 +33,7 @@ impl KeyringStorage {
         .await
     }
 
-    #[crate::diagnostics::diagnostic(redact_output)]
+    #[luma_diagnostics::diagnostic(redact_output)]
     pub async fn get(
         &self,
         #[diagnostic(show)] account: &str,
@@ -51,7 +51,7 @@ impl KeyringStorage {
         .await
     }
 
-    #[crate::diagnostics::diagnostic]
+    #[luma_diagnostics::diagnostic]
     pub async fn set(
         &self,
         #[diagnostic(show)] account: &str,
@@ -68,7 +68,7 @@ impl KeyringStorage {
         .await
     }
 
-    #[crate::diagnostics::diagnostic]
+    #[luma_diagnostics::diagnostic]
     pub async fn delete(
         &self,
         #[diagnostic(show)] account: &str,

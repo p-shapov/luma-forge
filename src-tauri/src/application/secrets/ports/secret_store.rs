@@ -2,7 +2,7 @@ use secrecy::SecretString;
 
 use crate::application::secrets::SecretKind;
 
-#[derive(crate::diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(luma_diagnostics::DiagnosticDebug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum SecretStoreError {
     #[error("secret already exists")]
     AlreadyExists,

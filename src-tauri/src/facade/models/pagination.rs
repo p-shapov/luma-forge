@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::RuntimeOperationPageRequest;
 
 #[derive(
-    crate::diagnostics::DiagnosticDebug,
+    luma_diagnostics::DiagnosticDebug,
     Clone,
     Copy,
     PartialEq,

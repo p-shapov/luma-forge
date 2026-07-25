@@ -1,4 +1,4 @@
-use luma_diagnostics_macros::diagnostic;
+use luma_diagnostics::diagnostic;
 
 #[diagnostic]
 fn operation() {}

@@ -36,7 +36,7 @@ impl RunpodProvider {
         })
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn identity(
         &self,
         #[diagnostic(show)] request: IdentityRequest,
@@ -54,7 +54,7 @@ impl RunpodProvider {
         identity_response(response)
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn placement(
         &self,
         #[diagnostic(show)] request: PlacementRequest,
@@ -72,7 +72,7 @@ impl RunpodProvider {
         placement_response(response)
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn create_network_volume(
         &self,
         #[diagnostic(show)] request: CreateNetworkVolumeRequest,
@@ -89,7 +89,7 @@ impl RunpodProvider {
         Ok(CreateNetworkVolumeResponse { id: response.id })
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn list_network_volumes(
         &self,
         #[diagnostic(show)] request: ListNetworkVolumesRequest,
@@ -103,7 +103,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn delete_network_volume(
         &self,
         #[diagnostic(show)] request: DeleteNetworkVolumeRequest,
@@ -112,7 +112,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn create_pod(
         &self,
         #[diagnostic(show)] request: CreatePodRequest,
@@ -130,7 +130,7 @@ impl RunpodProvider {
         Ok(CreatePodResponse { id: response.id })
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn list_pods(
         &self,
         #[diagnostic(show)] request: ListPodsRequest,
@@ -148,7 +148,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn provisioner_status(
         &self,
         #[diagnostic(show)] request: ProvisionerStatusRequest,
@@ -166,7 +166,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn create_endpoint(
         &self,
         #[diagnostic(show)] request: CreateEndpointRequest,
@@ -184,7 +184,7 @@ impl RunpodProvider {
         Ok(CreateEndpointResponse { id: response.id })
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn list_endpoints(
         &self,
         #[diagnostic(show)] request: ListEndpointsRequest,
@@ -198,7 +198,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_output, show_error)]
+    #[luma_diagnostics::diagnostic(show_output, show_error)]
     pub async fn create_template(
         &self,
         #[diagnostic(show)] request: CreateTemplateRequest,
@@ -215,7 +215,7 @@ impl RunpodProvider {
         Ok(CreateTemplateResponse { id: response.id })
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn list_templates(
         &self,
         #[diagnostic(show)] request: ListTemplatesRequest,
@@ -230,7 +230,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn delete_pod(
         &self,
         #[diagnostic(show)] request: DeletePodRequest,
@@ -238,7 +238,7 @@ impl RunpodProvider {
         self.delete("pods", request.credential, request.id).await
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn delete_template(
         &self,
         #[diagnostic(show)] request: DeleteTemplateRequest,
@@ -247,7 +247,7 @@ impl RunpodProvider {
             .await
     }
 
-    #[crate::diagnostics::diagnostic(show_error)]
+    #[luma_diagnostics::diagnostic(show_error)]
     pub async fn delete_endpoint(
         &self,
         #[diagnostic(show)] request: DeleteEndpointRequest,

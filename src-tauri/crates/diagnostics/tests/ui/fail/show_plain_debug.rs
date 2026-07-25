@@ -1,10 +1,4 @@
-use luma_diagnostics_macros::DiagnosticDebug;
-
-mod diagnostics {
-    pub trait DiagnosticValue: std::fmt::Debug {}
-
-    pub struct Redacted;
-}
+use luma_diagnostics::DiagnosticDebug;
 
 #[derive(Debug)]
 struct PlainDebug;
